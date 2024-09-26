@@ -39,7 +39,7 @@ New instruments can be added via the configuration files and corresponding GUI m
 
 ### Prerequisites
 
-- **Python 3.11.9**: Make sure you have Python installed. You can download it from [here](https://www.python.org/downloads/).
+- **Python 3.11.9**: Make sure you have Python installed. You can download it from [here]([https://www.python.org/downloads/](https://www.python.org/downloads/release/python-3119/)).
 - **pip**: Ensure `pip` is installed for package management.
 
 ### Clone the Repository
