@@ -15,7 +15,7 @@ from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
 from HW_GUI.GUI_motors import GUIMotor
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments, \
-    create_system_config_selector, load_instrument_images
+    create_system_config_selector
 from Window import Window_singleton
 import threading
 import glfw
@@ -555,42 +555,31 @@ class PyGuiOverlay(Layer):
         mode = glfw.get_video_mode(monitor)         # Get the video mode of the monitor
         self.Monitor_width, self.Monitor_height = mode.size                   # Extract the width and height from the video mode
 
-    def startDPG(self, IsDemo=False, _width=600, _height=1200):
-
+    def startDPG(self,IsDemo = False, _width = 600, _height = 1200):
         dpg.create_context()
         dpg.configure_app(manual_callback_management=True)
+        # dpg.show_font_manager()
 
         self.LoadTheme()
 
-        # Set default window size before viewport creation
-        default_width = _width
-        default_height = _height
-
-        # Set up the viewport (created before getting viewport dimensions)
-        dpg.create_viewport(title='QuTi SW', width=default_width, height=default_height, resizable=True, vsync=True,
-                            decorated=True)
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
-
-        # Now get the viewport size after it's been shown
-        self.Monitor_width = dpg.get_viewport_client_width()
-        self.Monitor_height = dpg.get_viewport_client_height()
-
-        fontScale = self.Monitor_width / 1920  # Assuming 1920x1080 as reference resolution
-        pos = [0, 0]  # Position relative to actual screen size
-        size = [self.Monitor_width, self.Monitor_height]  # Window width and height
+        fontScale = self.Monitor_width/3840 #3840 from reference screen resolution
+        pos = [int(0.0*self.Monitor_width),int(0.0*self.Monitor_height)]     # position relative to actual screen size
+        size = [int(1.0*self.Monitor_width),int(0.97*self.Monitor_height)]   # new window width,height
 
         with dpg.font_registry():
-            default_font = dpg.add_font("C:\\Windows\\Fonts\\Calibri.ttf", int(14 * fontScale) + 1)
+            default_font = dpg.add_font("C:\\Windows\\Fonts\\Calibri.ttf", int(30*fontScale)+1)
 
         dpg.bind_font(default_font)
 
         self.AddAndBindFonts()
 
+        dpg.handler_registry()
+
         with dpg.handler_registry():
             dpg.add_mouse_down_handler(callback=self.Callback_mouse_down)
             dpg.add_mouse_click_handler(callback=self.Callback_mouse_click)
             dpg.add_mouse_double_click_handler(callback=self.Callback_mouse_double_click)
+            dpg.add_mouse_down_handler(callback=self.Callback_mouse_down)
             dpg.add_mouse_drag_handler(callback=self.Callback_mouse_drag)
             dpg.add_mouse_move_handler(callback=self.Callback_mouse_move)
             dpg.add_mouse_release_handler(callback=self.Callback_mouse_release)
@@ -600,170 +589,67 @@ class PyGuiOverlay(Layer):
             dpg.add_key_release_handler(callback=self.Callback_key_release)
 
         if IsDemo:
-            dpg.show_demo()
+            DPGdemo.show_demo()
 
-        # Calculate sidebar and content area sizes
-        sidebar_width = int(0.15 * size[0])  # Sidebar width is 15% of the window width
-        content_width = size[0] - sidebar_width
-        load_instrument_images()
-        # Main window setup
-        with dpg.window(label="Main Window", width=size[0], height=size[1], no_title_bar=True):
-            # Sidebar
-            with dpg.child_window(label="Sidebar", width=sidebar_width, autosize_y=True):
-                self.create_sidebar(sidebar_width, fontScale)
-
-            # Content Area
-            with dpg.child_window(label="Content Area", tag="Content_Area", width=content_width, autosize_y=True,
-                                  pos=[sidebar_width, 0]):
-                dpg.add_text("Welcome to the Lab Operation Software")
-
-    def create_sidebar(self, sidebar_width, fontScale):
-
-        # Load images for instruments and icons
-        instrument_images = []
-
-        # Assuming you have a list of instrument names
-        instrument_names = [device.instrument for device in self.system_config.devices]
-
-        # Load instrument icons
-        for instrument in instrument_names:
-            texture_tag = f"{instrument.value}_texture"
-            try:
-                dpg.add_image_button(
-                    f"{instrument.value}_texture", width=80, height=80,
-                    callback=None,
-                    user_data=None
-                )
-            except:
-                dpg.add_text(f"Image for {instrument.value} not found.")
-
-        # Load additional icons
-        additional_icons = [
-            ("Scanning", "icons/scanning.png"),
-            ("Experiments", "icons/experiments.png"),
-            ("Configurations", "icons/configurations.png")
-        ]
-
-        for name, path in additional_icons:
-            texture_tag = f"{name}_texture"
-            try:
-                width, height, channels, data = dpg.load_image(path)
-                with dpg.texture_registry():
-                    dpg.add_static_texture(width, height, data, tag=texture_tag)
-                instrument_images.append((name, texture_tag))
-            except:
-                dpg.add_text(f"Image for {name} not found.")
-
-        # Button size adjusted for screen resolution
-        button_size = int(50 * fontScale)
-
-        # Create image buttons
-        for instrument_name, texture_tag in instrument_images:
-            dpg.add_image_button(texture_tag, width=button_size, height=button_size,
-                                 callback=self.sidebar_button_callback, user_data=instrument_name)
-            dpg.add_separator()
-
-    def sidebar_button_callback(self, sender, app_data, user_data):
-
-        instrument_name = user_data
-
-        # Clear the content area
-        content_area_tag = "Content_Area"
-        dpg.delete_item(content_area_tag, children_only=True)
-
-        # Display content based on the selected instrument or icon
-        if instrument_name == "Scanning":
-            self.display_scanning_gui(content_area_tag)
-        elif instrument_name == "Experiments":
-            self.display_experiments_gui(content_area_tag)
-        elif instrument_name == "Configurations":
-            self.display_configurations_gui(content_area_tag)
-        else:
-            # Display the instrument GUI
-            self.display_instrument_gui(instrument_name, content_area_tag)
-
-    def display_scanning_gui(self, parent_tag):
-
-        with dpg.group(parent=parent_tag):
-            dpg.add_text("Scanning GUI")
-            # Add scanning GUI elements here
-
-    def display_experiments_gui(self, parent_tag):
-
-        with dpg.group(parent=parent_tag):
-            dpg.add_text("Experiments GUI")
-            # Add experiments GUI elements here
-
-    def display_configurations_gui(self, parent_tag):
-
-        with dpg.group(parent=parent_tag):
-            dpg.add_text("Configurations GUI")
-            # Add configurations GUI elements here
-
-    def display_instrument_gui(self, instrument_name, parent_tag):
-
-        gui_instance = self.instrument_guis.get(instrument_name)
-        if gui_instance:
-            with dpg.group(parent=parent_tag):
-                gui_instance.render_gui()
-        else:
-            dpg.add_text(f"No GUI available for {instrument_name}", parent=parent_tag)
-
+        dpg.create_viewport(title='QuTi SW', width=size[0], height=size[1],
+                            x_pos = int(pos[0]), y_pos = int(pos[1]), always_on_top = False,
+                            # min_width=100, max_width=1200, 
+                            # min_height=100, max_height=900, 
+                            resizable=True,
+                            vsync=True, decorated=True, clear_color=True,
+                            disable_close=False)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        pass
     def on_attach(self,simulation):
-        self.load_config()
+
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
         self.setup_instruments()
 
-    def setup_instruments(self):
+    def  setup_instruments(self):
 
-        self.instrument_guis = {}
+        self.system_config = load_system_config()
 
+        if not self.system_config:
+            run_system_config_gui()
+            load_system_config()
+
+        if not self.system_config:
+            raise Exception("No system config")
+
+        """Load specific instruments based on the system configuration."""
         for device in self.system_config.devices:
             instrument = device.instrument
             if instrument == Instruments.ROHDE_SCHWARZ:
                 self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
-                self.instrument_guis[instrument] = self.mwGUI
             elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
                 self.smaractGUI = gui_Smaract.GUI_smaract(simulation=False, serial_number=device.serial_number)
-                self.instrument_guis[instrument] = self.smaractGUI
                 if not self.simulation:
                     self.smaract_thread = threading.Thread(target=self.render_smaract)
                     self.smaract_thread.start()
             elif instrument == Instruments.COBOLT:
                 self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation)
-                self.instrument_guis[instrument] = self.coboltGUI
                 if not self.simulation:
                     self.cobolt_thread = threading.Thread(target=self.render_cobolt)
                     self.cobolt_thread.start()
             elif instrument == Instruments.PICOMOTOR:
                 self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=self.simulation)
-                self.instrument_guis[instrument] = self.picomotorGUI
                 if not self.simulation:
                     self.picomotor_thread = threading.Thread(target=self.render_picomotor)
                     self.picomotor_thread.start()
             elif instrument == Instruments.ZELUX:
                 self.cam = gui_Zelux.ZeluxGUI()
-                self.instrument_guis[instrument] = self.cam
-                if len(self.cam.cam.available_cameras) > 0:
+                if len(self.cam.cam.available_cameras)>0:
                     self.cam.Controls()
             elif instrument == Instruments.OPX:
                 self.opx = GUI_OPX(self.simulation)
-                self.instrument_guis[instrument] = self.opx
                 self.opx.controls()
             elif instrument == Instruments.ATTO_POSITIONER:
-                self.atto_positioner_gui = GUIMotor(
-                    motor=hw_devices.HW_devices(simulation=self.simulation).atto_positioner,
-                    instrument=Instruments.ATTO_POSITIONER,
-                    simulation=self.simulation)
-                self.instrument_guis[instrument] = self.atto_positioner_gui
+                self.atto_positioner_gui = GUIMotor(motor=hw_devices.HW_devices(simulation=self.simulation).atto_positioner,
+                                                    instrument=Instruments.ATTO_POSITIONER,
+                                                    simulation=self.simulation)
 
-    def load_config(self):
-        self.system_config = load_system_config()
-        if not self.system_config:
-        #     run_system_config_gui()
-        #     self.system_config = load_system_config()
-        # if not self.system_config:
-            raise Exception("No system config")
+        create_system_config_selector()
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle
@@ -1267,6 +1153,7 @@ class PyGuiOverlay(Layer):
 
         with dpg.font_registry():
             for e in a:
+                print(e)
                 # dpg.add_font(path + "\\" + e, 25)
                 self.fontList.append(dpg.add_font(file = path + "\\" + e, size = self.gui_globalFontSize))
         # dpg.add_font_registry()
