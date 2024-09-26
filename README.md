@@ -57,7 +57,7 @@ Run the following command to install the required Python packages:
 pip install -r PackagesList.txt
 ```
 
-Usage
+### Usage
 Launch the program using the command python main.py.
 The main interface will open, displaying a sidebar with instrument icons.
 Click on the instrument icons to configure and control each instrument.
