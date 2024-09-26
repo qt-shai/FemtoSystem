@@ -15,7 +15,7 @@ from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
 from HW_GUI.GUI_motors import GUIMotor
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments, \
-    create_system_config_selector
+    create_system_config_selector, load_instrument_images
 from Window import Window_singleton
 import threading
 import glfw
@@ -593,8 +593,8 @@ class PyGuiOverlay(Layer):
 
         dpg.create_viewport(title='QuTi SW', width=size[0], height=size[1],
                             x_pos = int(pos[0]), y_pos = int(pos[1]), always_on_top = False,
-                            # min_width=100, max_width=1200, 
-                            # min_height=100, max_height=900, 
+                            # min_width=100, max_width=1200,
+                            # min_height=100, max_height=900,
                             resizable=True,
                             vsync=True, decorated=True, clear_color=True,
                             disable_close=False)
@@ -623,7 +623,7 @@ class PyGuiOverlay(Layer):
             if instrument == Instruments.ROHDE_SCHWARZ:
                 self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
             elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
-                self.smaractGUI = gui_Smaract.GUI_smaract(simulation=False, serial_number=device.serial_number)
+                self.smaractGUI = gui_Smaract.GUI_smaract(simulation=self.simulation, serial_number=device.serial_number)
                 if not self.simulation:
                     self.smaract_thread = threading.Thread(target=self.render_smaract)
                     self.smaract_thread.start()
@@ -719,8 +719,9 @@ class PyGuiOverlay(Layer):
 
 
             # Handle OPX movement logic if enabled
-            if self.opx.map_keyboard_enable:
-                self.handle_opx_keyboard_movement(key_data_enum, is_coarse)
+            if hasattr(self.opx, 'map') and self.opx.map is not None:
+                if self.opx.map.map_keyboard_enable:
+                    self.handle_opx_keyboard_movement(key_data_enum, is_coarse)
 
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
@@ -753,49 +754,49 @@ class PyGuiOverlay(Layer):
                 elif key_data_enum == KeyboardKeys.DOWN_KEY:
                     self.opx_keyboard_map_movement(1, 1, is_coarse)
                 elif key_data_enum == KeyboardKeys.PAGEDOWN_KEY:
-                    self.opx.stretch_squeeze_area_marker("stretch_y", is_coarse)  # Stretch vertically (Y) with PageUp
+                    self.opx.map.stretch_squeeze_area_marker("stretch_y", is_coarse)  # Stretch vertically (Y) with PageUp
                 elif key_data_enum == KeyboardKeys.PAGEUP_KEY:
-                    self.opx.stretch_squeeze_area_marker("squeeze_y", is_coarse)  # Squeeze vertically (Y) with PageDown
+                    self.opx.map.stretch_squeeze_area_marker("squeeze_y", is_coarse)  # Squeeze vertically (Y) with PageDown
                 elif key_data_enum == KeyboardKeys.HOME_KEY:
-                    self.opx.stretch_squeeze_area_marker("squeeze_x", is_coarse)  # Squeeze horizontally (X) with Home
+                    self.opx.map.stretch_squeeze_area_marker("squeeze_x", is_coarse)  # Squeeze horizontally (X) with Home
                 elif key_data_enum == KeyboardKeys.END_KEY:
-                    self.opx.stretch_squeeze_area_marker("stretch_x", is_coarse)  # Stretch horizontally (X) with End
+                    self.opx.map.stretch_squeeze_area_marker("stretch_x", is_coarse)  # Stretch horizontally (X) with End
                 elif key_data_enum == KeyboardKeys.DEL_KEY:
                     self.delete_active_item()  # Delete active marker or area marker
                 elif key_data_enum == KeyboardKeys.INSERT_KEY:
                     self.insert_marker_near_active(duplicate_or_add_area = is_coarse)  # Insert a new marker near the active one & Insert a new area marker based on the active marker
                 elif key_data_enum == KeyboardKeys.K_KEY:
-                    self.opx.move_mode = "marker"
+                    self.opx.map.move_mode = "marker"
                     # Update the button label to indicate the current state
                     if dpg.does_item_exist("toggle_marker_area"):
                         dpg.set_item_label("toggle_marker_area", "move marker")
                 elif key_data_enum == KeyboardKeys.A_KEY:
-                    self.opx.move_mode = "area_marker"
+                    self.opx.map.move_mode = "area_marker"
                     # Update the button label to indicate the current state
                     if dpg.does_item_exist("toggle_marker_area"):
                         dpg.set_item_label("toggle_marker_area", "move area")
                 elif key_data_enum == KeyboardKeys.PLUS_KEY:
-                    if self.opx.move_mode == "marker":
-                        self.opx.act_marker(self.opx.active_marker_index + 1)
+                    if self.opx.map.move_mode == "marker":
+                        self.opx.map.act_marker(self.opx.map.active_marker_index + 1)
                     else:
-                        self.opx.act_area_marker(self.opx.active_area_marker_index + 1)
+                        self.opx.map.act_area_marker(self.opx.map.active_area_marker_index + 1)
                 elif key_data_enum == KeyboardKeys.MINUS_KEY:
                     if self.opx.move_mode == "marker":
-                        self.opx.act_marker(self.opx.active_marker_index - 1)
+                        self.opx.map.act_marker(self.opx.active_marker_index - 1)
                     else:
-                        self.opx.act_area_marker(self.opx.active_area_marker_index - 1)
+                        self.opx.map.act_area_marker(self.opx.active_area_marker_index - 1)
                 elif key_data_enum == KeyboardKeys.U_KEY:
-                    self.opx.update_scan_area_marker(self.opx.active_area_marker_index)
+                    self.opx.map.update_scan_area_marker(self.opx.active_area_marker_index)
                 elif key_data_enum == KeyboardKeys.P_KEY:
-                    self.opx.mark_point_on_map()
+                    self.opx.map.mark_point_on_map()
                 elif key_data_enum == KeyboardKeys.G_KEY:
-                    self.opx.go_to_marker()
+                    self.opx.map.go_to_marker()
                     if not is_coarse:
-                        self.opx.active_marker_index += 1
+                        self.opx.map.active_marker_index += 1
 
                         # If the active_marker_index exceeds the number of markers, wrap around to the first marker
-                        if self.opx.active_marker_index >= len(self.opx.markers):
-                            self.opx.active_marker_index = 0
+                        if self.opx.map.active_marker_index >= len(self.opx.map.markers):
+                            self.opx.map.active_marker_index = 0
 
 
         except Exception as ex:
@@ -807,13 +808,13 @@ class PyGuiOverlay(Layer):
         try:
             if self.opx.move_mode == "marker":
                 # Insert a new area marker based on the active marker
-                if hasattr(self.opx, 'active_marker_index') and 0 <= self.opx.active_marker_index < len(
-                        self.opx.markers):
+                if hasattr(self.opx.map, 'active_marker_index') and 0 <= self.opx.map.active_marker_index < len(
+                        self.opx.map.markers):
                     # Store the original active marker index
-                    original_active_marker_index = self.opx.active_marker_index
+                    original_active_marker_index = self.opx.map.active_marker_index
 
                     # Get the active marker's current position
-                    _, _, active_coords, active_position = self.opx.markers[original_active_marker_index]
+                    _, _, active_coords, active_position = self.opx.map.markers[original_active_marker_index]
                     active_x, active_y = active_position
 
                     if dpg.does_item_exist("map_image"):
@@ -844,13 +845,13 @@ class PyGuiOverlay(Layer):
                             return
 
                         # Create the new marker data
-                        new_marker_tag = f"marker_{len(self.opx.markers)}"
-                        new_text_tag = f"text_{len(self.opx.markers)}"
+                        new_marker_tag = f"marker_{len(self.opx.map.markers)}"
+                        new_text_tag = f"text_{len(self.opx.map.markers)}"
                         new_marker_data = (
                             new_marker_tag, new_text_tag, (relative_x, relative_y, z_evaluation), (new_x, new_y))
 
                         # Insert the new marker just above the active marker in the markers list
-                        self.opx.markers.insert(new_marker_index, new_marker_data)
+                        self.opx.map.markers.insert(new_marker_index, new_marker_data)
 
                         # Add the new marker to the map
                         dpg.draw_circle(center=(new_x, new_y), radius=2, color=(255, 0, 0, 255), fill=(255, 0, 0, 100),
@@ -860,16 +861,16 @@ class PyGuiOverlay(Layer):
                                       parent="map_draw_layer", tag=new_text_tag)
 
                         # Update the markers table to reflect the change
-                        self.opx.update_markers_table()
+                        self.opx.map.update_markers_table()
 
                         # Reactivate the original active marker
-                        self.opx.active_marker_index = original_active_marker_index + 1  # The original marker is now one index down
-                        self.opx.act_marker(self.opx.active_marker_index)
+                        self.opx.map.active_marker_index = original_active_marker_index + 1  # The original marker is now one index down
+                        self.opx.map.act_marker(self.opx.map.active_marker_index)
 
                         print(f"New marker added in the list just above the active marker at index {new_marker_index}.")
                     else:
                         # Use start_rectangle_query to create an area marker between two markers
-                        self.opx.start_rectangle_query()
+                        self.opx.map.start_rectangle_query()
 
                 else:
                     print("No active marker to insert a new marker nearby.")
@@ -937,15 +938,15 @@ class PyGuiOverlay(Layer):
 
     def delete_active_item(self):
         """Delete the active marker or area marker based on the current move mode."""
-        if self.opx.move_mode == "marker":
-            if hasattr(self.opx, 'active_marker_index') and 0 <= self.opx.active_marker_index < len(self.opx.markers):
-                self.opx.delete_marker(self.opx.active_marker_index)
+        if self.opx.map.move_mode == "marker":
+            if hasattr(self.opx.map, 'active_marker_index') and 0 <= self.opx.map.active_marker_index < len(self.opx.map.markers):
+                self.opx.map.delete_marker(self.opx.active_marker_index)
             else:
                 print("No active marker to delete.")
-        elif self.opx.move_mode == "area_marker":
-            if hasattr(self.opx, 'active_area_marker_index') and 0 <= self.opx.active_area_marker_index < len(
-                    self.opx.area_markers):
-                self.opx.delete_area_marker(self.opx.active_area_marker_index)
+        elif self.opx.map.move_mode == "area_marker":
+            if hasattr(self.opx.map, 'active_area_marker_index') and 0 <= self.opx.map.active_area_marker_index < len(
+                    self.opx.map.area_markers):
+                self.opx.map.delete_area_marker(self.opx.map.active_area_marker_index)
             else:
                 print("No active area marker to delete.")
 
@@ -981,7 +982,7 @@ class PyGuiOverlay(Layer):
                     self.smaract_keyboard_move_uv(1, -1, is_coarse)
                 elif key_data_enum == KeyboardKeys.M_KEY:
                     print("Enabling map keyboard shortcuts")
-                    self.opx.toggle_map_keyboard()
+                    self.opx.map.toggle_map_keyboard()
 
         except Exception as ex:
             self.error = f"Error in handle_smaract_controls: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
@@ -1083,7 +1084,7 @@ class PyGuiOverlay(Layer):
 
             # Move the active marker or area marker based on the calculated direction
             print(move_direction)
-            self.opx.move_active_marker(move_direction)
+            self.opx.map.move_active_marker(move_direction)
 
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
@@ -1153,7 +1154,6 @@ class PyGuiOverlay(Layer):
 
         with dpg.font_registry():
             for e in a:
-                print(e)
                 # dpg.add_font(path + "\\" + e, 25)
                 self.fontList.append(dpg.add_font(file = path + "\\" + e, size = self.gui_globalFontSize))
         # dpg.add_font_registry()

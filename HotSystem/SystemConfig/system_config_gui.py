@@ -117,22 +117,28 @@ def load_instrument_images():
     current_working_directory = os.getcwd() + "\\"
     # Check if the current working directory is within the expected base path
     base_path = remove_overlap_from_string(current_working_directory, expected_base_path)
-    with dpg.texture_registry():
-        image_path = os.path.join(base_path,"config.png")
-        if os.path.exists(image_path):
-            width, height, channels, data = dpg.load_image(image_path)
-            dpg.add_static_texture(width, height, data, tag=f"config_texture")
 
-        for instrument in Instruments:
-            image_path = os.path.join(base_path, f"{instrument.value}.png")
-            print(f"Image path: {image_path}")
+    with dpg.texture_registry():
+        image_path = os.path.join(base_path, "config.png")
+        texture_tag = "config_texture"
+        if not dpg.does_item_exist(texture_tag):
             if os.path.exists(image_path):
                 width, height, channels, data = dpg.load_image(image_path)
-                dpg.add_static_texture(width, height, data, tag=f"{instrument.value}_texture")
-            else:
-                # Create a placeholder texture (a white square)
-                placeholder_data = [255, 255, 255, 255] * 50 * 50
-                dpg.add_static_texture(50, 50, placeholder_data, tag=f"{instrument.value}_texture")
+                dpg.add_static_texture(width, height, data, tag=texture_tag)
+
+        for instrument in Instruments:
+            texture_tag = f"{instrument.value}_texture"
+            if not dpg.does_item_exist(texture_tag):
+                image_path = os.path.join(base_path, f"{instrument.value}.png")
+                print(f"Image path: {image_path}")
+                if os.path.exists(image_path):
+                    width, height, channels, data = dpg.load_image(image_path)
+                    dpg.add_static_texture(width, height, data, tag=texture_tag)
+                else:
+                    # Create a placeholder texture (a white square)
+                    placeholder_data = [255, 255, 255, 255] * 50 * 50
+                    dpg.add_static_texture(50, 50, placeholder_data, tag=texture_tag)
+
 
 def create_themes():
     """
