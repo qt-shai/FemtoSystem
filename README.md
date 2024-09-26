@@ -11,7 +11,6 @@ This software is designed to control and manage various lab instruments used in 
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Dependencies](#dependencies)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## Features
@@ -48,15 +47,14 @@ New instruments can be added via the configuration files and corresponding GUI m
 To get started, clone the repository using the following command:
 
 ```bash
-git clone https://github.com/your-username/lab-instrument-control.git
-cd lab-instrument-control
+git clone https://github.com/Quantum-Transistors-Ltd/QuTi.git
 ```
 
-###Install Dependencies
+### Install Dependencies
 Run the following command to install the required Python packages:
 
 ```bash
-pip install -r requirements.txt
+pip install -r PackagesList.txt
 ```
 
 Usage
@@ -85,8 +83,11 @@ threading: For managing background tasks.
 
 ### Fork the repository.
 Create a feature branch (git checkout -b feature-branch).
+
 Commit your changes (git commit -m 'Add new feature').
+
 Push to the branch (git push origin feature-branch).
+
 Create a Pull Request (PR) and describe your changes in detail.
 
 ### License
