@@ -62,7 +62,7 @@ class ZeluxGUI():
     def GUI_controls(self, isConnected = False, _width = 800):
         dpg.delete_item("groupZeluxControls")
         if isConnected:
-            dpg.add_group(tag="groupZeluxControls", parent="Zelux Window",horizontal=False)
+            dpg.add_group(tag="groupZeluxControls", parent="Zelux Window",horizontal=True)
             dpg.add_button(label="Start Live", callback=self.StartLive,tag="btnStartLive", parent="groupZeluxControls")
             dpg.add_button(label="Save Image", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
 
@@ -91,7 +91,6 @@ class ZeluxGUI():
         else:
             dpg.add_group(tag="ZeluxControls", parent="Zelux Window",horizontal=False)
             dpg.add_text("camera is probably not connected")
-    
 
     def Controls(self):
         # _width, _height, _channels, _data = dpg.load_image('C:\\Users\\amir\\Desktop\\Untitled2.png') # 0: width, 1: height, 2: channels, 3: data

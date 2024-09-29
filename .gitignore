@@ -713,3 +713,6 @@ HotSystem/__pycache__/ImGuiwrappedMethods.cpython-311.pyc
 HotSystem/__pycache__/Window.cpython-311.pyc
 HotSystem/__pycache__/WindowEvents.cpython-311.pyc
 HotSystem/__pycache__/Zelux_dll_setup.cpython-311.pyc
+*.svn-base
+*.pyc
+*.pyc

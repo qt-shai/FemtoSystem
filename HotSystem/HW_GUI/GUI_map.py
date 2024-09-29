@@ -192,7 +192,7 @@ class Map:
                                         dpg.add_text("N + G : Go & activate next")
 
                                 width = 50
-                                height = 60
+                                height = 40
                                 with dpg.group(horizontal=True):
                                     dpg.add_button(label="^", width=width, height=height,
                                                    callback=lambda: self.move_active_marker("up"))
@@ -247,14 +247,6 @@ class Map:
                             # Display the map image
                             dpg.add_image("map_texture", width=self.width, height=self.height, tag="map_image")
                             dpg.add_draw_layer(tag="map_draw_layer", parent="Map_window")
-
-            # Register the mouse click handler if not already registered
-            # if not self.map_click_callback_registered:
-            #     with dpg.handler_registry(tag="handler_registry"):
-            #         dpg.add_mouse_click_handler(callback=self.map_click_callback)
-            #     self.map_click_callback_registered = True
-
-            # Initialize markers and load parameters
 
             self.load_map_parameters()  # load map parameters
             self.move_mode = "marker"
@@ -531,26 +523,25 @@ class Map:
                                                     int(Y_pos * 1e6))) / 1e6
 
             # Call Update_Lx_Scan and Update_Ly_Scan with the calculated values
-            self.Update_Lx_Scan(app_data=None, user_data=Lx_scan)
-            self.Update_Ly_Scan(app_data=None, user_data=Ly_scan)
+            dpg.set_value(item="inInt_Lx_scan", value=Lx_scan)
+            dpg.set_value(item="inInt_Ly_scan", value=Ly_scan)
+            print(Lx_scan)
+            print(Ly_scan)
 
             # Update MCS fields with the new absolute positions
             point = (X_pos * 1e6, Y_pos * 1e6, z_evaluation * 1e6)
+            print(point)
             for ch, value in enumerate(point):
-                dpg.set_value(f"mcs_ch{ch}_ABS", value / 1e6)
+                if self.use_picomotor:
+                    dpg.set_value(f"pico_ch{ch}_ABS", value / 1e6)
+                else:
+                    dpg.set_value(f"mcs_ch{ch}_ABS", value / 1e6)
 
             # Toggle Z scan state based on z_scan_state
-            self.Update_bZ_Scan(app_data=None, user_data=(z_scan_state == "Z scan enabled"))
+            print(z_scan_state)
 
-            # Recalculate the estimated scan time based on the new scan parameters
-            self.Calc_estimatedScanTime()
-
-            # Update the GUI with the estimated scan time and relevant messages
-            dpg.set_value(item="text_expectedScanTime",
-                          value=f"~scan time: {self.format_time(self.estimatedScanTime * 60)}")
-            dpg.set_value("Scan_Message", "Please press GO ABS in Smaract GUI")
         else:
-            print("Invalid area marker index or no area markers available.")
+            print("Invalid area marker index or no area markers available.") # NE
 
     def toggle_aspect_ratio(self, sender, app_data, user_data):
         self.maintain_aspect_ratio = not self.maintain_aspect_ratio
@@ -771,7 +762,7 @@ class Map:
             for line in lines:
                 if any(param in line for param in
                        ["OffsetX", "OffsetY", "FactorX", "FactorY", "MoveStep", "NumOfDigits", "ImageWidth",
-                        "ImageHeight", "Exp_notes", "LoggedPoint", "Marker", "Rectangle"]):
+                        "ImageHeight", "Exp_notes", "LoggedPoint", "Marker", "Rectangle", "use_picomotor"]):
                     # Skip lines that will be replaced by the new map parameters, points, and markers
                     continue
                 new_content.append(line)
@@ -789,9 +780,8 @@ class Map:
             # Save experimental notes
             new_content.append(f"Exp_notes: {self.expNotes}\n")
 
-            # Save LoggedPoints from self.positioner
-            for point in self.positioner.LoggedPoints:
-                new_content.append(f"LoggedPoint: {point[0]}, {point[1]}, {point[2]}\n")
+            # Save the use_picomotor state
+            new_content.append(f"use_picomotor: {self.use_picomotor}\n")
 
             # Save point markers data with both clicked position and relative coordinates
             for marker in self.markers:
@@ -905,6 +895,12 @@ class Map:
                             self.expNotes = value
                             dpg.set_value("inTxtScan_expText", value)  # Update the input text widget with the loaded notes
 
+                        # Load and update use_picomotor state
+                        elif key == "use_picomotor":
+                            self.use_picomotor = value.lower() == "true"  # Convert to boolean
+                            if dpg.does_item_exist("chkbox_use_picomotor"):
+                                dpg.set_value("chkbox_use_picomotor", self.use_picomotor)
+
             print("Map parameters and markers loaded.")
 
             # Activate the last marker and area marker after loading
@@ -917,7 +913,6 @@ class Map:
                 self.act_area_marker(self.active_area_marker_index)  # Activate the last area marker
 
             self.update_markers_table()
-
         except FileNotFoundError:
             print("map_config.txt not found.")
         except Exception as e:

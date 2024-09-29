@@ -47,8 +47,12 @@ def calculate_plane_normal(plane_calibration_matrix: np.ndarray) -> Tuple[np.nda
     v2 = p3 - p1
 
     normal = np.cross(v1, v2) # cross product not normalized to unit vector
+
     if np.linalg.norm(normal) == 0:
-        raise ValueError("Normal vector cannot be zero.")
+        #raise ValueError("Normal vector cannot be zero.")
+        print("Normal vector is zero.")
+        return normal, 0
+
     normal = normal / np.linalg.norm(normal)  # Normalize the vector
 
     d = np.dot(normal, p1)  # note: Plane equation is  Ax + By + Cz = d
@@ -66,7 +70,6 @@ def calculate_plane_normal(plane_calibration_matrix: np.ndarray) -> Tuple[np.nda
     # d = np.dot(normal, np.array([x[0], y[0], z[0]]))  # Plane equation constant
     # return normal, d
 
-
 def generate_z_series(normal: np.ndarray, d: float, x_series: np.ndarray, y_const: float) -> np.ndarray:
     """
     Generate the z values along the x-axis for a given plane.
@@ -78,11 +81,15 @@ def generate_z_series(normal: np.ndarray, d: float, x_series: np.ndarray, y_cons
     :return: Array of corresponding z values along the x-axis.
     """
     a, b, c = normal
+    # Avoid division by zero by checking if c is zero
     if c == 0:
-        raise ValueError("Resulting z values cannot be calculated since C is zero.")
-    
-    z_series = (d - a * x_series.astype(float) - b * y_const) / c # plane equation: Ax + By + Cz = d
+        print("Warning: 'c' value is zero. Returning zero array for z-series.")
+        return np.zeros_like(x_series)  # Return a zero array with the same shape as x_series
+
+    # Calculate z values based on the plane equation: Ax + By + Cz = d
+    z_series = (d - a * x_series.astype(float) - b * y_const) / c
     return z_series
+
 
 
 def calculate_z_series(calibration_matrix: np.ndarray, x_series: np.ndarray, y_const: float) -> np.ndarray:

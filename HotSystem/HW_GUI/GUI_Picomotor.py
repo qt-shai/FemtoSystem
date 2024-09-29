@@ -24,9 +24,14 @@ class GUI_picomotor():
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
         red_button_theme = themes.color_theme((255, 0, 0), (0, 0, 0))
 
+        self.viewport_width = dpg.get_viewport_client_width()
+        self.viewport_height = dpg.get_viewport_client_height()
+
+        pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.2)]
+
         Child_Width=80
         lbl_list = ["out", "in", "left", "right", "down", "up"]
-        with dpg.window(tag=f"{self.prefix}_Win", label="Picomotor, disconnected", no_title_bar=False, height=200, width=1800,pos=[0, 0],
+        with dpg.window(tag=f"{self.prefix}_Win", label="Picomotor, disconnected", no_title_bar=False, height=200, width=1400,pos=pos,
                         collapsed=True):
             with dpg.group(horizontal=True):  
                 with dpg.group(horizontal=False, tag="column 1_"):
@@ -161,7 +166,7 @@ class GUI_picomotor():
                             self.dev.LoggedPoints.append(logged_point)
                             self.NumOfLoggedPoints += 1
 
-                            current_height = dpg.get_item_height(f"{self.prefix}o_Win")
+                            current_height = dpg.get_item_height(f"{self.prefix}_Win")
                             new_height = current_height + 30  # Increase height by 50 units
                             dpg.configure_item(f"{self.prefix}_Win", height=new_height)
 
@@ -218,6 +223,8 @@ class GUI_picomotor():
         new_height = current_height + 30  # Increase height by 50 units
         dpg.configure_item(f"{self.prefix}_Win", height=new_height)
 
+        self.dev.GetPosition()
+
         if self.dev.IsConnected:
             self.log_point(self.dev.AxesPositions)
         elif self.simulation:
@@ -230,7 +237,10 @@ class GUI_picomotor():
         themes = DpgThemes()
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
 
-        self.dev.LoggedPoints.append(position.copy())  # [pm]
+        for ch in range(3):
+            position[ch] = position[ch] / self.dev.StepsIn1mm * 1e3
+
+        self.dev.LoggedPoints.append(position.copy())  # [um]
         self.NumOfLoggedPoints += 1
         print(self.dev.LoggedPoints)
 
@@ -283,9 +293,9 @@ class GUI_picomotor():
         for i, point in enumerate(self.dev.LoggedPoints, start=1):
             with dpg.table_row(parent=table_id):
                 dpg.add_text(f"Point {i}")
-                dpg.add_text(f"{point[0]/1e6:.2f}")
-                dpg.add_text(f"{point[1]/1e6:.2f}")
-                dpg.add_text(f"{point[2]/1e6:.2f}")
+                dpg.add_text(f"{point[0]:.3f}")
+                dpg.add_text(f"{point[1]:.3f}")
+                dpg.add_text(f"{point[2]:.3f}")
                 # # Add a delete button in the last column
                 # dpg.add_button(label="Delete", width=60, height=20, callback=lambda s=i - 1: self.delete_row(s))
                 # Use partial to pass the correct index to the callback function

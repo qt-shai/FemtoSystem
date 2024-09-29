@@ -344,7 +344,7 @@ class newportPicomotor():
         if status:
             return out
         else:
-            print(f"Failed to get motion done status for motor {Motor}.")
+            # print(f"Failed to get motion done status for motor {Motor}.")
             return False
      
     def GetVelocities(self):

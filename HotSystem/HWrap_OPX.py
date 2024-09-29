@@ -15,6 +15,8 @@ from typing import Union, Optional
 import glfw
 import numpy as np
 import tkinter as tk
+
+from gevent.libev.corecext import callback
 from matplotlib import pyplot as plt
 from qm.qua import update_frequency, declare_stream, declare, program, for_, assign, if_, IO1, IO2, time_tagging, measure, \
     play, wait, align, else_, save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
@@ -745,6 +747,7 @@ class GUI_OPX(): #todo: support several device
         # load class parameters from XML
         self.update_from_xml()
         self.bScanChkbox = False
+        self.chkbox_close_all_qm = False
         # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
 
         # self.ZCalibrationData = np.array([[1274289050, 1099174441, -5215799855],[1274289385, -1900825080, -5239700330],[-1852010640, -1900825498, -5277599782]])
@@ -752,10 +755,9 @@ class GUI_OPX(): #todo: support several device
         if not simulation:
             try:
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
-                self.qmm = QuantumMachinesManager(host = self.HW.config.opx_ip,
-                                                  cluster_name = self.HW.config.opx_cluster,
-                                                  timeout = 60) # in seconds
-                # self.qmm.close_all_quantum_machines() # close all open Quantum machines
+                self.qmm = QuantumMachinesManager(host = self.HW.config.opx_ip, cluster_name = self.HW.config.opx_cluster, timeout = 60) # in seconds
+                time.sleep(1)
+
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
 
@@ -984,7 +986,7 @@ class GUI_OPX(): #todo: support several device
         self.window_scale_factor = width / 3840
     def controls(self, _width=1600, _Height=1000):
         self.GetWindowSize()
-        pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.25)]
+        pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.4)]
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
 
         dpg.add_window(label="OPX Window", tag="OPX Window", no_title_bar=True, height=-1, width=-1,
@@ -1006,6 +1008,8 @@ class GUI_OPX(): #todo: support several device
 
         dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=False)
         self.GUI_ParametersControl(True)
+
+
     def GUI_ParametersControl(self, isStart):
         child_width = int(2900 * self.window_scale_factor)
         child_height = int(80 * self.window_scale_factor)
@@ -1016,245 +1020,238 @@ class GUI_OPX(): #todo: support several device
         if isStart:
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=False)
 
-            dpg.add_child_window(label="", tag="child_Integration_Controls", parent="Params_Controls",
-                          horizontal_scrollbar=True, width=child_width, height=child_height)
-            dpg.add_group(tag="Integration_Controls", parent="child_Integration_Controls", horizontal=True)
-            dpg.add_text(default_value="Tcounter [nsec]", parent="Integration_Controls",
-                         tag="text_integration_time", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_Tcounter", indent=-1, parent="Integration_Controls",
-                              width=item_width, callback=self.UpdateTcounter,
-                              default_value=self.Tcounter,
-                              min_value=1, max_value=60000000, step=100)
-            dpg.add_text(default_value="Tpump [nsec]", parent="Integration_Controls",
-                         tag="text_Tpump", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_Tpump", indent=-1, parent="Integration_Controls",
-                              width=item_width, callback=self.UpdateTpump,
-                              default_value=self.Tpump,
-                              min_value=1, max_value=60000000, step=100)
-            dpg.add_text(default_value="TcounterPulsed [nsec]", parent="Integration_Controls",
-                         tag="text_TcounterPulsed", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_TcounterPulsed", indent=-1, parent="Integration_Controls",
-                              width=item_width, callback=self.UpdateTcounterPulsed,
-                              default_value=self.TcounterPulsed,
-                              min_value=1, max_value=60000000, step=100)
-            dpg.add_text(default_value="Tsettle [nsec]", parent="Integration_Controls", tag="text_measure_time",
-                         indent=-1)
-            dpg.add_input_int(label="", tag="inInt_Tsettle", indent=-1, parent="Integration_Controls",
-                              width=item_width, callback=self.UpdateTsettle,
-                              default_value=self.Tsettle,
-                              min_value=1, max_value=60000000, step=1)
-            dpg.add_text(default_value="total integration time [msec]", parent="Integration_Controls",
-                         tag="text_total_integration_time", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_total_integration_time", indent=-1, parent="Integration_Controls",
-                              width=item_width, callback=self.UpdateCounterIntegrationTime,
-                              default_value=self.total_integration_time,
-                              min_value=1, max_value=1000, step=1)
+            # Create a single collapsible header to contain all controls, collapsed by default
+            with dpg.collapsing_header(label="Parameter Controls", tag="Parameter_Controls_Header",
+                                       parent="Params_Controls", default_open=False):
+                # Child window and group for integration controls
+                with dpg.child_window(tag="child_Integration_Controls", horizontal_scrollbar=True, width=child_width,
+                                      height=child_height):
+                    with dpg.group(tag="Integration_Controls", horizontal=True):
+                        dpg.add_text(default_value="Tcounter [nsec]", tag="text_integration_time")
+                        dpg.add_input_int(label="", tag="inInt_Tcounter", width=item_width,
+                                          callback=self.UpdateTcounter, default_value=self.Tcounter, min_value=1,
+                                          max_value=60000000, step=100)
+                        dpg.add_text(default_value="Tpump [nsec]", tag="text_Tpump")
+                        dpg.add_input_int(label="", tag="inInt_Tpump", width=item_width, callback=self.UpdateTpump,
+                                          default_value=self.Tpump, min_value=1, max_value=60000000, step=100)
+                        dpg.add_text(default_value="TcounterPulsed [nsec]", tag="text_TcounterPulsed")
+                        dpg.add_input_int(label="", tag="inInt_TcounterPulsed", width=item_width,
+                                          callback=self.UpdateTcounterPulsed, default_value=self.TcounterPulsed,
+                                          min_value=1, max_value=60000000, step=100)
+                        dpg.add_text(default_value="Tsettle [nsec]", tag="text_measure_time")
+                        dpg.add_input_int(label="", tag="inInt_Tsettle", width=item_width, callback=self.UpdateTsettle,
+                                          default_value=self.Tsettle, min_value=1, max_value=60000000, step=1)
+                        dpg.add_text(default_value="total integration time [msec]", tag="text_total_integration_time")
+                        dpg.add_input_int(label="", tag="inInt_total_integration_time", width=item_width,
+                                          callback=self.UpdateCounterIntegrationTime,
+                                          default_value=self.total_integration_time, min_value=1, max_value=1000,
+                                          step=1)
 
-            dpg.add_child_window(label="", tag="child_Freq_Controls", parent="Params_Controls", horizontal_scrollbar=True,
-                          width=child_width, height=child_height)
-            dpg.add_group(tag="Freq_Controls", parent="child_Freq_Controls", horizontal=True)  #, before="Graph_group")
+                dpg.add_child_window(label="", tag="child_Freq_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
+                              width=child_width, height=child_height)
+                dpg.add_group(tag="Freq_Controls", parent="child_Freq_Controls", horizontal=True)  #, before="Graph_group")
 
-            dpg.add_text(default_value="MW res [GHz]", parent="Freq_Controls", tag="text_mwResonanceFreq",
-                         indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_mwResonanceFreq", indent=-1, parent="Freq_Controls",
-                                 format="%.9f",
-                                 width=item_width, callback=self.Update_mwResonanceFreq,
-                                 default_value=self.mw_freq_resonance,
-                                 min_value=0.001, max_value=6, step=0.001)
-            dpg.add_text(default_value="MW 2nd_res [GHz]", parent="Freq_Controls", tag="text_mw2ndResonanceFreq",
-                         indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_mw_2ndfreq_resonance", indent=-1, parent="Freq_Controls",
-                                 format="%.9f",
-                                 width=item_width, callback=self.Update_mw_2ndfreq_resonance,
-                                 default_value=self.mw_2ndfreq_resonance,
-                                 min_value=0.001, max_value=6, step=0.001)
-            dpg.add_text(default_value="MW freq [GHz] (base)", parent="Freq_Controls", tag="text_mwFreq", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_mwFreq", indent=-1, parent="Freq_Controls", format="%.9f",
-                                 width=item_width, callback=self.Update_mwFreq,
-                                 default_value=self.mw_freq,
-                                 min_value=0.001, max_value=6, step=0.001)
-            dpg.add_text(default_value="range [MHz]", parent="Freq_Controls", tag="text_mwScanRange", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_mwScanRange", indent=-1, parent="Freq_Controls",
-                                 width=item_width, callback=self.UpdateScanRange,
-                                 default_value=self.mw_freq_scan_range,
-                                 min_value=1, max_value=400, step=1)
-            dpg.add_text(default_value="df [MHz]", parent="Freq_Controls", tag="text_mw_df", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_mw_df", indent=-1, parent="Freq_Controls", format="%.5f",
-                                 width=item_width, callback=self.Update_df,
-                                 default_value=self.mw_df,
-                                 min_value=0.000001, max_value=500, step=0.1)
-            dpg.add_text(default_value="Power [dBm]", parent="Freq_Controls", tag="text_mw_pwr", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_mw_pwr", indent=-1, parent="Freq_Controls",
-                                 width=item_width, callback=self.UpdateMWpwr,
-                                 default_value=self.mw_Pwr,
-                                 min_value=0.01, max_value=500, step=0.1)
+                dpg.add_text(default_value="MW res [GHz]", parent="Freq_Controls", tag="text_mwResonanceFreq",
+                             indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_mwResonanceFreq", indent=-1, parent="Freq_Controls",
+                                     format="%.9f",
+                                     width=item_width, callback=self.Update_mwResonanceFreq,
+                                     default_value=self.mw_freq_resonance,
+                                     min_value=0.001, max_value=6, step=0.001)
+                dpg.add_text(default_value="MW 2nd_res [GHz]", parent="Freq_Controls", tag="text_mw2ndResonanceFreq",
+                             indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_mw_2ndfreq_resonance", indent=-1, parent="Freq_Controls",
+                                     format="%.9f",
+                                     width=item_width, callback=self.Update_mw_2ndfreq_resonance,
+                                     default_value=self.mw_2ndfreq_resonance,
+                                     min_value=0.001, max_value=6, step=0.001)
+                dpg.add_text(default_value="MW freq [GHz] (base)", parent="Freq_Controls", tag="text_mwFreq", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_mwFreq", indent=-1, parent="Freq_Controls", format="%.9f",
+                                     width=item_width, callback=self.Update_mwFreq,
+                                     default_value=self.mw_freq,
+                                     min_value=0.001, max_value=6, step=0.001)
+                dpg.add_text(default_value="range [MHz]", parent="Freq_Controls", tag="text_mwScanRange", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_mwScanRange", indent=-1, parent="Freq_Controls",
+                                     width=item_width, callback=self.UpdateScanRange,
+                                     default_value=self.mw_freq_scan_range,
+                                     min_value=1, max_value=400, step=1)
+                dpg.add_text(default_value="df [MHz]", parent="Freq_Controls", tag="text_mw_df", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_mw_df", indent=-1, parent="Freq_Controls", format="%.5f",
+                                     width=item_width, callback=self.Update_df,
+                                     default_value=self.mw_df,
+                                     min_value=0.000001, max_value=500, step=0.1)
+                dpg.add_text(default_value="Power [dBm]", parent="Freq_Controls", tag="text_mw_pwr", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_mw_pwr", indent=-1, parent="Freq_Controls",
+                                     width=item_width, callback=self.UpdateMWpwr,
+                                     default_value=self.mw_Pwr,
+                                     min_value=0.01, max_value=500, step=0.1)
 
-            dpg.add_child_window(label="", tag="child_rf_Controls", parent="Params_Controls", horizontal_scrollbar=True,
-                          width=child_width, height=child_height)
-            dpg.add_group(tag="rf_Controls", parent="child_rf_Controls", horizontal=True)  #, before="Graph_group")
+                dpg.add_child_window(label="", tag="child_rf_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
+                              width=child_width, height=child_height)
+                dpg.add_group(tag="rf_Controls", parent="child_rf_Controls", horizontal=True)  #, before="Graph_group")
 
-            dpg.add_text(default_value="RF resonance freq [MHz]", parent="rf_Controls", tag="text_rf_resonance_Freq",
-                         indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_rf_resonance_freq", indent=-1, parent="rf_Controls",
-                                 format="%.9f",
-                                 width=item_width, callback=self.Update_rf_resonance_Freq,
-                                 default_value=self.rf_resonance_freq,
-                                 min_value=0.001, max_value=6, step=0.001)
+                dpg.add_text(default_value="RF resonance freq [MHz]", parent="rf_Controls", tag="text_rf_resonance_Freq",
+                             indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_rf_resonance_freq", indent=-1, parent="rf_Controls",
+                                     format="%.9f",
+                                     width=item_width, callback=self.Update_rf_resonance_Freq,
+                                     default_value=self.rf_resonance_freq,
+                                     min_value=0.001, max_value=6, step=0.001)
 
-            dpg.add_text(default_value="RF freq [MHz]", parent="rf_Controls", tag="text_rf_Freq", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_rf_freq", indent=-1, parent="rf_Controls", format="%.9f",
-                                 width=item_width, callback=self.Update_rf_Freq,
-                                 default_value=self.rf_freq,
-                                 min_value=0.001, max_value=6, step=0.001)
-            dpg.add_text(default_value="range [kHz]", parent="rf_Controls", tag="text_rfScanRange", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_rf_ScanRange", indent=-1, parent="rf_Controls",
-                                 width=item_width, callback=self.Update_rf_ScanRange,
-                                 default_value=self.rf_freq_scan_range_gui,
-                                 min_value=1, max_value=400, step=1)
-            dpg.add_text(default_value="df [kHz]", parent="rf_Controls", tag="text_rf_df", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_rf_df", indent=-1, parent="rf_Controls", format="%.5f",
-                                 width=item_width, callback=self.Update_rf_df,
-                                 default_value=self.rf_df_gui,
-                                 min_value=0.00001, max_value=500, step=0.1)
-            dpg.add_text(default_value="Power [V]", parent="rf_Controls", tag="text_rf_pwr", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_rf_pwr", indent=-1, parent="rf_Controls",
-                                 width=item_width, callback=self.Update_rf_pwr,
-                                 default_value=self.rf_Pwr,
-                                 min_value=0.01, max_value=500, step=0.1)
+                dpg.add_text(default_value="RF freq [MHz]", parent="rf_Controls", tag="text_rf_Freq", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_rf_freq", indent=-1, parent="rf_Controls", format="%.9f",
+                                     width=item_width, callback=self.Update_rf_Freq,
+                                     default_value=self.rf_freq,
+                                     min_value=0.001, max_value=6, step=0.001)
+                dpg.add_text(default_value="range [kHz]", parent="rf_Controls", tag="text_rfScanRange", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_rf_ScanRange", indent=-1, parent="rf_Controls",
+                                     width=item_width, callback=self.Update_rf_ScanRange,
+                                     default_value=self.rf_freq_scan_range_gui,
+                                     min_value=1, max_value=400, step=1)
+                dpg.add_text(default_value="df [kHz]", parent="rf_Controls", tag="text_rf_df", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_rf_df", indent=-1, parent="rf_Controls", format="%.5f",
+                                     width=item_width, callback=self.Update_rf_df,
+                                     default_value=self.rf_df_gui,
+                                     min_value=0.00001, max_value=500, step=0.1)
+                dpg.add_text(default_value="Power [V]", parent="rf_Controls", tag="text_rf_pwr", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_rf_pwr", indent=-1, parent="rf_Controls",
+                                     width=item_width, callback=self.Update_rf_pwr,
+                                     default_value=self.rf_Pwr,
+                                     min_value=0.01, max_value=500, step=0.1)
 
-            dpg.add_child_window(label="", tag="child_Time_Scan_Controls", parent="Params_Controls", horizontal_scrollbar=True,
-                          width=child_width, height=child_height)
-            dpg.add_group(tag="Time_Scan_Controls", parent="child_Time_Scan_Controls",
-                          horizontal=True)  #, before="Graph_group")
-            dpg.add_text(default_value="scan t start [ns]", parent="Time_Scan_Controls", tag="text_scan_time_start",
-                         indent=-1)
-            dpg.add_input_int(label="", tag="inInt_scan_t_start", indent=-1, parent="Time_Scan_Controls",
-                              width=item_width, callback=self.UpdateScanTstart,
-                              default_value=self.scan_t_start,
-                              min_value=0, max_value=50000, step=1)
-            dpg.add_text(default_value="dt [ns]", parent="Time_Scan_Controls", tag="text_scan_time_dt", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_scan_t_dt", indent=-1, parent="Time_Scan_Controls",
-                              width=item_width, callback=self.UpdateScanT_dt,
-                              default_value=self.scan_t_dt,
-                              min_value=0, max_value=50000, step=1)
-            dpg.add_text(default_value="t end [ns]", parent="Time_Scan_Controls", tag="text_scan_time_end", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_scan_t_end", indent=-1, parent="Time_Scan_Controls",
-                              width=item_width, callback=self.UpdateScanTend,
-                              default_value=self.scan_t_end,
-                              min_value=0, max_value=50000, step=1)
+                dpg.add_child_window(label="", tag="child_Time_Scan_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
+                              width=child_width, height=child_height)
+                dpg.add_group(tag="Time_Scan_Controls", parent="child_Time_Scan_Controls",
+                              horizontal=True)  #, before="Graph_group")
+                dpg.add_text(default_value="scan t start [ns]", parent="Time_Scan_Controls", tag="text_scan_time_start",
+                             indent=-1)
+                dpg.add_input_int(label="", tag="inInt_scan_t_start", indent=-1, parent="Time_Scan_Controls",
+                                  width=item_width, callback=self.UpdateScanTstart,
+                                  default_value=self.scan_t_start,
+                                  min_value=0, max_value=50000, step=1)
+                dpg.add_text(default_value="dt [ns]", parent="Time_Scan_Controls", tag="text_scan_time_dt", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_scan_t_dt", indent=-1, parent="Time_Scan_Controls",
+                                  width=item_width, callback=self.UpdateScanT_dt,
+                                  default_value=self.scan_t_dt,
+                                  min_value=0, max_value=50000, step=1)
+                dpg.add_text(default_value="t end [ns]", parent="Time_Scan_Controls", tag="text_scan_time_end", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_scan_t_end", indent=-1, parent="Time_Scan_Controls",
+                                  width=item_width, callback=self.UpdateScanTend,
+                                  default_value=self.scan_t_end,
+                                  min_value=0, max_value=50000, step=1)
 
-            dpg.add_child_window(label="", tag="child_Time_delay_Controls", parent="Params_Controls",
-                          horizontal_scrollbar=True, width=child_width, height=child_height)
-            dpg.add_group(tag="Time_delay_Controls", parent="child_Time_delay_Controls",
-                          horizontal=True)  #, before="Graph_group")
+                dpg.add_child_window(label="", tag="child_Time_delay_Controls", parent="Parameter_Controls_Header",
+                              horizontal_scrollbar=True, width=child_width, height=child_height)
+                dpg.add_group(tag="Time_delay_Controls", parent="child_Time_delay_Controls",
+                              horizontal=True)  #, before="Graph_group")
 
-            dpg.add_text(default_value="t_mw [ns]", parent="Time_delay_Controls", tag="text_t_mw", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_t_mw", indent=-1, parent="Time_delay_Controls",
-                              width=item_width, callback=self.UpdateT_mw,
-                              default_value=self.t_mw,
-                              min_value=0, max_value=50000, step=1)
-            dpg.add_text(default_value="rf_pulse_time [ns]", parent="Time_delay_Controls", tag="text_rf_pulse_time",
-                         indent=-1)
-            dpg.add_input_int(label="", tag="inInt_rf_pulse_time", indent=-1, parent="Time_delay_Controls",
-                              width=item_width, callback=self.UpdateT_rf_pulse_time,
-                              default_value=self.rf_pulse_time,
-                              min_value=0, max_value=500000, step=1)
-            dpg.add_text(default_value="tGetTrackingSignalEveryTime [sec]", parent="Time_delay_Controls", tag="text_tGetTrackingSignalEveryTime", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_tGetTrackingSignalEveryTime", indent=-1, parent="Time_delay_Controls", format="%.3f",
-                                 width=item_width, callback=self.Update_tGetTrackingSignalEveryTime,
-                                 default_value=self.tGetTrackingSignalEveryTime,
-                                 min_value=0.001, max_value=10, step=0.1)
-            
-            dpg.add_text(default_value="tTrackingSignaIntegrationTime [msec]", parent="Time_delay_Controls", tag="text_tTrackingSignaIntegrationTime", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_tTrackingSignaIntegrationTime", indent=-1, parent="Time_delay_Controls", format="%.0f",
-                                 width=item_width, callback=self.Update_tTrackingSignaIntegrationTime,
-                                 default_value=self.tTrackingSignaIntegrationTime,
-                                 min_value=1, max_value=500000, step=10.0)
-            
+                dpg.add_text(default_value="t_mw [ns]", parent="Time_delay_Controls", tag="text_t_mw", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_t_mw", indent=-1, parent="Time_delay_Controls",
+                                  width=item_width, callback=self.UpdateT_mw,
+                                  default_value=self.t_mw,
+                                  min_value=0, max_value=50000, step=1)
+                dpg.add_text(default_value="rf_pulse_time [ns]", parent="Time_delay_Controls", tag="text_rf_pulse_time",
+                             indent=-1)
+                dpg.add_input_int(label="", tag="inInt_rf_pulse_time", indent=-1, parent="Time_delay_Controls",
+                                  width=item_width, callback=self.UpdateT_rf_pulse_time,
+                                  default_value=self.rf_pulse_time,
+                                  min_value=0, max_value=500000, step=1)
+                dpg.add_text(default_value="tGetTrackingSignalEveryTime [sec]", parent="Time_delay_Controls", tag="text_tGetTrackingSignalEveryTime", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_tGetTrackingSignalEveryTime", indent=-1, parent="Time_delay_Controls", format="%.3f",
+                                     width=item_width, callback=self.Update_tGetTrackingSignalEveryTime,
+                                     default_value=self.tGetTrackingSignalEveryTime,
+                                     min_value=0.001, max_value=10, step=0.1)
 
-            dpg.add_child_window(label="", tag="child_Repetitions_Controls", parent="Params_Controls",
-                          horizontal_scrollbar=True, width=child_width, height=child_height)
-            dpg.add_group(tag="Repetitions_Controls", parent="child_Repetitions_Controls",
-                          horizontal=True)  #, before="Graph_group")
+                dpg.add_text(default_value="tTrackingSignaIntegrationTime [msec]", parent="Time_delay_Controls", tag="text_tTrackingSignaIntegrationTime", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_tTrackingSignaIntegrationTime", indent=-1, parent="Time_delay_Controls", format="%.0f",
+                                     width=item_width, callback=self.Update_tTrackingSignaIntegrationTime,
+                                     default_value=self.tTrackingSignaIntegrationTime,
+                                     min_value=1, max_value=500000, step=10.0)
 
-            dpg.add_text(default_value="N nuc pump", parent="Repetitions_Controls", tag="text_N_nuc_pump", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_N_nuc_pump", indent=-1, parent="Repetitions_Controls",
-                              width=item_width, callback=self.UpdateN_nuc_pump,
-                              default_value=self.n_nuc_pump,
-                              min_value=0, max_value=50000, step=1)
 
-            dpg.add_text(default_value="N CPMG", parent="Repetitions_Controls", tag="text_N_CPMG", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_N_CPMG", indent=-1, parent="Repetitions_Controls",
-                              width=item_width, callback=self.UpdateN_CPMG,
-                              default_value=self.n_CPMG,
-                              min_value=0, max_value=50000, step=1)
+                dpg.add_child_window(label="", tag="child_Repetitions_Controls", parent="Parameter_Controls_Header",
+                              horizontal_scrollbar=True, width=child_width, height=child_height)
+                dpg.add_group(tag="Repetitions_Controls", parent="child_Repetitions_Controls",
+                              horizontal=True)  #, before="Graph_group")
 
-            dpg.add_text(default_value="N avg", parent="Repetitions_Controls", tag="text_n_avg", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_n_avg", indent=-1, parent="Repetitions_Controls",
-                              width=item_width, callback=self.UpdateNavg,
-                              default_value=self.n_avg,
-                              min_value=0, max_value=50000, step=1)
-            dpg.add_text(default_value="TrackingThreshold", parent="Repetitions_Controls", tag="text_TrackingThreshold", indent=-1)
-            dpg.add_input_double(label="", tag="inDbl_TrackingThreshold", indent=-1, parent="Repetitions_Controls", format="%.2f",
-                                 width=item_width, callback=self.Update_TrackingThreshold,
-                                 default_value=self.TrackingThreshold,
-                                 min_value=0, max_value=1, step=0.01)
-            dpg.add_text(default_value="N search (Itracking)", parent="Repetitions_Controls", tag="text_N_tracking_search", indent=-1)
-            dpg.add_input_int(label="", tag="inInt_N_tracking_search", indent=-1, parent="Repetitions_Controls",
-                              width=item_width, callback=self.UpdateN_tracking_search,
-                              default_value=self.N_tracking_search,
-                              min_value=0, max_value=50000, step=1)
+                dpg.add_text(default_value="N nuc pump", parent="Repetitions_Controls", tag="text_N_nuc_pump", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_N_nuc_pump", indent=-1, parent="Repetitions_Controls",
+                                  width=item_width, callback=self.UpdateN_nuc_pump,
+                                  default_value=self.n_nuc_pump,
+                                  min_value=0, max_value=50000, step=1)
 
-            dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
-            dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
-                             callback=self.Update_Intensity_Tracking_state, indent=-1,
-                             default_value=self.bEnableSignalIntensityCorrection)
-            dpg.add_checkbox(label="QUA shuffle", tag="chkbox_QUA_shuffle", parent="chkbox_group",
-                             callback=self.Update_QUA_Shuffle_state, indent=-1,
-                             default_value=self.bEnableShuffle)
-            dpg.add_checkbox(label="QUA simulate", tag="chkbox_QUA_simulate", parent="chkbox_group",
-                             callback=self.Update_QUA_Simulate_state, indent=-1,
-                             default_value=self.bEnableSimulate)
-            dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1,
-                             callback=self.Update_scan, default_value=self.bScanChkbox)
-            dpg.add_checkbox(label="Scan XYZ Fast", tag="chkbox_scan_fast", parent="chkbox_group", indent=-1,
-                             callback=self.Update_scan_fast, default_value=self.fast_scan_enabled)
+                dpg.add_text(default_value="N CPMG", parent="Repetitions_Controls", tag="text_N_CPMG", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_N_CPMG", indent=-1, parent="Repetitions_Controls",
+                                  width=item_width, callback=self.UpdateN_CPMG,
+                                  default_value=self.n_CPMG,
+                                  min_value=0, max_value=50000, step=1)
 
-            dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
-                          horizontal=False)  # parent="Params_Controls",horizontal=False)
-            _width = 300 # was 220
-            dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",
-                           callback=self.btnStartCounterLive, indent=-1, width=_width)
-            dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR",
-                           callback=self.btnStartODMR_CW, indent=-1, width=_width)
-            dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR",
-                           callback=self.btnStartPulsedODMR, indent=-1, width=_width)
-            dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI,
-                           indent=-1, width=_width)
-            dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
-                           callback=self.btnStartNuclearRABI, indent=-1, width=_width)
-            dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR",
-                           callback=self.btnStartNuclearMR, indent=-1, width=_width)
-            dpg.add_button(label="Start Nuclear PolESR", parent="Buttons_Controls", tag="btnOPX_StartNuclearPolESR",
-                           callback=self.btnStartNuclearPolESR, indent=-1, width=_width)
-            dpg.add_button(label="Start Nuclear lifetime S0", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS0",
-                           callback=self.btnStartNuclearSpinLifetimeS0, indent=-1, width=_width)
-            dpg.add_button(label="Start Nuclear lifetime S1", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS1",
-                           callback=self.btnStartNuclearSpinLifetimeS1, indent=-1, width=_width)
-            dpg.add_button(label="Start Nuclear Ramsay", parent="Buttons_Controls", tag="btnOPX_StartNuclearRamsay",
-                           callback=self.btnStartNuclearRamsay, indent=-1, width=_width)
-            dpg.add_button(label="Start Hahn", parent="Buttons_Controls", tag="btnOPX_StartHahn",
-                           callback=self.btnStartHahn, indent=-1, width=_width)
-            dpg.add_button(label="Start Electron Lifetime", parent="Buttons_Controls", tag="btnOPX_StartElectronLifetime",
-                           callback=self.btnStartElectronLifetime, indent=-1, width=_width)
-            dpg.add_button(label="Start Electron Coherence", parent="Buttons_Controls", tag="btnOPX_StartElectronCoherence",
-                           callback=self.btnStartElectron_Coherence, indent=-1, width=_width)
-            
-            # save exp data
-            dpg.add_group(tag="Save_Controls", parent="Params_Controls", horizontal=True)
-            dpg.add_input_text(label="", parent="Save_Controls", tag="inTxtOPX_expText", indent=-1,
-                               callback=self.saveExperimentsNotes)
-            dpg.add_button(label="Save", parent="Save_Controls", tag="btnOPX_save", callback=self.btnSave, indent=-1) # remove save btn, it should save automatically
+                dpg.add_text(default_value="N avg", parent="Repetitions_Controls", tag="text_n_avg", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_n_avg", indent=-1, parent="Repetitions_Controls",
+                                  width=item_width, callback=self.UpdateNavg,
+                                  default_value=self.n_avg,
+                                  min_value=0, max_value=50000, step=1)
+                dpg.add_text(default_value="TrackingThreshold", parent="Repetitions_Controls", tag="text_TrackingThreshold", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_TrackingThreshold", indent=-1, parent="Repetitions_Controls", format="%.2f",
+                                     width=item_width, callback=self.Update_TrackingThreshold,
+                                     default_value=self.TrackingThreshold,
+                                     min_value=0, max_value=1, step=0.01)
+                dpg.add_text(default_value="N search (Itracking)", parent="Repetitions_Controls", tag="text_N_tracking_search", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_N_tracking_search", indent=-1, parent="Repetitions_Controls",
+                                  width=item_width, callback=self.UpdateN_tracking_search,
+                                  default_value=self.N_tracking_search,
+                                  min_value=0, max_value=50000, step=1)
+
+                dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
+                dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
+                                 callback=self.Update_Intensity_Tracking_state, indent=-1,
+                                 default_value=self.bEnableSignalIntensityCorrection)
+                dpg.add_checkbox(label="QUA shuffle", tag="chkbox_QUA_shuffle", parent="chkbox_group",
+                                 callback=self.Update_QUA_Shuffle_state, indent=-1,
+                                 default_value=self.bEnableShuffle)
+                dpg.add_checkbox(label="QUA simulate", tag="chkbox_QUA_simulate", parent="chkbox_group",
+                                 callback=self.Update_QUA_Simulate_state, indent=-1,
+                                 default_value=self.bEnableSimulate)
+                dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1,
+                                 callback=self.Update_scan, default_value=self.bScanChkbox)
+                # dpg.add_checkbox(label="Scan XYZ Fast", tag="chkbox_scan_fast", parent="chkbox_group", indent=-1, callback=self.Update_scan_fast, default_value=self.fast_scan_enabled)
+                dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm, default_value=self.chkbox_close_all_qm)
+
+                dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
+                              horizontal=False)  # parent="Params_Controls",horizontal=False)
+                _width = 300 # was 220
+                dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",
+                               callback=self.btnStartCounterLive, indent=-1, width=_width)
+                dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR",
+                               callback=self.btnStartODMR_CW, indent=-1, width=_width)
+                dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR",
+                               callback=self.btnStartPulsedODMR, indent=-1, width=_width)
+                dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI,
+                               indent=-1, width=_width)
+                dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
+                               callback=self.btnStartNuclearRABI, indent=-1, width=_width)
+                dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR",
+                               callback=self.btnStartNuclearMR, indent=-1, width=_width)
+                dpg.add_button(label="Start Nuclear PolESR", parent="Buttons_Controls", tag="btnOPX_StartNuclearPolESR",
+                               callback=self.btnStartNuclearPolESR, indent=-1, width=_width)
+                dpg.add_button(label="Start Nuclear lifetime S0", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS0",
+                               callback=self.btnStartNuclearSpinLifetimeS0, indent=-1, width=_width)
+                dpg.add_button(label="Start Nuclear lifetime S1", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS1",
+                               callback=self.btnStartNuclearSpinLifetimeS1, indent=-1, width=_width)
+                dpg.add_button(label="Start Nuclear Ramsay", parent="Buttons_Controls", tag="btnOPX_StartNuclearRamsay",
+                               callback=self.btnStartNuclearRamsay, indent=-1, width=_width)
+                dpg.add_button(label="Start Hahn", parent="Buttons_Controls", tag="btnOPX_StartHahn",
+                               callback=self.btnStartHahn, indent=-1, width=_width)
+                dpg.add_button(label="Start Electron Lifetime", parent="Buttons_Controls", tag="btnOPX_StartElectronLifetime",
+                               callback=self.btnStartElectronLifetime, indent=-1, width=_width)
+                dpg.add_button(label="Start Electron Coherence", parent="Buttons_Controls", tag="btnOPX_StartElectronCoherence",
+                               callback=self.btnStartElectron_Coherence, indent=-1, width=_width)
+
+                # save exp data
+                dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
+                dpg.add_input_text(label="", parent="Save_Controls", tag="inTxtOPX_expText", indent=-1,
+                                   callback=self.saveExperimentsNotes)
+                dpg.add_button(label="Save", parent="Save_Controls", tag="btnOPX_save", callback=self.btnSave, indent=-1) # remove save btn, it should save automatically
 
             # dpg.add_checkbox(label="Radio Button1", source="bool_value")
             dpg.bind_item_theme(item="Params_Controls", theme="NewTheme")
@@ -1275,13 +1272,13 @@ class GUI_OPX(): #todo: support several device
         self.maintain_aspect_ratio = True
 
         win_size = [int(self.viewport_width*0.6), int(self.viewport_height*0.3)]
-        win_pos = [int(self.viewport_width*0.05)*0, int(self.viewport_height*0.02)]
+        win_pos = [int(self.viewport_width*0.05)*0, int(self.viewport_height*0.3)]
         scan_time_in_seconds = self.estimatedScanTime * 60
 
         item_width = int(200* self.window_scale_factor)
         if self.bScanChkbox:
 
-            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=win_size[0]/2,
+            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=win_size[0]*.8,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
                     # Left side: Scan settings and controls
@@ -1349,8 +1346,12 @@ class GUI_OPX(): #todo: support several device
                             dpg.add_button(label="Find Peak", tag="btnOPX_FindPeak", callback=self.btnFindPeak,
                                            indent=-1, width=130)
                             dpg.bind_item_theme(item="btnOPX_FindPeak", theme="btnYellowTheme")
-                            dpg.add_button(label="Get Log", tag="btnOPX_GetLoggedPoint",
+                            dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint",
                                            callback=self.btnGetLoggedPoints, indent=-1, width=130)
+
+                    with dpg.group(horizontal=False):
+                        dpg.add_button(label="Updt from map",callback=self.update_from_map)
+                        dpg.add_button(label="scan all markers",callback=self.scan_all_markers)
 
                     self.btnGetLoggedPoints()  # get logged points
                     self.map = Map(self.ZCalibrationData)
@@ -1361,6 +1362,97 @@ class GUI_OPX(): #todo: support several device
             dpg.delete_item("Scan_Window")
 
 
+
+    def update_from_map(self,index=0):
+        """Update scan parameters based on the selected area marker."""
+        point=(0, 0, 0)
+        if index < len(self.map.area_markers):
+            # Get the selected rectangle from area_markers by index, including Z scan state
+            selected_rectangle = self.map.area_markers[index]
+            min_x, min_y, max_x, max_y, z_scan_state = selected_rectangle
+
+            # Calculate the width and height of the rectangle
+            Lx_scan = int(max_x - min_x) * 1e3  # Convert to micrometers
+            Ly_scan = int(max_y - min_y) * 1e3  # Convert to micrometers
+            X_pos = (max_x + min_x) / 2
+            Y_pos = (max_y + min_y) / 2
+
+            # Calculate the Z evaluation
+            z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array([int(X_pos * 1e6)]),
+                                                    int(Y_pos * 1e6))) / 1e6
+
+            # Call Update_Lx_Scan and Update_Ly_Scan with the calculated values
+            self.Update_Lx_Scan(app_data=None, user_data=Lx_scan)
+            self.Update_Ly_Scan(app_data=None, user_data=Ly_scan)
+
+            # Update MCS fields with the new absolute positions
+            point = (X_pos * 1e6, Y_pos * 1e6, z_evaluation * 1e6)
+            # for ch, value in enumerate(point):
+            #     dpg.set_value(f"mcs_ch{ch}_ABS", value / 1e6)
+
+            # Toggle Z scan state based on z_scan_state
+            self.Update_bZ_Scan(app_data=None, user_data=(z_scan_state == "Z scan enabled"))
+
+            # Recalculate the estimated scan time based on the new scan parameters
+            self.Calc_estimatedScanTime()
+
+            # Update the GUI with the estimated scan time and relevant messages
+            dpg.set_value(item="text_expectedScanTime",
+                          value=f"~scan time: {self.format_time(self.estimatedScanTime * 60)}")
+            dpg.set_value("Scan_Message", "Please press GO ABS in Smaract GUI")
+        else:
+            print("Invalid area marker index or no area markers available.")  # NE
+
+        return point
+
+    def scan_all_markers(self):
+        """Automatically scan all area markers sequentially without user interaction, handling errors and skipping problematic markers."""
+        if len(self.map.area_markers) == 0:
+            print("No area markers available for scanning.")
+            return
+
+        print(f"Starting scan for {len(self.map.area_markers)} area markers.")
+
+        # Iterate over all area markers
+        for index in range(len(self.map.area_markers)):
+            try:
+                print(f"Activating area marker {index + 1}/{len(self.map.area_markers)}.")
+
+                # Activate the area marker before scanning
+                self.map.act_area_marker(index)
+
+                print(f"Updating scan parameters for area marker {index + 1}.")
+                # Update the scan parameters for the selected area marker
+                point = self.update_from_map(index)
+
+                # Move to the calculated scan start position for each axis
+                for ch in range(3):
+                    if self.map.use_picomotor:
+                        self.pico.MoveABSOLUTE(ch + 1, int(point[ch]))  # Move absolute to start location
+                        print(f"Moved to start position for channel {ch} at {point[ch]} µm, by picomotor.")
+                    else:
+                        self.positioner.MoveABSOLUTE(ch, int(point[ch]))  # Move absolute to start location
+                        print(f"Moved to start position for channel {ch} at {point[ch]} µm.")
+
+                # Ensure the stage has reached its position
+                time.sleep(0.005)  # Allow motion to start
+                for ch in range(3):
+                    res = self.readInpos(ch)  # Wait for motion to complete
+                    if res:
+                        print(f"Axis {ch} in position at {self.positioner.AxesPositions[ch]}.")
+                    else:
+                        print(f"Failed to move axis {ch} to position.")
+
+                # Start the scan automatically
+                print(f"Starting scan for area marker {index + 1}.")
+                self.StartScan3D()
+
+            except Exception as e:
+                print(f"An error occurred while scanning area marker {index + 1}: {e}")
+                # Skip to the next area marker if an error occurs
+                continue
+
+        print("Completed scanning all area markers.")
 
     # not done need to be tested and verify bugs free
     def Save_2D_matrix2IMG(self, array_2d, fileName="fileName", img_format='png'):
@@ -1534,59 +1626,115 @@ class GUI_OPX(): #todo: support several device
         end_Plot_time = time.time()
         print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
 
-    def Plot_Scan(self,Nx = 250 ,Ny = 250, array_2d=[], startLoc=[], endLoc=[], switchAxes = False): # switchAxes = workaround. need to be fixed
+
+    def Plot_Scan(self, Nx=250, Ny=250, array_2d=None, startLoc=None, endLoc=None, switchAxes=False):
+        """
+        Plots a 2D scan using the provided array. If a division by zero occurs,
+        the array will be set to zeros.
+        """
+        if array_2d is None:
+            array_2d = np.zeros((Nx, Ny))  # Default to zeros if array is not provided
+
+        if startLoc is None:
+            startLoc = [0, 0]
+
+        if endLoc is None:
+            endLoc = [Nx, Ny]
+
         start_Plot_time = time.time()
+        plot_size = [int(self.viewport_width * 0.4), int(self.viewport_height * 0.4)]
 
-        plot_size = [int(self.viewport_width*0.4), int(self.viewport_height*0.4)]
+        try:
+            # Attempt to normalize the array
+            max_value = array_2d.max()
+            if max_value == 0:
+                raise ZeroDivisionError("Maximum value of the array is zero, cannot normalize.")
 
-        result_array = (array_2d*255/array_2d.max())
+            # Normalize and multiply by 255
+            result_array = (array_2d * 255) / max_value
+        except ZeroDivisionError:
+            print("Division by zero encountered. Setting entire array to zero.")
+            result_array = np.zeros_like(array_2d)  # Set entire array to zeros
+        except Exception as e:
+            print(f"An unexpected error occurred during array normalization: {e}")
+            result_array = np.zeros_like(array_2d)  # Fallback to zeros in case of any other error
+
         result_array_ = []
         for i in range(array_2d.shape[0]):
             for j in range(array_2d.shape[1]):
-                if switchAxes: # switchAxes = workaround. need to be fixed
-                    res = self.intensity_to_rgb_heatmap(result_array.astype(np.uint8)[i][j]/255)
-                    result_array_.append(res[0] / 255)
-                    result_array_.append(res[1] / 255)
-                    result_array_.append(res[2] / 255)
-                    result_array_.append(res[3] / 255)
+                if switchAxes:  # switchAxes = workaround. need to be fixed
+                    try:
+                        res = self.intensity_to_rgb_heatmap(result_array.astype(np.uint8)[i][j] / 255)
+                        result_array_.append(res[0] / 255)
+                        result_array_.append(res[1] / 255)
+                        result_array_.append(res[2] / 255)
+                        result_array_.append(res[3] / 255)
+                    except Exception as e:
+                        print(f"Error in intensity to RGB heatmap conversion: {e}")
+                        result_array_.extend([0, 0, 0, 0])  # Append zeros if an error occurs
                 else:
-                    result_array_.append(result_array[i][j] / 255)
-                    result_array_.append(result_array[i][j] / 255)
-                    result_array_.append(result_array[i][j] / 255)
-                    result_array_.append(255 / 255)
+                    try:
+                        result_array_.append(result_array[i][j] / 255)
+                        result_array_.append(result_array[i][j] / 255)
+                        result_array_.append(result_array[i][j] / 255)
+                        result_array_.append(255 / 255)
+                    except Exception as e:
+                        print(f"Error while appending normalized values: {e}")
+                        result_array_.extend([0, 0, 0, 1])  # Append zeros if an error occurs
 
         # Plot XY graph (image)
-        dpg.delete_item("scan_group")
-        dpg.delete_item("texture_reg")
-        dpg.delete_item("texture_tag")
+        try:
+            dpg.delete_item("scan_group")
+            dpg.delete_item("texture_reg")
+            dpg.delete_item("texture_tag")
+        except Exception as e:
+            print(f"Error deleting items: {e}")
+
         time.sleep(0)
-        dpg.add_texture_registry(show=False,tag="texture_reg")
-        if switchAxes: # switchAxes = workaround. need to be fixed
-            dpg.add_dynamic_texture(width=array_2d.shape[1], height=array_2d.shape[0], default_value=result_array_, tag="texture_tag",parent="texture_reg")
-        else:
-            dpg.add_dynamic_texture(width=array_2d.shape[0], height=array_2d.shape[1], default_value=result_array_, tag="texture_tag",parent="texture_reg")
+        dpg.add_texture_registry(show=False, tag="texture_reg")
 
-        # plot scan
-        dpg.add_group(horizontal=True, tag="scan_group",parent="Scan_Window")
-        dpg.add_plot(parent="scan_group",tag="plotImaga",width = plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True)
-        # dpg.add_plot_legend(parent="plotImaga")
-        dpg.add_plot_axis(dpg.mvXAxis, label="x axis [um]",parent="plotImaga")
-        dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]",parent="plotImaga",tag="plotImaga_Y")
-        dpg.add_image_series(f"texture_tag",bounds_min = [startLoc[0], startLoc[1]], bounds_max = [endLoc[0], endLoc[1]], label="Scan data",parent="plotImaga_Y")#, source = self.image_path)
-        # dpg.fit_axis_data("x axis")
-        # dpg.fit_axis_data("y axis")
-        dpg.add_colormap_scale(show = True, parent="scan_group", tag="colormapXY",min_scale=np.min(array_2d), max_scale=np.max(array_2d),colormap=dpg.mvPlotColormap_Jet )
+        try:
+            if switchAxes:
+                dpg.add_dynamic_texture(width=array_2d.shape[1], height=array_2d.shape[0], default_value=result_array_,
+                                        tag="texture_tag", parent="texture_reg")
+            else:
+                dpg.add_dynamic_texture(width=array_2d.shape[0], height=array_2d.shape[1], default_value=result_array_,
+                                        tag="texture_tag", parent="texture_reg")
+        except Exception as e:
+            print(f"Error adding dynamic texture: {e}")
 
-        # update width
-        item_width = dpg.get_item_width("plotImaga")
-        item_height = dpg.get_item_height("plotImaga")
-        dpg.set_item_width("Scan_Window",item_width+150)
-        dpg.set_item_height("Scan_Window",item_height+200)
+        try:
+            # Plot scan
+            dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
+            dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
+                         equal_aspects=True,
+                         crosshairs=True)
+            dpg.add_plot_axis(dpg.mvXAxis, label="x axis [um]", parent="plotImaga")
+            dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
+            dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]],
+                                 bounds_max=[endLoc[0], endLoc[1]],
+                                 label="Scan data", parent="plotImaga_Y")
+            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d),
+                                   max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
+        except Exception as e:
+            print(f"Error during plotting: {e}")
+
+        try:
+            # Update window width and height
+            item_width = dpg.get_item_width("plotImaga")
+            item_height = dpg.get_item_height("plotImaga")
+            dpg.set_item_width("Scan_Window", item_width + 150)
+            dpg.set_item_height("Scan_Window", item_height + 200)
+        except Exception as e:
+            print(f"Error updating window size: {e}")
 
         end_Plot_time = time.time()
         print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
 
-        dpg.set_value("texture_tag", result_array_)
+        try:
+            dpg.set_value("texture_tag", result_array_)
+        except Exception as e:
+            print(f"Error setting texture tag value: {e}")
 
     def UpdateGuiDuringScan(self,Array2D, use_fast_rgb: bool = False):
         val = Array2D.reshape(-1)
@@ -1631,6 +1779,12 @@ class GUI_OPX(): #todo: support several device
         # dpg.set_value(item = "chkbox_scan_fast",value=sender.fast_scan_enabled)
         print("Set fast scan to: " + str(sender.fast_scan_enabled))
         # sender.GUI_ScanControls()
+    
+    def Update_close_all_qm(sender, app_data, user_data):
+        sender.chkbox_close_all_qm = user_data
+        time.sleep(0.001)
+        dpg.set_value(item = "chkbox_close_all_qm",value=sender.chkbox_close_all_qm)
+        print("Set chkbox_close_all_qm to: " + str(sender.chkbox_close_all_qm))
 
     def Update_bX_Scan(sender, app_data, user_data):
         sender.b_Scan[0] = user_data
@@ -1788,9 +1942,9 @@ class GUI_OPX(): #todo: support several device
 
             return None,None
         else:
-            if closeQM:
+            if closeQM or self.chkbox_close_all_qm:
+                self.chkbox_close_all_qm = False
                 self.qmm.close_all_quantum_machines()
-            # self.qmm.close_all_quantum_machines() # todo:AmirBoaz
 
             if quaPGM is None:
                 quaPGM = self.quaPGM
@@ -1798,6 +1952,9 @@ class GUI_OPX(): #todo: support several device
             qm = self.qmm.open_qm(config = QuaCFG,close_other_machines=closeQM)
             job = qm.execute(quaPGM)
             
+            newQM = self.qmm.list_open_quantum_machines()
+            print(f"before close: {newQM}")
+
             return qm, job
     
     def verify_insideQUA_FreqValues(self, freq ,min = 0, max = 400): # [MHz]
@@ -4429,6 +4586,8 @@ class GUI_OPX(): #todo: support several device
         report = job.execution_report()
         print(report)
         qm.close()
+        newQM = self.qmm.list_open_quantum_machines()
+        print(f"after close: {newQM}")
         return report
     def btnStop(self):  # Stop Exp
         #todo: creat methode that handle OPX close job and instances
@@ -4446,6 +4605,8 @@ class GUI_OPX(): #todo: support several device
         if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
             if (self.fetchTh.is_alive()):
                 self.fetchTh.join()
+        else:
+            dpg.enable_item("btnOPX_StartScan")
         
         if (self.job):
             self.StopJob(self.job,self.qm)
@@ -4681,8 +4842,7 @@ class GUI_OPX(): #todo: support several device
         self.positioner.set_Channel_Constant_Mode_State(channel=0)
         
         # GUI - convert Start Scan to Stop scan
-        dpg.set_item_label("btnOPX_StartScan", "Stop Scan")
-        dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnRedTheme")
+        dpg.disable_item("btnOPX_StartScan")
 
         # reset res vectors 
         self.X_vec = []
@@ -4788,6 +4948,7 @@ class GUI_OPX(): #todo: support several device
                 self.dir = self.dir * -1  # change direction to create S shape scan
                 V = []
 
+                Line_time_start = time.time()
                 for k in range(N[0]):
                     if self.stopScan:
                         break
@@ -4817,9 +4978,7 @@ class GUI_OPX(): #todo: support several device
                     self.qm.set_io2_value(self.ScanTrigger) # should triggere measurement by QUA io
                     time.sleep(self.total_integration_time*1e-3 + 1e-3) # wait for measurement do occur
 
-                    elapsed_time = time.time() - start_time
-                    estimated_time_left = self.estimatedScanTime*60 - elapsed_time
-                    dpg.set_value("Scan_Message",f"time left: {self.format_time(estimated_time_left)}")
+                
 
                     # fetch X scanned results
                 if self.counts_handle.is_processing():
@@ -4852,6 +5011,13 @@ class GUI_OPX(): #todo: support several device
                 for q in range(3):
                     self.readInpos(q)  # wait motion ends
 
+                Line_time_End = time.time()
+                elapsed_time = time.time() - start_time
+                delta = (Line_time_End-Line_time_start)
+                estimated_time_left = delta*(N[2]-i)*(N[1]-j)-delta 
+                estimated_time_left = estimated_time_left if estimated_time_left>0 else 0
+                dpg.set_value("Scan_Message",f"time left: {self.format_time(estimated_time_left)}")
+
         # back to start position
         for i in range(3):
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
@@ -4863,16 +5029,14 @@ class GUI_OPX(): #todo: support several device
         fn = self.save_scan_data(Nx, Ny, Nz,self.create_scan_file_name(local=False)) # 333
         self.writeParametersToXML(fn + ".xml")
 
-        if not(self.stopScan):
-            self.btnStop()
-        # else:
-        # self.stopScan = True
-        
         end_time = time.time()
         print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
         print(f"number of points ={N[0] * N[1] * N[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
+
+        if not(self.stopScan):
+            self.btnStop()
 
     def StartFastScan(self):  # currently flurascence scan
         # todo: verify all axes are in closed loop
@@ -5231,39 +5395,69 @@ class GUI_OPX(): #todo: support several device
 
         return x_fixed, y_fixed, z_fixed, allPoints_fixed, pattern_length
 
+    
     def btnGetLoggedPoints(self):
-        if len(self.positioner.LoggedPoints) < 3:
-            try:
-                with open("map_config.txt", "r") as file:
-                    lines = file.readlines()
-                    # Clear the existing LoggedPoints
-                    self.positioner.LoggedPoints = []
-                    for line in lines:
-                        # Start loading points after finding "LoggedPoint"
-                        if line.startswith("LoggedPoint"):
-                            coords = line.split(": ")[1].split(", ")  # Process the logged point line
-                            if len(coords) == 3:  # Ensure we have 3 coordinates
-                                logged_point = (float(coords[0]), float(coords[1]), float(coords[2]))
-                                self.positioner.LoggedPoints.append(logged_point)
-                        # Stop processing points if another section starts (e.g., "Marker" or "Rectangle")
-                        elif line.startswith("Marker") or line.startswith("Rectangle"):
-                            break
-                    print("Logged points loaded but not into the Smaract GUI.")
-                    self.ZCalibrationData = np.array(self.positioner.LoggedPoints[:3])  # Take the first three rows
-                    self.to_xml()
-                    dpg.set_value("Scan_Message", "Logged points loaded but not into the Smaract GUI.")
-            except FileNotFoundError:
-                print("map_config.txt not found.")
-            except Exception as e:
-                print(f"Error loading logged points: {e}")
-                error_message = "Error: Less than three points are logged. Please log more points."
-                print(error_message)
-                dpg.set_value("Scan_Message", error_message)  # Set the error message in the text widget
-        else:
-            print("Calibration points loaded from positioner")
-            self.ZCalibrationData = np.array(self.positioner.LoggedPoints[:3])  # Take the first three rows
+        current_label = dpg.get_item_label("btnOPX_GetLoggedPoint")
+        prefix = "mcs"
+        num_of_logged_points = 0
+
+        try:
+            if current_label == "Get Log from MCS":
+                dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from MCS")
+                num_of_logged_points = len(self.positioner.LoggedPoints)
+            elif current_label == "Logged from MCS":
+                dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from Pico")
+                return
+            elif current_label == "Get Log from Pico":
+                if hasattr(self, 'pico'):
+                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from Pico")
+                    prefix = "pico"
+                    num_of_logged_points = len(self.pico.LoggedPoints)
+                else:
+                    # If Pico does not exist, maintain prefix as mcs
+                    error_message = "Pico does not exist; defaulting to MCS."
+                    print(error_message)
+                    num_of_logged_points = len(self.positioner.LoggedPoints)
+            elif current_label == "Logged from Pico":
+                dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from MCS")
+                return
+
+            if num_of_logged_points < 3:
+                try:
+                    with open("map_config.txt", "r") as file:
+                        lines = file.readlines()
+                        self.positioner.LoggedPoints = []
+                        for line in lines:
+                            if line.startswith(prefix + "LoggedPoint"):
+                                coords = line.split(": ")[1].split(", ")
+                                if len(coords) == 3:
+                                    logged_point = (float(coords[0]), float(coords[1]), float(coords[2]))
+                                    if prefix == "mcs":
+                                        self.positioner.LoggedPoints.append(logged_point)
+                                    else:
+                                        self.pico.LoggedPoints.append(logged_point)
+                except FileNotFoundError:
+                    print("map_config.txt not found.")
+                    dpg.set_value("Scan_Message", "Error: map_config.txt not found.")
+                    return
+                except Exception as e:
+                    print(f"Error loading logged points: {e}")
+                    error_message = "Error: Less than three points are logged. Please log more points."
+                    print(error_message)
+                    dpg.set_value("Scan_Message", error_message)
+
+            print("Logged points loaded from " + prefix)
+            if prefix == "mcs":
+                self.ZCalibrationData = np.array(self.positioner.LoggedPoints[:3])
+            else:
+                self.ZCalibrationData = np.array(self.pico.LoggedPoints[:3])
+            
             self.to_xml()
-            dpg.set_value("Scan_Message", "Calibration points successfully loaded.")
+            dpg.set_value("Scan_Message", "Logged points loaded from " + prefix)
+
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            dpg.set_value("Scan_Message", "An unexpected error occurred.")
 
     def btnLoadScan(self): #111
         fn = self.OpenDialog()

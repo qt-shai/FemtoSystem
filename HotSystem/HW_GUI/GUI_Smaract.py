@@ -36,10 +36,13 @@ class GUI_smaract():
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
         red_button_theme = themes.color_theme((255, 0, 0), (0, 0, 0))
 
+        self.viewport_width = dpg.get_viewport_client_width()
+        self.viewport_height = dpg.get_viewport_client_height()
+
         child_width = 100
         # lbl_list=["in","out","right","left","up","down"]
         lbl_list = ["out", "in", "left", "right", "down", "up"]
-        with dpg.window(tag=f"{self.prefix}_Win", label=f"{self.prefix} stage, disconnected", no_title_bar=False, height=200, width=2600, pos=[0, 0],
+        with dpg.window(tag=f"{self.prefix}_Win", label=f"{self.prefix} stage, disconnected", no_title_bar=False, height=self.viewport_height/8, width=self.viewport_width*0.8, pos=[0, 0],
                         collapsed=False):
             with dpg.group(horizontal=True):
                 with dpg.group(horizontal=False, tag="_column 1_"):
@@ -48,6 +51,7 @@ class GUI_smaract():
                         dpg.add_text("Ch" + str(ch), tag=f"{self.prefix}_Ch" + str(ch))
                     dpg.add_button(label="Stop all axes", callback=self.btn_stop_all_axes)
                     dpg.bind_item_theme(dpg.last_item(), red_button_theme)
+
                 with dpg.group(horizontal=False, tag="_column 2_"):
                     dpg.add_text("                 Coarse (um)")
                     for ch in range(self.dev.no_of_channels):
@@ -59,6 +63,7 @@ class GUI_smaract():
                             dpg.add_input_float(label="", default_value=1, tag=f"{self.prefix}_ch" + str(ch) + "_Cset",
                                                 indent=-1, format='%.1f', width=150, step=1, step_fast=100,callback=self.ipt_large_step)
                             dpg.add_text("um  ", indent=-10)
+                    dpg.add_button(label="load pos", callback=self.load_pos)
 
                 with dpg.group(horizontal=False, tag="_column 3_"):
                     dpg.add_text("          Fine (nm)")
@@ -106,7 +111,7 @@ class GUI_smaract():
                         dpg.add_button(label="Load", callback=self.load_points)
                         dpg.bind_item_theme(dpg.last_item(), yellow_theme)
 
-                with dpg.group(horizontal=False, tag="_column 7_", width=child_width * 3):
+                with dpg.group(horizontal=False, tag="_column 7_", width=child_width):
                     dpg.add_text("Move Abs. (um)")
                     for ch in range(self.dev.no_of_channels):
                         with dpg.group(horizontal=True):
@@ -131,6 +136,7 @@ class GUI_smaract():
                     dpg.add_text("Status")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_combo(items=["idle",""], tag="mcs_Status" + str(ch))
+                    dpg.add_button(label="save pos",callback=self.save_pos)
 
             with dpg.group(horizontal=True):
                 dpg.add_combo(label="Devices", items=self.dev.Available_Devices_List, tag=f"{self.prefix}_device_selector",
@@ -148,6 +154,8 @@ class GUI_smaract():
                     dpg.add_table_column(label="Go Abs")
 
         self.load_points()
+        # Set a callback to call load_pos after the first frame is rendered
+        dpg.set_frame_callback(1, self.load_pos)
 
         if simulation:
             self.dev.AxesKeyBoardLargeStep = []
@@ -166,20 +174,145 @@ class GUI_smaract():
             self.dev.AxesKeyBoardLargeStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Cset") * self.dev.StepsIn1mm / 1e3) for ch in range(3)]
             self.dev.AxesKeyBoardSmallStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Fset") * self.dev.StepsIn1mm / 1e6) for ch in range(3)]
 
+    def save_pos(self):
+        # Dictionary to store window positions and dimensions
+        window_positions = {}
+
+        # Check if pico_Win exists and get its position and size
+        if dpg.does_item_exist("pico_Win"):
+            pico_win_pos = dpg.get_item_pos("pico_Win")
+            pico_win_size = dpg.get_item_width("pico_Win"), dpg.get_item_height("pico_Win")
+            window_positions["pico_Win"] = (pico_win_pos, pico_win_size)
+            print(f"Position of pico_Win: {pico_win_pos}, Size: {pico_win_size}")
+
+        # Check if mcs_Win exists and get its position and size
+        if dpg.does_item_exist("mcs_Win"):
+            mcs_win_pos = dpg.get_item_pos("mcs_Win")
+            mcs_win_size = dpg.get_item_width("mcs_Win"), dpg.get_item_height("mcs_Win")
+            window_positions["mcs_Win"] = (mcs_win_pos, mcs_win_size)
+            print(f"Position of mcs_Win: {mcs_win_pos}, Size: {mcs_win_size}")
+
+        # Check if Zelux Window exists and get its position and size
+        if dpg.does_item_exist("Zelux Window"):
+            zelux_win_pos = dpg.get_item_pos("Zelux Window")
+            zelux_win_size = dpg.get_item_width("Zelux Window"), dpg.get_item_height("Zelux Window")
+            window_positions["Zelux Window"] = (zelux_win_pos, zelux_win_size)
+            print(f"Position of Zelux Window: {zelux_win_pos}, Size: {zelux_win_size}")
+
+        # Check if OPX Window exists and get its position and size
+        if dpg.does_item_exist("OPX Window"):
+            opx_win_pos = dpg.get_item_pos("OPX Window")
+            opx_win_size = dpg.get_item_width("OPX Window"), dpg.get_item_height("OPX Window")
+            window_positions["OPX Window"] = (opx_win_pos, opx_win_size)
+            print(f"Position of OPX Window: {opx_win_pos}, Size: {opx_win_size}")
+
+        # Check if Map_window exists and get its position and size
+        if dpg.does_item_exist("Map_window"):
+            map_win_pos = dpg.get_item_pos("Map_window")
+            map_win_size = dpg.get_item_width("Map_window"), dpg.get_item_height("Map_window")
+            window_positions["Map_window"] = (map_win_pos, map_win_size)
+            print(f"Position of Map_window: {map_win_pos}, Size: {map_win_size}")
+
+        # Check if Scan_Window exists and get its position and size
+        if dpg.does_item_exist("Scan_Window"):
+            scan_win_pos = dpg.get_item_pos("Scan_Window")
+            scan_win_size = dpg.get_item_width("Scan_Window"), dpg.get_item_height("Scan_Window")
+            window_positions["Scan_Window"] = (scan_win_pos, scan_win_size)
+            print(f"Position of Scan_Window: {scan_win_pos}, Size: {scan_win_size}")
+
+        try:
+            # Read existing map_config.txt content, if available
+            try:
+                with open("map_config.txt", "r") as file:
+                    lines = file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Create a list to store the updated content
+            new_content = []
+
+            # Remove any existing window position and size entries
+            for line in lines:
+                if not any(win_name in line for win_name in window_positions.keys()):
+                    new_content.append(line)
+
+            # Append the new window positions and dimensions to the content
+            for win_name, (position, size) in window_positions.items():
+                new_content.append(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
+                new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
+
+            # Write back the updated content to the file
+            with open("map_config.txt", "w") as file:
+                file.writelines(new_content)
+
+            print("Window positions and sizes saved successfully to map_config.txt.")
+        except Exception as e:
+            print(f"Error saving window positions and sizes: {e}")
+
+    def load_pos(self):
+        try:
+            # Check if map_config.txt exists and read the contents
+            if not os.path.exists("map_config.txt"):
+                print("map_config.txt not found.")
+                return
+
+            # Dictionaries to store positions and sizes loaded from the file
+            window_positions = {}
+            window_sizes = {}
+
+            with open("map_config.txt", "r") as file:
+                lines = file.readlines()
+                for line in lines:
+                    # Split the line to get key and value
+                    parts = line.split(": ")
+                    if len(parts) != 2:
+                        continue  # Skip lines that don't have the expected format
+
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+
+                    # Check if the key is a window position entry
+                    if "_Pos" in key:
+                        # Extract window name and coordinates
+                        window_name = key.replace("_Pos", "")
+                        x, y = value.split(", ")
+                        window_positions[window_name] = (float(x), float(y))
+
+                    # Check if the key is a window size entry
+                    elif "_Size" in key:
+                        # Extract window name and dimensions
+                        window_name = key.replace("_Size", "")
+                        width, height = value.split(", ")
+                        window_sizes[window_name] = (int(width), int(height))
+
+            # Update window positions and sizes in Dear PyGui if the windows exist
+            for window_name, pos in window_positions.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_pos(window_name, pos)
+                    print(f"Loaded position for {window_name}: {pos}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
+            for window_name, size in window_sizes.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_width(window_name, size[0])
+                    dpg.set_item_height(window_name, size[1])
+                    print(f"Loaded size for {window_name}: {size}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
+        except Exception as e:
+            print(f"Error loading window positions and sizes: {e}")
 
     def backup(self):
         """
             Back up files changed in the last 'days' from the source directory to the backup directory.
-
-            :param source_dir: The directory to check for recently changed files.
-            :param backup_dir: The directory to store the backup files.
-            :param days: Number of days to look back for changes (default is 1 day).
             """
         source_dir = r'C:\WC\HotSystem'
         backup_dirs = [r'C:\WC\HotSystem_Backups',  # First backup directory
             r'Q:\QT-Quantum_Optic_Lab\Shai-OpticsLab'  # Second backup directory
         ]
-        days = 1  # Modify for how many days you want to look for recent changes
+        days = 3  # Modify for how many days you want to look for recent changes
 
         # Get current time and calculate the threshold for recently modified files
         current_time = time.time()
@@ -189,7 +322,7 @@ class GUI_smaract():
         timestamp = datetime.now().strftime('%Y-%m-%d_%H')
 
         # List of directories and file types to skip
-        skip_dirs = ['__pycache__', '.svn', '.idea', 'Utils']
+        skip_dirs = ['__pycache__', '.svn', '.idea', 'Utils','.venv','venv','.vscode']
         skip_extensions = ['.dll']
 
         # Iterate over the list of backup directories
@@ -610,6 +743,7 @@ class GUI_smaract():
         if self.simulation:
             print("Loaded smaract simulation device")
             return
+
         if self.selectedDevice != "":
             self.dev.connect(self.selectedDevice)
             if self.dev.IsConnected:
@@ -618,6 +752,7 @@ class GUI_smaract():
                 dpg.set_item_label(f"{self.prefix}_Connect", "Disconnect")
             else:
                 print(f"Connection to {self.prefix} device failed")
+
         else:
             print(f'Connection to {self.prefix} device failed. No device found.')
         

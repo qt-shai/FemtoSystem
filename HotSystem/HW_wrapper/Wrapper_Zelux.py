@@ -110,38 +110,62 @@ class Zelux:
             print("timeout reached during polling, program exiting...")
 
     def saveImage(self):
-        width=self.camera.image_width_pixels 
-        height=self.camera.image_height_pixels 
-        image=self.lateset_image_buffer
-        # Reshape the vector into a 2D array
-        image =image.reshape(height, width,4)
-        I = image[:,:,3]
-        r = image[:,:,0]
-        g = image[:,:,1]
-        b = image[:,:,2]
-        rgb_image = np.zeros((height, width, 3))
-        rgb_image[:,:,0] = r * I * 1.0
-        rgb_image[:,:,1] = g * I * 1.0
-        rgb_image[:,:,2] = b * I * 1.0
+        """Save the image to specified locations with error handling."""
+        try:
+            # Get the width and height of the image
+            width = self.camera.image_width_pixels
+            height = self.camera.image_height_pixels
+            image = self.lateset_image_buffer
 
-        max_pixel = rgb_image.max()
-        if (max_pixel>1.0):
-            rgb_image = rgb_image/max_pixel
+            # Reshape the vector into a 2D array
+            image = image.reshape(height, width, 4)
+            I = image[:, :, 3]
+            r = image[:, :, 0]
+            g = image[:, :, 1]
+            b = image[:, :, 2]
+            rgb_image = np.zeros((height, width, 3))
+            rgb_image[:, :, 0] = r * I * 1.0
+            rgb_image[:, :, 1] = g * I * 1.0
+            rgb_image[:, :, 2] = b * I * 1.0
 
-        # Display RGB image
-        # plt.imshow(image, cmap='gray')  # You can choose the colormap as per your requirement
-        # plt.imshow(rgb_image)
-        # plt.axis('off')
-        # plt.close() # close figure
+            # Normalize image if necessary
+            max_pixel = rgb_image.max()
+            if max_pixel > 1.0:
+                rgb_image = rgb_image / max_pixel
 
-        # todo: change file name based on timestamp
-        folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/'
-        if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
-            os.makedirs(folder_path)
-        timeStamp = getCurrentTimeStamp()
-        plt.imsave(folder_path + timeStamp + '_'+ self.imageNotes +'.png', rgb_image) # save image to png
-        plt.imsave(folder_path + 'Last_Image.png', rgb_image) # save image to png
-        increase_brightness(folder_path + "Last_Image.png",folder_path + "Zelux_Last_Image.png", 10)
+            # Ensure the folder exists, create if not
+            folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/'
+            if not os.path.exists(folder_path):
+                os.makedirs(folder_path)
+
+            # Get a timestamp for file naming
+            timeStamp = getCurrentTimeStamp()
+
+            # Save images to different locations with error handling
+            try:
+                plt.imsave(folder_path + timeStamp + '_' + self.imageNotes + '.png',
+                           rgb_image)  # Save image with timestamp
+                print(f"Image saved successfully to {folder_path + timeStamp + '_' + self.imageNotes + '.png'}")
+            except Exception as e:
+                print(f"Failed to save image with timestamp: {e}")
+
+            try:
+                plt.imsave(folder_path + 'Last_Image.png', rgb_image)  # Save latest image
+                print(f"Last image saved successfully to {folder_path + 'Last_Image.png'}")
+            except Exception as e:
+                print(f"Failed to save last image: {e}")
+
+            # Attempt to increase brightness and save again
+            try:
+                increase_brightness(folder_path + "Last_Image.png", folder_path + "Zelux_Last_Image.png", 10)
+                print("Brightness increased and saved to Zelux_Last_Image.png")
+            except Exception as e:
+                print(f"Failed to increase brightness and save: {e}")
+
+        except AttributeError as attr_err:
+            print(f"AttributeError: {attr_err}. Please check image attributes and camera settings.")
+        except Exception as e:
+            print(f"An error occurred while saving the image: {e}")
 
     def StopGrabbing(self):
         self.camera.disarm()

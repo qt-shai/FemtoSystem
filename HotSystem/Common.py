@@ -1,4 +1,5 @@
 import datetime
+from datetime import datetime
 import socket
 import threading
 from enum import Enum
@@ -47,10 +48,22 @@ def get_ip_address(domain_name: str) -> str:
     except socket.gaierror:
         return "Invalid domain name or DNS lookup failure."
 
-def getCurrentTimeStamp():
-    now = datetime.now()
-    return str(now.year) + "_" + str(now.month) + "_" + str(now.day) + "_" + str(now.hour) + "_" + str(
-        now.minute) + "_" + str(now.second)
+def getCurrentTimeStamp() -> str:
+    """Get the current timestamp in the format: Year_Month_Day_Hour_Minute_Second."""
+    try:
+        # Attempt to get the current time
+        now = datetime.now()
+        # Create a timestamp string using the current time
+        timestamp = f"{now.year}_{now.month}_{now.day}_{now.hour}_{now.minute}_{now.second}"
+        return timestamp
+    except AttributeError as e:
+        print(f"AttributeError encountered: {e}. Returning generic timestamp.")
+    except Exception as e:
+        print(f"An error occurred while getting the timestamp: {e}. Returning generic timestamp.")
+
+    # Return a generic timestamp if an error occurs
+    return "1970_01_01_00_00_00"
+
 
 # Example usage:
 # ip = get_ip_address("example.com")
