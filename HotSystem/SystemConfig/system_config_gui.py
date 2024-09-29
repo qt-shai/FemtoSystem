@@ -314,4 +314,3 @@ if __name__ == "__main__":
     dpg.show_viewport()
     dpg.start_dearpygui()
     dpg.destroy_context()
-
