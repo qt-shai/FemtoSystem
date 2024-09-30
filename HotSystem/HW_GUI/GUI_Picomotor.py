@@ -18,6 +18,7 @@ class GUI_picomotor():
         self.dev = self.HW.picomotor
         self.simulation = simulation
         self.prefix = "pico"
+        self.window_tag:str = f"{self.prefix}_Win"
         self.ch_offset = 1
 
         themes = DpgThemes()
@@ -31,7 +32,7 @@ class GUI_picomotor():
 
         Child_Width=80
         lbl_list = ["out", "in", "left", "right", "down", "up"]
-        with dpg.window(tag=f"{self.prefix}_Win", label="Picomotor, disconnected", no_title_bar=False, height=200, width=1400,pos=pos,
+        with dpg.window(tag=self.window_tag, label="Picomotor, disconnected", no_title_bar=False, height=200, width=1400,pos=pos,
                         collapsed=True):
             with dpg.group(horizontal=True):  
                 with dpg.group(horizontal=False, tag="column 1_"):
@@ -166,9 +167,9 @@ class GUI_picomotor():
                             self.dev.LoggedPoints.append(logged_point)
                             self.NumOfLoggedPoints += 1
 
-                            current_height = dpg.get_item_height(f"{self.prefix}_Win")
+                            current_height = dpg.get_item_height(self.window_tag)
                             new_height = current_height + 30  # Increase height by 50 units
-                            dpg.configure_item(f"{self.prefix}_Win", height=new_height)
+                            dpg.configure_item(self.window_tag, height=new_height)
 
                             # Check how many points have been logged and calculate u or v
                             if self.NumOfLoggedPoints == 2:
@@ -219,9 +220,9 @@ class GUI_picomotor():
 
     def btnLogPoint(self):
 
-        current_height = dpg.get_item_height(f"{self.prefix}_Win")
+        current_height = dpg.get_item_height(self.window_tag)
         new_height = current_height + 30  # Increase height by 50 units
-        dpg.configure_item(f"{self.prefix}_Win", height=new_height)
+        dpg.configure_item(self.window_tag, height=new_height)
 
         self.dev.GetPosition()
 
@@ -264,9 +265,9 @@ class GUI_picomotor():
 
     def btnDelPoint(self):
 
-        current_height = dpg.get_item_height(f"{self.prefix}_Win")
+        current_height = dpg.get_item_height(self.window_tag)
         new_height = current_height - 30  # Increase height by 50 units
-        dpg.configure_item(f"{self.prefix}_Win", height=new_height)
+        dpg.configure_item(self.window_tag, height=new_height)
 
         if self.dev.IsConnected:
             self.dev.LoggedPoints.pop()  # [pm]  Removes the last item
@@ -312,9 +313,9 @@ class GUI_picomotor():
             # Rebuild the table to reflect the change
             self.update_table()
 
-            current_height = dpg.get_item_height(f"{self.prefix}_Win")
+            current_height = dpg.get_item_height(self.window_tag)
             new_height = current_height - 30  # Increase height by 50 units
-            dpg.configure_item(f"{self.prefix}_Win", height=new_height)
+            dpg.configure_item(self.window_tag, height=new_height)
 
 
     def go_abs_callback(self,point):
@@ -417,7 +418,7 @@ class GUI_picomotor():
         self.dev.connect()
         print("Connecting")  
         if self.dev.IsConnected:
-            dpg.set_item_label(f"{self.prefix}_Win",f"{self.prefix} stage, connected")
+            dpg.set_item_label(self.window_tag,f"{self.prefix} stage, connected")
             for ch in range(self.dev.no_of_channels):
                 self.dev.AxesKeyBoardLargeStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Cset") * self.dev.StepsIn1mm / 1e3) for ch in range(3)]
                 self.dev.AxesKeyBoardSmallStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Fset") * self.dev.StepsIn1mm / 1e6) for ch in range(3)]

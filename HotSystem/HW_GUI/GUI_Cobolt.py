@@ -8,6 +8,7 @@ class GUI_Cobolt(): #todo: support several devices
     # init parameters
     def __init__(self, simulation: bool = False):
         
+        self.window_tag = "LaserWin"
         self.laser=[]
         self.available_ports = []
         self.Port = []
@@ -45,7 +46,7 @@ class GUI_Cobolt(): #todo: support several devices
 
         # Define the layout of the GUI
         Child_Width=180
-        with dpg.window(tag="LaserWin", label="Cobolt Laser, disconnected", no_title_bar=False, height=440, width=1600,collapsed=True):
+        with dpg.window(tag=self.window_tag, label="Cobolt Laser, disconnected", no_title_bar=False, height=440, width=1600,collapsed=True):
             with dpg.group(tag="Indicators",horizontal=True):  
                 # Column 1: Connection settings and mode selection
                 with dpg.group(horizontal=False, tag="column 1",width=Child_Width):
@@ -106,7 +107,7 @@ class GUI_Cobolt(): #todo: support several devices
                         dpg.add_checkbox(tag="ON_OFF_Modulation",default_value=False,callback=self.cbxON_OFF_MOdulation,indent=180)
 
         # Bind themes to the main window and controls
-        # dpg.bind_item_theme("LaserWin", win_theme)
+        # dpg.bind_item_theme(self.window_tag, win_theme)
         dpg.bind_item_theme(item="controls", theme=yellow_theme)       
         for item in self.items_list:
             dpg.disable_item(item) # Disable controls initially until connected

@@ -236,7 +236,7 @@ def find_ethernet_device(ip_address: str, instrument: Instruments) -> Optional[D
     :return: A Device object if the device is available and responds, None otherwise.
     """
     # Ping the device
-    if ping_device(ip_address):
+    if ping_device(ip_address, timeout=2):
         print(f"Device at {ip_address} is available.")
         # Get the MAC address
         mac_address = get_mac_address(ip_address)

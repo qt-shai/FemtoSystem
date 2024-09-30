@@ -5,6 +5,7 @@ from HW_wrapper import HW_devices as hw_devices
 
 class GUI_RS_SGS100a(): #todo: support several devices
     def __init__(self, simulation:bool = False):
+        self.window_tag:str = ""
         self.simulation = simulation
         if not simulation:
             self.HW = hw_devices.HW_devices()

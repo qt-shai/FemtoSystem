@@ -615,6 +615,7 @@ class GUI_OPX(): #todo: support several device
     # init parameters
     def __init__(self, simulation:bool = False):
         # HW
+        self.window_tag = "OPX Window"
         self.HW = hw_devices.HW_devices(simulation)
         self.mwModule = self.HW.microwave
         self.positioner = self.HW.positioner
@@ -989,9 +990,9 @@ class GUI_OPX(): #todo: support several device
         pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.4)]
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
 
-        dpg.add_window(label="OPX Window", tag="OPX Window", no_title_bar=True, height=-1, width=-1,
+        dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1,
                        pos=[int(pos[0]), int(pos[1])])
-        dpg.add_group(tag="Graph_group", parent="OPX Window", horizontal=True)
+        dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
         dpg.add_plot(label="Graph", width=int(win_size[0]), height=int(win_size[1]), crosshairs=True, tag="graphXY",
                      parent="Graph_group")  #height=-1, width=-1,no_menus = False )
         dpg.add_plot_legend(parent="graphXY")  # optionally create legend
@@ -1006,7 +1007,7 @@ class GUI_OPX(): #todo: support several device
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
 
-        dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=False)
+        dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=False)
         self.GUI_ParametersControl(True)
 
 
@@ -1018,7 +1019,7 @@ class GUI_OPX(): #todo: support several device
         dpg.delete_item("Buttons_Controls")
 
         if isStart:
-            dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=False)
+            dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=False)
 
             # Create a single collapsible header to contain all controls, collapsed by default
             with dpg.collapsing_header(label="Parameter Controls", tag="Parameter_Controls_Header",
@@ -1263,7 +1264,7 @@ class GUI_OPX(): #todo: support several device
             dpg.bind_item_theme(item="btnOPX_StartNuclearMR", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearPolESR", theme="btnGreenTheme")
         else:
-            dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=True)
+            dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=True)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1)
             dpg.bind_item_theme(item="btnOPX_Stop", theme="btnRedTheme")
 
