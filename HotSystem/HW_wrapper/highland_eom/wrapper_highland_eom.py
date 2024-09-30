@@ -31,7 +31,8 @@ class HighlandT130(SerialDevice):
     Class to manage communication with the Highland T130 EOM driver via USB.
     """
 
-    def __init__(self, address: str, baudrate: int = 115200, timeout: int = 1000, simulation: bool = False):
+    def __init__(self, address: str, baudrate: int = 115200, timeout: int = 1000, simulation: bool = False,
+                 serial_number: str = None, name: str = None):
         """
         Initialize the Highland T130 EOM driver.
 
@@ -39,10 +40,16 @@ class HighlandT130(SerialDevice):
         :param baudrate: The baud rate for the serial communication.
         :param timeout: Timeout for serial communication in ms.
         :param simulation: If True, operate in simulation mode.
+        :param serial_number: The serial number of the motor device.
+        :param name: The name of the motor device.
+
         """
         self.simulation: bool = simulation
         super().__init__(address, baudrate, timeout, simulation)  # Initialize the base class
+        self.connect()
         self.terminator: str = '' #'\r\n'
+        self.serial_number: str = serial_number  # Optional serial number
+        self.name: str = name  # Optional device name
 
     def _simulate_action(self, action: str, verbose: bool) -> None:
         """

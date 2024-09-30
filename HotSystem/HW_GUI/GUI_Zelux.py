@@ -5,6 +5,7 @@ from HW_wrapper import HW_devices as hw_devices
 
 class ZeluxGUI():
     def __init__(self):
+        self.window_tag = "Zelux Window"
         self.HW = hw_devices.HW_devices()
         self.cam = self.HW.camera
 
@@ -14,7 +15,7 @@ class ZeluxGUI():
         self.LiveTh = threading.Thread(target=self.cam.LiveTh)
         self.LiveTh.setDaemon(True)
         self.LiveTh.start()
-        stopBtn = dpg.add_button(label="Stop Live", before="btnStartLive", parent="Zelux Window",tag="btnStopLive", callback=self.StopLive)
+        stopBtn = dpg.add_button(label="Stop Live", before="btnStartLive", parent=self.window_tag,tag="btnStopLive", callback=self.StopLive)
         dpg.delete_item("btnStartLive")
         # dpg.delete_item("btnSave")
         dpg.bind_item_theme(item = "btnStopLive", theme = "btnRedTheme")
@@ -23,7 +24,7 @@ class ZeluxGUI():
         global startBtn
         self.cam.constantGrabbing = False
         self.LiveTh.join()
-        startBtn = dpg.add_button(label="Start Live", before="btnStopLive",parent="Zelux Window",tag="btnStartLive", callback=self.StartLive)
+        startBtn = dpg.add_button(label="Start Live", before="btnStopLive",parent=self.window_tag,tag="btnStartLive", callback=self.StartLive)
         # dpg.add_button(label="Save Image", before="btnStopLive", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
         dpg.delete_item("btnStopLive")
         dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
@@ -48,21 +49,21 @@ class ZeluxGUI():
         pass
     
     def AddNewWindow(self, _width = 800):
-        dpg.add_window(label="Zelux Window", tag="Zelux Window",
+        dpg.add_window(label=self.window_tag, tag=self.window_tag,
                         pos = [15,15],
                         width=int(_width*1.0), 
                         height=int(_width*self.cam.ratio*1.2))
         pass
 
     def DeleteMainWindow(self):
-        dpg.delete_item(item="Zelux Window")
+        dpg.delete_item(item=self.window_tag)
         pass
     
     
     def GUI_controls(self, isConnected = False, _width = 800):
         dpg.delete_item("groupZeluxControls")
         if isConnected:
-            dpg.add_group(tag="groupZeluxControls", parent="Zelux Window",horizontal=True)
+            dpg.add_group(tag="groupZeluxControls", parent=self.window_tag,horizontal=True)
             dpg.add_button(label="Start Live", callback=self.StartLive,tag="btnStartLive", parent="groupZeluxControls")
             dpg.add_button(label="Save Image", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
 
@@ -89,7 +90,7 @@ class ZeluxGUI():
             with dpg.drawlist(width=_width, height=_width*self.cam.ratio):
                 dpg.draw_image("image_id", (0, 0), (_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1))
         else:
-            dpg.add_group(tag="ZeluxControls", parent="Zelux Window",horizontal=False)
+            dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=False)
             dpg.add_text("camera is probably not connected")
 
     def Controls(self):
@@ -102,11 +103,11 @@ class ZeluxGUI():
                                     tag="image_id")
 
         _width = 1000
-        with dpg.window(label="Zelux Window", tag="Zelux Window", no_title_bar = False,
+        with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar = False,
                         pos = [15,15],
                         width=int(_width*1.0), 
                         height=int(_width*self.cam.ratio*1.2)):
-            dpg.add_group(tag="ZeluxControls", parent="Zelux Window",horizontal=True)
+            dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=True)
             if len(self.cam.available_cameras) < 1:
                 self.GUI_controls(isConnected = False, _width = 700)
             else:

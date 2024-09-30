@@ -25,6 +25,7 @@ class GUI_smaract():
         self.dev.GetAvailableDevices()
 
         self.prefix = "mcs"
+        self.window_tag:str = f"{self.prefix}_Win"
         self.ch_offset = 0
 
         if simulation:
@@ -40,7 +41,7 @@ class GUI_smaract():
         child_width = 100
         # lbl_list=["in","out","right","left","up","down"]
         lbl_list = ["out", "in", "left", "right", "down", "up"]
-        with dpg.window(tag=f"{self.prefix}_Win", label=f"{self.prefix} stage, disconnected", no_title_bar=False, height=self.viewport_height/8, width=self.viewport_width*0.8, pos=[0, 0],
+        with dpg.window(tag=self.window_tag, label=f"{self.prefix} stage, disconnected", no_title_bar=False, height=self.viewport_height/8, width=self.viewport_width*0.8, pos=[0, 0],
                         collapsed=False):
             with dpg.group(horizontal=True):
                 with dpg.group(horizontal=False, tag="_column 1_"):
@@ -427,9 +428,9 @@ class GUI_smaract():
 
     def btnLogPoint(self):
 
-        current_height = dpg.get_item_height(f"{self.prefix}_Win")
+        current_height = dpg.get_item_height(self.window_tag)
         new_height = current_height + 30  # Increase height by 50 units
-        dpg.configure_item(f"{self.prefix}_Win", height=new_height)
+        dpg.configure_item(self.window_tag, height=new_height)
 
         if self.dev.IsConnected:
             self.log_point(self.dev.AxesPositions)
@@ -492,9 +493,9 @@ class GUI_smaract():
                             logged_point = (float(coords[0]), float(coords[1]), float(coords[2]))
                             self.dev.LoggedPoints.append(logged_point)
 
-                            current_height = dpg.get_item_height(f"{self.prefix}_Win")
+                            current_height = dpg.get_item_height(self.window_tag)
                             new_height = current_height + 30  # Increase height by 50 units
-                            dpg.configure_item(f"{self.prefix}_Win", height=new_height)
+                            dpg.configure_item(self.window_tag, height=new_height)
 
                             # Check how many points have been logged and calculate u or v
                             if len(self.dev.LoggedPoints) == 3:
@@ -563,9 +564,9 @@ class GUI_smaract():
     def delete_table_row(self, index):
         """Delete a row from the table and update the points list."""
         if 0 <= index < len(self.dev.LoggedPoints):
-            current_height = dpg.get_item_height(f"{self.prefix}_Win")
+            current_height = dpg.get_item_height(self.window_tag)
             new_height = current_height - 30  # Increase height by 50 units
-            dpg.configure_item(f"{self.prefix}_Win", height=new_height)
+            dpg.configure_item(self.window_tag, height=new_height)
 
             # Remove the selected point
             del self.dev.LoggedPoints[index]
@@ -574,9 +575,9 @@ class GUI_smaract():
             self.update_table()
 
     def btnDelPoint(self):
-        current_height = dpg.get_item_height(f"{self.prefix}_Win")
+        current_height = dpg.get_item_height(self.window_tag)
         new_height = current_height - 30  # Increase height by 50 units
-        dpg.configure_item(f"{self.prefix}_Win", height=new_height)
+        dpg.configure_item(self.window_tag, height=new_height)
 
         if self.dev.IsConnected:
             self.dev.LoggedPoints.pop()  # [pm]  Removes the last item
@@ -607,7 +608,7 @@ class GUI_smaract():
             self.connect()
         else:
             self.dev.Disconnect()
-            dpg.set_item_label(f"{self.prefix}_Win", "Smaract, disconnected")
+            dpg.set_item_label(self.window_tag, "Smaract, disconnected")
             dpg.set_item_label(f"{self.prefix}_Connect", "Connect")
 
     def btn_get_av_device_list(self):
@@ -666,7 +667,7 @@ class GUI_smaract():
             self.dev.connect(self.selectedDevice)
             if self.dev.IsConnected:
                 print(f"Connected to {self.prefix}")
-                dpg.set_item_label(f"{self.prefix}_Win", f"{self.prefix} stage, {self.selectedDevice}, connected")
+                dpg.set_item_label(self.window_tag, f"{self.prefix} stage, {self.selectedDevice}, connected")
                 dpg.set_item_label(f"{self.prefix}_Connect", "Disconnect")
             else:
                 print(f"Connection to {self.prefix} device failed")

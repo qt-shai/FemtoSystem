@@ -22,20 +22,21 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
     Simulate available devices for each instrument type.
     Returns a list of Device instances.
     """
-    # For simplicity, we'll simulate two devices per instrument
     devices = None
     if instrument == Instruments.SMARACT_SLIP:
         devices = [dev for dev in Smaract.smaractMCS2.get_available_devices() if "MCS2-00017055" in dev.serial_number]
     if instrument == Instruments.SMARACT_SCANNER:
         devices = [dev for dev in Smaract.smaractMCS2.get_available_devices() if "MCS2-00018624" in dev.serial_number]
     if instrument == Instruments.PICOMOTOR:
-        devices = Picomotor.newportPicomotor.get_available_devices()
+         devices = Picomotor.newportPicomotor.get_available_devices()
     if instrument == Instruments.ZELUX:
         devices = ZeluxCamera.Zelux.get_available_devices()
     if instrument == Instruments.ROHDE_SCHWARZ:
         devices = find_ethernet_device(SystemConfig.microwave_ip, instrument)
     if instrument == Instruments.ATTO_POSITIONER:
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
+    if not isinstance(devices, list) and devices:
+        devices = [devices]
 
     return devices
 
@@ -178,15 +179,6 @@ def create_themes():
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (167, 199, 231), category=dpg.mvThemeCat_Core)  # Pastel magenta
         with dpg.theme_component(dpg.mvText):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
-
-def create_system_config_selector():
-    pass
-    # with dpg.window(tag="config_window", width=130, height=130, collapsed=False, no_title_bar=True, pos=[1500, 200]):
-    #     dpg.add_image_button(
-    #         f"config_texture", width=80, height=80,
-    #         callback= run_system_config_gui,
-    #         user_data=None
-    #     )
 
 def run_system_config_gui():
     """
