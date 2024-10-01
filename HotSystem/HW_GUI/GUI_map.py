@@ -70,7 +70,7 @@ class Map:
                     self.Map_aspect_ratio = self.width / self.height
 
                 with dpg.window(label="Map Resizer", width=win_size[0], height=win_size[1]*3, tag="Map_window",
-                                pos=[700, 5], horizontal_scrollbar=True):
+                                pos=[700, 5], horizontal_scrollbar=True, collapsed=True):
                     child_width = win_size[0]*0.45
                     child_height = win_size[1]*0.5
                     # Main horizontal group to separate controls and map

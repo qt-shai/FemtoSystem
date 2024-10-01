@@ -3,12 +3,14 @@ import  HW_wrapper
 import serial.tools.list_ports
 from Common import DpgThemes
 import HW_wrapper.Wrapper_Cobolt
+from HW_wrapper.HW_devices import HW_devices
+
 
 class GUI_Cobolt(): #todo: support several devices
     # init parameters
-    def __init__(self, simulation: bool = False):
-        
-        self.laser=[]
+    def __init__(self, simulation: bool = False, com_port:str = "4"):
+        self.HW = HW_devices(simulation=simulation)
+        self.laser= self.HW.cobolt
         self.available_ports = []
         self.Port = []
         self.isConnected=False
@@ -35,7 +37,8 @@ class GUI_Cobolt(): #todo: support several devices
             Ports_str = ["empty"]
         else:
             for idx in range(len(self.ports)):
-                Ports_str.append(self.ports[idx].device + ", " + self.ports[idx].description)
+                # Ports_str.append(self.ports[idx].device + ", " + self.ports[idx].description)
+                Ports_str.append(self.ports[idx].device)
 
         # Define GUI themes
         themes = DpgThemes()
@@ -51,7 +54,7 @@ class GUI_Cobolt(): #todo: support several devices
                 with dpg.group(horizontal=False, tag="column 1",width=Child_Width):
                     dpg.add_text("Connection", color=(255, 255, 0))
                     with dpg.group(horizontal=True):
-                        dpg.add_combo(items=Ports_str, tag = "Ports", callback=self.cmbPort,default_value = Ports_str[0],width=150)
+                        dpg.add_combo(items=Ports_str, tag = "Ports", callback=self.cmbPort,default_value = "COM"+str(com_port),width=150)
                         dpg.add_button(label="Connect",tag="Laser Connect",callback = self.btnConnect,width=50)
 
                     dpg.add_text(default_value="Port ---",tag="Laser Port")
@@ -192,11 +195,13 @@ class GUI_Cobolt(): #todo: support several devices
             except Exception as e:
                 print(f"Error during disconnection: {e}")
         else:            
-            self.Port=dpg.get_value("Ports")[0:4]
+            # self.Port=dpg.get_value("Ports")[0:4]
+            self.Port = dpg.get_value("Ports")
+            print(self.Port)
             dpg.set_item_label("Laser Connect","Connecting to "+self.Port+"..")
             try: 
                 # Attempt to connect to the laser
-                self.laser= HW_wrapper.Wrapper_Cobolt.Cobolt06MLD(port=self.Port)
+
                 dpg.set_value("Laser Port","Connected to " + str(self.laser.address.port))
                 self.isConnected=self.laser.isConnected #True
                 # Enable control items since the laser is connected

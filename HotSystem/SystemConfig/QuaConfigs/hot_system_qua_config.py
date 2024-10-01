@@ -46,7 +46,7 @@ class HotSystemQuaConfig(QUAConfigBase):
         self.rf_frequency = 3.03 * self.u.MHz
         self.rf_amp = 0.1
         self.rf_length = 1000
-        self.rf_delay = 8  # ns
+        self.rf_delay = 308  # ns
 
     def get_controllers(self) -> Dict[str, Any]:
         return {

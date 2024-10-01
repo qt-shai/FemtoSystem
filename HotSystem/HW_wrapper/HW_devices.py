@@ -3,8 +3,8 @@ from typing import Optional
 import threading
 
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor
-from HW_wrapper.Wrapper_Cobolt import CoboltLaser
-from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config
+from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
+from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, Device
 
 
 class HW_devices:
@@ -77,7 +77,8 @@ class HW_devices:
                 self.positioner = smaractMCS2(simulation=self.simulation)
 
             elif instrument == Instruments.COBOLT:
-                pass
+                cobolt_config: Device = [x for x in self.config.devices if x.instrument is Instruments.COBOLT][0]
+                self.cobolt = Cobolt06MLD(cobolt_config.com_port)
 
             elif instrument == Instruments.PICOMOTOR:
                 self.picomotor = newportPicomotor(self.simulation)

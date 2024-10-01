@@ -1,6 +1,6 @@
 # Import the .NET Common Language Runtime (CLR) to allow interaction with .NET
 # Install the 'pythonnet' package using 'pip install pythonnet'
-
+import time
 # Solution: Unblock the Assembly
 # Unblock the Assembly:
 #
@@ -251,7 +251,12 @@ class newportPicomotor():
             for ch in range(self.no_of_channels):
                 status, self.AxesPositions[ch] = self.Pico.GetPosition(self.ky, ch + 1, 0)
                 if not status:
-                    print(f"Failed to get position for channel {ch+1}")
+                    print('Connection probably lost, trying to reconnect')
+                    self.connect()
+                    time.sleep(0.3)
+                    status, self.AxesPositions[ch] = self.Pico.GetPosition(self.ky, ch + 1, 0)
+                    if not status:
+                        print(f"Failed to get position for channel {ch+1}")
         except Exception as e:
             self.error = f"Failed to get position: {e}"
             print(self.error)

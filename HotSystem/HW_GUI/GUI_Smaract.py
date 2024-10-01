@@ -175,50 +175,22 @@ class GUI_smaract():
             self.dev.AxesKeyBoardSmallStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Fset") * self.dev.StepsIn1mm / 1e6) for ch in range(3)]
 
     def save_pos(self):
+        # Define the list of windows to check and save positions for
+        window_names = [
+            "pico_Win", "mcs_Win", "Zelux Window",
+            "OPX Window", "Map_window", "Scan_Window", "LaserWin"
+        ]
+
         # Dictionary to store window positions and dimensions
         window_positions = {}
 
-        # Check if pico_Win exists and get its position and size
-        if dpg.does_item_exist("pico_Win"):
-            pico_win_pos = dpg.get_item_pos("pico_Win")
-            pico_win_size = dpg.get_item_width("pico_Win"), dpg.get_item_height("pico_Win")
-            window_positions["pico_Win"] = (pico_win_pos, pico_win_size)
-            print(f"Position of pico_Win: {pico_win_pos}, Size: {pico_win_size}")
-
-        # Check if mcs_Win exists and get its position and size
-        if dpg.does_item_exist("mcs_Win"):
-            mcs_win_pos = dpg.get_item_pos("mcs_Win")
-            mcs_win_size = dpg.get_item_width("mcs_Win"), dpg.get_item_height("mcs_Win")
-            window_positions["mcs_Win"] = (mcs_win_pos, mcs_win_size)
-            print(f"Position of mcs_Win: {mcs_win_pos}, Size: {mcs_win_size}")
-
-        # Check if Zelux Window exists and get its position and size
-        if dpg.does_item_exist("Zelux Window"):
-            zelux_win_pos = dpg.get_item_pos("Zelux Window")
-            zelux_win_size = dpg.get_item_width("Zelux Window"), dpg.get_item_height("Zelux Window")
-            window_positions["Zelux Window"] = (zelux_win_pos, zelux_win_size)
-            print(f"Position of Zelux Window: {zelux_win_pos}, Size: {zelux_win_size}")
-
-        # Check if OPX Window exists and get its position and size
-        if dpg.does_item_exist("OPX Window"):
-            opx_win_pos = dpg.get_item_pos("OPX Window")
-            opx_win_size = dpg.get_item_width("OPX Window"), dpg.get_item_height("OPX Window")
-            window_positions["OPX Window"] = (opx_win_pos, opx_win_size)
-            print(f"Position of OPX Window: {opx_win_pos}, Size: {opx_win_size}")
-
-        # Check if Map_window exists and get its position and size
-        if dpg.does_item_exist("Map_window"):
-            map_win_pos = dpg.get_item_pos("Map_window")
-            map_win_size = dpg.get_item_width("Map_window"), dpg.get_item_height("Map_window")
-            window_positions["Map_window"] = (map_win_pos, map_win_size)
-            print(f"Position of Map_window: {map_win_pos}, Size: {map_win_size}")
-
-        # Check if Scan_Window exists and get its position and size
-        if dpg.does_item_exist("Scan_Window"):
-            scan_win_pos = dpg.get_item_pos("Scan_Window")
-            scan_win_size = dpg.get_item_width("Scan_Window"), dpg.get_item_height("Scan_Window")
-            window_positions["Scan_Window"] = (scan_win_pos, scan_win_size)
-            print(f"Position of Scan_Window: {scan_win_pos}, Size: {scan_win_size}")
+        # Iterate through the list of window names and collect their positions and sizes if they exist
+        for win_name in window_names:
+            if dpg.does_item_exist(win_name):
+                win_pos = dpg.get_item_pos(win_name)
+                win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
+                window_positions[win_name] = (win_pos, win_size)
+                print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
 
         try:
             # Read existing map_config.txt content, if available
@@ -228,13 +200,8 @@ class GUI_smaract():
             except FileNotFoundError:
                 lines = []
 
-            # Create a list to store the updated content
-            new_content = []
-
             # Remove any existing window position and size entries
-            for line in lines:
-                if not any(win_name in line for win_name in window_positions.keys()):
-                    new_content.append(line)
+            new_content = [line for line in lines if not any(win_name in line for win_name in window_positions.keys())]
 
             # Append the new window positions and dimensions to the content
             for win_name, (position, size) in window_positions.items():

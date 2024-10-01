@@ -615,10 +615,15 @@ class GUI_OPX(): #todo: support several device
     # init parameters
     def __init__(self, simulation:bool = False):
         # HW
+        self.max1 = None
+        self.max = None
+        self.plt_y = None
+        self.plt_x = None
         self.HW = hw_devices.HW_devices(simulation)
         self.mwModule = self.HW.microwave
         self.positioner = self.HW.positioner
         self.pico = self.HW.picomotor
+        self.laser = self.HW.cobolt
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
             self.ScanTrigger = 101 # IO2
             self.TrackingTrigger = 101 # IO1
@@ -747,12 +752,15 @@ class GUI_OPX(): #todo: support several device
         # load class parameters from XML
         self.update_from_xml()
         self.bScanChkbox = False
+
         self.chkbox_close_all_qm = False
         # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
 
         # self.ZCalibrationData = np.array([[1274289050, 1099174441, -5215799855],[1274289385, -1900825080, -5239700330],[-1852010640, -1900825498, -5277599782]])
 
-        if not simulation:
+        if simulation:
+            print("OPX in simulation mode ***********************")
+        else:
             try:
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
                 self.qmm = QuantumMachinesManager(host = self.HW.config.opx_ip, cluster_name = self.HW.config.opx_cluster, timeout = 60) # in seconds
@@ -1272,13 +1280,13 @@ class GUI_OPX(): #todo: support several device
         self.maintain_aspect_ratio = True
 
         win_size = [int(self.viewport_width*0.6), int(self.viewport_height*0.3)]
-        win_pos = [int(self.viewport_width*0.05)*0, int(self.viewport_height*0.3)]
+        win_pos = [int(self.viewport_width*0.05)*0, int(self.viewport_height*0.5)]
         scan_time_in_seconds = self.estimatedScanTime * 60
 
         item_width = int(200* self.window_scale_factor)
         if self.bScanChkbox:
 
-            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=win_size[0]*.8,
+            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=win_size[0]*.7,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
                     # Left side: Scan settings and controls
@@ -1343,25 +1351,49 @@ class GUI_OPX(): #todo: support several device
                             dpg.add_button(label="Update images", tag="btnOPX_UpdateImages",
                                            callback=self.btnUpdateImages, indent=1, width=130)
                             dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
-                            dpg.add_button(label="Find Peak", tag="btnOPX_FindPeak", callback=self.btnFindPeak,
-                                           indent=-1, width=130)
-                            dpg.bind_item_theme(item="btnOPX_FindPeak", theme="btnYellowTheme")
+                            dpg.add_button(label="Auto Focus", tag="btnOPX_AutoFocus", callback=self.btnAutoFocus, indent=-1, width=130)
+                            dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                             dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint",
                                            callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
                     with dpg.group(horizontal=False):
                         dpg.add_button(label="Updt from map",callback=self.update_from_map)
                         dpg.add_button(label="scan all markers",callback=self.scan_all_markers)
+                        dpg.add_button(label="plot",callback=self.plot_graph)
 
                     self.btnGetLoggedPoints()  # get logged points
                     self.map = Map(self.ZCalibrationData)
                     self.map.create_map_gui(win_size,win_pos)
+                    # dpg.set_frame_callback(1, self.load_pos)
         else:
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
 
+    def plot_graph(self):
+        # Check if plt_x and plt_y are not None
+        if self.plt_x is not None and self.plt_y is not None:
+            plt.plot(self.plt_x, self.plt_y, label="Data")
 
+            # Check if self.max and self.max1 are not None before plotting vertical lines
+            if self.plt_max is not None:
+                plt.axvline(x=self.plt_max, color='r', linestyle='--', label=f"Max: {self.plt_max}")
+            if self.plt_max1 is not None:
+                plt.axvline(x=self.plt_max1, color='g', linestyle='--', label=f"Max1: {self.plt_max1}")
+
+            # Add labels and legend
+            plt.xlabel("Z-axis")
+            plt.ylabel("Intensity")
+            plt.title("Graph with Max and Max1 Lines")
+            plt.legend()
+            plt.grid(True)
+            plt.show()
+
+            # Save the plot as a PNG file
+            file_path = "saved_plot.png"
+            plt.savefig(file_path)
+        else:
+            print("Error: plt_x or plt_y is None. Unable to plot the graph.")
 
     def update_from_map(self,index=0):
         """Update scan parameters based on the selected area marker."""
@@ -1531,107 +1563,115 @@ class GUI_OPX(): #todo: support several device
             self.queried_plane = None
 
     def Plot_Loaded_Scan(self, use_fast_rgb: bool = False):
-        start_Plot_time = time.time()
-       
-        plot_size = [int(self.viewport_width*0.3), int(self.viewport_height*0.4)]
-                
-        arrYZ = np.flipud(self.scan_data[:,:,self.idx_scan[Axis.X.value]])
-        arrXZ = np.flipud(self.scan_data[:,self.idx_scan[Axis.Y.value],:])
-        arrXY = np.flipud(self.scan_data[self.idx_scan[Axis.Z.value],:,:])
+        try:
+            start_Plot_time = time.time()
 
-        result_arrayXY = (arrXY*255/arrXY.max())
-        result_arrayXY_ = []
-        result_arrayXZ = (arrXZ*255/arrXZ.max())
-        result_arrayXZ_ = []
-        result_arrayYZ = (arrYZ*255/arrYZ.max())
-        result_arrayYZ_ = []
-        
-        if use_fast_rgb:
-            result_arrayXY_ = self.fast_rgb_convert(result_arrayXY)
-            result_arrayXZ_ = self.fast_rgb_convert(result_arrayXZ)
-            result_arrayYZ_ = self.fast_rgb_convert(result_arrayYZ)
-        else:
-            for i in range(arrXY.shape[0]):
-                for j in range(arrXY.shape[1]):
-                    res = self.intensity_to_rgb_heatmap(result_arrayXY.astype(np.uint8)[i][j]/255)
-                    result_arrayXY_.append(res[0] / 255)
-                    result_arrayXY_.append(res[1] / 255)
-                    result_arrayXY_.append(res[2] / 255)
-                    result_arrayXY_.append(res[3] / 255)
+            plot_size = [int(self.viewport_width * 0.3), int(self.viewport_height * 0.4)]
 
-            for i in range(arrXZ.shape[0]):
-                for j in range(arrXZ.shape[1]):
-                    res = self.intensity_to_rgb_heatmap(result_arrayXZ.astype(np.uint8)[i][j]/255)
-                    result_arrayXZ_.append(res[0] / 255)
-                    result_arrayXZ_.append(res[1] / 255)
-                    result_arrayXZ_.append(res[2] / 255)
-                    result_arrayXZ_.append(res[3] / 255)
+            # Check if scan_data and idx_scan are available
+            if self.scan_data is None or self.idx_scan is None:
+                raise ValueError("Scan data or index scan is not available.")
 
-            for i in range(arrYZ.shape[0]):
-                for j in range(arrYZ.shape[1]):
-                    res = self.intensity_to_rgb_heatmap(result_arrayYZ.astype(np.uint8)[i][j]/255)
-                    result_arrayYZ_.append(res[0] / 255)
-                    result_arrayYZ_.append(res[1] / 255)
-                    result_arrayYZ_.append(res[2] / 255)
-                    result_arrayYZ_.append(res[3] / 255)
+            # Prepare scan data arrays
+            arrYZ = np.flipud(self.scan_data[:, :, self.idx_scan[Axis.X.value]])
+            arrXZ = np.flipud(self.scan_data[:, self.idx_scan[Axis.Y.value], :])
+            arrXY = np.flipud(self.scan_data[self.idx_scan[Axis.Z.value], :, :])
 
-        # Generate image graph
+            # Normalize the arrays
+            result_arrayXY = (arrXY * 255 / arrXY.max())
+            result_arrayXY_ = []
+            result_arrayXZ = (arrXZ * 255 / arrXZ.max())
+            result_arrayXZ_ = []
+            result_arrayYZ = (arrYZ * 255 / arrYZ.max())
+            result_arrayYZ_ = []
 
-        # Delete previous items
-        dpg.delete_item("scan_group")
-        dpg.delete_item("texture_reg")
-        dpg.delete_item("textureXY_tag")
-        dpg.delete_item("textureXZ_tag")
-        dpg.delete_item("textureYZ_tag")
+            # Convert intensity values to RGB
+            if use_fast_rgb:
+                result_arrayXY_ = self.fast_rgb_convert(result_arrayXY)
+                result_arrayXZ_ = self.fast_rgb_convert(result_arrayXZ)
+                result_arrayYZ_ = self.fast_rgb_convert(result_arrayYZ)
+            else:
+                for arr, result_array in zip([arrXY, arrXZ, arrYZ],
+                                             [result_arrayXY_, result_arrayXZ_, result_arrayYZ_]):
+                    for i in range(arr.shape[0]):
+                        for j in range(arr.shape[1]):
+                            res = self.intensity_to_rgb_heatmap(arr.astype(np.uint8)[i][j] / 255)
+                            result_array.extend([res[0] / 255, res[1] / 255, res[2] / 255, res[3] / 255])
 
-        # Add textures
-        dpg.add_texture_registry(show=False,tag="texture_reg")
-        dpg.add_dynamic_texture(width=arrXY.shape[1], height=arrXY.shape[0], default_value=result_arrayXY_, tag="textureXY_tag",parent="texture_reg")
-        dpg.add_dynamic_texture(width=arrXZ.shape[1], height=arrXZ.shape[0], default_value=result_arrayXZ_, tag="textureXZ_tag",parent="texture_reg")
-        dpg.add_dynamic_texture(width=arrYZ.shape[1], height=arrYZ.shape[0], default_value=result_arrayYZ_, tag="textureYZ_tag",parent="texture_reg")
-        
+            # Delete previous items if they exist
+            for item in ["scan_group", "texture_reg", "textureXY_tag", "textureXZ_tag", "textureYZ_tag"]:
+                if dpg.does_item_exist(item):
+                    dpg.delete_item(item)
 
-        # Plot scan
-        dpg.add_group(horizontal=True, tag="scan_group",parent="Scan_Window") 
+            # Add textures
+            dpg.add_texture_registry(show=False, tag="texture_reg")
+            dpg.add_dynamic_texture(width=arrXY.shape[1], height=arrXY.shape[0], default_value=result_arrayXY_,
+                                    tag="textureXY_tag", parent="texture_reg")
+            dpg.add_dynamic_texture(width=arrXZ.shape[1], height=arrXZ.shape[0], default_value=result_arrayXZ_,
+                                    tag="textureXZ_tag", parent="texture_reg")
+            dpg.add_dynamic_texture(width=arrYZ.shape[1], height=arrYZ.shape[0], default_value=result_arrayYZ_,
+                                    tag="textureYZ_tag", parent="texture_reg")
 
-        # XY plot
-        dpg.add_plot(parent="scan_group",tag="plotImaga",width = plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True, query=True,callback=self.queryXY_callback)
-        dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z="+"{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]),parent="plotImaga")
-        dpg.add_plot_axis(dpg.mvYAxis, label="y axis",parent="plotImaga",tag="plotImaga_Y")
-        dpg.add_image_series("textureXY_tag",bounds_min = [self.startLoc[0], self.startLoc[1]], bounds_max = [self.endLoc[0], self.endLoc[1]], label="Scan data",parent="plotImaga_Y")#, source = self.image_path)
-        dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(arrXY),
-                               max_scale=np.max(arrXY), colormap=dpg.mvPlotColormap_Jet)
-         # Update width
-        item_width = dpg.get_item_width("plotImaga")
-        item_height = dpg.get_item_height("plotImaga")
-        if (item_width is None) or (item_height is None):
-            raise Exception("Window does not exist")
-      
-        if len(arrYZ) == 1:
-            dpg.set_item_width("Scan_Window",item_width+50)
-        else :
-            dpg.set_item_width("Scan_Window",item_width*3+50)    
-            dpg.add_plot(parent="scan_group",tag="plotImagb",width = plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True, query=True,callback=self.queryXZ_callback)
-            dpg.add_plot_axis(dpg.mvXAxis, label="x (um), y="+"{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),parent="plotImagb")
-            dpg.add_plot_axis(dpg.mvYAxis, label="z (um)",parent="plotImagb",tag="plotImagb_Y")
-            dpg.add_image_series(f"textureXZ_tag",bounds_min = [self.startLoc[0], self.startLoc[2]], bounds_max = [self.endLoc[0], self.endLoc[2]], label="Scan data",parent="plotImagb_Y")#, source = self.image_path)
+            # Plot scan
+            dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
 
-            dpg.add_plot(parent="scan_group",tag="plotImagc",width = plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True, query=True,callback=self.queryYZ_callback)
-            dpg.add_plot_axis(dpg.mvXAxis, label="y (um), x="+"{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),parent="plotImagc")
-            dpg.add_plot_axis(dpg.mvYAxis, label="z (um)",parent="plotImagc",tag="plotImagc_Y")
-            dpg.add_image_series(f"textureYZ_tag",bounds_min = [self.startLoc[1], self.startLoc[2]], bounds_max = [self.endLoc[1], self.endLoc[2]], label="Scan data",parent="plotImagc_Y")#, source = self.image_path)
+            # XY plot
+            dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
+                         equal_aspects=True, crosshairs=True, query=True, callback=self.queryXY_callback)
+            dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]),
+                              parent="plotImaga")
+            dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImaga", tag="plotImaga_Y")
+            dpg.add_image_series("textureXY_tag", bounds_min=[self.startLoc[0], self.startLoc[1]],
+                                 bounds_max=[self.endLoc[0], self.endLoc[1]], label="Scan data", parent="plotImaga_Y")
+            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(arrXY),
+                                   max_scale=np.max(arrXY), colormap=dpg.mvPlotColormap_Jet)
 
-        dpg.set_item_height("Scan_Window",item_height+150)
-                          
-        end_Plot_time = time.time()
-        print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
+            # Update width based on conditions
+            item_width = dpg.get_item_width("plotImaga")
+            item_height = dpg.get_item_height("plotImaga")
+            if (item_width is None) or (item_height is None):
+                raise Exception("Window does not exist")
 
+            if len(arrYZ) == 1:
+                dpg.set_item_width("Scan_Window", item_width + 50)
+            else:
+                dpg.set_item_width("Scan_Window", item_width * 3 + 50)
+                # XZ plot
+                dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
+                             equal_aspects=True, crosshairs=True, query=True, callback=self.queryXZ_callback)
+                dpg.add_plot_axis(dpg.mvXAxis,
+                                  label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),
+                                  parent="plotImagb")
+                dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagb", tag="plotImagb_Y")
+                dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]],
+                                     bounds_max=[self.endLoc[0], self.endLoc[2]], label="Scan data",
+                                     parent="plotImagb_Y")
+
+                # YZ plot
+                dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1],
+                             equal_aspects=True, crosshairs=True, query=True, callback=self.queryYZ_callback)
+                dpg.add_plot_axis(dpg.mvXAxis,
+                                  label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),
+                                  parent="plotImagc")
+                dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
+                dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]],
+                                     bounds_max=[self.endLoc[1], self.endLoc[2]], label="Scan data",
+                                     parent="plotImagc_Y")
+
+            dpg.set_item_height("Scan_Window", item_height + 150)
+
+            end_Plot_time = time.time()
+            print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
+
+        except Exception as e:
+            print(f"An error occurred while plotting the scan: {e}")
 
     def Plot_Scan(self, Nx=250, Ny=250, array_2d=None, startLoc=None, endLoc=None, switchAxes=False):
         """
         Plots a 2D scan using the provided array. If a division by zero occurs,
         the array will be set to zeros.
         """
+
         if array_2d is None:
             array_2d = np.zeros((Nx, Ny))  # Default to zeros if array is not provided
 
@@ -4677,113 +4717,9 @@ class GUI_OPX(): #todo: support several device
     def btnStartScan(self):
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
-    def btnFindPeak(self):
-        self.ScanTh = threading.Thread(target=self.FindPeak)
+    def btnAutoFocus(self):
+        self.ScanTh = threading.Thread(target=self.auto_focus)
         self.ScanTh.start()
-    def FindPeak(self): # finds peak count
-        if self.stopScan == False:
-            self.stopScan = True
-            dpg.set_item_label("btnOPX_FindPeak", "Find Peak")
-            dpg.bind_item_theme(item = "btnOPX_FindPeak", theme = "btnYellowTheme")
-            return
-        print(chr(27) + "[2J") # Clear terminal
-        isDebug=True
-        CurrentCount=float(0)
-        PreviousCount=float(0)
-        Diff=float(0)
-        Increment=0
-        Step=100
-        Switch_Counter=0
-        self.stopScan = False
-        # convert Find Peak to Stop Search
-        dpg.set_item_label("btnOPX_FindPeak", "Stop Search")
-        dpg.bind_item_theme(item="btnOPX_FindPeak", theme="btnRedTheme")
-         # prepare counter fetch data
-        self.btnStartCounterLive(b_startFetch=False)
-        time.sleep(2)
-        self.results = fetching_tool(self.job, data_list=["counts","iteration"], mode="live")
-         # get current (initial) position
-        for ch in range(3):
-            res = self.readInpos(ch)
-        self.positioner.GetPosition()
-        self.absPosunits = list(self.positioner.AxesPosUnits)  # includes offset
-        self.initial_scan_Location = list(self.positioner.AxesPositions)  # includes offset
-        for ch in range(3):
-            if isDebug:
-                print(f"ch{ch}: in position = {res}, position = {self.initial_scan_Location[ch]} {self.positioner.AxesPosUnits[ch]}")
-        self.expected_pos = [0, 0, 0]
-        for ch in range(3):
-            Switch_Counter=0
-            Step=100
-            # ch=0
-            self.scan_Log_measurement()
-            CurrentCount1 = self.scan_Out[-1][3]
-            time.sleep(.2)
-            self.scan_Log_measurement()
-            CurrentCount2 = self.scan_Out[-1][3]
-            time.sleep(.2)
-            self.scan_Log_measurement()
-            CurrentCount3 = self.scan_Out[-1][3]
-            time.sleep(.2)
-            self.scan_Log_measurement()
-            CurrentCount4 = self.scan_Out[-1][3]
-            PreviousCount = CurrentCount1/4 + CurrentCount2/4 + CurrentCount3/4 + CurrentCount4/4
-
-            self.positioner.MoveRelative(ch,100000)
-
-            self.scan_Log_measurement()
-            CurrentCount1 = self.scan_Out[-1][3]
-            time.sleep(.2)
-            self.scan_Log_measurement()
-            CurrentCount2 = self.scan_Out[-1][3]
-            time.sleep(.2)
-            self.scan_Log_measurement()
-            CurrentCount3 = self.scan_Out[-1][3]
-            time.sleep(.2)
-            self.scan_Log_measurement()
-            CurrentCount4 = self.scan_Out[-1][3]
-            CurrentCount = CurrentCount1/4 + CurrentCount2/4 + CurrentCount3/4 + CurrentCount4/4
-
-            while Switch_Counter<5:
-                if self.stopScan:
-                    dpg.set_item_label("btnOPX_FindPeak", "Find Peak")
-                    dpg.bind_item_theme(item = "btnOPX_FindPeak", theme = "btnYellowTheme")
-                    return
-                Diff = (CurrentCount-PreviousCount)/CurrentCount*100
-                if Switch_Counter==0:
-                    Increment = int(10000*Step)
-                    print(str(Increment)+",ch"+str(ch))
-                    Step=Step*0.7
-                    Switch_Counter=1
-                elif Diff<0:
-                    Step=-Step*0.9
-                    Switch_Counter=0
-                    print(str(Switch_Counter)+",ch"+str(ch)+","+str(Step))
-                    if abs(Step)<10:
-                        Switch_Counter=5
-
-
-                self.positioner.MoveRelative(ch,Increment)
-                PreviousCount = CurrentCount
-                time.sleep(.5)
-
-                self.scan_Log_measurement()
-                CurrentCount1 = self.scan_Out[-1][3]
-                time.sleep(.2)
-                self.scan_Log_measurement()
-                CurrentCount2 = self.scan_Out[-1][3]
-                time.sleep(.2)
-                self.scan_Log_measurement()
-                CurrentCount3 = self.scan_Out[-1][3]
-                time.sleep(.2)
-                self.scan_Log_measurement()
-                CurrentCount4 = self.scan_Out[-1][3]
-                CurrentCount = CurrentCount1/4 + CurrentCount2/4 + CurrentCount3/4 + CurrentCount4/4
-
-
-        self.stopScan = True
-        dpg.set_item_label("btnOPX_FindPeak", "Find Peak")
-        dpg.bind_item_theme(item = "btnOPX_FindPeak", theme = "btnYellowTheme")
     def StartScan(self):
         self.positioner.KeyboardEnabled = False # TODO: Update the check box in the gui!!
         if not self.fast_scan_enabled:
@@ -4791,6 +4727,109 @@ class GUI_OPX(): #todo: support several device
         else:
             self.StartFastScan()
         self.positioner.KeyboardEnabled = True
+    
+    def fetch_peak_intensity(self):
+        self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
+        time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
+
+        if self.counts_handle.is_processing():
+            print('Waiting for QUA counts')
+            self.counts_handle.wait_for_values(1)
+            time.sleep(0.1)
+            counts = self.counts_handle.fetch_all()
+            print(f"counts.size =  {counts.size}")
+
+            self.qmm.clear_all_job_results()
+            return counts
+    def auto_focus(self, ch = 2, step_um = 0.1, span = 6, laser_power_mwatt = 3.5 ): # units microns
+        # start Qua pgm
+        self.exp = Experimet.SCAN
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=1)
+        res_handles = self.job.result_handles
+        self.counts_handle = res_handles.get("counts_scanLine")
+
+        # init
+        N = int(span/step_um)
+        initialShift = -1 * int(step_um * N / 2) # [um]
+        intensities = []
+        coordinate = []
+
+        # set laser PWR
+        original_power=dpg.get_value("power_input")
+        # dpg.set_value("power_input",laser_power_mwatt)
+        # self.HW.cobolt.set_power(laser_power_mwatt)
+        # self.laser.set_power(laser_power_mwatt)
+        time.sleep(0.1)
+
+        # goto start location - relative to current position
+        self.positioner.MoveRelative(ch, int(initialShift*self.positioner.StepsIn1mm*1e-3))
+        time.sleep(0.001)
+        while not (self.positioner.ReadIsInPosition(ch)):
+            time.sleep(0.001)
+        print(f"is in position = {self.positioner.ReadIsInPosition(ch)}")
+        self.positioner.GetPosition()
+        self.absPosunits = self.positioner.AxesPosUnits[ch]
+        self.absPos = self.positioner.AxesPositions[ch]
+
+        # init - fetch data
+        self.fetch_peak_intensity()
+
+        # loop over all locations
+        for i in range(N):
+            # fetch new data from stream
+            last_intensity = self.fetch_peak_intensity()[0]
+
+            # Log data
+            coordinate.append(i * step_um*self.positioner.StepsIn1mm*1e-3 + self.absPos)  # Log axis position
+            intensities.append(last_intensity)  # Loa signal to array
+
+            # move to next location (relative move)
+            self.positioner.MoveRelative(ch, int(step_um*self.positioner.StepsIn1mm*1e-3))
+            res = self.positioner.ReadIsInPosition(ch)
+            while not (res):
+                res = self.positioner.ReadIsInPosition(ch)
+        
+        # print
+        print(f"z(ch={ch}): ", end="")
+        for i in range(len(coordinate)):
+            print(f", {coordinate[i]/1e3: .3f}", end="")
+        print("")
+        print(f"i(ch={ch}): ", end="")
+        for i in range(len(intensities)):
+            print(f", {intensities[i]: .3f}", end="")
+
+
+
+        # find peak intensity
+        # optional: fit to parabula
+        if True:
+            coefficients = np.polyfit(coordinate, intensities, 2)
+            a, b, c = coefficients
+            maxPos_parabula = int(-b/(2*a))
+            print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula/1e3}")
+
+        # find max signal
+        max_pos = coordinate[intensities.index(max(intensities))]
+        print(f"maxPos={max_pos/1e3}")
+
+        self.plt_x = np.array(coordinate) * 1e-3
+        self.plt_y = intensities
+        self.plt_max = max_pos/1e3
+        self.plt_max1 = maxPos_parabula/1e3
+        
+        # move to max signal position
+        self.positioner.MoveABSOLUTE(ch, int(max_pos))
+
+        # shift back tp experiment sequence
+        self.qm.set_io1_value(0) 
+        time.sleep(0.1)
+
+        # stop and close job
+        self.StopJob(self.job,self.qm)
+
+        dpg.set_value("power_input", original_power)
+        self.HW.cobolt.set_power(original_power)
+
 
     def StartScan3D(self):  # currently flurascence scan
         print("start scan steps")
