@@ -47,3 +47,4 @@ pythonnet
 
 #pytest
 #pyperclip
+pylablib

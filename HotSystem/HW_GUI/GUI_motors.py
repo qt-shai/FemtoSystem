@@ -33,7 +33,7 @@ class GUIMotor:
                 self.create_absolute_position_controls(child_width)
                 self.create_home_controls(child_width)
                 self.create_status_display(child_width)
-                self.toggle_gui_collapse()
+                # self.toggle_gui_collapse()
 
         if not simulation:
             self.connect()

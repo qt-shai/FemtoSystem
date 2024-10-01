@@ -1,5 +1,5 @@
 from .system_config import (SystemConfig, SystemType, Instruments, load_system_from_xml, load_system_config, Device,
-                            find_ethernet_device)
+                            find_ethernet_device, InstrumentsAddress)
 from .system_config_gui import save_to_xml, run_system_config_gui, load_instrument_images
 
 from .QuaConfigs import QUAConfigBase, HotSystemQuaConfig, FemtoQuaConfig, QuaConfigSelector
@@ -17,5 +17,6 @@ __all__ = ["SystemConfig",
            "QUAConfigBase",
            "HotSystemQuaConfig",
            "FemtoQuaConfig",
-           "QuaConfigSelector"
+           "QuaConfigSelector",
+           "InstrumentsAddress"
            ]
