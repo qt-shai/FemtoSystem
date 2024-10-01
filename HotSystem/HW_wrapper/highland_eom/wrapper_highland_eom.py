@@ -127,9 +127,9 @@ class HighlandT130(SerialDevice):
         :param width_value: The width to set (in nanoseconds).
         :param verbose: If True, print detailed output.
         """
-        if not 1.0 <= width_value <= 1000.0:  # Example range; adjust according to the manual.
-            print("Width must be between 1.0 and 1000.0 nanoseconds.")
-            raise ValueError("Width must be between 1.0 and 100.0 nanoseconds.")
+        if not 0.25 <= width_value <= 300.0:
+            print("Width must be between 0.25 and 300.0 nanoseconds.")
+            raise ValueError("Width must be between 0.25 and 300.0 nanoseconds.")
         self._perform_request(T130USBCommands.WIDTH, f"{width_value}ns", verbose)
 
     def set_amplitude(self, amplitude_value: float, verbose: bool = False) -> None:
