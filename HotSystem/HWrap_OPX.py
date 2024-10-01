@@ -1286,7 +1286,7 @@ class GUI_OPX(): #todo: support several device
         item_width = int(200* self.window_scale_factor)
         if self.bScanChkbox:
 
-            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=win_size[0]*.7,
+            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=800,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
                     # Left side: Scan settings and controls
@@ -1359,7 +1359,24 @@ class GUI_OPX(): #todo: support several device
                     with dpg.group(horizontal=False):
                         dpg.add_button(label="Updt from map",callback=self.update_from_map)
                         dpg.add_button(label="scan all markers",callback=self.scan_all_markers)
-                        dpg.add_button(label="plot",callback=self.plot_graph)
+                        dpg.add_input_text(label="CMD", callback=self.execute_input_string, multiline=True,width=80,height=30)
+                        dpg.add_button(label="z-calibrate", callback=self.z_calibrate)
+                        with dpg.group(horizontal=True):
+                            dpg.add_button(label="plot",callback=self.plot_graph)
+                            dpg.add_checkbox(label="use pico", indent=-1,
+                                             callback=self.toggle_use_picomotor, default_value=self.use_picomotor)
+
+                    with dpg.group(horizontal=False):
+                        dpg.add_input_float(label="Step (um)", default_value=0.2, width=120,
+                                            tag="step_um")
+                        dpg.add_input_float(label="Z Span (um)", default_value=6.0, width=120,
+                                            tag="z_span_um")
+                        dpg.add_input_float(label="Laser Power (mW)", default_value=40.0, width=120,
+                                            tag="laser_power_mw")
+                        dpg.add_input_float(label="Int time (ms)", default_value=10.0, width=120,
+                                            tag="int_time_ms")
+                        dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=120,
+                                            tag="xy_span_um")
 
                     self.btnGetLoggedPoints()  # get logged points
                     self.map = Map(self.ZCalibrationData)
@@ -1369,6 +1386,25 @@ class GUI_OPX(): #todo: support several device
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
+
+    def z_calibrate(self):
+        pass
+
+    # Define the callback function to run the input string
+    def execute_input_string(self, app_data, user_data):
+        try:
+            print(f"Executing: {user_data}")
+            # Run the input string as code
+            exec(user_data)
+
+        except Exception as e:
+            print(f"Error executing input string: {e}")
+
+    def toggle_use_picomotor(sender, app_data, user_data):
+        sender.use_picomotor = user_data
+        time.sleep(0.001)
+        dpg.set_value(item="chkbox_use_picomotor", value=sender.use_picomotor)
+        print("Set use_picomotor to: " + str(sender.use_picomotor))
 
     def plot_graph(self):
         # Check if plt_x and plt_y are not None
@@ -4741,24 +4777,35 @@ class GUI_OPX(): #todo: support several device
 
             self.qmm.clear_all_job_results()
             return counts
-    def auto_focus(self, ch = 2, step_um = 0.1, span = 6, laser_power_mwatt = 3.5 ): # units microns
+    def auto_focus(self, ch = 2): # units microns
+        # Dictionary to store the retrieved values
+        auto_focus = {}
+
+        # List of item tags to retrieve values from
+        item_tags = ["step_um", "z_span_um", "laser_power_mw", "int_time_ms"]
+
+        # Using a for loop to get each value and assign it to the auto_focus dictionary
+        for tag in item_tags:
+            auto_focus[tag] = dpg.get_value(tag)
+            print(f"{tag}: {auto_focus[tag]}")
+
         # start Qua pgm
         self.exp = Experimet.SCAN
-        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=1)
+        self.initQUA_gen(n_count=int(auto_focus["int_time_ms"] * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=1)
         res_handles = self.job.result_handles
         self.counts_handle = res_handles.get("counts_scanLine")
 
         # init
-        N = int(span/step_um)
-        initialShift = -1 * int(step_um * N / 2) # [um]
+        N = int(auto_focus["z_span_um"]/auto_focus["step_um"])
+        initialShift = -1 * int(auto_focus["step_um"] * N / 2) # [um]
         intensities = []
         coordinate = []
 
         # set laser PWR
         original_power=dpg.get_value("power_input")
-        # dpg.set_value("power_input",laser_power_mwatt)
-        # self.HW.cobolt.set_power(laser_power_mwatt)
-        # self.laser.set_power(laser_power_mwatt)
+        dpg.set_value("power_input",auto_focus["laser_power_mw"])
+        self.HW.cobolt.set_power(auto_focus["laser_power_mw"])
+
         time.sleep(0.1)
 
         # goto start location - relative to current position
@@ -4780,11 +4827,11 @@ class GUI_OPX(): #todo: support several device
             last_intensity = self.fetch_peak_intensity()[0]
 
             # Log data
-            coordinate.append(i * step_um*self.positioner.StepsIn1mm*1e-3 + self.absPos)  # Log axis position
+            coordinate.append(i * auto_focus["step_um"] * self.positioner.StepsIn1mm * 1e-3 + self.absPos)  # Log axis position
             intensities.append(last_intensity)  # Loa signal to array
 
             # move to next location (relative move)
-            self.positioner.MoveRelative(ch, int(step_um*self.positioner.StepsIn1mm*1e-3))
+            self.positioner.MoveRelative(ch, int(auto_focus["step_um"]*self.positioner.StepsIn1mm*1e-3))
             res = self.positioner.ReadIsInPosition(ch)
             while not (res):
                 res = self.positioner.ReadIsInPosition(ch)
@@ -4797,8 +4844,6 @@ class GUI_OPX(): #todo: support several device
         print(f"i(ch={ch}): ", end="")
         for i in range(len(intensities)):
             print(f", {intensities[i]: .3f}", end="")
-
-
 
         # find peak intensity
         # optional: fit to parabula
@@ -4814,8 +4859,8 @@ class GUI_OPX(): #todo: support several device
 
         self.plt_x = np.array(coordinate) * 1e-3
         self.plt_y = intensities
-        self.plt_max = max_pos/1e3
-        self.plt_max1 = maxPos_parabula/1e3
+        self.plt_max = round(max_pos / 1e3, 2)
+        self.plt_max1 = round(maxPos_parabula / 1e3, 2)
         
         # move to max signal position
         self.positioner.MoveABSOLUTE(ch, int(max_pos))
@@ -4829,6 +4874,11 @@ class GUI_OPX(): #todo: support several device
 
         dpg.set_value("power_input", original_power)
         self.HW.cobolt.set_power(original_power)
+
+        if self.use_picomotor:
+            print(f"Moving pico {-max_pos*1e-9}")
+            self.HW.picomotor.MoveRelative(Motor=ch+1,Steps= int(-max_pos*1e-9 * self.pico.StepsIn1mm))
+            self.positioner.MoveABSOLUTE(ch,0)
 
 
     def StartScan3D(self):  # currently flurascence scan
