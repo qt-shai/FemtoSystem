@@ -2,9 +2,10 @@
 from typing import Optional
 import threading
 
-from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor
+from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
+    SirahMatisse
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser
-from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config
+from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress
 
 
 class HW_devices:
@@ -31,6 +32,8 @@ class HW_devices:
             self.atto_positioner: Optional[AttoDry800] = None
             self.picomotor:Optional[newportPicomotor] = None
             self.cobolt:Optional[CoboltLaser] = None
+            self.matisse_device: Optional[SirahMatisse] = None
+
 
     def __new__(cls, simulation:bool = False) -> 'HW_devices':
         """
@@ -95,7 +98,7 @@ class HW_devices:
                 pass
 
             elif instrument == Instruments.MATTISE:
-                pass
+                self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=self.simulation)
 
             elif instrument == Instruments.HIGHLAND:
                 # Initialize Highland Electronics Device

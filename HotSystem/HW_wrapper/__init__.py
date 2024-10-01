@@ -8,6 +8,7 @@ from .Wrapper_Picomotor import newportPicomotor
 from .Wrapper_Smaract import smaractMCS2
 from .SmarAct.smaract_movement import Movement
 from .SmarAct.smaract_stream_manager import StreamManager
+from .wrapper_mattise import SirahMatisse
 
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     'AttocubeDevice',
     'newportPicomotor',
     'Movement',
-    'StreamManager'
+    'StreamManager',
+    'SirahMatisse'
 ]

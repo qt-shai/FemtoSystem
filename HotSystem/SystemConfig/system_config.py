@@ -30,9 +30,10 @@ class Instruments(Enum):
     OPX = "OPX"
     ELC_POWER_SUPPLY = "elc_power_supply"
 
-class InstrumentsIP(Enum):
+class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"
     MCS2_00017055 = "192.168.101.59"
+    MATTISE = "COM3"
 
 class Device:
     """

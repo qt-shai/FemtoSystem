@@ -1,0 +1,236 @@
+import dearpygui.dearpygui as dpg
+import numpy as np
+from Common import DpgThemes
+from HW_wrapper import SirahMatisse
+from SystemConfig import Instruments, load_instrument_images
+
+
+class GUIMatisse:
+    def __init__(self, device: SirahMatisse, instrument: Instruments = Instruments.MATTISE, simulation: bool = False) -> None:
+        """
+        GUI class for Sirah Matisse laser control.
+
+        :param device: The Sirah Matisse laser device object.
+        :param instrument: The instrument identifier.
+        :param simulation: Flag to indicate if simulation mode is enabled.
+        """
+        self.is_collapsed: bool = False
+        load_instrument_images()
+        self.dev = device
+        self.simulation = simulation
+        self.unique_id = self._get_unique_id_from_device()
+        self.instrument = instrument
+        red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
+
+        self.window_tag = f"MatisseWin_{self.unique_id}"
+        with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
+                        no_title_bar=False, height=320, width=1800, pos=[0, 0], collapsed=False):
+            with dpg.group(horizontal=True):
+                self.create_instrument_image()
+                self.create_diode_power_controls(red_button_theme)
+                self.create_thin_etalon_controls(red_button_theme)
+                self.create_bifi_controls(red_button_theme)
+                self.create_piezo_controls(red_button_theme)
+                self.create_scan_controls(red_button_theme)
+                self.create_refcell_controls(red_button_theme)
+
+        # Store column tags for easy access and interchangeability
+        self.column_tags = [
+            f"column_diode_power_{self.unique_id}",
+            f"column_thin_etalon_{self.unique_id}",
+            f"column_bifi_{self.unique_id}",
+            f"column_piezo_{self.unique_id}",
+            f"column_scan_{self.unique_id}",
+            f"column_refcell_{self.unique_id}",
+        ]
+
+        if not simulation:
+            self.connect()
+
+    def _get_unique_id_from_device(self) -> str:
+        """
+        Generate a unique identifier for the GUI instance based on the device properties.
+
+        :return: A string that uniquely identifies this device.
+        """
+        if hasattr(self.dev, 'addr') and self.dev.addr is not None:
+            return self.dev.addr
+        else:
+            return str(id(self.dev))
+
+    def create_instrument_image(self):
+        with dpg.group(horizontal=False, tag=f"column_instrument_image_{self.unique_id}"):
+            dpg.add_image_button(
+                f"{self.instrument.value}_texture", width=80, height=80,
+                callback=self.toggle_gui_collapse,
+                user_data=None
+            )
+
+    def create_diode_power_controls(self, theme):
+        with dpg.group(horizontal=False, tag=f"column_diode_power_{self.unique_id}", width=150):
+            dpg.add_text("Diode Power")
+            dpg.add_text("Current Power:", tag=f"DiodePower_{self.unique_id}")
+            dpg.add_text("Low-level Cutoff:")
+            dpg.add_input_float(label="", default_value=0.0, tag=f"DiodePowerCutoff_{self.unique_id}",
+                                format='%.2f', width=100)
+            dpg.add_button(label="Set Cutoff", callback=self.btn_set_diode_power_cutoff)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+
+    def create_thin_etalon_controls(self, theme):
+        with dpg.group(horizontal=False, tag=f"column_thin_etalon_{self.unique_id}", width=200):
+            dpg.add_text("Thin Etalon Motor")
+            dpg.add_text("Position:", tag=f"ThinEtalonPosition_{self.unique_id}")
+            dpg.add_input_int(default_value=0, tag=f"ThinEtalonMoveTo_{self.unique_id}", width=100)
+            dpg.add_button(label="Move", callback=self.btn_move_thin_etalon)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_button(label="Stop", callback=self.btn_stop_thin_etalon)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_button(label="Home", callback=self.btn_home_thin_etalon)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_text("Control Status:")
+            dpg.add_combo(["run", "stop"], default_value="stop", tag=f"ThinEtalonCtlStatus_{self.unique_id}",
+                          callback=self.btn_set_thin_etalon_ctl_status, width=100)
+
+    def create_bifi_controls(self, theme):
+        with dpg.group(horizontal=False, tag=f"column_bifi_{self.unique_id}", width=200):
+            dpg.add_text("Birefringent Filter Motor")
+            dpg.add_text("Position:", tag=f"BifiPosition_{self.unique_id}")
+            dpg.add_input_int(default_value=0, tag=f"BifiMoveTo_{self.unique_id}", width=100)
+            dpg.add_button(label="Move", callback=self.btn_move_bifi)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_button(label="Stop", callback=self.btn_stop_bifi)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_button(label="Home", callback=self.btn_home_bifi)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+
+    def create_piezo_controls(self, theme):
+        with dpg.group(horizontal=False, tag=f"column_piezo_{self.unique_id}", width=200):
+            dpg.add_text("Piezo Controls")
+            dpg.add_text("Slow Piezo Position:", tag=f"SlowPiezoPosition_{self.unique_id}")
+            dpg.add_input_float(default_value=0.0, tag=f"SlowPiezoSetPos_{self.unique_id}",
+                                format='%.4f', width=100)
+            dpg.add_button(label="Set", callback=self.btn_set_slowpiezo_position)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_text("Fast Piezo Position:", tag=f"FastPiezoPosition_{self.unique_id}")
+            dpg.add_input_float(default_value=0.0, tag=f"FastPiezoSetPos_{self.unique_id}",
+                                format='%.4f', width=100)
+            dpg.add_button(label="Set", callback=self.btn_set_fastpiezo_position)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_text("Fast Piezo Lock:")
+            dpg.add_combo(["run", "stop"], default_value="stop", tag=f"FastPiezoCtlStatus_{self.unique_id}",
+                          callback=self.btn_set_fastpiezo_ctl_status, width=100)
+
+    def create_scan_controls(self, theme):
+        with dpg.group(horizontal=False, tag=f"column_scan_{self.unique_id}", width=200):
+            dpg.add_text("Scan Controls")
+            dpg.add_text("Scan Status:")
+            dpg.add_combo(["run", "stop"], default_value="stop", tag=f"ScanStatus_{self.unique_id}",
+                          callback=self.btn_set_scan_status, width=100)
+            dpg.add_button(label="Wait for Scan", callback=self.btn_wait_scan)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_text("Scan Position:", tag=f"ScanPosition_{self.unique_id}")
+            dpg.add_input_float(default_value=0.0, tag=f"ScanSetPosition_{self.unique_id}",
+                                format='%.4f', width=100)
+            dpg.add_button(label="Set", callback=self.btn_set_scan_position)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+
+    def create_refcell_controls(self, theme):
+        with dpg.group(horizontal=False, tag=f"column_refcell_{self.unique_id}", width=200):
+            dpg.add_text("Reference Cell Controls")
+            dpg.add_text("Reference cell Position (0-1):", tag=f"RefcellPosition_{self.unique_id}")
+            dpg.add_input_float(default_value=0.0, tag=f"RefcellSetPos_{self.unique_id}",
+                                format='%.4f', width=100, callback=self.validate_refcell_position)
+            dpg.add_button(label="Set", callback=self.btn_set_refcell_position)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+
+    def validate_refcell_position(self, sender, app_data, user_data):
+        """
+        Ensures that the input value for the reference cell position stays between 0 and 1.
+        If the value goes outside the range, it's automatically adjusted.
+        """
+        value = dpg.get_value(f"RefcellSetPos_{self.unique_id}")
+        value = np.clip(value, 0, 1)
+        dpg.set_value(f"RefcellSetPos_{self.unique_id}", value)
+
+    def btn_set_refcell_position(self):
+        """
+        Set the reference cell position using the value from the input field.
+        """
+        value = dpg.get_value(f"RefcellSetPos_{self.unique_id}")
+        updated_position = self.dev.set_refcell_position(value)
+        dpg.set_value(f"RefcellPosition_{self.unique_id}", f"{updated_position:.4f}")
+
+    def toggle_gui_collapse(self):
+        if self.is_collapsed:
+            print(f"Expanding {self.instrument.value} window")
+            for column_tag in self.column_tags:
+                dpg.show_item(column_tag)
+            dpg.set_item_width(self.window_tag, 1800)
+            dpg.set_item_height(self.window_tag, 320)
+        else:
+            print(f"Collapsing {self.instrument.value} window")
+            for column_tag in self.column_tags:
+                dpg.hide_item(column_tag)
+            dpg.set_item_width(self.window_tag, 130)
+            dpg.set_item_height(self.window_tag, 130)
+        self.is_collapsed = not self.is_collapsed
+
+    def btn_set_diode_power_cutoff(self):
+        cutoff = dpg.get_value(f"DiodePowerCutoff_{self.unique_id}")
+        self.dev.set_diode_power_lowlevel(cutoff)
+
+    def btn_move_thin_etalon(self):
+        position = dpg.get_value(f"ThinEtalonMoveTo_{self.unique_id}")
+        self.dev.thin_etalon_move_to(position)
+
+    def btn_stop_thin_etalon(self):
+        self.dev.thin_etalon_stop()
+
+    def btn_home_thin_etalon(self):
+        self.dev.thin_etalon_home()
+
+    def btn_set_thin_etalon_ctl_status(self):
+        status = dpg.get_value(f"ThinEtalonCtlStatus_{self.unique_id}")
+        self.dev.set_thin_etalon_ctl_status(status)
+
+    def btn_move_bifi(self):
+        position = dpg.get_value(f"BifiMoveTo_{self.unique_id}")
+        self.dev.bifi_move_to(position)
+
+    def btn_stop_bifi(self):
+        self.dev.bifi_stop()
+
+    def btn_home_bifi(self):
+        self.dev.bifi_home()
+
+    def btn_set_slowpiezo_position(self):
+        value = dpg.get_value(f"SlowPiezoSetPos_{self.unique_id}")
+        self.dev.set_slowpiezo_position(value)
+
+    def btn_set_fastpiezo_position(self):
+        value = dpg.get_value(f"FastPiezoSetPos_{self.unique_id}")
+        self.dev.set_fastpiezo_position(value)
+
+    def btn_set_fastpiezo_ctl_status(self):
+        status = dpg.get_value(f"FastPiezoCtlStatus_{self.unique_id}")
+        self.dev.set_fastpiezo_ctl_status(status)
+
+    def btn_set_scan_status(self):
+        status = dpg.get_value(f"ScanStatus_{self.unique_id}")
+        self.dev.set_scan_status(status)
+
+    def btn_wait_scan(self):
+        self.dev.wait_scan()
+
+    def btn_set_scan_position(self):
+        value = dpg.get_value(f"ScanSetPosition_{self.unique_id}")
+        self.dev.set_scan_position(value)
+
+    def connect(self):
+        try:
+            self.dev.connect()
+            print("Connected to Sirah Matisse")
+            dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} connected")
+        except Exception as e:
+            print(f"Failed to connect to Sirah Matisse: {e}")
+            dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} not connected")
