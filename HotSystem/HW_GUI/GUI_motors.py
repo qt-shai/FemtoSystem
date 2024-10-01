@@ -23,7 +23,7 @@ class GUIMotor:
         child_width = 100
         self.window_tag = f"MotorWin_{self.unique_id}"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
-                        no_title_bar=False, height=200, width=1800, pos=[0, 0], collapsed=False):
+                        no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_position_controls(red_button_theme)
@@ -33,7 +33,7 @@ class GUIMotor:
                 self.create_absolute_position_controls(child_width)
                 self.create_home_controls(child_width)
                 self.create_status_display(child_width)
-                self.toggle_gui_collapse()
+                # self.toggle_gui_collapse()
 
         if not simulation:
             self.connect()
@@ -135,7 +135,7 @@ class GUIMotor:
             for column in range(1,9):
                 dpg.show_item(f"column_{column}_{self.unique_id}")
             dpg.set_item_width(self.window_tag,1800)
-            dpg.set_item_height(self.window_tag, 200)
+            dpg.set_item_height(self.window_tag, 270)
         else:
             print(f"Collapsing {self.instrument.value} window")
             for column in range(1, 9):

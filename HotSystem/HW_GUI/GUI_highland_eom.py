@@ -20,19 +20,19 @@ class GUIHighlandT130:
         self.unique_id:str = self._get_unique_id_from_device()
         self.instrument:Instruments = instrument
         self.range:int = 1  # Default range is 1
-
+        self.width = 1100
+        self.height = 200
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
         self.window_tag = f"HighlandT130Win_{self.unique_id}"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
-                        no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
+                        no_title_bar=False, height=self.height, width=self.width, pos=[0, 0], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_main_controls()
-                self.create_connect_button()
 
         if not simulation:
-            self.connect()
+            self.toggle_connect()
 
     def _get_unique_id_from_device(self) -> str:
         """
@@ -50,17 +50,17 @@ class GUIHighlandT130:
     def create_instrument_image(self):
         with dpg.group(horizontal=False, tag=f"column_instrument_image_{self.unique_id}"):
             dpg.add_image_button(
-                f"{self.instrument.value}_texture", width=80, height=80,
+                f"{self.instrument.value}_texture", width=100, height=100,
                 callback=self.toggle_gui_collapse,
                 user_data=None
             )
+            self.create_connect_button()
 
     def create_main_controls(self):
         self.create_range_controls()
         self.create_timing_controls()
         self.create_amplitude_controls()
         self.create_bias_controls()
-        self.create_status_display()
         self.create_save_load_controls()
 
     def create_range_controls(self):
@@ -103,16 +103,7 @@ class GUIHighlandT130:
             dpg.add_input_float(default_value=0.0, tag=f"bias_input_{self.unique_id}",
                                 format='%.3f', width=200, min_value=-6.0, max_value=6.0, callback=self.enforce_bias)
             dpg.add_text("-6V to +6V")
-            dpg.add_radio_button(items=["Internal", "External"], tag=f"bias_source_{self.unique_id}", horizontal=False)
-
-    def create_status_display(self):
-        """
-        Create the status display area for showing device status.
-        """
-        with dpg.group(horizontal=False, tag=f"column_status_{self.unique_id}"):
-            dpg.add_text("Status")
-            dpg.add_text("", tag=f"status_text_{self.unique_id}")
-            dpg.add_button(label="Get Status", callback=self.get_status)
+            dpg.add_radio_button(items=["Internal", "External"], tag=f"bias_source_{self.unique_id}", horizontal=False, callback=self.enforce_bias)
 
     def set_range(self):
         """
@@ -137,7 +128,7 @@ class GUIHighlandT130:
         elif self.range == 3:
             delay = max(0.0, min(delay, 300.0))  # Range 3: 0-300ns
         dpg.set_value(f"delay_input_{self.unique_id}", delay)
-        print(f"Enforced delay: {delay} ns with selected range: {self.range}")
+        self.dev.set_delay(delay)
 
     def enforce_width(self):
         """
@@ -151,7 +142,7 @@ class GUIHighlandT130:
         elif self.range == 3:
             width = max(1.0, min(width, 300.0))  # Range 3: 1ns-300ns
         dpg.set_value(f"width_input_{self.unique_id}", width)
-        print(f"Enforced width: {width} ns with selected range: {self.range}")
+        self.dev.set_width(width)
 
     def enforce_amplitude(self):
         """
@@ -160,7 +151,8 @@ class GUIHighlandT130:
         amplitude = dpg.get_value(f"amplitude_input_{self.unique_id}")
         amplitude = max(-7.0, min(amplitude, -0.5))  # Amplitude range: -0.5V to -7V
         dpg.set_value(f"amplitude_input_{self.unique_id}", amplitude)
-        print(f"Enforced amplitude: {amplitude} V")
+        # The function accepts positive values. The output is negative.
+        self.dev.set_amplitude(-amplitude)
 
     def enforce_bias(self):
         """
@@ -168,13 +160,14 @@ class GUIHighlandT130:
         """
         bias = dpg.get_value(f"bias_input_{self.unique_id}")
         bias = max(-6.0, min(bias, 6.0))  # Bias range: -6V to +6V
+        source:bool = dpg.get_value(f"bias_source_{self.unique_id}") == "internal"
         dpg.set_value(f"bias_input_{self.unique_id}", bias)
-        print(f"Enforced bias: {bias} V")
+        self.dev.set_bias(bias, internal= source)
 
     def create_save_load_controls(self):
         with dpg.group(horizontal=False, tag=f"column_save_load_{self.unique_id}"):
             dpg.add_text("Configurations")
-            dpg.add_input_text(label="Name", tag=f"config_name_{self.unique_id}", width=200)
+            dpg.add_input_text(tag=f"config_name_{self.unique_id}", width=200)
             dpg.add_button(label="Save Config", callback=self.save_configuration)
             dpg.add_button(label="Recall Config", callback=self.recall_configuration)
             dpg.add_button(label="List Configs", callback=self.list_configurations)
@@ -192,8 +185,11 @@ class GUIHighlandT130:
         """
         if self.dev.is_connected:
             self.disconnect()
+            dpg.set_item_label(f"connect_button_{self.unique_id}", "Connect")
         else:
             self.connect()
+            dpg.set_item_label(f"connect_button_{self.unique_id}", "Disconnect")
+        self.get_status()
 
     def connect(self):
         """
@@ -218,25 +214,25 @@ class GUIHighlandT130:
             print(f"Error disconnecting: {e}")
 
     def toggle_gui_collapse(self):
-        columns = ['range', 'timing', 'amplitude', 'bias', 'status', 'save_load', 'connect']
+        columns = ['range', 'timing', 'amplitude', 'bias', 'save_load', 'connect']
         if self.is_collapsed:
             print(f"Expanding {self.instrument.value} window")
             for col in columns:
                 dpg.show_item(f"column_{col}_{self.unique_id}")
-            dpg.set_item_width(self.window_tag, 1800)
-            dpg.set_item_height(self.window_tag, 270)
+            dpg.set_item_width(self.window_tag, self.width)
+            dpg.set_item_height(self.window_tag, self.height)
         else:
             print(f"Collapsing {self.instrument.value} window")
             for col in columns:
                 dpg.hide_item(f"column_{col}_{self.unique_id}")
-            dpg.set_item_width(self.window_tag, 130)
-            dpg.set_item_height(self.window_tag, 130)
+            dpg.set_item_width(self.window_tag, 150)
+            dpg.set_item_height(self.window_tag, 150)
         self.is_collapsed = not self.is_collapsed
 
     def get_status(self):
         try:
-            status = self.dev.get_device_status()
-            dpg.set_value(f"status_text_{self.unique_id}", status)
+            status = self.dev.get_device_status() or self.instrument.value
+            dpg.set_item_label(self.window_tag, f'{status} ({"connected" if self.dev.is_connected else "disconnected"})')
             print(f"Status: {status}")
         except Exception as e:
             print(f"Error getting status: {e}")
