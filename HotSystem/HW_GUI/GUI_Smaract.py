@@ -17,15 +17,14 @@ from SystemConfig import Instruments
 
 class GUI_smaract():
     def __init__(self, simulation: bool = False, serial_number:str = "") -> None:
-        self.HW = hw_devices.HW_devices()
+        self.HW = hw_devices.HW_devices(simulation)
         self.dev = self.HW.positioner
         self.selectedDevice = serial_number
         self.dev.error = None
         self.simulation = simulation
         self.dev.GetAvailableDevices()
         self.NumOfLoggedPoints = 0
-        self.U = [1, 0, 0]
-        self.V = [0, 1, 0]
+
         self.prefix = "mcs"
         self.ch_offset = 0
 
@@ -85,13 +84,12 @@ class GUI_smaract():
                     dpg.add_text(" Ref.")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Ref. " + str(ch))
-                    dpg.add_button(label="Calc U",tag=f"{self.prefix}_calc_u",callback=self.btn_calc_u)
 
                 with dpg.group(horizontal=False, tag="_column 5_", width=child_width*.8):
                     dpg.add_text("  Zero   ")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Zero " + str(ch), callback=self.btn_zero, user_data=ch)
-                    dpg.add_button(label="Calc V",tag=f"{self.prefix}_calc_v", callback=self.btn_calc_v)
+                    # dpg.add_button(label="Calc V",tag=f"{self.prefix}_calc_v", callback=self.btn_calc_v)
 
                 with dpg.group(horizontal=False, tag="_column 6_", width=child_width *.8):
                     dpg.add_text(" Move UV")
@@ -105,7 +103,9 @@ class GUI_smaract():
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
                             dpg.add_button(label="+", width=20, callback=self.move_uv, user_data=(ch, 1, True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
-                    dpg.add_button(label="ToText", callback=self.generate_to_text)
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="ToText", callback=self.generate_to_text)
+                        dpg.add_button(label="Calc UV", tag=f"{self.prefix}_calc_uv", callback=self.btn_calc_uv)
                     with dpg.group(horizontal=True):
                         dpg.add_button(label="AutoFill", callback=self.AutoFill)
                         dpg.add_button(label="Load", callback=self.load_points)
@@ -173,6 +173,7 @@ class GUI_smaract():
             self.connect()
             self.dev.AxesKeyBoardLargeStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Cset") * self.dev.StepsIn1mm / 1e3) for ch in range(3)]
             self.dev.AxesKeyBoardSmallStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Fset") * self.dev.StepsIn1mm / 1e6) for ch in range(3)]
+
 
     def save_pos(self):
         # Define the list of windows to check and save positions for
@@ -606,47 +607,14 @@ class GUI_smaract():
                 dpg.set_value(f"{self.prefix}logged_points", "* " * self.NumOfLoggedPoints)
                 self.update_table()
 
-    def btn_calc_u(self):
+    def btn_calc_uv(self):
         themes = DpgThemes()
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
-        self.calc_vector('u')
-        dpg.bind_item_theme(f"{self.prefix}_calc_u", yellow_theme)
-
-    def btn_calc_v(self):
-        themes = DpgThemes()
-        yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
-        self.calc_vector('v')
-        dpg.bind_item_theme(f"{self.prefix}_calc_v", yellow_theme)
-
-    def calc_vector(self, vector_name):
-        if len(self.dev.LoggedPoints) < 2:
-            print(f"Please log at least two points prior to calculating {vector_name.upper()}")
-        else:
-            print(f"Calculating {vector_name.upper()}")
-            p1 = self.dev.LoggedPoints[-2]
-            p2 = self.dev.LoggedPoints[-1]
-            difference = [p2[i] - p1[i] for i in range(len(p1))]
-
-            try:
-                magnitude = math.sqrt(sum([component ** 2 for component in difference]))
-                if magnitude == 0:
-                    raise ValueError("The two points are identical, cannot compute vector.")
-
-                normalized_vector = [component / magnitude for component in difference]
-
-                if vector_name.lower() == 'u':
-                    self.U = normalized_vector
-                    print(self.U)
-                elif vector_name.lower() == 'v':
-                    self.V = normalized_vector
-                    print(self.V)
-                else:
-                    print(f"Unknown vector name: {vector_name}")
-
-            except ZeroDivisionError:
-                print("Division by zero error encountered during vector normalization.")
-            except ValueError as e:
-                print(e)
+        dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
+        if len(self.dev.LoggedPoints)<3:
+            print(f"Please log at least three points prior to calculating u & v")
+            return
+        self.dev.calc_uv()
 
     def cmb_device_selector(self, app_data, item):
         self.selectedDevice = item
@@ -683,7 +651,7 @@ class GUI_smaract():
                 value1 = value1 / 10
 
             steps = int(direction * value1 / 1e3 * self.dev.StepsIn1mm)
-            amount = [self.U[i] * steps for i in range(3)] if ch == 0 else [self.V[i] * steps for i in range(3)]
+            amount = [self.dev.U[i] * steps for i in range(3)] if ch == 0 else [self.dev.V[i] * steps for i in range(3)]
             print(amount)
 
             for channel in range(3):

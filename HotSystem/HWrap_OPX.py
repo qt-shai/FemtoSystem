@@ -18,8 +18,8 @@ import tkinter as tk
 
 from gevent.libev.corecext import callback
 from matplotlib import pyplot as plt
-from qm.qua import update_frequency, declare_stream, declare, program, for_, assign, if_, IO1, IO2, time_tagging, measure, \
-    play, wait, align, else_, save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
+from qm.qua import update_frequency, declare_stream, declare, program, for_, assign, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
+    save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
 from qualang_tools.results import fetching_tool
 from functools import partial
 from qualang_tools.units import unit
@@ -40,9 +40,11 @@ import SystemConfig as configs
 
 matplotlib.use('qtagg')
 
+
 def create_logger(log_file_path: str):
     log_file = open(log_file_path, 'w')
     return subprocess.Popen(['npx', 'pino-pretty'], stdin=subprocess.PIPE, stdout=log_file)
+
 
 class QuaCFG():
     # init variables 
@@ -75,8 +77,8 @@ class QuaCFG():
         self.pi_half_len_NV = self.pi_len_NV  # in units of ns
 
         # MW Switch parameters
-        self.switch_delay = 94#410  # in ns add delay of 94 ns to the digital signal
-        self.switch_buffer = 0#10  # in ns add extra 10 ns at the beginning and end of the digital pulse
+        self.switch_delay = 94  # 410  # in ns add delay of 94 ns to the digital signal
+        self.switch_buffer = 0  # 10  # in ns add extra 10 ns at the beginning and end of the digital pulse
         self.switch_len = 100  # in ns
 
         # Readout parameters
@@ -85,15 +87,15 @@ class QuaCFG():
 
         # Delays
         self.detection_delay = 112  # ns (mod4 > 36)
-        self.detection_delay_OPD = 308#160
-        self.mw_delay = 0#300  # ns
+        self.detection_delay_OPD = 308  # 160
+        self.mw_delay = 0  # 300  # ns
         self.laser_delay = 120
 
         # RF parameters
         self.rf_frequency = 3.03 * self.u.MHz
         self.rf_amp = 0.1
         self.rf_length = 1000
-        self.rf_delay = 8 #* self.u.ns
+        self.rf_delay = 8  # * self.u.ns
 
         self.logger = None
 
@@ -115,61 +117,41 @@ class QuaCFG():
 
     # Hot system
     def GetConfig(self):
-        return {
-            "version": 1,
+        return {"version": 1,
 
-            "controllers": {
-                "con1": {
-                    "type": "opx1",
-                    "analog_outputs": {  # OPX outputs
-                        1: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW I, offset = amplitude (v), delay = time (ns)
-                        2: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW Q
-                        3: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},  # RF 
-                    },
-                    "digital_outputs": {  # OPX outputs
-                        1: {"shareable": True},  # Laser
-                        2: {"shareable": True},  # MW switch
-                        3: {"shareable": True},  # Photo diode. Actual cable is not connected (kind of virtual, however we cannot use this channel when in use)
-                        4: {"shareable": True},  # Smaract TTL
-                        # 5: {"shareable": True},  # Laser in new location 
-                    },
-                    "analog_inputs": {  # OPX inputs
-                        1: {"offset": 0.00979, 'gain_db': 0, "shareable": True},
-                        # Detector, use 02_raw_adc_traces.py to calc the offset. minus to attenuate and pluse to amplify (range: -12db up to +20db, )
-                    },
-                    'digital_inputs': {  #OPD inputs
-                        1: {'polarity': 'RISING', 'deadtime': 4, "threshold": self.signal_threshold_OPD, "shareable": True},  #4 to 16nsec,
-                    },
-                }
-            },
+            "controllers": {"con1": {"type": "opx1", "analog_outputs": {  # OPX outputs
+                1: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW I, offset = amplitude (v), delay = time (ns)
+                2: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW Q
+                3: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},  # RF
+            }, "digital_outputs": {  # OPX outputs
+                1: {"shareable": True},  # Laser
+                2: {"shareable": True},  # MW switch
+                3: {"shareable": True},
+                # Photo diode. Actual cable is not connected (kind of virtual, however we cannot use this channel when in use)
+                4: {"shareable": True},  # Smaract TTL
+                # 5: {"shareable": True},  # Laser in new location
+            }, "analog_inputs": {  # OPX inputs
+                1: {"offset": 0.00979, 'gain_db': 0, "shareable": True},
+                # Detector, use 02_raw_adc_traces.py to calc the offset. minus to attenuate and pluse to amplify (range: -12db up to +20db, )
+            }, 'digital_inputs': {  # OPD inputs
+                1: {'polarity': 'RISING', 'deadtime': 4, "threshold": self.signal_threshold_OPD, "shareable": True},  # 4 to 16nsec,
+            }, }},
 
             "elements": {  # OPX output will be written here as input and vice versa
-                "RF": {
-                    "singleInput": {"port": ("con1", 3)},
-                    "intermediate_frequency": self.rf_frequency,
-                    "operations": {
-                        "const": "const_pulse_single",
-                    },
-                },
-                # "NV": {  # example how to write inside program: play("cw", "NV")
+                "RF": {"singleInput": {"port": ("con1", 3)}, "intermediate_frequency": self.rf_frequency,
+                    "operations": {"const": "const_pulse_single", }, }, # "NV": {  # example how to write inside program: play("cw", "NV")
                 "MW": {  # example how to write inside program: play("cw", "MW")
-                    "mixInputs": {"I": ("con1", 1), "Q": ("con1", 2), "lo_frequency": self.NV_LO_freq,
-                                  "mixer": "mixer_NV"},
+                    "mixInputs": {"I": ("con1", 1), "Q": ("con1", 2), "lo_frequency": self.NV_LO_freq, "mixer": "mixer_NV"},
                     # 'mixInputs' is QUA specifically for i&q which automatically refers to 'analog_outputs' in this example 1 &2
-                    "intermediate_frequency": self.NV_IF_freq,
-                    "digitalInputs": {  # 'digitalInputs' is actually 'digital_outputs'. RF switch (ON/OFF)
-                        "marker": {
-                            "port": ("con1", 2),
-                            "delay": self.switch_delay,  # delay in digital channel
+                    "intermediate_frequency": self.NV_IF_freq, "digitalInputs": {  # 'digitalInputs' is actually 'digital_outputs'. RF switch (ON/OFF)
+                        "marker": {"port": ("con1", 2), "delay": self.switch_delay,  # delay in digital channel
                             "buffer": self.switch_buffer,  # widen the pulse in the beginning and the end of this pulse
-                        },
-                        # "marker2": {
+                        }, # "marker2": {
                         #     "port": ("con1", 3),
                         #     "delay": switch_delay,
                         #     "buffer": switch_buffer,
                         # },
-                    },
-                    # "digitalInputs": {  # RF switch (ON/OFF
+                    }, # "digitalInputs": {  # RF switch (ON/OFF
                     #     "marker": {
                     #         "port": ("con1", 3),
                     #         "delay": switch_delay,
@@ -177,411 +159,175 @@ class QuaCFG():
                     #     },
                     # },
                     "operations": {  # waveform + pulses
-                        "xPulse": "x_pulse",
-                        "yPulse": "y_pulse",
-                        "cw": "const_pulse",
-                        "pi": "x180_pulse",
-                        "pi_half": "x90_pulse",
-                        "x180": "x180_pulse",
-                        "x90": "x90_pulse",
-                        "-x90": "-x90_pulse",
-                        "y180": "y180_pulse",
-                        "y90": "y90_pulse",
-                    },
-                },
+                        "xPulse": "x_pulse", "yPulse": "y_pulse", "cw": "const_pulse", "pi": "x180_pulse", "pi_half": "x90_pulse",
+                        "x180": "x180_pulse", "x90": "x90_pulse", "-x90": "-x90_pulse", "y180": "y180_pulse", "y90": "y90_pulse", }, },
 
                 # "AOM": { # AOM is arbitrary name, in our system it is just LASER
                 "Laser": {  # Laser is arbitrary name, in our system it is just LASER
                     "digitalInputs": {  # for the OPX it is digital outputs
                         "marker": {  # marker is arbitrary name
                             "port": ("con1", 1),  # CH NUM
-                            "delay": self.laser_delay,
-                            "buffer": 0,  # buffer <= laser_delay, amir: TBD to understand it
-                        },
-                    },
-                    "operations": {
-                        # "laser_ON": "laser_ON",
-                        "Turn_ON": "laser_ON",
-                    },
-                },
+                            "delay": self.laser_delay, "buffer": 0,  # buffer <= laser_delay, amir: TBD to understand it
+                        }, }, "operations": {# "laser_ON": "laser_ON",
+                        "Turn_ON": "laser_ON", }, },
 
                 # TODO: With Daniel - Set correct parameters for triggering smaract
                 "SmaractTrigger": {  # Send trigger to Smaract to go to next point in motion stream
                     "digitalInputs": {  # for the OPX it is digital outputs
                         "marker": {  # marker is arbitrary name
                             "port": ("con1", 4),  # CH NUM
-                            "delay": 0,
-                            "buffer": 0,  # buffer <= laser_delay, amir: TBD to understand it
-                        },
-                    },
-                    "operations": {
-                        # "laser_ON": "laser_ON",
-                        "Turn_ON": "laser_ON",
-                    },
-                },
+                            "delay": 0, "buffer": 0,  # buffer <= laser_delay, amir: TBD to understand it
+                        }, }, "operations": {# "laser_ON": "laser_ON",
+                        "Turn_ON": "laser_ON", }, },
 
-                "MW_switch": {
-                    "digitalInputs": {
-                        "marker": {
-                            "port": ("con1", 2),
-                            "delay": self.switch_delay,
-                            "buffer": self.switch_buffer,
-                        },
-                    },
-                    "operations": {
-                        "ON": "switch_ON",
-                    },
-                },
+                "MW_switch": {"digitalInputs": {"marker": {"port": ("con1", 2), "delay": self.switch_delay, "buffer": self.switch_buffer, }, },
+                    "operations": {"ON": "switch_ON", }, },
 
                 # "SPCM": {
-                "Detector": {
-                    "singleInput": {"port": ("con1", 1)},  # not used but must stay here
+                "Detector": {"singleInput": {"port": ("con1", 1)},  # not used but must stay here
 
                     "digitalInputs": {
                         # 'digitalInputs' is actually 'digital_outputs' in OPX. needed for gating for raw ADC (optional) relevant for calibration
-                        "marker": {
-                            "port": ("con1", 3),
-                            "delay": self.detection_delay,
+                        "marker": {"port": ("con1", 3), "delay": self.detection_delay,
                             # for example measure laser + detector howevr there is a delay since the photons have time of flight (so compensation is required)
-                            "buffer": 0,
-                        },
-                    },
-                    "operations": {
-                        "readout": "readout_pulse",
-                        "long_readout": "long_readout_pulse",
-                    },
+                            "buffer": 0, }, }, "operations": {"readout": "readout_pulse", "long_readout": "long_readout_pulse", },
                     "outputs": {"out1": ("con1", 1)},  # 'output' here is actually analog input of OPX
 
-                    "outputPulseParameters": {
-                        "signalThreshold": self.signal_threshold,
-                        "signalPolarity": "Descending",
-                        "derivativeThreshold": 1023,
-                        "derivativePolarity": "Descending",
-                    },
-                    "time_of_flight": self.detection_delay,
-                    "smearing": 0,
-                },
+                    "outputPulseParameters": {"signalThreshold": self.signal_threshold, "signalPolarity": "Descending", "derivativeThreshold": 1023,
+                        "derivativePolarity": "Descending", }, "time_of_flight": self.detection_delay, "smearing": 0, },
 
-                "Detector_OPD": {
-                    "singleInput": {"port": ("con1", 1)},  # not used
-                    "digitalInputs": {
-                        "marker": {
-                            "port": ("con1", 3),
-                            "delay": self.detection_delay_OPD,
-                            "buffer": 0,
-                        },
-                    },
+                "Detector_OPD": {"singleInput": {"port": ("con1", 1)},  # not used
+                    "digitalInputs": {"marker": {"port": ("con1", 3), "delay": self.detection_delay_OPD, "buffer": 0, }, },
                     'digitalOutputs': {  # 'digitalOutputs' here is actually 'digital input' of OPD
-                        'out1': ('con1', 1)
-                    },
-                    "outputs": {"out1": ("con1", 1)},
-                    "operations": {
-                        "readout": "readout_pulse",
-                        "min_readout": "min_readout_pulse",
-                        "long_readout": "long_readout_pulse",
-                        "very_long_readout": "very_long_readout_pulse",
-                    },
-                    "time_of_flight": self.detection_delay_OPD,
-                    "smearing": 0,
-                },
-            },
+                        'out1': ('con1', 1)}, "outputs": {"out1": ("con1", 1)},
+                    "operations": {"readout": "readout_pulse", "min_readout": "min_readout_pulse", "long_readout": "long_readout_pulse",
+                        "very_long_readout": "very_long_readout_pulse", }, "time_of_flight": self.detection_delay_OPD, "smearing": 0, }, },
 
-            "pulses": {
-                "const_pulse_single": {
-                    "operation": "control",
-                    "length": self.rf_length,  # in ns
-                    "waveforms": {"single": "rf_const_wf"},
-                },
-                "x_pulse": {
-                    "operation": "control",
-                    "length": self.mw_len_NV,
-                    "waveforms": {"I": "cw_wf", "Q": "zero_wf"},  # 'cw_wf' is analog waveform name
+            "pulses": {"const_pulse_single": {"operation": "control", "length": self.rf_length,  # in ns
+                "waveforms": {"single": "rf_const_wf"}, },
+                "x_pulse": {"operation": "control", "length": self.mw_len_NV, "waveforms": {"I": "cw_wf", "Q": "zero_wf"},
+                    # 'cw_wf' is analog waveform name
                     "digital_marker": "ON",  # 'ON' is digital waveform name
-                },
-                "y_pulse": {
-                    "operation": "control",
-                    "length": self.mw_len_NV,
-                    "waveforms": {"I": "zero_wf", "Q": "cw_wf"},  # 'cw_wf' is analog waveform name
+                }, "y_pulse": {"operation": "control", "length": self.mw_len_NV, "waveforms": {"I": "zero_wf", "Q": "cw_wf"},
+                    # 'cw_wf' is analog waveform name
                     "digital_marker": "ON",  # 'ON' is digital waveform name
-                },
-                "const_pulse": {
-                    "operation": "control",
-                    "length": self.mw_len_NV,
-                    "waveforms": {"I": "cw_wf", "Q": "zero_wf"},  # 'cw_wf' is analog waveform name
+                }, "const_pulse": {"operation": "control", "length": self.mw_len_NV, "waveforms": {"I": "cw_wf", "Q": "zero_wf"},
+                    # 'cw_wf' is analog waveform name
                     "digital_marker": "ON",  # 'ON' is digital waveform name
-                },
-                "x180_pulse": {
-                    "operation": "control",
-                    "length": self.pi_len_NV,
-                    "waveforms": {"I": "pi_wf", "Q": "zero_wf"},
-                    "digital_marker": "ON",
-                },
-                "x90_pulse": {
-                    "operation": "control",
-                    "length": self.pi_half_len_NV,
-                    "waveforms": {"I": "pi_half_wf", "Q": "zero_wf"},
-                    "digital_marker": "ON",
-                },
-                "-x90_pulse": {
-                    "operation": "control",
-                    "length": self.pi_half_len_NV,
-                    "waveforms": {"I": "-pi_half_wf", "Q": "zero_wf"},
-                    "digital_marker": "ON",
-                },
-                "y180_pulse": {
-                    "operation": "control",
-                    "length": self.pi_len_NV,
-                    "waveforms": {"I": "zero_wf", "Q": "pi_wf"},
-                    "digital_marker": "ON",
-                },
-                "y90_pulse": {
-                    "operation": "control",
-                    "length": self.pi_half_len_NV,
-                    "waveforms": {"I": "zero_wf", "Q": "pi_half_wf"},
-                    "digital_marker": "ON",
-                },
-                # TODO: With Daniel - understand how pulse length is determined
-                "laser_ON": {
-                    "operation": "control",
-                    "length": self.initialization_len,
-                    "digital_marker": "ON",
-                },                
-                "switch_ON": {
-                    "operation": "control",
-                    "length": self.switch_len,
-                    "digital_marker": "ON",
-                },
-                "readout_pulse": {
-                    "operation": "measurement",
-                    "length": self.meas_len,
-                    "digital_marker": "ON",
-                    "waveforms": {"single": "zero_wf"},
-                },
-                "min_readout_pulse": {
-                    "operation": "measurement",
-                    "length": self.minimal_meas_len,
-                    "digital_marker": "ON",
-                    "waveforms": {"single": "zero_wf"},
-                },
-                "long_readout_pulse": {
-                    "operation": "measurement",
-                    "length": self.long_meas_len,
-                    "digital_marker": "ON",
-                    "waveforms": {"single": "zero_wf"},
-                },
-                "very_long_readout_pulse": {
-                    "operation": "measurement",
-                    "length": self.very_long_meas_len,
-                    "digital_marker": "ON",
-                    "waveforms": {"single": "zero_wf"},
-                },                
-            },
+                }, "x180_pulse": {"operation": "control", "length": self.pi_len_NV, "waveforms": {"I": "pi_wf", "Q": "zero_wf"},
+                    "digital_marker": "ON", },
+                "x90_pulse": {"operation": "control", "length": self.pi_half_len_NV, "waveforms": {"I": "pi_half_wf", "Q": "zero_wf"},
+                    "digital_marker": "ON", },
+                "-x90_pulse": {"operation": "control", "length": self.pi_half_len_NV, "waveforms": {"I": "-pi_half_wf", "Q": "zero_wf"},
+                    "digital_marker": "ON", },
+                "y180_pulse": {"operation": "control", "length": self.pi_len_NV, "waveforms": {"I": "zero_wf", "Q": "pi_wf"},
+                    "digital_marker": "ON", },
+                "y90_pulse": {"operation": "control", "length": self.pi_half_len_NV, "waveforms": {"I": "zero_wf", "Q": "pi_half_wf"},
+                    "digital_marker": "ON", }, # TODO: With Daniel - understand how pulse length is determined
+                "laser_ON": {"operation": "control", "length": self.initialization_len, "digital_marker": "ON", },
+                "switch_ON": {"operation": "control", "length": self.switch_len, "digital_marker": "ON", },
+                "readout_pulse": {"operation": "measurement", "length": self.meas_len, "digital_marker": "ON", "waveforms": {"single": "zero_wf"}, },
+                "min_readout_pulse": {"operation": "measurement", "length": self.minimal_meas_len, "digital_marker": "ON",
+                    "waveforms": {"single": "zero_wf"}, },
+                "long_readout_pulse": {"operation": "measurement", "length": self.long_meas_len, "digital_marker": "ON",
+                    "waveforms": {"single": "zero_wf"}, },
+                "very_long_readout_pulse": {"operation": "measurement", "length": self.very_long_meas_len, "digital_marker": "ON",
+                    "waveforms": {"single": "zero_wf"}, }, },
 
-            "waveforms": {
-                "rf_const_wf": {"type": "constant", "sample": self.rf_amp},
-                "cw_wf": {"type": "constant", "sample": self.mw_amp_NV},
-                "pi_wf": {"type": "constant", "sample": self.pi_amp_NV},
-                "pi_half_wf": {"type": "constant", "sample": self.pi_half_amp_NV},
-                "-pi_half_wf": {"type": "constant", "sample": -self.pi_half_amp_NV},
-                "zero_wf": {"type": "constant", "sample": 0.0},
-            },
+            "waveforms": {"rf_const_wf": {"type": "constant", "sample": self.rf_amp}, "cw_wf": {"type": "constant", "sample": self.mw_amp_NV},
+                "pi_wf": {"type": "constant", "sample": self.pi_amp_NV}, "pi_half_wf": {"type": "constant", "sample": self.pi_half_amp_NV},
+                "-pi_half_wf": {"type": "constant", "sample": -self.pi_half_amp_NV}, "zero_wf": {"type": "constant", "sample": 0.0}, },
 
-            "digital_waveforms": {
-                "ON": {"samples": [(1, 0)]},  # [(on/off, ns)]
-                "test": {"samples": [(1, 4), (0, 8), (1, 12)]},
-                # [(on/off, ns)] arbitrary example digital waveform total length /4 shoult be integer
+            "digital_waveforms": {"ON": {"samples": [(1, 0)]},  # [(on/off, ns)]
+                "test": {"samples": [(1, 4), (0, 8), (1, 12)]}, # [(on/off, ns)] arbitrary example digital waveform total length /4 shoult be integer
                 "OFF": {"samples": [(0, 0)]},  # [(on/off, ns)]
             },
 
-            "mixers": {
-                "mixer_NV": [
-                    {"intermediate_frequency": self.NV_IF_freq, "lo_frequency": self.NV_LO_freq,
-                     "correction": self.iq_imbalance(0.0, 0.0)},
-                ],
-            },
+            "mixers": {"mixer_NV": [
+                {"intermediate_frequency": self.NV_IF_freq, "lo_frequency": self.NV_LO_freq, "correction": self.iq_imbalance(0.0, 0.0)}, ], },
 
         }
 
     # Femto/scan
     def GetConfigFemto(self):
-        return {
-            "version": 1,
+        return {"version": 1,
 
-            "controllers": {
-                "con1": {
-                    "type": "opx1",
-                    "analog_outputs": {  # OPX outputs
-                        1: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},   
-                    },
-                    "digital_outputs": {  # OPX outputs
-                        6: {"shareable": True},  # Smaract TTL 
-                        7: {"shareable": True},  # Laser 
-                        8: {"shareable": True},  # Photo diode marker. Actual cable is not connected (kind of virtual, however we cannot use this channel when in use)
-                    },
-                    "analog_inputs": {  # OPX inputs
-                        1: {"offset": 0.00979, 'gain_db': 0, "shareable": True},
-                        2: {"offset": 0.00979, 'gain_db': 0, "shareable": True},
-                    },
-                    'digital_inputs': {  #OPD inputs
-                        2: {'polarity': 'RISING', 'deadtime': 4, "threshold": self.signal_threshold_OPD, "shareable": True},  #4 to 16nsec,
-                    },
-                }
-            },
+            "controllers": {"con1": {"type": "opx1", "analog_outputs": {  # OPX outputs
+                1: {"offset": 0.0, "delay": self.rf_delay, "shareable": True}, }, "digital_outputs": {  # OPX outputs
+                6: {"shareable": True},  # Smaract TTL
+                7: {"shareable": True},  # Laser
+                8: {"shareable": True},
+                # Photo diode marker. Actual cable is not connected (kind of virtual, however we cannot use this channel when in use)
+            }, "analog_inputs": {  # OPX inputs
+                1: {"offset": 0.00979, 'gain_db': 0, "shareable": True}, 2: {"offset": 0.00979, 'gain_db': 0, "shareable": True}, },
+                'digital_inputs': {  # OPD inputs
+                    2: {'polarity': 'RISING', 'deadtime': 4, "threshold": self.signal_threshold_OPD, "shareable": True},  # 4 to 16nsec,
+                }, }},
 
-            "elements": { 
-                "Laser": {  # Laser is arbitrary name, in our system it is just LASER
-                    "digitalInputs": {  # for the OPX it is digital outputs
-                        "marker": {  # marker is arbitrary name
-                            "port": ("con1", 7),  # CH NUM
-                            "delay": self.laser_delay,
-                            "buffer": 0,  # buffer <= laser_delay
-                        },
-                    },
-                    "operations": {
-                        # "laser_ON": "laser_ON",
-                        "Turn_ON": "laser_ON",
-                    },
-                },
+            "elements": {"Laser": {  # Laser is arbitrary name, in our system it is just LASER
+                "digitalInputs": {  # for the OPX it is digital outputs
+                    "marker": {  # marker is arbitrary name
+                        "port": ("con1", 7),  # CH NUM
+                        "delay": self.laser_delay, "buffer": 0,  # buffer <= laser_delay
+                    }, }, "operations": {# "laser_ON": "laser_ON",
+                    "Turn_ON": "laser_ON", }, },
 
-                "Detector_OPD": {
-                    "singleInput": {"port": ("con1", 1)},  # not used
-                    "digitalInputs": {
-                        # "marker": {
+                "Detector_OPD": {"singleInput": {"port": ("con1", 1)},  # not used
+                    "digitalInputs": {# "marker": {
                         #     "port": ("con1", 8),
                         #     "delay": self.detection_delay_OPD,
                         #     "buffer": 0,
                         # },
-                    },
-                    'digitalOutputs': {  # 'digitalOutputs' here is actually 'digital input' of OPD
-                        'out1': ('con1', 2)
-                    },
-                    "outputs": {"out1": ("con1", 2)},
-                    "operations": {
-                        "readout": "readout_pulse",
-                        "min_readout": "min_readout_pulse",
-                        "long_readout": "long_readout_pulse",
-                        "very_long_readout": "very_long_readout_pulse",
-                    },
-                    "time_of_flight": self.detection_delay_OPD,
-                    "smearing": 0,
-                }, 
-                
+                    }, 'digitalOutputs': {  # 'digitalOutputs' here is actually 'digital input' of OPD
+                        'out1': ('con1', 2)}, "outputs": {"out1": ("con1", 2)},
+                    "operations": {"readout": "readout_pulse", "min_readout": "min_readout_pulse", "long_readout": "long_readout_pulse",
+                        "very_long_readout": "very_long_readout_pulse", }, "time_of_flight": self.detection_delay_OPD, "smearing": 0, },
+
                 "SmaractTrigger": {  # Send trigger to Smaract to go to next point in motion stream
                     "digitalInputs": {  # for the OPX it is digital outputs
                         "marker": {  # marker is arbitrary name
                             "port": ("con1", 6),  # CH NUM
-                            "delay": 0,
-                            "buffer": 0,  # buffer <= laser_delay, amir: TBD to understand it
-                        },
-                    },
-                    "operations": {
-                        "Turn_ON": "laser_ON",
-                    },
-                },
-            },
+                            "delay": 0, "buffer": 0,  # buffer <= laser_delay, amir: TBD to understand it
+                        }, }, "operations": {"Turn_ON": "laser_ON", }, }, },
 
-            "pulses": {
-                "const_pulse_single": {
-                    "operation": "control",
-                    "length": self.rf_length,  # in ns
-                    "waveforms": {"single": "rf_const_wf"},
-                },
+            "pulses": {"const_pulse_single": {"operation": "control", "length": self.rf_length,  # in ns
+                "waveforms": {"single": "rf_const_wf"}, },
 
-                "const_pulse": {
-                    "operation": "control",
-                    "length": self.mw_len_NV,
-                    "waveforms": {"I": "cw_wf", "Q": "zero_wf"},  # 'cw_wf' is analog waveform name
+                "const_pulse": {"operation": "control", "length": self.mw_len_NV, "waveforms": {"I": "cw_wf", "Q": "zero_wf"},
+                    # 'cw_wf' is analog waveform name
                     "digital_marker": "ON",  # 'ON' is digital waveform name
-                },
-                "x180_pulse": {
-                    "operation": "control",
-                    "length": self.pi_len_NV,
-                    "waveforms": {"I": "pi_wf", "Q": "zero_wf"},
-                    "digital_marker": "ON",
-                },
-                "x90_pulse": {
-                    "operation": "control",
-                    "length": self.pi_half_len_NV,
-                    "waveforms": {"I": "pi_half_wf", "Q": "zero_wf"},
-                    "digital_marker": "ON",
-                },
-                "-x90_pulse": {
-                    "operation": "control",
-                    "length": self.pi_half_len_NV,
-                    "waveforms": {"I": "-pi_half_wf", "Q": "zero_wf"},
-                    "digital_marker": "ON",
-                },
-                "y180_pulse": {
-                    "operation": "control",
-                    "length": self.pi_len_NV,
-                    "waveforms": {"I": "zero_wf", "Q": "pi_wf"},
-                    "digital_marker": "ON",
-                },
-                "y90_pulse": {
-                    "operation": "control",
-                    "length": self.pi_half_len_NV,
-                    "waveforms": {"I": "zero_wf", "Q": "pi_half_wf"},
-                    "digital_marker": "ON",
-                },
-                "laser_ON": {
-                    "operation": "control",
-                    "length": self.initialization_len,
-                    "digital_marker": "ON",
-                },                
-                "switch_ON": {
-                    "operation": "control",
-                    "length": self.switch_len,
-                    "digital_marker": "ON",
-                },
-                "readout_pulse": {
-                    "operation": "measurement",
-                    "length": self.meas_len,
-                    "digital_marker": "ON",
-                    "waveforms": {"single": "zero_wf"},
-                },
-                "min_readout_pulse": {
-                    "operation": "measurement",
-                    "length": self.minimal_meas_len,
-                    "digital_marker": "ON",
-                    "waveforms": {"single": "zero_wf"},
-                },
-                "long_readout_pulse": {
-                    "operation": "measurement",
-                    "length": self.long_meas_len,
-                    "digital_marker": "ON",
-                    "waveforms": {"single": "zero_wf"},
-                },
-                "very_long_readout_pulse": {
-                    "operation": "measurement",
-                    "length": self.very_long_meas_len,
-                    "digital_marker": "ON",
-                    "waveforms": {"single": "zero_wf"},
-                },                
+                }, "x180_pulse": {"operation": "control", "length": self.pi_len_NV, "waveforms": {"I": "pi_wf", "Q": "zero_wf"},
+                    "digital_marker": "ON", },
+                "x90_pulse": {"operation": "control", "length": self.pi_half_len_NV, "waveforms": {"I": "pi_half_wf", "Q": "zero_wf"},
+                    "digital_marker": "ON", },
+                "-x90_pulse": {"operation": "control", "length": self.pi_half_len_NV, "waveforms": {"I": "-pi_half_wf", "Q": "zero_wf"},
+                    "digital_marker": "ON", },
+                "y180_pulse": {"operation": "control", "length": self.pi_len_NV, "waveforms": {"I": "zero_wf", "Q": "pi_wf"},
+                    "digital_marker": "ON", },
+                "y90_pulse": {"operation": "control", "length": self.pi_half_len_NV, "waveforms": {"I": "zero_wf", "Q": "pi_half_wf"},
+                    "digital_marker": "ON", }, "laser_ON": {"operation": "control", "length": self.initialization_len, "digital_marker": "ON", },
+                "switch_ON": {"operation": "control", "length": self.switch_len, "digital_marker": "ON", },
+                "readout_pulse": {"operation": "measurement", "length": self.meas_len, "digital_marker": "ON", "waveforms": {"single": "zero_wf"}, },
+                "min_readout_pulse": {"operation": "measurement", "length": self.minimal_meas_len, "digital_marker": "ON",
+                    "waveforms": {"single": "zero_wf"}, },
+                "long_readout_pulse": {"operation": "measurement", "length": self.long_meas_len, "digital_marker": "ON",
+                    "waveforms": {"single": "zero_wf"}, },
+                "very_long_readout_pulse": {"operation": "measurement", "length": self.very_long_meas_len, "digital_marker": "ON",
+                    "waveforms": {"single": "zero_wf"}, }, },
+
+            "waveforms": {"rf_const_wf": {"type": "constant", "sample": self.rf_amp}, "cw_wf": {"type": "constant", "sample": self.mw_amp_NV},
+                "pi_wf": {"type": "constant", "sample": self.pi_amp_NV}, "pi_half_wf": {"type": "constant", "sample": self.pi_half_amp_NV},
+                "-pi_half_wf": {"type": "constant", "sample": -self.pi_half_amp_NV}, "zero_wf": {"type": "constant", "sample": 0.0}, },
+
+            "digital_waveforms": {"ON": {"samples": [(1, 0)]},  # [(on/off, ns)]
+                "test": {"samples": [(1, 4), (0, 8), (1, 12)]}, "OFF": {"samples": [(0, 0)]},  # [(on/off, ns)]
             },
 
-            "waveforms": {
-                "rf_const_wf": {"type": "constant", "sample": self.rf_amp},
-                "cw_wf": {"type": "constant", "sample": self.mw_amp_NV},
-                "pi_wf": {"type": "constant", "sample": self.pi_amp_NV},
-                "pi_half_wf": {"type": "constant", "sample": self.pi_half_amp_NV},
-                "-pi_half_wf": {"type": "constant", "sample": -self.pi_half_amp_NV},
-                "zero_wf": {"type": "constant", "sample": 0.0},
-            },
+            "mixers": {"mixer_NV": [
+                {"intermediate_frequency": self.NV_IF_freq, "lo_frequency": self.NV_LO_freq, "correction": self.iq_imbalance(0.0, 0.0)}, ], },
 
-            "digital_waveforms": {
-                "ON": {"samples": [(1, 0)]},  # [(on/off, ns)]
-                "test": {"samples": [(1, 4), (0, 8), (1, 12)]},
-                "OFF": {"samples": [(0, 0)]},  # [(on/off, ns)]
-            },
+        }
 
-            "mixers": {
-                "mixer_NV": [
-                    {"intermediate_frequency": self.NV_IF_freq, "lo_frequency": self.NV_LO_freq,
-                    "correction": self.iq_imbalance(0.0, 0.0)},
-                ],
-            },
-
-        }   
 
 class Experimet(Enum):
     SCRIPT = 0
@@ -601,19 +347,22 @@ class Experimet(Enum):
     Electron_lifetime = 16
     Electron_Coherence = 17
 
+
 class queried_plane(Enum):
     XY = 0
     YZ = 1
     XZ = 2
-    
+
+
 class Axis(Enum):
     Z = 0
     Y = 1
     X = 2
 
-class GUI_OPX(): #todo: support several device
+
+class GUI_OPX():  # todo: support several device
     # init parameters
-    def __init__(self, simulation:bool = False):
+    def __init__(self, simulation: bool = False):
         # HW
         self.max1 = None
         self.max = None
@@ -625,8 +374,8 @@ class GUI_OPX(): #todo: support several device
         self.pico = self.HW.picomotor
         self.laser = self.HW.cobolt
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
-            self.ScanTrigger = 101 # IO2
-            self.TrackingTrigger = 101 # IO1
+            self.ScanTrigger = 101  # IO2
+            self.TrackingTrigger = 101  # IO1
         if (self.HW.config.system_type == configs.SystemType.HOT_SYSTEM):
             self.ScanTrigger = 1
             self.TrackingTrigger = 1
@@ -650,7 +399,7 @@ class GUI_OPX(): #todo: support several device
         self.markers = []
         self.z_correction_threshold = 10000
         self.expected_pos = None
-        self.smaract_ttl_duration = 0.001  #ms, updated from XML (loaded using 'self.update_from_xml()')
+        self.smaract_ttl_duration = 0.001  # ms, updated from XML (loaded using 'self.update_from_xml()')
         self.fast_scan_enabled = False
         self.lock = threading.Lock()
 
@@ -658,7 +407,7 @@ class GUI_OPX(): #todo: support several device
         self.scan_Out = []
         self.scan_data = np.zeros(shape=[80, 80, 60])
         self.queried_area = None
-        self.queried_plane = None # 0 - XY, 1 - YZ, 2 -XZ
+        self.queried_plane = None  # 0 - XY, 1 - YZ, 2 -XZ
         self.bScanChkbox = False
         self.L_scan = [5000, 5000, 5000]  # [nm]
         self.dL_scan = [100, 100, 100]  # [nm]
@@ -666,12 +415,12 @@ class GUI_OPX(): #todo: support several device
         self.b_Zcorrection = False
         self.use_picomotor = False
         self.ZCalibrationData: np.ndarray | None = None
-        self.Zcorrection_threshold = 10 # [nm]
+        self.Zcorrection_threshold = 10  # [nm]
         self.iniShift_scan = [0, 0, 0]  # [nm]
         self.ini_scan_pos = [0, 0, 0]  # [nm]
-        self.idx_scan = [0, 0, 0] # Z Y X
-        self.startLoc=[0, 0, 0] 
-        self.endLoc=[0, 0, 0]
+        self.idx_scan = [0, 0, 0]  # Z Y X
+        self.startLoc = [0, 0, 0]
+        self.endLoc = [0, 0, 0]
         self.dir = 1
         self.estimatedScanTime = 0  # [minutes]
         self.singleStepTime_scan = 0.033  # [sec]
@@ -682,19 +431,19 @@ class GUI_OPX(): #todo: support several device
         self.bEnableSimulate = False
         # tracking ref
         self.bEnableSignalIntensityCorrection = True
-        self.trackingPeriodTime = 10000000 # [nsec]
+        self.trackingPeriodTime = 10000000  # [nsec]
         self.refSignal = 0.0
         self.TrackIsRunning = True
-        self.tTrackingSignaIntegrationTime = 50 #[msec]
-        self.tGetTrackingSignalEveryTime = float(3) #[sec]
+        self.tTrackingSignaIntegrationTime = 50  # [msec]
+        self.tGetTrackingSignalEveryTime = float(3)  # [sec]
         self.TrackingThreshold = 0.95  # track signal threshold
-        self.N_tracking_search = 5 # max number of point to scan on each axis
+        self.N_tracking_search = 5  # max number of point to scan on each axis
 
         # Qua config object
-        self.quaCFG =  configs.QuaConfigSelector.get_qua_config(self.HW.config.system_type)
+        self.quaCFG = configs.QuaConfigSelector.get_qua_config(self.HW.config.system_type)
         self.u = unit()
 
-        #common parameters
+        # common parameters
         self.exp = Experimet.COUNTER
 
         self.mw_Pwr = -20.0  # [dBm]
@@ -702,7 +451,7 @@ class GUI_OPX(): #todo: support several device
         self.mw_freq_scan_range = 10.0  # [MHz]
         self.mw_df = float(0.1)  # [MHz]
         self.mw_freq_resonance = 2.18018  # [GHz]
-        self.mw_2ndfreq_resonance = 2.18318 # [GHz]
+        self.mw_2ndfreq_resonance = 2.18318  # [GHz]
 
         self.n_avg = int(1000000)  # number of averages
         self.n_nuc_pump = 4  # number of times to try nuclear pumping
@@ -713,11 +462,11 @@ class GUI_OPX(): #todo: support several device
         self.scan_t_dt = 40  # [nsec], must above 4ns (1 cycle)
 
         self.MeasProcessTime = 300  # [nsec], time required for measure element to finish process
-        self.Tpump = 500 # [nsec]
+        self.Tpump = 500  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
-        self.TcounterPulsed = 500 # [nsec]
+        self.TcounterPulsed = 500  # [nsec]
         self.total_integration_time = 5  # [msec]
-        self.Tsettle = 2000 # [nsec]
+        self.Tsettle = 2000  # [nsec]
         self.t_mw = 1100  # [nsec] # from rabi experiment
 
         self.OPX_rf_amp = 0.5  # [V], OPX max amplitude
@@ -733,17 +482,16 @@ class GUI_OPX(): #todo: support several device
 
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
-
-        #Graph parameters
+        # Graph parameters
         self.NumOfPoints = 800  # to include in counter Graph
         self.X_vec = []
         self.Y_vec = []
         self.X_vec_ref = []
         self.Y_vec_ref = []
 
-        self.Xv=[]
-        self.Yv=[]
-        self.Zv=[]
+        self.Xv = []
+        self.Yv = []
+        self.Zv = []
 
         self.StopFetch = True
 
@@ -763,7 +511,7 @@ class GUI_OPX(): #todo: support several device
         else:
             try:
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
-                self.qmm = QuantumMachinesManager(host = self.HW.config.opx_ip, cluster_name = self.HW.config.opx_cluster, timeout = 60) # in seconds
+                self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster, timeout=60)  # in seconds
                 time.sleep(1)
 
             except Exception as e:
@@ -775,15 +523,15 @@ class GUI_OPX(): #todo: support several device
             if self.b_Scan[i] == True:
                 if self.dL_scan[i] > 0:
                     N[i] = self.L_scan[i] / self.dL_scan[i]
-        self.estimatedScanTime = round(np.prod(N) * (self.singleStepTime_scan + self.total_integration_time/1e3) / 60, 1)
+        self.estimatedScanTime = round(np.prod(N) * (self.singleStepTime_scan + self.total_integration_time / 1e3) / 60, 1)
 
     # Callbacks
-    def time_in_multiples_cycle_time(self, val, cycleTime: int = 4, min:int = 16, max:int = 50000000 ):
-        val = (val//cycleTime)*cycleTime
+    def time_in_multiples_cycle_time(self, val, cycleTime: int = 4, min: int = 16, max: int = 50000000):
+        val = (val // cycleTime) * cycleTime
         if val < min:
-            val  = min
+            val = min
         if val > max:
-            val  = max
+            val = max
         return int(val)
 
     def UpdateCounterIntegrationTime(sender, app_data, user_data):
@@ -893,19 +641,19 @@ class GUI_OPX(): #todo: support several device
         time.sleep(0.001)
         dpg.set_value(item="inDbl_tGetTrackingSignalEveryTime", value=sender.tGetTrackingSignalEveryTime)
         print("Set tGetTrackingSignalEveryTime to: " + str(sender.tGetTrackingSignalEveryTime))
-    
+
     def Update_tTrackingSignaIntegrationTime(sender, app_data, user_data):
         sender.tTrackingSignaIntegrationTime = (user_data)
         time.sleep(0.001)
         dpg.set_value(item="inDbl_tTrackingSignaIntegrationTime", value=sender.tTrackingSignaIntegrationTime)
         print("Set tTrackingSignaIntegrationTime to: " + str(sender.tTrackingSignaIntegrationTime))
-    
+
     def Update_TrackingThreshold(sender, app_data, user_data):
         sender.TrackingThreshold = (user_data)
         time.sleep(0.001)
         dpg.set_value(item="inDbl_TrackingThreshold", value=sender.TrackingThreshold)
         print("Set TrackingThreshold to: " + str(sender.TrackingThreshold))
-    
+
     def UpdateScanTstart(sender, app_data, user_data):
         sender.scan_t_start = (int(user_data))
         sender.scan_t_start = sender.scan_t_start if sender.scan_t_start >= 20 else 20
@@ -954,7 +702,7 @@ class GUI_OPX(): #todo: support several device
 
     def Update_rf_df(sender, app_data, user_data):
         sender.rf_df_gui = (float(user_data))
-        sender.rf_df = sender.rf_df_gui / 1e3 # to [MHz]
+        sender.rf_df = sender.rf_df_gui / 1e3  # to [MHz]
         time.sleep(0.001)
         dpg.set_value(item="inDbl_rf_df", value=sender.rf_df_gui)
         print("Set rf_df to: " + str(sender.rf_df_gui))
@@ -992,31 +740,27 @@ class GUI_OPX(): #todo: support several device
         self.viewport_width = dpg.get_viewport_client_width()
         self.viewport_height = dpg.get_viewport_client_height()
         self.window_scale_factor = width / 3840
+
     def controls(self, _width=1600, _Height=1000):
         self.GetWindowSize()
         pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.4)]
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
 
-        dpg.add_window(label="OPX Window", tag="OPX Window", no_title_bar=True, height=-1, width=-1,
-                       pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label="OPX Window", tag="OPX Window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
         dpg.add_group(tag="Graph_group", parent="OPX Window", horizontal=True)
         dpg.add_plot(label="Graph", width=int(win_size[0]), height=int(win_size[1]), crosshairs=True, tag="graphXY",
-                     parent="Graph_group")  #height=-1, width=-1,no_menus = False )
+                     parent="Graph_group")  # height=-1, width=-1,no_menus = False )
         dpg.add_plot_legend(parent="graphXY")  # optionally create legend
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
-        dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False,
-                          parent="graphXY")  # REQUIRED: create x and y axes
-        dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis",
-                            tag="series_counts")  # series belong to a y axis
-        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis",
-                            tag="series_counts_ref")  # series belong to a y axis
+        dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False, parent="graphXY")  # REQUIRED: create x and y axes
+        dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")  # series belong to a y axis
+        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis", tag="series_counts_ref")  # series belong to a y axis
 
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
 
         dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=False)
         self.GUI_ParametersControl(True)
-
 
     def GUI_ParametersControl(self, isStart):
         child_width = int(2900 * self.window_scale_factor)
@@ -1029,217 +773,157 @@ class GUI_OPX(): #todo: support several device
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=False)
 
             # Create a single collapsible header to contain all controls, collapsed by default
-            with dpg.collapsing_header(label="Parameter Controls", tag="Parameter_Controls_Header",
-                                       parent="Params_Controls", default_open=False):
+            with dpg.collapsing_header(label="Parameter Controls", tag="Parameter_Controls_Header", parent="Params_Controls", default_open=False):
                 # Child window and group for integration controls
-                with dpg.child_window(tag="child_Integration_Controls", horizontal_scrollbar=True, width=child_width,
-                                      height=child_height):
+                with dpg.child_window(tag="child_Integration_Controls", horizontal_scrollbar=True, width=child_width, height=child_height):
                     with dpg.group(tag="Integration_Controls", horizontal=True):
                         dpg.add_text(default_value="Tcounter [nsec]", tag="text_integration_time")
-                        dpg.add_input_int(label="", tag="inInt_Tcounter", width=item_width,
-                                          callback=self.UpdateTcounter, default_value=self.Tcounter, min_value=1,
-                                          max_value=60000000, step=100)
-                        dpg.add_text(default_value="Tpump [nsec]", tag="text_Tpump")
-                        dpg.add_input_int(label="", tag="inInt_Tpump", width=item_width, callback=self.UpdateTpump,
-                                          default_value=self.Tpump, min_value=1, max_value=60000000, step=100)
-                        dpg.add_text(default_value="TcounterPulsed [nsec]", tag="text_TcounterPulsed")
-                        dpg.add_input_int(label="", tag="inInt_TcounterPulsed", width=item_width,
-                                          callback=self.UpdateTcounterPulsed, default_value=self.TcounterPulsed,
+                        dpg.add_input_int(label="", tag="inInt_Tcounter", width=item_width, callback=self.UpdateTcounter, default_value=self.Tcounter,
                                           min_value=1, max_value=60000000, step=100)
+                        dpg.add_text(default_value="Tpump [nsec]", tag="text_Tpump")
+                        dpg.add_input_int(label="", tag="inInt_Tpump", width=item_width, callback=self.UpdateTpump, default_value=self.Tpump,
+                                          min_value=1, max_value=60000000, step=100)
+                        dpg.add_text(default_value="TcounterPulsed [nsec]", tag="text_TcounterPulsed")
+                        dpg.add_input_int(label="", tag="inInt_TcounterPulsed", width=item_width, callback=self.UpdateTcounterPulsed,
+                                          default_value=self.TcounterPulsed, min_value=1, max_value=60000000, step=100)
                         dpg.add_text(default_value="Tsettle [nsec]", tag="text_measure_time")
-                        dpg.add_input_int(label="", tag="inInt_Tsettle", width=item_width, callback=self.UpdateTsettle,
-                                          default_value=self.Tsettle, min_value=1, max_value=60000000, step=1)
+                        dpg.add_input_int(label="", tag="inInt_Tsettle", width=item_width, callback=self.UpdateTsettle, default_value=self.Tsettle,
+                                          min_value=1, max_value=60000000, step=1)
                         dpg.add_text(default_value="total integration time [msec]", tag="text_total_integration_time")
-                        dpg.add_input_int(label="", tag="inInt_total_integration_time", width=item_width,
-                                          callback=self.UpdateCounterIntegrationTime,
-                                          default_value=self.total_integration_time, min_value=1, max_value=1000,
-                                          step=1)
+                        dpg.add_input_int(label="", tag="inInt_total_integration_time", width=item_width, callback=self.UpdateCounterIntegrationTime,
+                                          default_value=self.total_integration_time, min_value=1, max_value=1000, step=1)
 
                 dpg.add_child_window(label="", tag="child_Freq_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
-                              width=child_width, height=child_height)
-                dpg.add_group(tag="Freq_Controls", parent="child_Freq_Controls", horizontal=True)  #, before="Graph_group")
+                                     width=child_width, height=child_height)
+                dpg.add_group(tag="Freq_Controls", parent="child_Freq_Controls", horizontal=True)  # , before="Graph_group")
 
-                dpg.add_text(default_value="MW res [GHz]", parent="Freq_Controls", tag="text_mwResonanceFreq",
-                             indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_mwResonanceFreq", indent=-1, parent="Freq_Controls",
-                                     format="%.9f",
-                                     width=item_width, callback=self.Update_mwResonanceFreq,
-                                     default_value=self.mw_freq_resonance,
-                                     min_value=0.001, max_value=6, step=0.001)
-                dpg.add_text(default_value="MW 2nd_res [GHz]", parent="Freq_Controls", tag="text_mw2ndResonanceFreq",
-                             indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_mw_2ndfreq_resonance", indent=-1, parent="Freq_Controls",
-                                     format="%.9f",
-                                     width=item_width, callback=self.Update_mw_2ndfreq_resonance,
-                                     default_value=self.mw_2ndfreq_resonance,
-                                     min_value=0.001, max_value=6, step=0.001)
+                dpg.add_text(default_value="MW res [GHz]", parent="Freq_Controls", tag="text_mwResonanceFreq", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_mwResonanceFreq", indent=-1, parent="Freq_Controls", format="%.9f", width=item_width,
+                                     callback=self.Update_mwResonanceFreq, default_value=self.mw_freq_resonance, min_value=0.001, max_value=6,
+                                     step=0.001)
+                dpg.add_text(default_value="MW 2nd_res [GHz]", parent="Freq_Controls", tag="text_mw2ndResonanceFreq", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_mw_2ndfreq_resonance", indent=-1, parent="Freq_Controls", format="%.9f", width=item_width,
+                                     callback=self.Update_mw_2ndfreq_resonance, default_value=self.mw_2ndfreq_resonance, min_value=0.001, max_value=6,
+                                     step=0.001)
                 dpg.add_text(default_value="MW freq [GHz] (base)", parent="Freq_Controls", tag="text_mwFreq", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_mwFreq", indent=-1, parent="Freq_Controls", format="%.9f",
-                                     width=item_width, callback=self.Update_mwFreq,
-                                     default_value=self.mw_freq,
-                                     min_value=0.001, max_value=6, step=0.001)
+                dpg.add_input_double(label="", tag="inDbl_mwFreq", indent=-1, parent="Freq_Controls", format="%.9f", width=item_width,
+                                     callback=self.Update_mwFreq, default_value=self.mw_freq, min_value=0.001, max_value=6, step=0.001)
                 dpg.add_text(default_value="range [MHz]", parent="Freq_Controls", tag="text_mwScanRange", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_mwScanRange", indent=-1, parent="Freq_Controls",
-                                     width=item_width, callback=self.UpdateScanRange,
-                                     default_value=self.mw_freq_scan_range,
-                                     min_value=1, max_value=400, step=1)
+                dpg.add_input_double(label="", tag="inDbl_mwScanRange", indent=-1, parent="Freq_Controls", width=item_width,
+                                     callback=self.UpdateScanRange, default_value=self.mw_freq_scan_range, min_value=1, max_value=400, step=1)
                 dpg.add_text(default_value="df [MHz]", parent="Freq_Controls", tag="text_mw_df", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_mw_df", indent=-1, parent="Freq_Controls", format="%.5f",
-                                     width=item_width, callback=self.Update_df,
-                                     default_value=self.mw_df,
-                                     min_value=0.000001, max_value=500, step=0.1)
+                dpg.add_input_double(label="", tag="inDbl_mw_df", indent=-1, parent="Freq_Controls", format="%.5f", width=item_width,
+                                     callback=self.Update_df, default_value=self.mw_df, min_value=0.000001, max_value=500, step=0.1)
                 dpg.add_text(default_value="Power [dBm]", parent="Freq_Controls", tag="text_mw_pwr", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_mw_pwr", indent=-1, parent="Freq_Controls",
-                                     width=item_width, callback=self.UpdateMWpwr,
-                                     default_value=self.mw_Pwr,
-                                     min_value=0.01, max_value=500, step=0.1)
+                dpg.add_input_double(label="", tag="inDbl_mw_pwr", indent=-1, parent="Freq_Controls", width=item_width, callback=self.UpdateMWpwr,
+                                     default_value=self.mw_Pwr, min_value=0.01, max_value=500, step=0.1)
 
                 dpg.add_child_window(label="", tag="child_rf_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
-                              width=child_width, height=child_height)
-                dpg.add_group(tag="rf_Controls", parent="child_rf_Controls", horizontal=True)  #, before="Graph_group")
+                                     width=child_width, height=child_height)
+                dpg.add_group(tag="rf_Controls", parent="child_rf_Controls", horizontal=True)  # , before="Graph_group")
 
-                dpg.add_text(default_value="RF resonance freq [MHz]", parent="rf_Controls", tag="text_rf_resonance_Freq",
-                             indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_rf_resonance_freq", indent=-1, parent="rf_Controls",
-                                     format="%.9f",
-                                     width=item_width, callback=self.Update_rf_resonance_Freq,
-                                     default_value=self.rf_resonance_freq,
-                                     min_value=0.001, max_value=6, step=0.001)
+                dpg.add_text(default_value="RF resonance freq [MHz]", parent="rf_Controls", tag="text_rf_resonance_Freq", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_rf_resonance_freq", indent=-1, parent="rf_Controls", format="%.9f", width=item_width,
+                                     callback=self.Update_rf_resonance_Freq, default_value=self.rf_resonance_freq, min_value=0.001, max_value=6,
+                                     step=0.001)
 
                 dpg.add_text(default_value="RF freq [MHz]", parent="rf_Controls", tag="text_rf_Freq", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_rf_freq", indent=-1, parent="rf_Controls", format="%.9f",
-                                     width=item_width, callback=self.Update_rf_Freq,
-                                     default_value=self.rf_freq,
-                                     min_value=0.001, max_value=6, step=0.001)
+                dpg.add_input_double(label="", tag="inDbl_rf_freq", indent=-1, parent="rf_Controls", format="%.9f", width=item_width,
+                                     callback=self.Update_rf_Freq, default_value=self.rf_freq, min_value=0.001, max_value=6, step=0.001)
                 dpg.add_text(default_value="range [kHz]", parent="rf_Controls", tag="text_rfScanRange", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_rf_ScanRange", indent=-1, parent="rf_Controls",
-                                     width=item_width, callback=self.Update_rf_ScanRange,
-                                     default_value=self.rf_freq_scan_range_gui,
-                                     min_value=1, max_value=400, step=1)
+                dpg.add_input_double(label="", tag="inDbl_rf_ScanRange", indent=-1, parent="rf_Controls", width=item_width,
+                                     callback=self.Update_rf_ScanRange, default_value=self.rf_freq_scan_range_gui, min_value=1, max_value=400, step=1)
                 dpg.add_text(default_value="df [kHz]", parent="rf_Controls", tag="text_rf_df", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_rf_df", indent=-1, parent="rf_Controls", format="%.5f",
-                                     width=item_width, callback=self.Update_rf_df,
-                                     default_value=self.rf_df_gui,
-                                     min_value=0.00001, max_value=500, step=0.1)
+                dpg.add_input_double(label="", tag="inDbl_rf_df", indent=-1, parent="rf_Controls", format="%.5f", width=item_width,
+                                     callback=self.Update_rf_df, default_value=self.rf_df_gui, min_value=0.00001, max_value=500, step=0.1)
                 dpg.add_text(default_value="Power [V]", parent="rf_Controls", tag="text_rf_pwr", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_rf_pwr", indent=-1, parent="rf_Controls",
-                                     width=item_width, callback=self.Update_rf_pwr,
-                                     default_value=self.rf_Pwr,
-                                     min_value=0.01, max_value=500, step=0.1)
+                dpg.add_input_double(label="", tag="inDbl_rf_pwr", indent=-1, parent="rf_Controls", width=item_width, callback=self.Update_rf_pwr,
+                                     default_value=self.rf_Pwr, min_value=0.01, max_value=500, step=0.1)
 
                 dpg.add_child_window(label="", tag="child_Time_Scan_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
-                              width=child_width, height=child_height)
-                dpg.add_group(tag="Time_Scan_Controls", parent="child_Time_Scan_Controls",
-                              horizontal=True)  #, before="Graph_group")
-                dpg.add_text(default_value="scan t start [ns]", parent="Time_Scan_Controls", tag="text_scan_time_start",
-                             indent=-1)
-                dpg.add_input_int(label="", tag="inInt_scan_t_start", indent=-1, parent="Time_Scan_Controls",
-                                  width=item_width, callback=self.UpdateScanTstart,
-                                  default_value=self.scan_t_start,
-                                  min_value=0, max_value=50000, step=1)
+                                     width=child_width, height=child_height)
+                dpg.add_group(tag="Time_Scan_Controls", parent="child_Time_Scan_Controls", horizontal=True)  # , before="Graph_group")
+                dpg.add_text(default_value="scan t start [ns]", parent="Time_Scan_Controls", tag="text_scan_time_start", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_scan_t_start", indent=-1, parent="Time_Scan_Controls", width=item_width,
+                                  callback=self.UpdateScanTstart, default_value=self.scan_t_start, min_value=0, max_value=50000, step=1)
                 dpg.add_text(default_value="dt [ns]", parent="Time_Scan_Controls", tag="text_scan_time_dt", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_scan_t_dt", indent=-1, parent="Time_Scan_Controls",
-                                  width=item_width, callback=self.UpdateScanT_dt,
-                                  default_value=self.scan_t_dt,
-                                  min_value=0, max_value=50000, step=1)
+                dpg.add_input_int(label="", tag="inInt_scan_t_dt", indent=-1, parent="Time_Scan_Controls", width=item_width,
+                                  callback=self.UpdateScanT_dt, default_value=self.scan_t_dt, min_value=0, max_value=50000, step=1)
                 dpg.add_text(default_value="t end [ns]", parent="Time_Scan_Controls", tag="text_scan_time_end", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_scan_t_end", indent=-1, parent="Time_Scan_Controls",
-                                  width=item_width, callback=self.UpdateScanTend,
-                                  default_value=self.scan_t_end,
-                                  min_value=0, max_value=50000, step=1)
+                dpg.add_input_int(label="", tag="inInt_scan_t_end", indent=-1, parent="Time_Scan_Controls", width=item_width,
+                                  callback=self.UpdateScanTend, default_value=self.scan_t_end, min_value=0, max_value=50000, step=1)
 
-                dpg.add_child_window(label="", tag="child_Time_delay_Controls", parent="Parameter_Controls_Header",
-                              horizontal_scrollbar=True, width=child_width, height=child_height)
-                dpg.add_group(tag="Time_delay_Controls", parent="child_Time_delay_Controls",
-                              horizontal=True)  #, before="Graph_group")
+                dpg.add_child_window(label="", tag="child_Time_delay_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
+                                     width=child_width, height=child_height)
+                dpg.add_group(tag="Time_delay_Controls", parent="child_Time_delay_Controls", horizontal=True)  # , before="Graph_group")
 
                 dpg.add_text(default_value="t_mw [ns]", parent="Time_delay_Controls", tag="text_t_mw", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_t_mw", indent=-1, parent="Time_delay_Controls",
-                                  width=item_width, callback=self.UpdateT_mw,
-                                  default_value=self.t_mw,
-                                  min_value=0, max_value=50000, step=1)
-                dpg.add_text(default_value="rf_pulse_time [ns]", parent="Time_delay_Controls", tag="text_rf_pulse_time",
+                dpg.add_input_int(label="", tag="inInt_t_mw", indent=-1, parent="Time_delay_Controls", width=item_width, callback=self.UpdateT_mw,
+                                  default_value=self.t_mw, min_value=0, max_value=50000, step=1)
+                dpg.add_text(default_value="rf_pulse_time [ns]", parent="Time_delay_Controls", tag="text_rf_pulse_time", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_rf_pulse_time", indent=-1, parent="Time_delay_Controls", width=item_width,
+                                  callback=self.UpdateT_rf_pulse_time, default_value=self.rf_pulse_time, min_value=0, max_value=500000, step=1)
+                dpg.add_text(default_value="tGetTrackingSignalEveryTime [sec]", parent="Time_delay_Controls", tag="text_tGetTrackingSignalEveryTime",
                              indent=-1)
-                dpg.add_input_int(label="", tag="inInt_rf_pulse_time", indent=-1, parent="Time_delay_Controls",
-                                  width=item_width, callback=self.UpdateT_rf_pulse_time,
-                                  default_value=self.rf_pulse_time,
-                                  min_value=0, max_value=500000, step=1)
-                dpg.add_text(default_value="tGetTrackingSignalEveryTime [sec]", parent="Time_delay_Controls", tag="text_tGetTrackingSignalEveryTime", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_tGetTrackingSignalEveryTime", indent=-1, parent="Time_delay_Controls", format="%.3f",
                                      width=item_width, callback=self.Update_tGetTrackingSignalEveryTime,
-                                     default_value=self.tGetTrackingSignalEveryTime,
-                                     min_value=0.001, max_value=10, step=0.1)
+                                     default_value=self.tGetTrackingSignalEveryTime, min_value=0.001, max_value=10, step=0.1)
 
-                dpg.add_text(default_value="tTrackingSignaIntegrationTime [msec]", parent="Time_delay_Controls", tag="text_tTrackingSignaIntegrationTime", indent=-1)
+                dpg.add_text(default_value="tTrackingSignaIntegrationTime [msec]", parent="Time_delay_Controls",
+                             tag="text_tTrackingSignaIntegrationTime", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_tTrackingSignaIntegrationTime", indent=-1, parent="Time_delay_Controls", format="%.0f",
                                      width=item_width, callback=self.Update_tTrackingSignaIntegrationTime,
-                                     default_value=self.tTrackingSignaIntegrationTime,
-                                     min_value=1, max_value=500000, step=10.0)
+                                     default_value=self.tTrackingSignaIntegrationTime, min_value=1, max_value=500000, step=10.0)
 
-
-                dpg.add_child_window(label="", tag="child_Repetitions_Controls", parent="Parameter_Controls_Header",
-                              horizontal_scrollbar=True, width=child_width, height=child_height)
-                dpg.add_group(tag="Repetitions_Controls", parent="child_Repetitions_Controls",
-                              horizontal=True)  #, before="Graph_group")
+                dpg.add_child_window(label="", tag="child_Repetitions_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
+                                     width=child_width, height=child_height)
+                dpg.add_group(tag="Repetitions_Controls", parent="child_Repetitions_Controls", horizontal=True)  # , before="Graph_group")
 
                 dpg.add_text(default_value="N nuc pump", parent="Repetitions_Controls", tag="text_N_nuc_pump", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_N_nuc_pump", indent=-1, parent="Repetitions_Controls",
-                                  width=item_width, callback=self.UpdateN_nuc_pump,
-                                  default_value=self.n_nuc_pump,
-                                  min_value=0, max_value=50000, step=1)
+                dpg.add_input_int(label="", tag="inInt_N_nuc_pump", indent=-1, parent="Repetitions_Controls", width=item_width,
+                                  callback=self.UpdateN_nuc_pump, default_value=self.n_nuc_pump, min_value=0, max_value=50000, step=1)
 
                 dpg.add_text(default_value="N CPMG", parent="Repetitions_Controls", tag="text_N_CPMG", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_N_CPMG", indent=-1, parent="Repetitions_Controls",
-                                  width=item_width, callback=self.UpdateN_CPMG,
-                                  default_value=self.n_CPMG,
-                                  min_value=0, max_value=50000, step=1)
+                dpg.add_input_int(label="", tag="inInt_N_CPMG", indent=-1, parent="Repetitions_Controls", width=item_width,
+                                  callback=self.UpdateN_CPMG, default_value=self.n_CPMG, min_value=0, max_value=50000, step=1)
 
                 dpg.add_text(default_value="N avg", parent="Repetitions_Controls", tag="text_n_avg", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_n_avg", indent=-1, parent="Repetitions_Controls",
-                                  width=item_width, callback=self.UpdateNavg,
-                                  default_value=self.n_avg,
-                                  min_value=0, max_value=50000, step=1)
+                dpg.add_input_int(label="", tag="inInt_n_avg", indent=-1, parent="Repetitions_Controls", width=item_width, callback=self.UpdateNavg,
+                                  default_value=self.n_avg, min_value=0, max_value=50000, step=1)
                 dpg.add_text(default_value="TrackingThreshold", parent="Repetitions_Controls", tag="text_TrackingThreshold", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_TrackingThreshold", indent=-1, parent="Repetitions_Controls", format="%.2f",
-                                     width=item_width, callback=self.Update_TrackingThreshold,
-                                     default_value=self.TrackingThreshold,
-                                     min_value=0, max_value=1, step=0.01)
+                                     width=item_width, callback=self.Update_TrackingThreshold, default_value=self.TrackingThreshold, min_value=0,
+                                     max_value=1, step=0.01)
                 dpg.add_text(default_value="N search (Itracking)", parent="Repetitions_Controls", tag="text_N_tracking_search", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_N_tracking_search", indent=-1, parent="Repetitions_Controls",
-                                  width=item_width, callback=self.UpdateN_tracking_search,
-                                  default_value=self.N_tracking_search,
-                                  min_value=0, max_value=50000, step=1)
+                dpg.add_input_int(label="", tag="inInt_N_tracking_search", indent=-1, parent="Repetitions_Controls", width=item_width,
+                                  callback=self.UpdateN_tracking_search, default_value=self.N_tracking_search, min_value=0, max_value=50000, step=1)
 
                 dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
                 dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
-                                 callback=self.Update_Intensity_Tracking_state, indent=-1,
-                                 default_value=self.bEnableSignalIntensityCorrection)
-                dpg.add_checkbox(label="QUA shuffle", tag="chkbox_QUA_shuffle", parent="chkbox_group",
-                                 callback=self.Update_QUA_Shuffle_state, indent=-1,
-                                 default_value=self.bEnableShuffle)
-                dpg.add_checkbox(label="QUA simulate", tag="chkbox_QUA_simulate", parent="chkbox_group",
-                                 callback=self.Update_QUA_Simulate_state, indent=-1,
-                                 default_value=self.bEnableSimulate)
-                dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1,
-                                 callback=self.Update_scan, default_value=self.bScanChkbox)
+                                 callback=self.Update_Intensity_Tracking_state, indent=-1, default_value=self.bEnableSignalIntensityCorrection)
+                dpg.add_checkbox(label="QUA shuffle", tag="chkbox_QUA_shuffle", parent="chkbox_group", callback=self.Update_QUA_Shuffle_state,
+                                 indent=-1, default_value=self.bEnableShuffle)
+                dpg.add_checkbox(label="QUA simulate", tag="chkbox_QUA_simulate", parent="chkbox_group", callback=self.Update_QUA_Simulate_state,
+                                 indent=-1, default_value=self.bEnableSimulate)
+                dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1, callback=self.Update_scan,
+                                 default_value=self.bScanChkbox)
                 # dpg.add_checkbox(label="Scan XYZ Fast", tag="chkbox_scan_fast", parent="chkbox_group", indent=-1, callback=self.Update_scan_fast, default_value=self.fast_scan_enabled)
-                dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm, default_value=self.chkbox_close_all_qm)
+                dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm,
+                                 default_value=self.chkbox_close_all_qm)
 
-                dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
-                              horizontal=False)  # parent="Params_Controls",horizontal=False)
-                _width = 300 # was 220
-                dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",
-                               callback=self.btnStartCounterLive, indent=-1, width=_width)
-                dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR",
-                               callback=self.btnStartODMR_CW, indent=-1, width=_width)
-                dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR",
-                               callback=self.btnStartPulsedODMR, indent=-1, width=_width)
-                dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI,
+                dpg.add_group(tag="Buttons_Controls", parent="Graph_group", horizontal=False)  # parent="Params_Controls",horizontal=False)
+                _width = 300  # was 220
+                dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter", callback=self.btnStartCounterLive, indent=-1,
+                               width=_width)
+                dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR", callback=self.btnStartODMR_CW, indent=-1,
+                               width=_width)
+                dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR", callback=self.btnStartPulsedODMR,
                                indent=-1, width=_width)
+                dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
                                callback=self.btnStartNuclearRABI, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR",
-                               callback=self.btnStartNuclearMR, indent=-1, width=_width)
+                dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR", callback=self.btnStartNuclearMR,
+                               indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear PolESR", parent="Buttons_Controls", tag="btnOPX_StartNuclearPolESR",
                                callback=self.btnStartNuclearPolESR, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear lifetime S0", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS0",
@@ -1248,8 +932,8 @@ class GUI_OPX(): #todo: support several device
                                callback=self.btnStartNuclearSpinLifetimeS1, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear Ramsay", parent="Buttons_Controls", tag="btnOPX_StartNuclearRamsay",
                                callback=self.btnStartNuclearRamsay, indent=-1, width=_width)
-                dpg.add_button(label="Start Hahn", parent="Buttons_Controls", tag="btnOPX_StartHahn",
-                               callback=self.btnStartHahn, indent=-1, width=_width)
+                dpg.add_button(label="Start Hahn", parent="Buttons_Controls", tag="btnOPX_StartHahn", callback=self.btnStartHahn, indent=-1,
+                               width=_width)
                 dpg.add_button(label="Start Electron Lifetime", parent="Buttons_Controls", tag="btnOPX_StartElectronLifetime",
                                callback=self.btnStartElectronLifetime, indent=-1, width=_width)
                 dpg.add_button(label="Start Electron Coherence", parent="Buttons_Controls", tag="btnOPX_StartElectronCoherence",
@@ -1257,9 +941,9 @@ class GUI_OPX(): #todo: support several device
 
                 # save exp data
                 dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
-                dpg.add_input_text(label="", parent="Save_Controls", tag="inTxtOPX_expText", indent=-1,
-                                   callback=self.saveExperimentsNotes)
-                dpg.add_button(label="Save", parent="Save_Controls", tag="btnOPX_save", callback=self.btnSave, indent=-1) # remove save btn, it should save automatically
+                dpg.add_input_text(label="", parent="Save_Controls", tag="inTxtOPX_expText", indent=-1, callback=self.saveExperimentsNotes)
+                dpg.add_button(label="Save", parent="Save_Controls", tag="btnOPX_save", callback=self.btnSave,
+                               indent=-1)  # remove save btn, it should save automatically
 
             # dpg.add_checkbox(label="Radio Button1", source="bool_value")
             dpg.bind_item_theme(item="Params_Controls", theme="NewTheme")
@@ -1279,116 +963,120 @@ class GUI_OPX(): #todo: support several device
         self.Calc_estimatedScanTime()
         self.maintain_aspect_ratio = True
 
-        win_size = [int(self.viewport_width*0.6), int(self.viewport_height*0.3)]
-        win_pos = [int(self.viewport_width*0.05)*0, int(self.viewport_height*0.5)]
+        win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.3)]
+        win_pos = [int(self.viewport_width * 0.05) * 0, int(self.viewport_height * 0.5)]
         scan_time_in_seconds = self.estimatedScanTime * 60
 
-        item_width = int(200* self.window_scale_factor)
+        item_width = int(200 * self.window_scale_factor)
         if self.bScanChkbox:
 
-            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=800,
-                            pos=win_pos):
+            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=1200, pos=win_pos):
                 with dpg.group(horizontal=True):
                     # Left side: Scan settings and controls
                     with dpg.group(tag="Scan_Range", horizontal=False):
                         with dpg.group(tag="Scan_Parameters", horizontal=False):
                             with dpg.group(tag="X_Scan_Range", horizontal=True):
-                                dpg.add_checkbox(label="", tag="chkbox_bX_Scan", indent=-1,
-                                                 callback=self.Update_bX_Scan, default_value=self.b_Scan[0])
+                                dpg.add_checkbox(label="", tag="chkbox_bX_Scan", indent=-1, callback=self.Update_bX_Scan,
+                                                 default_value=self.b_Scan[0])
                                 dpg.add_text(default_value="dx [nm]", tag="text_dx_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_dx_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_dX_Scan, default_value=self.dL_scan[0],
-                                                  min_value=0, max_value=500000, step=1)
+                                dpg.add_input_int(label="", tag="inInt_dx_scan", indent=-1, width=item_width, callback=self.Update_dX_Scan,
+                                                  default_value=self.dL_scan[0], min_value=0, max_value=500000, step=1)
                                 dpg.add_text(default_value="Lx [nm]", tag="text_Lx_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Lx_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_Lx_Scan, default_value=self.L_scan[0],
-                                                  min_value=0, max_value=500000, step=1)
+                                dpg.add_input_int(label="", tag="inInt_Lx_scan", indent=-1, width=item_width, callback=self.Update_Lx_Scan,
+                                                  default_value=self.L_scan[0], min_value=0, max_value=500000, step=1)
 
                             with dpg.group(tag="Y_Scan_Range", horizontal=True):
-                                dpg.add_checkbox(label="", tag="chkbox_bY_Scan", indent=-1,
-                                                 callback=self.Update_bY_Scan, default_value=self.b_Scan[1])
+                                dpg.add_checkbox(label="", tag="chkbox_bY_Scan", indent=-1, callback=self.Update_bY_Scan,
+                                                 default_value=self.b_Scan[1])
                                 dpg.add_text(default_value="dy [nm]", tag="text_dy_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_dy_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_dY_Scan, default_value=self.dL_scan[1],
-                                                  min_value=0, max_value=500000, step=1)
+                                dpg.add_input_int(label="", tag="inInt_dy_scan", indent=-1, width=item_width, callback=self.Update_dY_Scan,
+                                                  default_value=self.dL_scan[1], min_value=0, max_value=500000, step=1)
                                 dpg.add_text(default_value="Ly [nm]", tag="text_Ly_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Ly_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_Ly_Scan, default_value=self.L_scan[1],
-                                                  min_value=0, max_value=500000, step=1)
+                                dpg.add_input_int(label="", tag="inInt_Ly_scan", indent=-1, width=item_width, callback=self.Update_Ly_Scan,
+                                                  default_value=self.L_scan[1], min_value=0, max_value=500000, step=1)
 
                             with dpg.group(tag="Z_Scan_Range", horizontal=True):
-                                dpg.add_checkbox(label="", tag="chkbox_bZ_Scan", indent=-1,
-                                                 callback=self.Update_bZ_Scan, default_value=self.b_Scan[2])
+                                dpg.add_checkbox(label="", tag="chkbox_bZ_Scan", indent=-1, callback=self.Update_bZ_Scan,
+                                                 default_value=self.b_Scan[2])
                                 dpg.add_text(default_value="dz [nm]", tag="text_dz_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_dz_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_dZ_Scan, default_value=self.dL_scan[2],
-                                                  min_value=0, max_value=500000, step=1)
+                                dpg.add_input_int(label="", tag="inInt_dz_scan", indent=-1, width=item_width, callback=self.Update_dZ_Scan,
+                                                  default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
                                 dpg.add_text(default_value="Lz [nm]", tag="text_Lz_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Lz_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_Lz_Scan, default_value=self.L_scan[2],
-                                                  min_value=0, max_value=500000, step=1)
+                                dpg.add_input_int(label="", tag="inInt_Lz_scan", indent=-1, width=item_width, callback=self.Update_Lz_Scan,
+                                                  default_value=self.L_scan[2], min_value=0, max_value=500000, step=1)
 
                             with dpg.group(horizontal=True):
-                                dpg.add_input_text(label="", tag="inTxtScan_expText", indent=-1, width=200,
-                                                   callback=self.saveExperimentsNotes)
+                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=200, callback=self.saveExperimentsNotes)
 
-                                dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
-                                             tag="text_expectedScanTime", indent=-1)
+                                dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}", tag="text_expectedScanTime",
+                                             indent=-1)
 
                             with dpg.group(horizontal=True):
                                 dpg.add_text(label="Message: ", tag="Scan_Message")
-                                dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
-                                                 callback=self.Update_bZcorrection, default_value=self.b_Zcorrection)
+                                dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1, callback=self.Update_bZcorrection,
+                                                 default_value=self.b_Zcorrection)
                                 dpg.add_text(default_value="Use Z Correction", tag="text_Zcorrection", indent=-1)
 
+                            dpg.add_input_text(label="CMD", callback=self.execute_input_string, multiline=True, width=400, height=20)
+
                     with dpg.group(tag="start_Scan_btngroup", horizontal=False):
-                            dpg.add_button(label="Start Scan", tag="btnOPX_StartScan", callback=self.btnStartScan,
-                                           indent=-1, width=130)
-                            dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
-                            dpg.add_button(label="Load Scan", tag="btnOPX_LoadScan", callback=self.btnLoadScan,
-                                           indent=-1, width=130)
-                            dpg.bind_item_theme(item="btnOPX_LoadScan", theme="btnGreenTheme")
-                            dpg.add_button(label="Update images", tag="btnOPX_UpdateImages",
-                                           callback=self.btnUpdateImages, indent=1, width=130)
-                            dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
-                            dpg.add_button(label="Auto Focus", tag="btnOPX_AutoFocus", callback=self.btnAutoFocus, indent=-1, width=130)
-                            dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
-                            dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint",
-                                           callback=self.btnGetLoggedPoints, indent=-1, width=130)
+                        dpg.add_button(label="Start Scan", tag="btnOPX_StartScan", callback=self.btnStartScan, indent=-1, width=130)
+                        dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
+                        dpg.add_button(label="Load Scan", tag="btnOPX_LoadScan", callback=self.btnLoadScan, indent=-1, width=130)
+                        dpg.bind_item_theme(item="btnOPX_LoadScan", theme="btnGreenTheme")
+                        dpg.add_button(label="Update images", tag="btnOPX_UpdateImages", callback=self.btnUpdateImages, indent=1, width=130)
+                        dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
+                        dpg.add_button(label="Auto Focus", tag="btnOPX_AutoFocus", callback=self.btnAutoFocus, indent=-1, width=130)
+                        dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
+                        dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
                     with dpg.group(horizontal=False):
-                        dpg.add_button(label="Updt from map",callback=self.update_from_map)
-                        dpg.add_button(label="scan all markers",callback=self.scan_all_markers)
-                        dpg.add_input_text(label="CMD", callback=self.execute_input_string, multiline=True,width=80,height=30)
-                        dpg.add_button(label="z-calibrate", callback=self.z_calibrate)
+                        dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
+                        dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
+                        dpg.add_button(label="Z-calibrate", callback=self.z_calibrate, width=130)
                         with dpg.group(horizontal=True):
-                            dpg.add_button(label="plot",callback=self.plot_graph)
-                            dpg.add_checkbox(label="use pico", indent=-1,
-                                             callback=self.toggle_use_picomotor, default_value=self.use_picomotor)
+                            dpg.add_button(label="plot", callback=self.plot_graph)
+                            dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor", callback=self.toggle_use_picomotor,
+                                             default_value=self.use_picomotor)
 
                     with dpg.group(horizontal=False):
-                        dpg.add_input_float(label="Step (um)", default_value=0.2, width=120,
-                                            tag="step_um")
-                        dpg.add_input_float(label="Z Span (um)", default_value=6.0, width=120,
-                                            tag="z_span_um")
-                        dpg.add_input_float(label="Laser Power (mW)", default_value=40.0, width=120,
-                                            tag="laser_power_mw")
-                        dpg.add_input_float(label="Int time (ms)", default_value=10.0, width=120,
-                                            tag="int_time_ms")
-                        dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=120,
-                                            tag="xy_span_um")
+                        dpg.add_input_float(label="Step (um)", default_value=0.2, width=120, tag="step_um")
+                        dpg.add_input_float(label="Z Span (um)", default_value=6.0, width=120, tag="z_span_um")
+                        dpg.add_input_float(label="Laser Power (mW)", default_value=40.0, width=120, tag="laser_power_mw")
+                        dpg.add_input_float(label="Int time (ms)", default_value=10.0, width=120, tag="int_time_ms")
+                        dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=120, tag="xy_span_um")
 
                     self.btnGetLoggedPoints()  # get logged points
                     self.map = Map(self.ZCalibrationData)
-                    self.map.create_map_gui(win_size,win_pos)
-                    # dpg.set_frame_callback(1, self.load_pos)
+                    self.map.create_map_gui(win_size, win_pos)  # dpg.set_frame_callback(1, self.load_pos)
         else:
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
 
     def z_calibrate(self):
-        pass
+        xy_span_um = dpg.get_value("xy_span_um")
+        if xy_span_um > 60:
+            self.use_picomotor = True
+
+        device = self.pico if self.use_picomotor else self.positioner
+
+        self.auto_focus()
+
+        for ch in range(2):
+            position = self.get_device_position(device)
+            device.LoggedPoints.append(position.copy())
+            device.MoveRelative(ch if not self.use_picomotor else ch + 1, int(xy_span_um * 1e-3 * device.StepsIn1mm))
+            self.auto_focus()
+
+        device.calc_uv()
+
+    def get_device_position(self, device):
+        device.GetPosition()
+        position = [0] * 3
+        for channel in range(3):
+            position[channel] = device.AxesPositions[channel] / device.StepsIn1mm * 1e3
+        return position
 
     # Define the callback function to run the input string
     def execute_input_string(self, app_data, user_data):
@@ -1403,7 +1091,7 @@ class GUI_OPX(): #todo: support several device
     def toggle_use_picomotor(sender, app_data, user_data):
         sender.use_picomotor = user_data
         time.sleep(0.001)
-        dpg.set_value(item="chkbox_use_picomotor", value=sender.use_picomotor)
+        dpg.set_value(item="checkbox_use_picomotor", value=sender.use_picomotor)
         print("Set use_picomotor to: " + str(sender.use_picomotor))
 
     def plot_graph(self):
@@ -1431,9 +1119,9 @@ class GUI_OPX(): #todo: support several device
         else:
             print("Error: plt_x or plt_y is None. Unable to plot the graph.")
 
-    def update_from_map(self,index=0):
+    def update_from_map(self, index=0):
         """Update scan parameters based on the selected area marker."""
-        point=(0, 0, 0)
+        point = (0, 0, 0)
         if index < len(self.map.area_markers):
             # Get the selected rectangle from area_markers by index, including Z scan state
             selected_rectangle = self.map.area_markers[index]
@@ -1446,8 +1134,7 @@ class GUI_OPX(): #todo: support several device
             Y_pos = (max_y + min_y) / 2
 
             # Calculate the Z evaluation
-            z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array([int(X_pos * 1e6)]),
-                                                    int(Y_pos * 1e6))) / 1e6
+            z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array([int(X_pos * 1e6)]), int(Y_pos * 1e6))) / 1e6
 
             # Call Update_Lx_Scan and Update_Ly_Scan with the calculated values
             self.Update_Lx_Scan(app_data=None, user_data=Lx_scan)
@@ -1465,8 +1152,7 @@ class GUI_OPX(): #todo: support several device
             self.Calc_estimatedScanTime()
 
             # Update the GUI with the estimated scan time and relevant messages
-            dpg.set_value(item="text_expectedScanTime",
-                          value=f"~scan time: {self.format_time(self.estimatedScanTime * 60)}")
+            dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {self.format_time(self.estimatedScanTime * 60)}")
             dpg.set_value("Scan_Message", "Please press GO ABS in Smaract GUI")
         else:
             print("Invalid area marker index or no area markers available.")  # NE
@@ -1627,8 +1313,7 @@ class GUI_OPX(): #todo: support several device
                 result_arrayXZ_ = self.fast_rgb_convert(result_arrayXZ)
                 result_arrayYZ_ = self.fast_rgb_convert(result_arrayYZ)
             else:
-                for arr, result_array in zip([arrXY, arrXZ, arrYZ],
-                                             [result_arrayXY_, result_arrayXZ_, result_arrayYZ_]):
+                for arr, result_array in zip([arrXY, arrXZ, arrYZ], [result_arrayXY_, result_arrayXZ_, result_arrayYZ_]):
                     for i in range(arr.shape[0]):
                         for j in range(arr.shape[1]):
                             res = self.intensity_to_rgb_heatmap(arr.astype(np.uint8)[i][j] / 255)
@@ -1641,26 +1326,25 @@ class GUI_OPX(): #todo: support several device
 
             # Add textures
             dpg.add_texture_registry(show=False, tag="texture_reg")
-            dpg.add_dynamic_texture(width=arrXY.shape[1], height=arrXY.shape[0], default_value=result_arrayXY_,
-                                    tag="textureXY_tag", parent="texture_reg")
-            dpg.add_dynamic_texture(width=arrXZ.shape[1], height=arrXZ.shape[0], default_value=result_arrayXZ_,
-                                    tag="textureXZ_tag", parent="texture_reg")
-            dpg.add_dynamic_texture(width=arrYZ.shape[1], height=arrYZ.shape[0], default_value=result_arrayYZ_,
-                                    tag="textureYZ_tag", parent="texture_reg")
+            dpg.add_dynamic_texture(width=arrXY.shape[1], height=arrXY.shape[0], default_value=result_arrayXY_, tag="textureXY_tag",
+                                    parent="texture_reg")
+            dpg.add_dynamic_texture(width=arrXZ.shape[1], height=arrXZ.shape[0], default_value=result_arrayXZ_, tag="textureXZ_tag",
+                                    parent="texture_reg")
+            dpg.add_dynamic_texture(width=arrYZ.shape[1], height=arrYZ.shape[0], default_value=result_arrayYZ_, tag="textureYZ_tag",
+                                    parent="texture_reg")
 
             # Plot scan
             dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
 
             # XY plot
-            dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
-                         equal_aspects=True, crosshairs=True, query=True, callback=self.queryXY_callback)
-            dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]),
-                              parent="plotImaga")
+            dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True,
+                         query=True, callback=self.queryXY_callback)
+            dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]), parent="plotImaga")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImaga", tag="plotImaga_Y")
-            dpg.add_image_series("textureXY_tag", bounds_min=[self.startLoc[0], self.startLoc[1]],
-                                 bounds_max=[self.endLoc[0], self.endLoc[1]], label="Scan data", parent="plotImaga_Y")
-            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(arrXY),
-                                   max_scale=np.max(arrXY), colormap=dpg.mvPlotColormap_Jet)
+            dpg.add_image_series("textureXY_tag", bounds_min=[self.startLoc[0], self.startLoc[1]], bounds_max=[self.endLoc[0], self.endLoc[1]],
+                                 label="Scan data", parent="plotImaga_Y")
+            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(arrXY), max_scale=np.max(arrXY),
+                                   colormap=dpg.mvPlotColormap_Jet)
 
             # Update width based on conditions
             item_width = dpg.get_item_width("plotImaga")
@@ -1673,26 +1357,20 @@ class GUI_OPX(): #todo: support several device
             else:
                 dpg.set_item_width("Scan_Window", item_width * 3 + 50)
                 # XZ plot
-                dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
-                             equal_aspects=True, crosshairs=True, query=True, callback=self.queryXZ_callback)
-                dpg.add_plot_axis(dpg.mvXAxis,
-                                  label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),
-                                  parent="plotImagb")
+                dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True,
+                             query=True, callback=self.queryXZ_callback)
+                dpg.add_plot_axis(dpg.mvXAxis, label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]), parent="plotImagb")
                 dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagb", tag="plotImagb_Y")
-                dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]],
-                                     bounds_max=[self.endLoc[0], self.endLoc[2]], label="Scan data",
-                                     parent="plotImagb_Y")
+                dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]], bounds_max=[self.endLoc[0], self.endLoc[2]],
+                                     label="Scan data", parent="plotImagb_Y")
 
                 # YZ plot
-                dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1],
-                             equal_aspects=True, crosshairs=True, query=True, callback=self.queryYZ_callback)
-                dpg.add_plot_axis(dpg.mvXAxis,
-                                  label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),
-                                  parent="plotImagc")
+                dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True,
+                             query=True, callback=self.queryYZ_callback)
+                dpg.add_plot_axis(dpg.mvXAxis, label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]), parent="plotImagc")
                 dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
-                dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]],
-                                     bounds_max=[self.endLoc[1], self.endLoc[2]], label="Scan data",
-                                     parent="plotImagc_Y")
+                dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
+                                     label="Scan data", parent="plotImagc_Y")
 
             dpg.set_item_height("Scan_Window", item_height + 150)
 
@@ -1771,27 +1449,24 @@ class GUI_OPX(): #todo: support several device
 
         try:
             if switchAxes:
-                dpg.add_dynamic_texture(width=array_2d.shape[1], height=array_2d.shape[0], default_value=result_array_,
-                                        tag="texture_tag", parent="texture_reg")
+                dpg.add_dynamic_texture(width=array_2d.shape[1], height=array_2d.shape[0], default_value=result_array_, tag="texture_tag",
+                                        parent="texture_reg")
             else:
-                dpg.add_dynamic_texture(width=array_2d.shape[0], height=array_2d.shape[1], default_value=result_array_,
-                                        tag="texture_tag", parent="texture_reg")
+                dpg.add_dynamic_texture(width=array_2d.shape[0], height=array_2d.shape[1], default_value=result_array_, tag="texture_tag",
+                                        parent="texture_reg")
         except Exception as e:
             print(f"Error adding dynamic texture: {e}")
 
         try:
             # Plot scan
             dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
-            dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
-                         equal_aspects=True,
-                         crosshairs=True)
+            dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True)
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis [um]", parent="plotImaga")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
-            dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]],
-                                 bounds_max=[endLoc[0], endLoc[1]],
-                                 label="Scan data", parent="plotImaga_Y")
-            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d),
-                                   max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
+            dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data",
+                                 parent="plotImaga_Y")
+            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d),
+                                   colormap=dpg.mvPlotColormap_Jet)
         except Exception as e:
             print(f"Error during plotting: {e}")
 
@@ -1812,7 +1487,7 @@ class GUI_OPX(): #todo: support several device
         except Exception as e:
             print(f"Error setting texture tag value: {e}")
 
-    def UpdateGuiDuringScan(self,Array2D, use_fast_rgb: bool = False):
+    def UpdateGuiDuringScan(self, Array2D, use_fast_rgb: bool = False):
         val = Array2D.reshape(-1)
         idx = np.where(val != 0)[0]
         minI = val[idx].min()
@@ -1821,26 +1496,27 @@ class GUI_OPX(): #todo: support several device
 
         dpg.set_value("texture_tag", result_array_)
         dpg.delete_item("colormapXY")
-        dpg.add_colormap_scale(show = True, parent="scan_group", tag="colormapXY",min_scale=minI, max_scale=Array2D.max(),colormap=dpg.mvPlotColormap_Jet )
+        dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=minI, max_scale=Array2D.max(),
+                               colormap=dpg.mvPlotColormap_Jet)
 
-    def UpdateGuiDuringScan_____(self, Array2D: np.ndarray): #$$$
+    def UpdateGuiDuringScan_____(self, Array2D: np.ndarray):  # $$$
         # todo: remove loops keep only when an imgae is needed
         start_updatePlot_time = time.time()
         result_array_ = []
 
-        Array2D=Array2D*255/Array2D.max() #BBB
-        Array2D=np.fliplr(Array2D)
+        Array2D = Array2D * 255 / Array2D.max()  # BBB
+        Array2D = np.fliplr(Array2D)
 
         for i in range(Array2D.shape[0]):  # Y
             for j in range(Array2D.shape[1]):  # X
-                res = self.intensity_to_rgb_heatmap(Array2D.astype(np.uint8)[j,i]/255) 
-                result_array_.append(res[0] / 255) # shai 30-7-24
+                res = self.intensity_to_rgb_heatmap(Array2D.astype(np.uint8)[j, i] / 255)
+                result_array_.append(res[0] / 255)  # shai 30-7-24
                 result_array_.append(res[1] / 255)
                 result_array_.append(res[2] / 255)
                 result_array_.append(res[3] / 255)
 
         # dpg.set_value("textureXY_tag", result_array_) # 444
-        dpg.set_value("texture_tag", result_array_) # 444
+        dpg.set_value("texture_tag", result_array_)  # 444
 
     def Update_scan(sender, app_data, user_data):
         sender.bScanChkbox = user_data
@@ -1853,13 +1529,12 @@ class GUI_OPX(): #todo: support several device
         sender.fast_scan_enabled = user_data
         # time.sleep(0.001)
         # dpg.set_value(item = "chkbox_scan_fast",value=sender.fast_scan_enabled)
-        print("Set fast scan to: " + str(sender.fast_scan_enabled))
-        # sender.GUI_ScanControls()
-    
+        print("Set fast scan to: " + str(sender.fast_scan_enabled))  # sender.GUI_ScanControls()
+
     def Update_close_all_qm(sender, app_data, user_data):
         sender.chkbox_close_all_qm = user_data
         time.sleep(0.001)
-        dpg.set_value(item = "chkbox_close_all_qm",value=sender.chkbox_close_all_qm)
+        dpg.set_value(item="chkbox_close_all_qm", value=sender.chkbox_close_all_qm)
         print("Set chkbox_close_all_qm to: " + str(sender.chkbox_close_all_qm))
 
     def Update_bX_Scan(sender, app_data, user_data):
@@ -1869,8 +1544,7 @@ class GUI_OPX(): #todo: support several device
         print("Set b_Scan[0] to: " + str(sender.b_Scan[0]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
         sender.to_xml()
 
@@ -1881,8 +1555,7 @@ class GUI_OPX(): #todo: support several device
         print("Set bY_Scan to: " + str(sender.b_Scan[1]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_bZ_Scan(sender, app_data, user_data):
         sender.b_Scan[2] = user_data
@@ -1891,8 +1564,7 @@ class GUI_OPX(): #todo: support several device
         print("Set bZ_Scan to: " + str(sender.b_Scan[2]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_dX_Scan(sender, app_data, user_data):
         sender.dL_scan[0] = (int(user_data))
@@ -1901,8 +1573,7 @@ class GUI_OPX(): #todo: support several device
         print("Set dx_scan to: " + str(sender.dL_scan[0]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_Lx_Scan(sender, app_data, user_data):
         sender.L_scan[0] = (int(user_data))
@@ -1911,8 +1582,7 @@ class GUI_OPX(): #todo: support several device
         print("Set Lx_scan to: " + str(sender.L_scan[0]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_dY_Scan(sender, app_data, user_data):
         sender.dL_scan[1] = (int(user_data))
@@ -1921,8 +1591,7 @@ class GUI_OPX(): #todo: support several device
         print("Set dy_scan to: " + str(sender.dL_scan[1]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_Ly_Scan(sender, app_data, user_data):
         sender.L_scan[1] = (int(user_data))
@@ -1931,8 +1600,7 @@ class GUI_OPX(): #todo: support several device
         print("Set Ly_scan to: " + str(sender.L_scan[1]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_dZ_Scan(sender, app_data, user_data):
         sender.dL_scan[2] = (int(user_data))
@@ -1941,8 +1609,7 @@ class GUI_OPX(): #todo: support several device
         print("Set dz_scan to: " + str(sender.dL_scan[2]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_Lz_Scan(sender, app_data, user_data):
         sender.L_scan[2] = (int(user_data))
@@ -1951,8 +1618,7 @@ class GUI_OPX(): #todo: support several device
         print("Set Lz_scan to: " + str(sender.L_scan[2]))
 
         sender.Calc_estimatedScanTime()
-        dpg.set_value(item="text_expectedScanTime",
-                      value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
+        dpg.set_value(item="text_expectedScanTime", value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_bZcorrection(sender, app_data, user_data):
         sender.b_Zcorrection = user_data
@@ -1970,6 +1636,7 @@ class GUI_OPX(): #todo: support several device
             assign(temp, array[j])
             assign(array[j], array[array_len - 1 - i])
             assign(array[array_len - 1 - i], temp)
+
     def initQUA_gen(self, n_count=1, num_measurement_per_array=1):
         if self.exp == Experimet.COUNTER:
             self.counter_QUA_PGM(n_count=int(n_count))
@@ -1997,26 +1664,27 @@ class GUI_OPX(): #todo: support several device
             self.Electron_lifetime_QUA_PGM()
         if self.exp == Experimet.Electron_Coherence:
             self.Electron_Coherence_QUA_PGM()
-        if self.exp == Experimet.FAST_SCAN: # triggered scan current arbitrarly crash
-            self.counter_array_QUA_PGM(num_bins_per_measurement=int(n_count),
-                                       num_measurement_per_array=int(num_measurement_per_array))
-        if self.exp == Experimet.SCAN: # ~ 35 msec per measurement for on average for larage scans
-            self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),triggerThreshold=self.ScanTrigger)
-    def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
+        if self.exp == Experimet.FAST_SCAN:  # triggered scan current arbitrarly crash
+            self.counter_array_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array))
+        if self.exp == Experimet.SCAN:  # ~ 35 msec per measurement for on average for larage scans
+            self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),
+                                          triggerThreshold=self.ScanTrigger)
+
+    def QUA_execute(self, closeQM=False, quaPGM=None, QuaCFG=None):
         if QuaCFG == None:
             QuaCFG = self.quaCFG
-        
+
         if self.bEnableSimulate:
             sourceFile = open('debug.py', 'w')
-            print(generate_qua_script(self.quaPGM, QuaCFG), file=sourceFile) 
+            print(generate_qua_script(self.quaPGM, QuaCFG), file=sourceFile)
             sourceFile.close()
-            simulation_config = SimulationConfig(duration=28000) # clock cycles
+            simulation_config = SimulationConfig(duration=28000)  # clock cycles
             job_sim = self.qmm.simulate(QuaCFG, self.quaPGM, simulation_config)
             # Simulate blocks python until the simulation is done
             job_sim.get_simulated_samples().con1.plot()
             plt.show()
 
-            return None,None
+            return None, None
         else:
             if closeQM or self.chkbox_close_all_qm:
                 self.chkbox_close_all_qm = False
@@ -2025,23 +1693,23 @@ class GUI_OPX(): #todo: support several device
             if quaPGM is None:
                 quaPGM = self.quaPGM
 
-            qm = self.qmm.open_qm(config = QuaCFG,close_other_machines=closeQM)
+            qm = self.qmm.open_qm(config=QuaCFG, close_other_machines=closeQM)
             job = qm.execute(quaPGM)
-            
+
             newQM = self.qmm.list_open_quantum_machines()
             print(f"before close: {newQM}")
 
             return qm, job
-    
-    def verify_insideQUA_FreqValues(self, freq ,min = 0, max = 400): # [MHz]
-        if freq < min* self.u.MHz or freq > max* self.u.MHz:
+
+    def verify_insideQUA_FreqValues(self, freq, min=0, max=400):  # [MHz]
+        if freq < min * self.u.MHz or freq > max * self.u.MHz:
             raise Exception('freq is out of range. verify base freq is up to 400 MHz relative to resonance')
 
-    def Electron_lifetime_QUA_PGM(self): #T1
+    def Electron_lifetime_QUA_PGM(self):  # T1
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
         fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
@@ -2061,48 +1729,48 @@ class GUI_OPX(): #todo: support several device
         self.f_vec = np.arange(f_min, f_max + df / 10, df)  # f_max + 0.1 so that f_max is included
 
         # time scan vector
-        tScan_min = self.scan_t_start//4 if self.scan_t_start//4 > 0 else 1     # in [cycles]
-        tScan_max = self.scan_t_end//4 if self.scan_t_end//4 > 0 else 1         # in [cycles]
-        dt = self.scan_t_dt // 4                                                # in [cycles]
-        self.t_vec = [i*4 for i in range(tScan_min, tScan_max + 1, dt)]         # in [nsec], used to plot the graph
-        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt/10, dt)            # in [cycles]
+        tScan_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
+        tScan_max = self.scan_t_end // 4 if self.scan_t_end // 4 > 0 else 1  # in [cycles]
+        dt = self.scan_t_dt // 4  # in [cycles]
+        self.t_vec = [i * 4 for i in range(tScan_min, tScan_max + 1, dt)]  # in [nsec], used to plot the graph
+        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt / 10, dt)  # in [cycles]
 
         # length and idx vector
         array_length = len(self.t_vec)
         # array_length = len(self.f_vec)                      # frquencies vector size
-        idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
+        idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = ((tMW+tRF+tPump)*Npump+tScan_max/2+tMW+tLaser)*array_length*2 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = ((tMW + tRF + tPump) * Npump + tScan_max / 2 + tMW + tLaser) * array_length * 2
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
-            t = declare(int)         # [cycles] time variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
+            t = declare(int)  # [cycles] time variable which we change during scan
 
-            n = declare(int)         # iteration variable
-            m = declare(int)         # number of pumping iterations
+            n = declare(int)  # iteration variable
+            m = declare(int)  # number of pumping iterations
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # # Shuffle parameters - freq
             # val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
@@ -2110,13 +1778,13 @@ class GUI_OPX(): #todo: support several device
             # idx = declare(int)                                                          # index variable to sweep over all indexes
 
             # Shuffle parameters - time
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))    # time QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                                   # indexes QUA vector
-            idx = declare(int)                                                              # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()        # experiment signal
-            counts_ref_st = declare_stream()    # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
             update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -2141,41 +1809,43 @@ class GUI_OPX(): #todo: support several device
                         # signal
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times,tMeasure ,counts_tmp))
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
-                        #play MW
-                        play("cw", "MW", duration=tMW//4)  
+                        # play MW
+                        play("cw", "MW", duration=tMW // 4)
                         wait(t)
                         align()
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref,tMeasure ,counts_ref_tmp))
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
                     with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
@@ -2194,12 +1864,13 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
+
     def Nuclear_spin_lifetimeS0_QUA_PGM(self):
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
         fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
@@ -2208,10 +1879,10 @@ class GUI_OPX(): #todo: support several device
         fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz
         self.verify_insideQUA_FreqValues(fMW_2nd_res)
         fMW_res2 = fMW_2nd_res
-        
+
         tRF = self.rf_pulse_time
         Npump = self.n_nuc_pump
-        
+
         # frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
         f_max = self.mw_freq_scan_range * self.u.MHz  # end of freq sweep
@@ -2219,48 +1890,48 @@ class GUI_OPX(): #todo: support several device
         self.f_vec = np.arange(f_min, f_max + df / 10, df)  # f_max + 0.1 so that f_max is included
 
         # time scan vector
-        tScan_min = self.scan_t_start//4 if self.scan_t_start//4 > 0 else 1     # in [cycles]
-        tScan_max = self.scan_t_end//4 if self.scan_t_end//4 > 0 else 1         # in [cycles]
-        dt = self.scan_t_dt // 4                                                # in [cycles]
-        self.t_vec = [i*4 for i in range(tScan_min, tScan_max + 1, dt)]         # in [nsec], used to plot the graph
-        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt/10, dt)            # in [cycles]
+        tScan_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
+        tScan_max = self.scan_t_end // 4 if self.scan_t_end // 4 > 0 else 1  # in [cycles]
+        dt = self.scan_t_dt // 4  # in [cycles]
+        self.t_vec = [i * 4 for i in range(tScan_min, tScan_max + 1, dt)]  # in [nsec], used to plot the graph
+        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt / 10, dt)  # in [cycles]
 
         # length and idx vector
         array_length = len(self.t_vec)
         # array_length = len(self.f_vec)                      # frquencies vector size
-        idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
+        idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = ((tMW+tRF+tPump)*Npump+tScan_max/2+tMW+tLaser)*array_length*2 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = ((tMW + tRF + tPump) * Npump + tScan_max / 2 + tMW + tLaser) * array_length * 2
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
-            t = declare(int)         # [cycles] time variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
+            t = declare(int)  # [cycles] time variable which we change during scan
 
-            n = declare(int)         # iteration variable
-            m = declare(int)         # number of pumping iterations
+            n = declare(int)  # iteration variable
+            m = declare(int)  # number of pumping iterations
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # # Shuffle parameters - freq
             # val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
@@ -2268,13 +1939,13 @@ class GUI_OPX(): #todo: support several device
             # idx = declare(int)                                                          # index variable to sweep over all indexes
 
             # Shuffle parameters - time
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))    # time QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                                   # indexes QUA vector
-            idx = declare(int)                                                              # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()        # experiment signal
-            counts_ref_st = declare_stream()    # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
             update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -2296,37 +1967,37 @@ class GUI_OPX(): #todo: support several device
                     with if_(sequenceState == 0):
                         # assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new frequency from randon index
                         assign(t, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new time from randon index
-                        
+
                         # signal
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
-                        
+
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tSettle)//4)
+                        play("Turn_ON", "Laser", duration=(tSettle) // 4)
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res1)
                         # play MW
-                        align("Laser","MW") 
-                        play("cw", "MW", duration=tMW//4) 
+                        align("Laser", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times,tMeasure ,counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -2335,53 +2006,55 @@ class GUI_OPX(): #todo: support several device
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
-                        
+
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tSettle)//4)
+                        play("Turn_ON", "Laser", duration=(tSettle) // 4)
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
                         # play MW
-                        align("Laser","MW") 
-                        play("cw", "MW", duration=tMW//4) 
+                        align("Laser", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        align("MW","Detector_OPD") 
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref,tMeasure ,counts_ref_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
                     with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
@@ -2400,12 +2073,13 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
+
     def Nuclear_spin_lifetimeS1_QUA_PGM(self):
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
         fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
@@ -2414,10 +2088,10 @@ class GUI_OPX(): #todo: support several device
         fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz
         self.verify_insideQUA_FreqValues(fMW_2nd_res)
         fMW_res2 = fMW_2nd_res
-        
+
         tRF = self.rf_pulse_time
         Npump = self.n_nuc_pump
-        
+
         # frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
         f_max = self.mw_freq_scan_range * self.u.MHz  # end of freq sweep
@@ -2425,48 +2099,48 @@ class GUI_OPX(): #todo: support several device
         self.f_vec = np.arange(f_min, f_max + df / 10, df)  # f_max + 0.1 so that f_max is included
 
         # time scan vector
-        tScan_min = self.scan_t_start//4 if self.scan_t_start//4 > 0 else 1     # in [cycles]
-        tScan_max = self.scan_t_end//4 if self.scan_t_end//4 > 0 else 1         # in [cycles]
-        dt = self.scan_t_dt // 4                                                # in [cycles]
-        self.t_vec = [i*4 for i in range(tScan_min, tScan_max + 1, dt)]         # in [nsec], used to plot the graph
-        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt/10, dt)            # in [cycles]
+        tScan_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
+        tScan_max = self.scan_t_end // 4 if self.scan_t_end // 4 > 0 else 1  # in [cycles]
+        dt = self.scan_t_dt // 4  # in [cycles]
+        self.t_vec = [i * 4 for i in range(tScan_min, tScan_max + 1, dt)]  # in [nsec], used to plot the graph
+        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt / 10, dt)  # in [cycles]
 
         # length and idx vector
         array_length = len(self.t_vec)
         # array_length = len(self.f_vec)                      # frquencies vector size
-        idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
+        idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = ((tMW+tRF+tPump)*Npump+2*tMW+tScan_max/2+tLaser)*array_length*2 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = ((tMW + tRF + tPump) * Npump + 2 * tMW + tScan_max / 2 + tLaser) * array_length * 2
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
-            t = declare(int)         # [cycles] time variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
+            t = declare(int)  # [cycles] time variable which we change during scan
 
-            n = declare(int)         # iteration variable
-            m = declare(int)         # number of pumping iterations
+            n = declare(int)  # iteration variable
+            m = declare(int)  # number of pumping iterations
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # # Shuffle parameters - freq
             # val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
@@ -2474,13 +2148,13 @@ class GUI_OPX(): #todo: support several device
             # idx = declare(int)                                                          # index variable to sweep over all indexes
 
             # Shuffle parameters - time
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))    # time QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                                   # indexes QUA vector
-            idx = declare(int)                                                              # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()        # experiment signal
-            counts_ref_st = declare_stream()    # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
             update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -2502,42 +2176,42 @@ class GUI_OPX(): #todo: support several device
                     with if_(sequenceState == 0):
                         # assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new frequency from randon index
                         assign(t, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new time from randon index
-                        
+
                         # signal
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
 
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
-                        #play MW
-                        play("cw", "MW", duration=tMW//4)
+                        # play MW
+                        play("cw", "MW", duration=tMW // 4)
 
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tSettle)//4)
+                        play("Turn_ON", "Laser", duration=(tSettle) // 4)
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res1)
                         # play MW
-                        align("Laser","MW") 
-                        play("cw", "MW", duration=tMW//4) 
+                        align("Laser", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times,tMeasure ,counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -2546,57 +2220,59 @@ class GUI_OPX(): #todo: support several device
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
-                        #play MW
-                        play("cw", "MW", duration=tMW//4) 
+                        # play MW
+                        play("cw", "MW", duration=tMW // 4)
 
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tSettle)//4)
+                        play("Turn_ON", "Laser", duration=(tSettle) // 4)
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
                         # play MW
-                        align("Laser","MW") 
-                        play("cw", "MW", duration=tMW//4) 
+                        align("Laser", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref,tMeasure ,counts_ref_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
-                        
+
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
                     with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
@@ -2615,12 +2291,13 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
-    def Nuclear_Ramsay_QUA_PGM(self): 
+
+    def Nuclear_Ramsay_QUA_PGM(self):
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
         fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
@@ -2629,10 +2306,10 @@ class GUI_OPX(): #todo: support several device
         fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz
         self.verify_insideQUA_FreqValues(fMW_2nd_res)
         fMW_res2 = fMW_2nd_res
-        
+
         tRF = self.rf_pulse_time
         Npump = self.n_nuc_pump
-        
+
         # frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
         f_max = self.mw_freq_scan_range * self.u.MHz  # end of freq sweep
@@ -2640,48 +2317,48 @@ class GUI_OPX(): #todo: support several device
         self.f_vec = np.arange(f_min, f_max + df / 10, df)  # f_max + 0.1 so that f_max is included
 
         # time scan vector
-        tScan_min = self.scan_t_start//4 if self.scan_t_start//4 > 0 else 1     # in [cycles]
-        tScan_max = self.scan_t_end//4 if self.scan_t_end//4 > 0 else 1         # in [cycles]
-        dt = self.scan_t_dt // 4                                                # in [cycles]
-        self.t_vec = [i*4 for i in range(tScan_min, tScan_max + 1, dt)]         # in [nsec], used to plot the graph
-        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt/10, dt)            # in [cycles]
+        tScan_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
+        tScan_max = self.scan_t_end // 4 if self.scan_t_end // 4 > 0 else 1  # in [cycles]
+        dt = self.scan_t_dt // 4  # in [cycles]
+        self.t_vec = [i * 4 for i in range(tScan_min, tScan_max + 1, dt)]  # in [nsec], used to plot the graph
+        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt / 10, dt)  # in [cycles]
 
         # length and idx vector
         array_length = len(self.t_vec)
         # array_length = len(self.f_vec)                      # frquencies vector size
-        idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
+        idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = ((tMW+tRF+tPump)*Npump+2*tMW+tRF+tScan_max/2+tLaser)*array_length*2
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = ((tMW + tRF + tPump) * Npump + 2 * tMW + tRF + tScan_max / 2 + tLaser) * array_length * 2
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
-            t = declare(int)         # [cycles] time variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
+            t = declare(int)  # [cycles] time variable which we change during scan
 
-            n = declare(int)         # iteration variable
-            m = declare(int)         # number of pumping iterations
+            n = declare(int)  # iteration variable
+            m = declare(int)  # number of pumping iterations
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # # Shuffle parameters - freq
             # val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
@@ -2689,13 +2366,13 @@ class GUI_OPX(): #todo: support several device
             # idx = declare(int)                                                          # index variable to sweep over all indexes
 
             # Shuffle parameters - time
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))    # time QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                                   # indexes QUA vector
-            idx = declare(int)                                                              # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()        # experiment signal
-            counts_ref_st = declare_stream()    # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
             update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -2717,48 +2394,48 @@ class GUI_OPX(): #todo: support several device
                     with if_(sequenceState == 0):
                         # assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new frequency from randon index
                         assign(t, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new time from randon index
-                        
+
                         # signal
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
 
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
-                        #play MW
-                        play("cw", "MW", duration=tMW//4)
+                        # play MW
+                        play("cw", "MW", duration=tMW // 4)
                         # play RF pi/2
-                        align("MW","RF")
-                        play("const" * amp(p), "RF",duration=(tRF/2) // 4)
+                        align("MW", "RF")
+                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play RF pi/2
-                        play("const" * amp(p), "RF",duration=(tRF/2) // 4)
+                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
                         # play Laser
-                        align("RF","Laser") 
-                        play("Turn_ON", "Laser", duration=tSettle//4)
+                        align("RF", "Laser")
+                        play("Turn_ON", "Laser", duration=tSettle // 4)
 
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
                         # play MW
-                        align("Laser","MW")
-                        play("cw", "MW", duration=tMW//4) 
+                        align("Laser", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times,tMeasure ,counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -2767,56 +2444,58 @@ class GUI_OPX(): #todo: support several device
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
-                        #play MW
-                        play("cw", "MW", duration=tMW//4)
+                        # play MW
+                        play("cw", "MW", duration=tMW // 4)
                         # do not play RF
-                        wait(t + tRF//4)
+                        wait(t + tRF // 4)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=tSettle//4)
+                        play("Turn_ON", "Laser", duration=tSettle // 4)
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
                         # play MW
-                        align("Laser","MW") 
-                        play("cw", "MW", duration=tMW//4) 
+                        align("Laser", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref,tMeasure ,counts_ref_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
-                        
+
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
                     with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
@@ -2835,13 +2514,13 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
-    
-    def Electron_Coherence_QUA_PGM(self): # Also CPMG when N>0
+
+    def Electron_Coherence_QUA_PGM(self):  # Also CPMG when N>0
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.time_in_multiples_cycle_time(self.t_mw)
         fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
@@ -2853,7 +2532,7 @@ class GUI_OPX(): #todo: support several device
 
         tRF = self.rf_pulse_time
         Ncpmg = self.n_CPMG
-        
+
         # frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
         f_max = self.mw_freq_scan_range * self.u.MHz  # end of freq sweep
@@ -2861,63 +2540,62 @@ class GUI_OPX(): #todo: support several device
         self.f_vec = np.arange(f_min, f_max + df / 10, df)  # f_max + 0.1 so that f_max is included
 
         # time scan vector (Twait)
-        tStart = self.time_in_multiples_cycle_time(self.scan_t_start) # [nsec]
-        if Ncpmg>0:
-            if ((tStart/(2*Ncpmg) - tMW/2) <=20): # [nsec]
-                tStart = (40+tMW)*Ncpmg
-        tScan_min = tStart//4 if tStart//4 > 0 else 1     # in [cycles]
-        self.scan_t_start = tScan_min*4
+        tStart = self.time_in_multiples_cycle_time(self.scan_t_start)  # [nsec]
+        if Ncpmg > 0:
+            if ((tStart / (2 * Ncpmg) - tMW / 2) <= 20):  # [nsec]
+                tStart = (40 + tMW) * Ncpmg
+        tScan_min = tStart // 4 if tStart // 4 > 0 else 1  # in [cycles]
+        self.scan_t_start = tScan_min * 4
 
         tEnd = self.time_in_multiples_cycle_time(self.scan_t_end)
-        tScan_max = tEnd//4 if tEnd//4 > 0 else 1         # in [cycles]
-        if tScan_max<tScan_min+self.scan_t_dt // 4:
+        tScan_max = tEnd // 4 if tEnd // 4 > 0 else 1  # in [cycles]
+        if tScan_max < tScan_min + self.scan_t_dt // 4:
             tScan_max = tScan_min + self.scan_t_dt // 4
-        
-        self.scan_t_end = tScan_max*4
 
-        dt = self.scan_t_dt // 4                                                # in [cycles]
-        self.t_vec = [i*4 for i in range(tScan_min, tScan_max + 1, dt)]         # in [nsec], used to plot the graph
-        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt/10, dt)            # in [cycles]
+        self.scan_t_end = tScan_max * 4
+
+        dt = self.scan_t_dt // 4  # in [cycles]
+        self.t_vec = [i * 4 for i in range(tScan_min, tScan_max + 1, dt)]  # in [nsec], used to plot the graph
+        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt / 10, dt)  # in [cycles]
 
         # length and idx vector
         array_length = len(self.t_vec)
         # array_length = len(self.f_vec)                      # frquencies vector size
-        idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
+        idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = (tMW+tScan_max/2+tLaser)*array_length*2
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = (tMW + tScan_max / 2 + tLaser) * array_length * 2
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
-            t = declare(int)         # [cycles] time variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
+            t = declare(int)  # [cycles] time variable which we change during scan
 
-            tWait = declare(int)         # [cycles] time variable which we change during scan
+            tWait = declare(int)  # [cycles] time variable which we change during scan
 
-
-            n = declare(int)         # iteration variable
-            m = declare(int)         # number of pumping iterations
+            n = declare(int)  # iteration variable
+            m = declare(int)  # number of pumping iterations
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # # Shuffle parameters - freq
             # val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
@@ -2925,13 +2603,13 @@ class GUI_OPX(): #todo: support several device
             # idx = declare(int)                                                          # index variable to sweep over all indexes
 
             # Shuffle parameters - time
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))    # time QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                                   # indexes QUA vector
-            idx = declare(int)                                                              # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()        # experiment signal
-            counts_ref_st = declare_stream()    # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
             # update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -2952,71 +2630,73 @@ class GUI_OPX(): #todo: support several device
                     assign(sequenceState, IO1)
                     with if_(sequenceState == 0):
                         # assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new frequency from randon index
-                        
-                        assign(tWait, val_vec_qua[idx_vec_qua[idx]])  
-                        
-                        with if_(Ncpmg>0):
-                            assign(t, tWait/(2*Ncpmg)-(tMW/2)//4)  
-                        
-                        # signal
-                        update_frequency("MW", 0) # const I&Q
+
+                        assign(tWait, val_vec_qua[idx_vec_qua[idx]])
+
+                        with if_(Ncpmg > 0):
+                            assign(t, tWait / (2 * Ncpmg) - (tMW / 2) // 4)
+
+                            # signal
+                        update_frequency("MW", 0)  # const I&Q
                         # play MW (I=1,Q=0) @ Pi/2
-                        play("xPulse", "MW", duration=(tMW/2)//4)  # xPulse I = 0.5V, Q = zero
+                        play("xPulse", "MW", duration=(tMW / 2) // 4)  # xPulse I = 0.5V, Q = zero
                         # wait t unit
-                        with if_(Ncpmg==0):
+                        with if_(Ncpmg == 0):
                             wait(tWait)
-                        
+
                         # "CPMG section" I=0, Q=1 @ Pi
                         with for_(m, 0, m < Ncpmg, m + 1):
                             wait(t)
-                            #play MW
+                            # play MW
                             update_frequency("MW", 0)
-                            play("xPulse", "MW", duration=tMW//4) # yPulse I = zero, Q = 0.5V
+                            play("xPulse", "MW", duration=tMW // 4)  # yPulse I = zero, Q = 0.5V
                             # wait t unit
                             wait(t)
                         # align()
 
                         # play MW (I=1,Q=0) @ Pi/2
-                        play("xPulse", "MW", duration=(tMW/2)//4)  
+                        play("xPulse", "MW", duration=(tMW / 2) // 4)
 
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times,tMeasure ,counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # reference 
                         # wait Tmw + Twait
-                        wait(tWait+tMW//4)
+                        wait(tWait + tMW // 4)
                         # play laser
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref,tMeasure ,counts_ref_tmp))
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
-                        
+
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
                     with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
@@ -3040,7 +2720,7 @@ class GUI_OPX(): #todo: support several device
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
         fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
@@ -3049,10 +2729,10 @@ class GUI_OPX(): #todo: support several device
         fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz
         self.verify_insideQUA_FreqValues(fMW_2nd_res)
         fMW_res2 = fMW_2nd_res
-        
+
         tRF = self.rf_pulse_time
         Npump = self.n_nuc_pump
-        
+
         # frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
         f_max = self.mw_freq_scan_range * self.u.MHz  # end of freq sweep
@@ -3060,48 +2740,48 @@ class GUI_OPX(): #todo: support several device
         self.f_vec = np.arange(f_min, f_max + df / 10, df)  # f_max + 0.1 so that f_max is included
 
         # time scan vector
-        tScan_min = self.scan_t_start//4 if self.scan_t_start//4 > 0 else 1     # in [cycles]
-        tScan_max = self.scan_t_end//4 if self.scan_t_end//4 > 0 else 1         # in [cycles]
-        dt = self.scan_t_dt // 4                                                # in [cycles]
-        self.t_vec = [i*4 for i in range(tScan_min, tScan_max + 1, dt)]         # in [nsec], used to plot the graph
-        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt/10, dt)            # in [cycles]
+        tScan_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
+        tScan_max = self.scan_t_end // 4 if self.scan_t_end // 4 > 0 else 1  # in [cycles]
+        dt = self.scan_t_dt // 4  # in [cycles]
+        self.t_vec = [i * 4 for i in range(tScan_min, tScan_max + 1, dt)]  # in [nsec], used to plot the graph
+        self.t_vec_ini = np.arange(tScan_min, tScan_max + dt / 10, dt)  # in [cycles]
 
         # length and idx vector
         array_length = len(self.t_vec)
         # array_length = len(self.f_vec)                      # frquencies vector size
-        idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
+        idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = ((tMW+tRF+tPump)*Npump+2*tMW+2*tRF+tScan_max+tLaser)*array_length*2
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = ((tMW + tRF + tPump) * Npump + 2 * tMW + 2 * tRF + tScan_max + tLaser) * array_length * 2
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
-            t = declare(int)         # [cycles] time variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
+            t = declare(int)  # [cycles] time variable which we change during scan
 
-            n = declare(int)         # iteration variable
-            m = declare(int)         # number of pumping iterations
+            n = declare(int)  # iteration variable
+            m = declare(int)  # number of pumping iterations
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # # Shuffle parameters - freq
             # val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
@@ -3109,13 +2789,13 @@ class GUI_OPX(): #todo: support several device
             # idx = declare(int)                                                          # index variable to sweep over all indexes
 
             # Shuffle parameters - time
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))    # time QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                                   # indexes QUA vector
-            idx = declare(int)                                                              # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()        # experiment signal
-            counts_ref_st = declare_stream()    # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
             update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -3137,47 +2817,47 @@ class GUI_OPX(): #todo: support several device
                     with if_(sequenceState == 0):
                         # assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new frequency from randon index
                         assign(t, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new time from randon index
-                        
+
                         # signal
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
-                        #play MW
-                        play("cw", "MW", duration=tMW//4)
+                        # play MW
+                        play("cw", "MW", duration=tMW // 4)
                         # play RF pi/2
-                        align("MW","RF")
-                        play("const" * amp(p), "RF",duration=(tRF/2) // 4)  
+                        align("MW", "RF")
+                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play RF pi
-                        play("const" * amp(p), "RF",duration=tRF // 4)
+                        play("const" * amp(p), "RF", duration=tRF // 4)
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play RF pi/2
-                        play("const" * amp(p), "RF",duration=(tRF/2) // 4)
+                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
                         # play MW
-                        align("RF","MW")
-                        play("cw", "MW", duration=tMW//4) 
+                        align("RF", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times,tMeasure ,counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -3186,53 +2866,55 @@ class GUI_OPX(): #todo: support several device
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
-                        #play MW
-                        play("cw", "MW", duration=tMW//4)
+                        # play MW
+                        play("cw", "MW", duration=tMW // 4)
                         # do not play RF
-                        wait(2*t + (2*tRF)//4)
+                        wait(2 * t + (2 * tRF) // 4)
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
                         # play MW
-                        play("cw", "MW", duration=tMW//4) 
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref,tMeasure ,counts_ref_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
-                        
+
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
                     with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
@@ -3251,19 +2933,20 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
+
     def NuclearSpinPolarization_pulsedODMR_QUA_PGM(self):  # NUCLEAR_POL_ESR
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
-        fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz  
+        fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
         fMW_res = 0 if fMW_res < 0 else fMW_res
         fMW_res = 400 * self.u.MHz if fMW_res > 400 * self.u.MHz else fMW_res
         tRF = self.rf_pulse_time
         Npump = self.n_nuc_pump
-        
+
         # frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
         f_max = self.mw_freq_scan_range * self.u.MHz  # end of freq sweep
@@ -3271,48 +2954,48 @@ class GUI_OPX(): #todo: support several device
         self.f_vec = np.arange(f_min, f_max + df / 10, df)  # f_max + 0.1 so that f_max is included
 
         # length and idx vector
-        array_length = len(self.f_vec)                      # frquencies vector size
-        idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
+        array_length = len(self.f_vec)  # frquencies vector size
+        idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = ((tMW+tLaser)*(Npump+2)+tRF*Npump)*array_length 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = ((tMW + tLaser) * (Npump + 2) + tRF * Npump) * array_length
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
 
-            n = declare(int)         # iteration variable
-            m = declare(int)         # number of pumping iterations
+            n = declare(int)  # iteration variable
+            m = declare(int)  # number of pumping iterations
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # Shuffle parameters
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                               # indexes QUA vector
-            idx = declare(int)                                                          # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))  # frequencies QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()        # experiment signal
-            counts_ref_st = declare_stream()    # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
             update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -3333,63 +3016,65 @@ class GUI_OPX(): #todo: support several device
                     assign(sequenceState, IO1)
                     with if_(sequenceState == 0):
                         assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
-                        
+
                         # signal
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res)
-                            #play MW
-                            play("cw", "MW", duration=tMW//4)  
+                            # play MW
+                            play("cw", "MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            play("const" * amp(p), "RF",duration=tRF // 4)
+                            align("MW", "RF")
+                            play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align("RF", "Laser")
+                            play("Turn_ON", "Laser", duration=tPump // 4)
                         align()
-                        
+
                         # update MW frequency
                         update_frequency("MW", f)
                         # play MW
-                        play("cw", "MW", duration=tMW//4) 
+                        play("cw", "MW", duration=tMW // 4)
                         # play Laser
-                        align("MW","Laser") 
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # play Laser
-                        align("MW","Detector_OPD")
+                        align("MW", "Detector_OPD")
                         # measure signal 
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times,tMeasure ,counts_tmp))
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # reference
-                        wait(tMW//4) # don't Play MW
+                        wait(tMW // 4)  # don't Play MW
                         # Play laser
-                        play("Turn_ON", "Laser", duration=(tLaser+tMeasureProcess)//4)
+                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref,tMeasure ,counts_ref_tmp))
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
                     with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
@@ -3406,10 +3091,11 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
+
     def NuclearMR_QUA_PGM(self):  # v
         # time
         tMeasueProcess = self.MeasProcessTime
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle+tMeasueProcess)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
         tRF = self.rf_pulse_time
@@ -3425,11 +3111,11 @@ class GUI_OPX(): #todo: support several device
         idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = (tMW*2+tRF+tLaser)*2*array_length 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = (tMW * 2 + tRF + tLaser) * 2 * array_length
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             times = declare(int, size=100)
@@ -3444,12 +3130,12 @@ class GUI_OPX(): #todo: support several device
             counts_tmp = declare(int)  # temporary variable for number of counts
             counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
             counts = declare(int, size=array_length)  # experiment signal (vector)
             counts_ref = declare(int, size=array_length)  # reference signal (vector)
@@ -3466,15 +3152,15 @@ class GUI_OPX(): #todo: support several device
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
-                #reset
+                # reset
                 with for_(idx, 0, idx < array_length, idx + 1):
                     assign(counts_ref[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts[idx], 0)  # shuffle - assign new val from randon index
 
-                #shuffle
+                # shuffle
                 with if_(self.bEnableShuffle):
                     self.QUA_shuffle(idx_vec_qua, array_length)
-                
+
                 # sequence
                 with for_(idx, 0, idx < array_length, idx + 1):
                     assign(sequenceState, IO1)
@@ -3482,63 +3168,65 @@ class GUI_OPX(): #todo: support several device
                         # set RF freq
                         assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
                         update_frequency("RF", f)
-                        
+
                         # Signal
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW//4) 
+                        play("cw", "MW", duration=tMW // 4)
                         # play RF after MW
-                        align("MW","RF")
-                        play("const" * amp(p), "RF", duration=tRF//4) # t already devide by four when creating the time vector
+                        align("MW", "RF")
+                        play("const" * amp(p), "RF", duration=tRF // 4)  # t already devide by four when creating the time vector
                         # play MW after RF
-                        align("RF","MW")
-                        play("cw", "MW", duration=tMW//4)
+                        align("RF", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times, tMeasure, counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
-                        
+
                         # reference
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW//4) 
+                        play("cw", "MW", duration=tMW // 4)
                         # Don't play RF after MW just wait
-                        wait(tRF//4)
+                        wait(tRF // 4)
                         # play MW
-                        play("cw", "MW", duration=tMW//4)
+                        play("cw", "MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
-                
+
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length, idx + 1):  
+                    with for_(idx, 0, idx < array_length, idx + 1):
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
                 save(n, n_st)  # save number of iteration inside for_loop
@@ -3551,74 +3239,75 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
+
     def NuclearRABI_QUA_PGM(self):  # v
         # time
         tMeasueProcess = self.MeasProcessTime
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle+tMeasueProcess)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
-        
+
         # time scan vector
-        tRabi_min = self.scan_t_start//4 if self.scan_t_start//4 > 0 else 1     # in [cycles]
-        tRabi_max = self.scan_t_end//4 if self.scan_t_end//4 > 0 else 1         # in [cycles]
-        dt = self.scan_t_dt // 4                                                # in [cycles]
-        self.t_vec = [i*4 for i in range(tRabi_min, tRabi_max + 1, dt)]         # in [nsec], used to plot the graph
-        self.t_vec_ini = np.arange(tRabi_min, tRabi_max + dt/10, dt)            # in [cycles]
+        tRabi_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
+        tRabi_max = self.scan_t_end // 4 if self.scan_t_end // 4 > 0 else 1  # in [cycles]
+        dt = self.scan_t_dt // 4  # in [cycles]
+        self.t_vec = [i * 4 for i in range(tRabi_min, tRabi_max + 1, dt)]  # in [nsec], used to plot the graph
+        self.t_vec_ini = np.arange(tRabi_min, tRabi_max + dt / 10, dt)  # in [cycles]
 
         # indexes vector
         array_length = len(self.t_vec)
         idx_vec_ini = np.arange(0, array_length, 1)
 
         # tracking signal
-        tSequencePeriod = (tMW*2 + tRabi_max + tLaser)*2*array_length 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = (tMW * 2 + tRabi_max + tLaser) * 2 * array_length
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            t = declare(int)                                    # time variable which we change during scan
-            p = declare(fixed)                                  # fixed is similar to float 4bit.28bit
+            t = declare(int)  # time variable which we change during scan
+            p = declare(fixed)  # fixed is similar to float 4bit.28bit
 
-            n = declare(int)                                    # iteration variable
-            n_st = declare_stream()                             # stream iteration number
+            n = declare(int)  # iteration variable
+            n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                           # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                       # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)            # experiment signal (vector)
-            counts_ref = declare(int, size=array_length)        # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # Shuffle parameters
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))    # time QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                                   # indexes QUA vector
-            idx = declare(int)                                                              # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()                            # experiment signal
-            counts_ref_st = declare_stream()                        # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
 
             # Set RF frequency to resonance
-            update_frequency("RF",self.rf_resonance_freq*self.u.MHz)# updates RF frerquency
-            p = self.rf_proportional_pwr                            # p should be between 0 to 1
+            update_frequency("RF", self.rf_resonance_freq * self.u.MHz)  # updates RF frerquency
+            p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
                 # reset
                 with for_(idx, 0, idx < array_length, idx + 1):
                     assign(counts_ref[idx], 0)
                     assign(counts[idx], 0)
-                
+
                 # Shuffel
                 with if_(self.bEnableShuffle):
                     self.QUA_shuffle(idx_vec_qua, array_length)
@@ -3628,70 +3317,71 @@ class GUI_OPX(): #todo: support several device
                     assign(sequenceState, IO1)
                     with if_(sequenceState == 0):
                         # set new random Trf 
-                        assign(t, val_vec_qua[idx_vec_qua[idx]])  
+                        assign(t, val_vec_qua[idx_vec_qua[idx]])
 
                         # Signal
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW//4) 
+                        play("cw", "MW", duration=tMW // 4)
                         # play RF after MW
-                        align("MW","RF")
-                        play("const" * amp(p), "RF", duration=t) # t already devide by four when creating the time vector
+                        align("MW", "RF")
+                        play("const" * amp(p), "RF", duration=t)  # t already devide by four when creating the time vector
                         # play MW after RF
-                        align("RF","MW")
-                        play("cw", "MW", duration=tMW//4)
+                        align("RF", "MW")
+                        play("cw", "MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times, tMeasure, counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
-
                         # reference
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW//4) 
+                        play("cw", "MW", duration=tMW // 4)
                         # Don't play RF after MW just wait
-                        wait(t) # t already devide by four
+                        wait(t)  # t already devide by four
                         # play MW
-                        play("cw", "MW", duration=tMW//4)
+                        play("cw", "MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
                     with for_(idx, 0, idx < array_length, idx + 1):
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
-                
-                save(n, n_st)  
-                save(tracking_signal, tracking_signal_st)  
+
+                save(n, n_st)
+                save(tracking_signal, tracking_signal_st)
 
             with stream_processing():
                 counts_st.buffer(len(self.t_vec)).average().save("counts")
@@ -3700,13 +3390,14 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
-    def PulsedODMR_QUA_PGM(self):  
+
+    def PulsedODMR_QUA_PGM(self):
         # time
         tMeasueProcess = self.MeasProcessTime
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle+tMeasueProcess)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
         tMW = self.t_mw
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
-        
+
         # MW frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
         f_max = self.mw_freq_scan_range * self.u.MHz  # end of freq sweep
@@ -3718,42 +3409,42 @@ class GUI_OPX(): #todo: support several device
         idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = (tMW+tLaser)*2*array_length 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = (tMW + tLaser) * 2 * array_length
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
 
-            n = declare(int)         # iteration variable
+            n = declare(int)  # iteration variable
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # Shuffle parameters
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                               # indexes QUA vector
-            idx = declare(int)                                                          # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))  # frequencies QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()      # experiment signal
+            counts_st = declare_stream()  # experiment signal
             counts_ref_st = declare_stream()  # reference signal
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -3771,52 +3462,53 @@ class GUI_OPX(): #todo: support several device
                     assign(sequenceState, IO1)
                     with if_(sequenceState == 0):
                         # assign new frequency val from randon index
-                        assign(f, val_vec_qua[idx_vec_qua[idx]])  
+                        assign(f, val_vec_qua[idx_vec_qua[idx]])
                         update_frequency("MW", f)
 
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW//4)
+                        play("cw", "MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times, tMeasure, counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # don't play MW for time t
-                        wait(tMW//4)
+                        wait(tMW // 4)
                         # play laser after MW
-                        play("Turn_ON", "Laser", duration=tLaser//4)
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                            idx + 1):  # add one by one elements from counts (which is a vector) into counts_st
+                    with for_(idx, 0, idx < array_length, idx + 1):  # add one by one elements from counts (which is a vector) into counts_st
                         save(counts[idx], counts_st)  # here counts_st = counts[t]
                         save(counts_ref[idx], counts_ref_st)  # here counts_st = counts[t]
 
@@ -3830,61 +3522,62 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
+
     def RABI_QUA_PGM(self):  # v
         # time
         tMeasueProcess = self.MeasProcessTime
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle+tMeasueProcess)
+        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
-        
+
         # time scan vector
-        tRabi_min = self.scan_t_start//4 if self.scan_t_start//4 > 0 else 1     # in [cycles]
-        tRabi_max = self.scan_t_end//4 if self.scan_t_end//4 > 0 else 1         # in [cycles]
-        dt = self.scan_t_dt // 4                                                # in [cycles]
-        self.t_vec = [i*4 for i in range(tRabi_min, tRabi_max + 1, dt)]         # in [nsec], used to plot the graph
-        self.t_vec_ini = np.arange(tRabi_min, tRabi_max + dt/10, dt)            # in [cycles]
+        tRabi_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
+        tRabi_max = self.scan_t_end // 4 if self.scan_t_end // 4 > 0 else 1  # in [cycles]
+        dt = self.scan_t_dt // 4  # in [cycles]
+        self.t_vec = [i * 4 for i in range(tRabi_min, tRabi_max + 1, dt)]  # in [nsec], used to plot the graph
+        self.t_vec_ini = np.arange(tRabi_min, tRabi_max + dt / 10, dt)  # in [cycles]
 
         # indexes vector
         array_length = len(self.t_vec)
         idx_vec_ini = np.arange(0, array_length, 1)
 
         # tracking signal
-        tSequencePeriod = (tRabi_max+tLaser)*2*array_length 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = (tRabi_max + tLaser) * 2 * array_length
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            t = declare(int)                                    # time variable which we change during scan
+            t = declare(int)  # time variable which we change during scan
 
-            n = declare(int)                                    # iteration variable
-            n_st = declare_stream()                             # stream iteration number
+            n = declare(int)  # iteration variable
+            n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                           # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                       # temporary variable for number of counts reference
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
             tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)            # experiment signal (vector)
-            counts_ref = declare(int, size=array_length)        # reference signal (vector)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # Shuffle parameters - time
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))    # time QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                                   # indexes QUA vector
-            idx = declare(int)                                                              # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()                            # experiment signal
-            counts_ref_st = declare_stream()                        # reference signal
+            counts_st = declare_stream()  # experiment signal
+            counts_ref_st = declare_stream()  # reference signal
             # CheckIndexes_st = declare_stream()                      # stream iteration number - due to qua bug/issue
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -3898,7 +3591,7 @@ class GUI_OPX(): #todo: support several device
                     self.QUA_shuffle(idx_vec_qua, array_length)
 
                 # sequence
-                with for_(idx, 0, idx < array_length, idx + 1): # range over Tmw
+                with for_(idx, 0, idx < array_length, idx + 1):  # range over Tmw
                     assign(sequenceState, IO1)
                     with if_(sequenceState == 0):
                         # set new random TmW
@@ -3907,47 +3600,49 @@ class GUI_OPX(): #todo: support several device
                         # play MW for time t
                         play("cw", "MW", duration=t)
                         # play laser after MW
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times, tMeasure, counts_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # don't play MW for time t
-                        wait(t) 
+                        wait(t)
                         # play laser after MW
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser//4)
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
-                
+
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length, idx + 1): # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -3961,69 +3656,70 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
+
     def ODMR_CW_QUA_PGM(self):  # CW_ODMR
         # time
         tMeasueProcess = self.MeasProcessTime
-        tLaser = self.time_in_multiples_cycle_time(self.Tcounter+self.Tsettle+tMeasueProcess)
+        tLaser = self.time_in_multiples_cycle_time(self.Tcounter + self.Tsettle + tMeasueProcess)
         tMW = tLaser
         tMeasure = self.time_in_multiples_cycle_time(self.Tcounter)
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
-        
+
         # MW frequency scan vector
-        f_min = 0 * self.u.MHz                              # [Hz], start of freq sweep
-        f_max = self.mw_freq_scan_range * self.u.MHz        # [Hz] end of freq sweep
-        df = self.mw_df * self.u.MHz                        # [Hz], freq step
-        self.f_vec = np.arange(f_min, f_max + df/10, df)    # [Hz], frequencies vector
+        f_min = 0 * self.u.MHz  # [Hz], start of freq sweep
+        f_max = self.mw_freq_scan_range * self.u.MHz  # [Hz] end of freq sweep
+        df = self.mw_df * self.u.MHz  # [Hz], freq step
+        self.f_vec = np.arange(f_min, f_max + df / 10, df)  # [Hz], frequencies vector
 
         # length and idx vector
-        array_length = len(self.f_vec)                      # frquencies vector size
-        idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
+        array_length = len(self.f_vec)  # frquencies vector size
+        idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = tLaser*2*array_length 
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
+        tSequencePeriod = tLaser * 2 * array_length
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//tMeasure
-        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // tMeasure
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
+            f = declare(int)  # frequency variable which we change during scan
 
-            n = declare(int)         # iteration variable
+            n = declare(int)  # iteration variable
             n_st = declare_stream()  # stream iteration number
 
-            counts_tmp = declare(int)                    # temporary variable for number of counts
-            counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
-            
-            runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            track_idx = declare(int, value=0)         # iteration variable
-            tracking_signal_tmp = declare(int)                # temporary variable for number of counts reference
-            tracking_signal = declare(int, value=0)                # temporary variable for number of counts reference
-            tracking_signal_st = declare_stream()
-            sequenceState = declare(int,value=0)
+            counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
-            counts = declare(int, size=array_length)     # experiment signal (vector)
-            counts_ref = declare(int, size=array_length) # reference signal (vector)
+            runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            track_idx = declare(int, value=0)  # iteration variable
+            tracking_signal_tmp = declare(int)  # temporary variable for number of counts reference
+            tracking_signal = declare(int, value=0)  # temporary variable for number of counts reference
+            tracking_signal_st = declare_stream()
+            sequenceState = declare(int, value=0)
+
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
 
             # Shuffle parameters
-            val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
-            idx_vec_qua = declare(int, value=idx_vec_ini)                               # indexes QUA vector
-            idx = declare(int)                                                          # index variable to sweep over all indexes
+            val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))  # frequencies QUA vector
+            idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
+            idx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
-            counts_st = declare_stream()      # experiment signal
+            counts_st = declare_stream()  # experiment signal
             counts_ref_st = declare_stream()  # reference signal
-            
+
             with for_(n, 0, n < self.n_avg, n + 1):
                 # reset
                 with for_(idx, 0, idx < array_length, idx + 1):
                     assign(counts_ref[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts[idx], 0)  # shuffle - assign new val from randon index
-                
+
                 # shuffle index
                 with if_(self.bEnableShuffle):
                     self.QUA_shuffle(idx_vec_qua, array_length)  # shuffle - idx_vec_qua vector is after shuffle
@@ -4039,7 +3735,7 @@ class GUI_OPX(): #todo: support several device
                         # Signal
                         play("cw", "MW", duration=tMW // 4)  # play microwave pulse
                         play("Turn_ON", "Laser", duration=tLaser // 4)
-                        wait(tSettle//4,"Detector_OPD")
+                        wait(tSettle // 4, "Detector_OPD")
                         measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
@@ -4047,7 +3743,7 @@ class GUI_OPX(): #todo: support several device
                         # reference sequence
                         # don't play MW
                         play("Turn_ON", "Laser", duration=tLaser // 4)
-                        wait(tSettle//4,"Detector_OPD")
+                        wait(tSettle // 4, "Detector_OPD")
                         measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
@@ -4056,24 +3752,25 @@ class GUI_OPX(): #todo: support several device
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=tLaser // 4)
                             measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
                 # tracking signal
                 with if_(runTracking):
-                    assign(track_idx,track_idx + 1) # step up tracking counter
-                    with if_(track_idx > trackingNumRepeatition-1):
+                    assign(track_idx, track_idx + 1)  # step up tracking counter
+                    with if_(track_idx > trackingNumRepeatition - 1):
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
-                            assign(tracking_signal,tracking_signal+tracking_signal_tmp)
-                        assign(track_idx,0)
-                    
+                            measure("min_readout", "Detector_OPD", None,
+                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            assign(tracking_signal, tracking_signal + tracking_signal_tmp)
+                        assign(track_idx, 0)
+
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -4087,43 +3784,45 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
-    def TrackingCounterSignal_QUA_PGM(self): # obsolete. keep in order to learn on how to swithc between two PGM
+
+    def TrackingCounterSignal_QUA_PGM(self):  # obsolete. keep in order to learn on how to swithc between two PGM
         # integration time for single loop
-        tTrackingSignaIntegrationTime_nsec = self.tTrackingSignaIntegrationTime*1e6
-        tMeasure = self.time_in_multiples_cycle_time(50000 if tTrackingSignaIntegrationTime_nsec>50000 else tTrackingSignaIntegrationTime_nsec) # 50000 [nsec]
+        tTrackingSignaIntegrationTime_nsec = self.tTrackingSignaIntegrationTime * 1e6
+        tMeasure = self.time_in_multiples_cycle_time(
+            50000 if tTrackingSignaIntegrationTime_nsec > 50000 else tTrackingSignaIntegrationTime_nsec)  # 50000 [nsec]
         # number of repeatitions
-        n_count = tTrackingSignaIntegrationTime_nsec//tMeasure if tTrackingSignaIntegrationTime_nsec//tMeasure>1 else 1
+        n_count = tTrackingSignaIntegrationTime_nsec // tMeasure if tTrackingSignaIntegrationTime_nsec // tMeasure > 1 else 1
         # total integration time
-        self.tTrackingSignaIntegrationTime = n_count * tMeasure/1e6 #[msec]
+        self.tTrackingSignaIntegrationTime = n_count * tMeasure / 1e6  # [msec]
 
         with program() as self.quaTrackingPGM:
             times = declare(int, size=100)
-            n = declare(int)  
+            n = declare(int)
             counts_tracking = declare(int)
-            total_counts_tracking = declare(int,value=0) 
+            total_counts_tracking = declare(int, value=0)
             counts_tracking_st = declare_stream()  # stream for counts
-            
+
             pause()
             with infinite_loop_():
-                assign(total_counts_tracking,0)
+                assign(total_counts_tracking, 0)
                 with for_(n, 0, n < n_count, n + 1):  # number of averages / total integation time
-                    play("Turn_ON", "Laser", duration=tMeasure//4)
+                    play("Turn_ON", "Laser", duration=tMeasure // 4)
                     measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure), counts_tracking)
-                    assign(total_counts_tracking,total_counts_tracking+counts_tracking)
+                    assign(total_counts_tracking, total_counts_tracking + counts_tracking)
 
                 save(total_counts_tracking, counts_tracking_st)
 
             with stream_processing():
                 counts_tracking_st.save("counts_tracking")
 
-        self.qmTracking, self.job_Tracking = self.QUA_execute(closeQM=False,quaPGM=self.quaTrackingPGM)    
+        self.qmTracking, self.job_Tracking = self.QUA_execute(closeQM=False, quaPGM=self.quaTrackingPGM)
 
     def counter_QUA_PGM(self, n_count=1):
         with program() as self.quaPGM:
             self.times = declare(int, size=1000)
             self.times_ref = declare(int, size=1000)
             self.counts = declare(int)  # apd1
-            self.total_counts = declare(int,value=0)  # apd1
+            self.total_counts = declare(int, value=0)  # apd1
             self.n = declare(int)  #
             self.counts_st = declare_stream()
             self.counts_ref_st = declare_stream()  # stream for counts
@@ -4133,12 +3832,9 @@ class GUI_OPX(): #todo: support several device
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
                     play("Turn_ON", "Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
                     # measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.us), self.counts))
-                    measure("readout", "Detector_OPD", None,
-                           time_tagging.digital(self.times, int(self.Tcounter * self.u.ns),
-                                                self.counts))
-                    
-                    assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language
-                    # align()
+                    measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
+
+                    assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
 
                 save(self.total_counts, self.counts_st)
                 # save(self.total_counts, self.counts_ref_st) # only to keep on convention
@@ -4151,6 +3847,7 @@ class GUI_OPX(): #todo: support several device
                 self.n_st.save("iteration")
 
         self.qm, self.job = self.QUA_execute()
+
     def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1, triggerThreshold: int = 1):
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
@@ -4160,25 +3857,25 @@ class GUI_OPX(): #todo: support several device
         smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
 
         with program() as self.quaPGM:
-            times = declare(int, size=1000) #maximum number of counts allowed per measurements
+            times = declare(int, size=1000)  # maximum number of counts allowed per measurements
             counts = declare(int)  # apd1
-            total_counts = declare(int,value=0)  # apd1
+            total_counts = declare(int, value=0)  # apd1
             n = declare(int)  #
-            meas_idx = declare(int,value=0)
+            meas_idx = declare(int, value=0)
             counts_st = declare_stream()
             meas_idx_st = declare_stream()
 
-            pulsesTriggerDelay = 5000000//4
-            sequenceState = declare(int,value=0)
-            triggerTh = declare(int,value=triggerThreshold)
-            assign(IO2,0)
+            pulsesTriggerDelay = 5000000 // 4
+            sequenceState = declare(int, value=0)
+            triggerTh = declare(int, value=triggerThreshold)
+            assign(IO2, 0)
 
             with infinite_loop_():
                 # wait_for_trigger("Laser") # wait for smaract trigger
                 assign(sequenceState, IO2)
-                with if_((sequenceState+1 > triggerTh) & (sequenceState-1 < triggerTh)):
-                    assign(IO2,0)
-                    assign(sequenceState,0)
+                with if_((sequenceState + 1 > triggerTh) & (sequenceState - 1 < triggerTh)):
+                    assign(IO2, 0)
+                    assign(sequenceState, 0)
                     align()
                     align()
                     # pause()
@@ -4186,14 +3883,14 @@ class GUI_OPX(): #todo: support several device
                         play("Turn_ON", "Laser", duration=laser_on_duration)
                         measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
                         assign(total_counts, total_counts + counts)
-                        
+
                     save(total_counts, counts_st)
                     assign(total_counts, 0)
 
                     align()
-                    wait(pulsesTriggerDelay,"SmaractTrigger")
+                    wait(pulsesTriggerDelay, "SmaractTrigger")
                     play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-                    
+
                     align()
                     assign(meas_idx, meas_idx + 1)
                     save(meas_idx, meas_idx_st)
@@ -4203,6 +3900,7 @@ class GUI_OPX(): #todo: support several device
                 counts_st.buffer(num_measurement_per_array).save("counts_scanLine")
 
         self.qm, self.job = self.QUA_execute()
+
     def counter_array_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1):
         # Calculate values outside the FPGA to save FPGA compute time
         laser_on_duration = int(self.Tcounter * self.u.ns // 4)
@@ -4210,31 +3908,27 @@ class GUI_OPX(): #todo: support several device
         smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
 
         with program() as self.quaPGM:
-            times = declare(int, size=1000)#num_measurement_per_array)
+            times = declare(int, size=1000)  # num_measurement_per_array)
             counts = declare(int)  # apd1
-            total_counts = declare(int,value=0)  # apd1
+            total_counts = declare(int, value=0)  # apd1
             n = declare(int)  #
             x_loop_counter = declare(int)
             counts_st = declare_stream()
 
             with infinite_loop_():
                 pause()
-                with for_ (x_loop_counter, 0, x_loop_counter<num_measurement_per_array, x_loop_counter + 1):
+                with for_(x_loop_counter, 0, x_loop_counter < num_measurement_per_array, x_loop_counter + 1):
                     play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-                    wait_for_trigger("Laser") # wait for smaract trigger
-                    align("Laser","Detector_OPD","SmaractTrigger")
+                    wait_for_trigger("Laser")  # wait for smaract trigger
+                    align("Laser", "Detector_OPD", "SmaractTrigger")
                     # wait(int(15 * self.u.ms //4))
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
                         play("Turn_ON", "Laser", duration=laser_on_duration)
                         measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
-                        assign(total_counts, total_counts + counts)
-                        # align()
+                        assign(total_counts, total_counts + counts)  # align()
                     save(total_counts, counts_st)
-                    assign(total_counts, 0)
-                # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-                # align()
-                # wait(int(15 * self.u.ms //4), "SmaractTrigger")
-                # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
+                    assign(total_counts,
+                           0)  # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)  # align()  # wait(int(15 * self.u.ms //4), "SmaractTrigger")  # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
 
             with stream_processing():
                 counts_st.buffer(num_measurement_per_array).save("counts_fastscan")
@@ -4242,21 +3936,21 @@ class GUI_OPX(): #todo: support several device
         # set,open and execute the program
         self.qm = self.qmm.open_qm(self.quaCFG)
         self.job = self.qm.execute(self.quaPGM)
-    
-    def Common_updateGraph(self,_xLabel = "?? [??],",_yLabel = "I [kCounts/sec]"):
+
+    def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         # todo: use this function as general update graph for all experiments
-        dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
+        dpg.set_item_label("graphXY",
+                           f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
         dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
         dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
         dpg.set_item_label("y_axis", _yLabel)
         dpg.set_item_label("x_axis", _xLabel)
         dpg.fit_axis_data('x_axis')
         dpg.fit_axis_data('y_axis')
-    
+
     def FastScan_updateGraph(self):
         # Update the graph label with the current experiment name, iteration, and last Y value
-        dpg.set_item_label("graphXY",
-                           f"{self.exp.name}, iteration = {self.iteration}, lastVal = {round(self.Y_vec[-1], 0)}")
+        dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, lastVal = {round(self.Y_vec[-1], 0)}")
 
         # Set the values for the X and Y data series
         dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
@@ -4278,7 +3972,7 @@ class GUI_OPX(): #todo: support several device
 
     def FetchData(self):
         self.refSignal = 0
-        if self.bEnableSignalIntensityCorrection: # prepare search maxI thread
+        if self.bEnableSignalIntensityCorrection:  # prepare search maxI thread
             self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
 
         # verify job has started
@@ -4290,7 +3984,7 @@ class GUI_OPX(): #todo: support several device
         if self.exp == Experimet.COUNTER:
             self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
         else:
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration","tracking_ref"], mode="live")
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
 
         self.X_vec = []
         self.Y_vec = []
@@ -4301,14 +3995,12 @@ class GUI_OPX(): #todo: support several device
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
 
-        
-        lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
+        lastTime = datetime.now().hour * 3600 + datetime.now().minute * 60 + datetime.now().second + datetime.now().microsecond / 1e6
         while self.results.is_processing():
             self.GlobalFetchData()
 
             if self.exp == Experimet.COUNTER:
-                dpg.set_item_label("graphXY",
-                           f"{self.exp.name}, iteration = {self.iteration}, lastVal = {round(self.Y_vec[-1], 0)}")
+                dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, lastVal = {round(self.Y_vec[-1], 0)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
                 dpg.set_value("series_counts_ref", [[], []])
                 dpg.set_item_label("y_axis", "I [kCounts/sec]")
@@ -4317,54 +4009,54 @@ class GUI_OPX(): #todo: support several device
                 dpg.fit_axis_data('y_axis')
 
                 dpg.bind_item_theme("series_counts", "LineYellowTheme")
-                dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
-                # self.Counter_updateGraph()
-            if self.exp == Experimet.ODMR_CW:  #freq
+                dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")  # self.Counter_updateGraph()
+            if self.exp == Experimet.ODMR_CW:  # freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
             if self.exp == Experimet.RABI:  # time
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [nsec]")
-            if self.exp == Experimet.PULSED_ODMR:  #freq
+            if self.exp == Experimet.PULSED_ODMR:  # freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experimet.NUCLEAR_RABI:  #time
+            if self.exp == Experimet.NUCLEAR_RABI:  # time
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [nsec]")
-            if self.exp == Experimet.NUCLEAR_MR:  #freq
+            if self.exp == Experimet.NUCLEAR_MR:  # freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [MHz]")
-            if self.exp == Experimet.NUCLEAR_POL_ESR:  #freq
+            if self.exp == Experimet.NUCLEAR_POL_ESR:  # freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experimet.Nuclear_spin_lifetimeS0:  
+            if self.exp == Experimet.Nuclear_spin_lifetimeS0:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Nuclear_spin_lifetimeS1:  
+            if self.exp == Experimet.Nuclear_spin_lifetimeS1:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Nuclear_Ramsay:  
+            if self.exp == Experimet.Nuclear_Ramsay:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Hahn:  
+            if self.exp == Experimet.Hahn:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Electron_lifetime:  
+            if self.exp == Experimet.Electron_lifetime:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
             if self.exp == Experimet.Electron_Coherence:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            
-            current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
-            if not(self.exp == Experimet.COUNTER) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
-                self.btnSave(folder= "d:/temp/")
-                lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
+
+            current_time = datetime.now().hour * 3600 + datetime.now().minute * 60 + datetime.now().second + datetime.now().microsecond / 1e6
+            if not (self.exp == Experimet.COUNTER) and (current_time - lastTime) > self.tGetTrackingSignalEveryTime:
+                self.btnSave(folder="d:/temp/")
+                lastTime = datetime.now().hour * 3600 + datetime.now().minute * 60 + datetime.now().second + datetime.now().microsecond / 1e6
 
             if self.StopFetch:
                 break
-        
+
         1
+
     def GlobalFetchData(self):
         if self.exp == Experimet.COUNTER:
             self.lock.acquire()
@@ -4380,73 +4072,72 @@ class GUI_OPX(): #todo: support several device
                 self.Y_vec = self.Y_vec[-self.NumOfPoints:]  # get last NumOfPoint elements from end
                 self.X_vec = self.X_vec[-self.NumOfPoints:]
 
-            self.Y_vec.append(
-                self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
+            self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
             self.X_vec.append(self.counter_Signal[1] / self.u.s)  # Convert timestamps to seconds
 
-        if self.exp == Experimet.ODMR_CW:  #freq
-            self.X_vec = self.f_vec / self.u.MHz / 1e3 + self.mw_freq  #[GHz]
-            self.Y_vec = self.signal / 1000 / (self.Tcounter * 1e-9)  
+        if self.exp == Experimet.ODMR_CW:  # freq
+            self.X_vec = self.f_vec / self.u.MHz / 1e3 + self.mw_freq  # [GHz]
+            self.Y_vec = self.signal / 1000 / (self.Tcounter * 1e-9)
             self.Y_vec_ref = self.ref_signal / 1000 / (self.Tcounter * 1e-9)
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
         if self.exp == Experimet.RABI:  # time
             self.X_vec = self.t_vec  # [nsec]]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.PULSED_ODMR:  #freq
+        if self.exp == Experimet.PULSED_ODMR:  # freq
             self.X_vec = self.f_vec / float(1e9) + self.mw_freq  # [GHz]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.NUCLEAR_RABI:  #time
+        if self.exp == Experimet.NUCLEAR_RABI:  # time
             self.X_vec = self.t_vec  # [nsec]]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.NUCLEAR_MR:  #freq
+        if self.exp == Experimet.NUCLEAR_MR:  # freq
             self.X_vec = self.f_vec / float(1e6)  # [MHz]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.NUCLEAR_POL_ESR:  #freq
+        if self.exp == Experimet.NUCLEAR_POL_ESR:  # freq
             self.X_vec = self.f_vec / float(1e9) + self.mw_freq  # [GHz]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
-            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
-            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
-        
-        if self.exp == Experimet.Nuclear_spin_lifetimeS0:  #time
-            self.X_vec = [e/1e6 for e in self.t_vec]  # [msec]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
-            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
-            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
-        
-        if self.exp == Experimet.Nuclear_spin_lifetimeS1:  #time
-            self.X_vec = [e/1e6 for e in self.t_vec]  # [msec]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
-            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
-            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
-        
-        if self.exp == Experimet.Nuclear_Ramsay or self.exp == Experimet.Electron_Coherence:  #time
-            self.X_vec = [e/1e6 for e in self.t_vec]  # [msec]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
-            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
-            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
-        
-        if self.exp == Experimet.Hahn:  #time
-            self.X_vec = [e/1e6 for e in self.t_vec]  # [msec]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.Electron_lifetime: # time
-            self.X_vec = [e/1e6 for e in self.t_vec]  # [msec]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
+        if self.exp == Experimet.Nuclear_spin_lifetimeS0:  # time
+            self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+
+        if self.exp == Experimet.Nuclear_spin_lifetimeS1:  # time
+            self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+
+        if self.exp == Experimet.Nuclear_Ramsay or self.exp == Experimet.Electron_Coherence:  # time
+            self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+
+        if self.exp == Experimet.Hahn:  # time
+            self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+
+        if self.exp == Experimet.Electron_lifetime:  # time
+            self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
@@ -4462,12 +4153,12 @@ class GUI_OPX(): #todo: support several device
         self.exp = Experimet.COUNTER
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
         # TODO: Boaz - Check for edge cases in number of measurements per array
-        self.initQUA_gen(
-            n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
             num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
 
         if b_startFetch and not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartODMR_CW(self):
         self.exp = Experimet.ODMR_CW
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
@@ -4480,25 +4171,27 @@ class GUI_OPX(): #todo: support several device
         if not self.bEnableSimulate:
             self.mwModule.Turn_RF_ON()
 
-        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))  
-        
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartRABI(self):
         self.exp = Experimet.RABI
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        self.mwModule.Set_freq(self.mw_freq_resonance)  
+        self.mwModule.Set_freq(self.mw_freq_resonance)
         self.mwModule.Set_power(self.mw_Pwr)
         self.mwModule.Set_IQ_mode_OFF()
         self.mwModule.Set_PulseModulation_ON()
         if not self.bEnableSimulate:
             self.mwModule.Turn_RF_ON()
 
-        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))  
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartPulsedODMR(self):
         self.exp = Experimet.PULSED_ODMR
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
@@ -4511,9 +4204,10 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartNuclearRABI(self):
         self.exp = Experimet.NUCLEAR_RABI
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
@@ -4528,10 +4222,11 @@ class GUI_OPX(): #todo: support several device
 
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartNuclearPolESR(self):
         self.exp = Experimet.NUCLEAR_POL_ESR
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
-        
+
         # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
         self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
@@ -4541,9 +4236,10 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartNuclearMR(self):
         self.exp = Experimet.NUCLEAR_MR
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
@@ -4556,14 +4252,15 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartNuclearSpinLifetimeS0(self):
         self.exp = Experimet.Nuclear_spin_lifetimeS0
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        self.mw_freq = min(self.mw_freq_resonance,self.mw_2ndfreq_resonance)-0.001 # [GHz]
+        self.mw_freq = min(self.mw_freq_resonance, self.mw_2ndfreq_resonance) - 0.001  # [GHz]
         self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
         self.mwModule.Set_IQ_mode_ON()
@@ -4572,14 +4269,15 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartNuclearSpinLifetimeS1(self):
         self.exp = Experimet.Nuclear_spin_lifetimeS1
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        self.mw_freq = min(self.mw_freq_resonance,self.mw_2ndfreq_resonance)-0.001 # [GHz]
+        self.mw_freq = min(self.mw_freq_resonance, self.mw_2ndfreq_resonance) - 0.001  # [GHz]
         self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
         self.mwModule.Set_IQ_mode_ON()
@@ -4588,14 +4286,15 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartNuclearRamsay(self):
         self.exp = Experimet.Nuclear_Ramsay
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        self.mw_freq = min(self.mw_freq_resonance,self.mw_2ndfreq_resonance)-0.001 # [GHz]
+        self.mw_freq = min(self.mw_freq_resonance, self.mw_2ndfreq_resonance) - 0.001  # [GHz]
         self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
         self.mwModule.Set_IQ_mode_ON()
@@ -4604,10 +4303,10 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
-    
+
     def btnStartElectron_Coherence(self):
         self.exp = Experimet.Electron_Coherence
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
@@ -4621,7 +4320,7 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
 
@@ -4629,7 +4328,7 @@ class GUI_OPX(): #todo: support several device
         self.exp = Experimet.Hahn
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        self.mw_freq = min(self.mw_freq_resonance,self.mw_2ndfreq_resonance)-0.001 # [GHz]
+        self.mw_freq = min(self.mw_freq_resonance, self.mw_2ndfreq_resonance) - 0.001  # [GHz]
         self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
         self.mwModule.Set_IQ_mode_ON()
@@ -4638,14 +4337,15 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
     def btnStartElectronLifetime(self):
         self.exp = Experimet.Electron_lifetime
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        self.mwModule.Set_freq(self.mw_freq_resonance)  
+        self.mwModule.Set_freq(self.mw_freq_resonance)
         self.mwModule.Set_power(self.mw_Pwr)
         self.mwModule.Set_IQ_mode_OFF()
         self.mwModule.Set_PulseModulation_ON()
@@ -4653,11 +4353,11 @@ class GUI_OPX(): #todo: support several device
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
-        
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
 
-    def StopJob(self,job,qm):
+    def StopJob(self, job, qm):
         job.halt()
         report = job.execution_report()
         print(report)
@@ -4665,8 +4365,9 @@ class GUI_OPX(): #todo: support several device
         newQM = self.qmm.list_open_quantum_machines()
         print(f"after close: {newQM}")
         return report
+
     def btnStop(self):  # Stop Exp
-        #todo: creat methode that handle OPX close job and instances
+        # todo: creat methode that handle OPX close job and instances
         self.stopScan = True
         self.StopFetch = True
         if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
@@ -4675,7 +4376,7 @@ class GUI_OPX(): #todo: support several device
                     self.MAxSignalTh.join()
         else:
             dpg.set_item_label("btnOPX_StartScan", "Start Scan")
-            dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme") 
+            dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
         self.GUI_ParametersControl(True)
         if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
@@ -4683,9 +4384,9 @@ class GUI_OPX(): #todo: support several device
                 self.fetchTh.join()
         else:
             dpg.enable_item("btnOPX_StartScan")
-        
+
         if (self.job):
-            self.StopJob(self.job,self.qm)
+            self.StopJob(self.job, self.qm)
 
         if self.exp == Experimet.COUNTER or self.exp == Experimet.SCAN:
             pass
@@ -4694,8 +4395,9 @@ class GUI_OPX(): #todo: support several device
             if self.mwModule.RFstate:
                 self.mwModule.Turn_RF_OFF()
 
-        if self.exp not in [Experimet.COUNTER, Experimet.FAST_SCAN , Experimet.SCAN]:
+        if self.exp not in [Experimet.COUNTER, Experimet.FAST_SCAN, Experimet.SCAN]:
             self.btnSave()
+
     def btnSave(self, folder=None):  # save data
         try:
 
@@ -4713,11 +4415,7 @@ class GUI_OPX(): #todo: support several device
             self.writeParametersToXML(fileName + ".xml")
 
             # raw data
-            RawData_to_save = {
-                'X': self.X_vec,
-                'Y': self.Y_vec,
-                'Y_ref': self.Y_vec_ref
-            }
+            RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref}
 
             self.saveToCSV(fileName + ".csv", RawData_to_save)
 
@@ -4726,8 +4424,7 @@ class GUI_OPX(): #todo: support several device
                 width = 1920  # Set the width of the image
                 height = 1080  # Set the height of the image
                 # Create a blank figure with the specified width and height, Convert width and height to inches
-                fig, ax = plt.subplots(figsize=(width / 100, height / 100),
-                                    visible=True)
+                fig, ax = plt.subplots(figsize=(width / 100, height / 100), visible=True)
                 plt.plot(self.X_vec, self.Y_vec, label='data')  # Plot Y_vec
                 plt.plot(self.X_vec, self.Y_vec_ref, label='ref')  # Plot reference
 
@@ -4741,29 +4438,31 @@ class GUI_OPX(): #todo: support several device
                 # Save the figure as a PNG file
                 plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
 
-                #close figure
+                # close figure
                 plt.close(fig)
 
             dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
 
 
         except Exception as ex:
-            self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))
-            # raise
+            self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))  # raise
+
     def btnStartScan(self):
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
+
     def btnAutoFocus(self):
         self.ScanTh = threading.Thread(target=self.auto_focus)
         self.ScanTh.start()
+
     def StartScan(self):
-        self.positioner.KeyboardEnabled = False # TODO: Update the check box in the gui!!
+        self.positioner.KeyboardEnabled = False  # TODO: Update the check box in the gui!!
         if not self.fast_scan_enabled:
             self.StartScan3D()
         else:
             self.StartFastScan()
         self.positioner.KeyboardEnabled = True
-    
+
     def fetch_peak_intensity(self):
         self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
         time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
@@ -4777,7 +4476,8 @@ class GUI_OPX(): #todo: support several device
 
             self.qmm.clear_all_job_results()
             return counts
-    def auto_focus(self, ch = 2): # units microns
+
+    def auto_focus(self, ch=2):  # units microns
         # Dictionary to store the retrieved values
         auto_focus = {}
 
@@ -4796,20 +4496,20 @@ class GUI_OPX(): #todo: support several device
         self.counts_handle = res_handles.get("counts_scanLine")
 
         # init
-        N = int(auto_focus["z_span_um"]/auto_focus["step_um"])
-        initialShift = -1 * int(auto_focus["step_um"] * N / 2) # [um]
+        N = int(auto_focus["z_span_um"] / auto_focus["step_um"])
+        initialShift = -1 * int(auto_focus["step_um"] * N / 2)  # [um]
         intensities = []
         coordinate = []
 
         # set laser PWR
-        original_power=dpg.get_value("power_input")
-        dpg.set_value("power_input",auto_focus["laser_power_mw"])
+        original_power = dpg.get_value("power_input")
+        dpg.set_value("power_input", auto_focus["laser_power_mw"])
         self.HW.cobolt.set_power(auto_focus["laser_power_mw"])
 
         time.sleep(0.1)
 
         # goto start location - relative to current position
-        self.positioner.MoveRelative(ch, int(initialShift*self.positioner.StepsIn1mm*1e-3))
+        self.positioner.MoveRelative(ch, int(initialShift * self.positioner.StepsIn1mm * 1e-3))
         time.sleep(0.001)
         while not (self.positioner.ReadIsInPosition(ch)):
             time.sleep(0.001)
@@ -4831,15 +4531,15 @@ class GUI_OPX(): #todo: support several device
             intensities.append(last_intensity)  # Loa signal to array
 
             # move to next location (relative move)
-            self.positioner.MoveRelative(ch, int(auto_focus["step_um"]*self.positioner.StepsIn1mm*1e-3))
+            self.positioner.MoveRelative(ch, int(auto_focus["step_um"] * self.positioner.StepsIn1mm * 1e-3))
             res = self.positioner.ReadIsInPosition(ch)
             while not (res):
                 res = self.positioner.ReadIsInPosition(ch)
-        
+
         # print
         print(f"z(ch={ch}): ", end="")
         for i in range(len(coordinate)):
-            print(f", {coordinate[i]/1e3: .3f}", end="")
+            print(f", {coordinate[i] / 1e3: .3f}", end="")
         print("")
         print(f"i(ch={ch}): ", end="")
         for i in range(len(intensities)):
@@ -4850,63 +4550,55 @@ class GUI_OPX(): #todo: support several device
         if True:
             coefficients = np.polyfit(coordinate, intensities, 2)
             a, b, c = coefficients
-            maxPos_parabula = int(-b/(2*a))
-            print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula/1e3}")
+            maxPos_parabula = int(-b / (2 * a))
+            print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula / 1e3}")
 
         # find max signal
         max_pos = coordinate[intensities.index(max(intensities))]
-        print(f"maxPos={max_pos/1e3}")
+        print(f"maxPos={max_pos / 1e3}")
 
         self.plt_x = np.array(coordinate) * 1e-3
         self.plt_y = intensities
         self.plt_max = round(max_pos / 1e3, 2)
         self.plt_max1 = round(maxPos_parabula / 1e3, 2)
-        
+
         # move to max signal position
         self.positioner.MoveABSOLUTE(ch, int(max_pos))
 
         # shift back tp experiment sequence
-        self.qm.set_io1_value(0) 
+        self.qm.set_io1_value(0)
         time.sleep(0.1)
 
         # stop and close job
-        self.StopJob(self.job,self.qm)
+        self.StopJob(self.job, self.qm)
 
         dpg.set_value("power_input", original_power)
         self.HW.cobolt.set_power(original_power)
 
         if self.use_picomotor:
-            print(f"Moving pico {-max_pos*1e-9}")
-            self.HW.picomotor.MoveRelative(Motor=ch+1,Steps= int(-max_pos*1e-9 * self.pico.StepsIn1mm))
-            self.positioner.MoveABSOLUTE(ch,0)
-
+            print(f"Moving pico {-max_pos * 1e-9}")
+            self.HW.picomotor.MoveRelative(Motor=ch + 1, Steps=int(-max_pos * 1e-9 * self.pico.StepsIn1mm))
+            self.positioner.MoveABSOLUTE(ch, 0)
 
     def StartScan3D(self):  # currently flurascence scan
         print("start scan steps")
         start_time = time.time()
         print(f"start_time: {self.format_time(start_time)}")
 
-        #init
+        # init
         self.exp = Experimet.SCAN
         self.GUI_ParametersControl(isStart=False)
         self.to_xml()  # save last params to xml
-        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml") # moved near end of scan
-               
+        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")  # moved near end of scan
+
         try:
             # Define the source files and destinations
-            file_mappings = [
-                {
-                    "src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
-                    "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
-                    "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"
-                },
-                {
-                    "src": 'D:/HotSysSW/map_config.txt',
-                    "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
-                    "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"
-                }
-            ]
-            
+            file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
+                "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
+                "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
+                {"src": 'D:/HotSysSW/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
+                    "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"}]
+
             # Move each file for both local and remote
             for file_map in file_mappings:
                 for dest in [file_map["dest_local"], file_map["dest_remote"]]:
@@ -4924,12 +4616,12 @@ class GUI_OPX(): #todo: support several device
         self.scan_intensities = []
 
         # reset stage motion parameters (stream, motion delays, mav velocity)
-        self.positioner.set_in_position_delay(0,delay=0) # reset delays yo minimal 
-        self.positioner.DisablePositionTrigger(0) # disable triggers
-        self.positioner.SetVelocity(0,0) # set max velocity (ch 0)
-        self.positioner.setIOmoduleEnable(dev=0) 
+        self.positioner.set_in_position_delay(0, delay=0)  # reset delays yo minimal
+        self.positioner.DisablePositionTrigger(0)  # disable triggers
+        self.positioner.SetVelocity(0, 0)  # set max velocity (ch 0)
+        self.positioner.setIOmoduleEnable(dev=0)
         self.positioner.set_Channel_Constant_Mode_State(channel=0)
-        
+
         # GUI - convert Start Scan to Stop scan
         dpg.disable_item("btnOPX_StartScan")
 
@@ -4948,7 +4640,7 @@ class GUI_OPX(): #todo: support several device
         N = [1, 1, 1]
 
         # get current (initial) position
-        for ch in range(3): # verify in postion
+        for ch in range(3):  # verify in postion
             res = self.readInpos(ch)
         self.positioner.GetPosition()
         self.absPosunits = list(self.positioner.AxesPosUnits)
@@ -4989,39 +4681,36 @@ class GUI_OPX(): #todo: support several device
         self.scan_data = self.scan_intensities
         self.idx_scan = [0, 0, 0]
 
-        self.startLoc = [self.V_scan[0][0]/1e6, self.V_scan[1][0]/1e6, self.V_scan[2][0]/1e6]
-        self.endLoc = [self.V_scan[0][-1]/1e6,self.V_scan[1][-1]/1e6,self.V_scan[2][-1]/1e6]
-        
-        self.Plot_Scan(Nx = Nx, Ny = Ny, array_2d=self.scan_intensities[:,:,0], startLoc = self.startLoc, endLoc = self.endLoc)
+        self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
+        self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
+
+        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc, endLoc=self.endLoc)
 
         # Start Qua PGM
-        self.initQUA_gen(
-                    n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-                    num_measurement_per_array=Nx)
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=Nx)
         res_handles = self.job.result_handles
         self.counts_handle = res_handles.get("counts_scanLine")
         self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
-        
+
         # offset in X start point from 
         x_channel = 0
-        scanPx_Start = int(list(self.V_scan[0])[0]-self.dL_scan[x_channel]*1e3)
-        self.positioner.MoveABSOLUTE(channel= x_channel, newPosition=scanPx_Start) 
+        scanPx_Start = int(list(self.V_scan[0])[0] - self.dL_scan[x_channel] * 1e3)
+        self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
         time.sleep(0.005)  # allow motion to start
         for q in range(3):
             self.readInpos(q)  # wait motion ends
 
         self.dir = 1
-        self.scanFN = self.create_scan_file_name(local = True)
+        self.scanFN = self.create_scan_file_name(local=True)
 
         # init measurements index
-        previousMeas_idx = 0 # used as workaround to reapet line if an error occur in number of measurements
+        previousMeas_idx = 0  # used as workaround to reapet line if an error occur in number of measurements
         meas_idx = 0
 
         # Calculate the z calibration offset at the origin of the scan
         if self.b_Zcorrection and not self.ZCalibrationData is None:
-            z_calibration_offset = int(calculate_z_series(self.ZCalibrationData,
-                                                          np.array([self.initial_scan_Location[0]]),
-                                                          self.initial_scan_Location[1])[0])
+            z_calibration_offset = int(
+                calculate_z_series(self.ZCalibrationData, np.array([self.initial_scan_Location[0]]), self.initial_scan_Location[1])[0])
         z_correction_previous = 0
         for i in range(N[2]):  # Z
             if self.stopScan:
@@ -5044,13 +4733,12 @@ class GUI_OPX(): #todo: support several device
 
                     if k == 0:
                         V = list(self.V_scan[0])
-                    
-                    #Z correction
+
+                    # Z correction
                     new_z_pos = int(self.V_scan[2][i])
                     if self.b_Zcorrection and not self.ZCalibrationData is None:
-                        z_correction_new = int(calculate_z_series(self.ZCalibrationData,
-                                               np.array([int(V[k])]),
-                                               int(self.V_scan[1][j]))[0] - z_calibration_offset)
+                        z_correction_new = int(
+                            calculate_z_series(self.ZCalibrationData, np.array([int(V[k])]), int(self.V_scan[1][j]))[0] - z_calibration_offset)
                         if abs(z_correction_new - z_correction_previous) > self.z_correction_threshold:
                             new_z_pos = int(self.V_scan[2][i] + z_correction_new)
                             z_correction_previous = z_correction_new
@@ -5064,10 +4752,8 @@ class GUI_OPX(): #todo: support several device
                     for q in range(3):
                         self.readInpos(q)  # wait motion ends
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
-                    self.qm.set_io2_value(self.ScanTrigger) # should triggere measurement by QUA io
-                    time.sleep(self.total_integration_time*1e-3 + 1e-3) # wait for measurement do occur
-
-                
+                    self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
+                    time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
 
                     # fetch X scanned results
                 if self.counts_handle.is_processing():
@@ -5079,43 +4765,42 @@ class GUI_OPX(): #todo: support several device
                     print(f"meas_idx =  {meas_idx}")
                     counts = self.counts_handle.fetch_all()
                     print(f"counts.size =  {counts.size}")
-                    
-                    self.qmm.clear_all_job_results()
-                    self.scan_intensities[:,j,i] = counts / self.total_integration_time # counts/ms = Kcounts/s
-                    self.UpdateGuiDuringScan(self.scan_intensities[:, :, i],use_fast_rgb=True)
 
-                if (meas_idx-previousMeas_idx)%counts.size ==0: # if no skips in measurements
-                    j = j+1
-                    self.prepare_scan_data(self.endLoc[0]*1e6+self.dL_scan[0]*1e3,self.startLoc[0]*1e6)
-                    self.save_scan_data(Nx = Nx, Ny = Ny, Nz = Nz ,fileName=self.scanFN)
+                    self.qmm.clear_all_job_results()
+                    self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
+                    self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)
+
+                if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
+                    j = j + 1
+                    self.prepare_scan_data(self.endLoc[0] * 1e6 + self.dL_scan[0] * 1e3, self.startLoc[0] * 1e6)
+                    self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
                 else:
                     print("****** error: ******\nNumber of measurements is not consistent with excpected.\nthis line will be repeated.")
                     pass
-                
+
                 previousMeas_idx = meas_idx
 
                 # offset in X start point from 
-                self.positioner.MoveABSOLUTE(channel= x_channel, newPosition=scanPx_Start) 
+                self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
                 time.sleep(0.005)  # allow motion to start
                 for q in range(3):
                     self.readInpos(q)  # wait motion ends
 
                 Line_time_End = time.time()
                 elapsed_time = time.time() - start_time
-                delta = (Line_time_End-Line_time_start)
-                estimated_time_left = delta*(N[2]-i)*(N[1]-j)-delta 
-                estimated_time_left = estimated_time_left if estimated_time_left>0 else 0
-                dpg.set_value("Scan_Message",f"time left: {self.format_time(estimated_time_left)}")
+                delta = (Line_time_End - Line_time_start)
+                estimated_time_left = delta * (N[2] - i) * (N[1] - j) - delta
+                estimated_time_left = estimated_time_left if estimated_time_left > 0 else 0
+                dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
 
         # back to start position
         for i in range(3):
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
             res = self.readInpos(i)
             self.positioner.GetPosition()
-            print(
-                f"ch{i}: in position = {res}, position = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
+            print(f"ch{i}: in position = {res}, position = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
 
-        fn = self.save_scan_data(Nx, Ny, Nz,self.create_scan_file_name(local=False)) # 333
+        fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
 
         end_time = time.time()
@@ -5124,7 +4809,7 @@ class GUI_OPX(): #todo: support several device
         print(f"number of points ={N[0] * N[1] * N[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
 
-        if not(self.stopScan):
+        if not (self.stopScan):
             self.btnStop()
 
     def StartFastScan(self):  # currently flurascence scan
@@ -5135,11 +4820,11 @@ class GUI_OPX(): #todo: support several device
             # self.btnStop()
             return
 
-        #init
+        # init
         # self.logger = create_logger(f"{self.create_scan_file_name()}_log.txt")
-        self.positioner.SetVelocity(0,0)
+        self.positioner.SetVelocity(0, 0)
         self.positioner.DisablePositionTrigger(0)
-        self.positioner.set_in_position_delay(0,delay=0)
+        self.positioner.set_in_position_delay(0, delay=0)
         # self.positioner.stream_manager.close_stream()
         triggerMode = ctl.StreamTriggerMode.EXTERNAL
         t_wait_motionStart = 5e-3
@@ -5148,7 +4833,7 @@ class GUI_OPX(): #todo: support several device
         isDebug = True
         self.scan_Out = []
         self.scan_intensities = []
-        self.scanFN = self.create_scan_file_name(local = True)
+        self.scanFN = self.create_scan_file_name(local=True)
 
         # convert Start Scan to Stop scan
         dpg.set_item_label("btnOPX_StartScan", "Stop Scan")
@@ -5191,7 +4876,7 @@ class GUI_OPX(): #todo: support several device
                 time.sleep(t_wait_motionStart)  # allow motion to start
                 res = self.readInpos(ch)  # wait motion ends
                 if isDebug:
-                    print(f"ch{ch} at initial scan position")  
+                    print(f"ch{ch} at initial scan position")
             else:
                 self.ini_scan_pos[ch] = self.initial_scan_Location[ch]
 
@@ -5204,23 +4889,23 @@ class GUI_OPX(): #todo: support several device
         min_position_x_scan = self.ini_scan_pos[x_channel]
         max_position_x_scan = self.ini_scan_pos[x_channel] + self.L_scan[x_channel] * 1e3
 
-        x_vec = np.linspace(min_position_x_scan,max_position_x_scan,Nx,endpoint=False)
-        y_vec = np.linspace(self.ini_scan_pos[y_channel],self.ini_scan_pos[y_channel] + self.L_scan[y_channel]*1e3,Ny,endpoint=False)
-        z_vec = np.linspace(self.ini_scan_pos[z_channel],self.ini_scan_pos[z_channel] + self.L_scan[z_channel]*1e3,Nz,endpoint=False)
+        x_vec = np.linspace(min_position_x_scan, max_position_x_scan, Nx, endpoint=False)
+        y_vec = np.linspace(self.ini_scan_pos[y_channel], self.ini_scan_pos[y_channel] + self.L_scan[y_channel] * 1e3, Ny, endpoint=False)
+        z_vec = np.linspace(self.ini_scan_pos[z_channel], self.ini_scan_pos[z_channel] + self.L_scan[z_channel] * 1e3, Nz, endpoint=False)
         motion_stream_points = [(x_channel, int(x)) for x in x_vec]
         # x_motion_stream_points += [(x_channel, int(max_position_x_scan + motion_buffer))] + [(x_channel, int(min_position_x_scan - motion_buffer))]
-
 
         self.scan_intensities = np.zeros((Nx, Ny, Nz))
         self.scan_data = self.scan_intensities
         self.idx_scan = [0, 0, 0]
 
-        self.startLoc = [self.ini_scan_pos[0]/1e6, self.ini_scan_pos[1]/1e6, self.ini_scan_pos[2]/1e6]
-        self.endLoc = [self.startLoc[0]+self.dL_scan[0]*(Nx-1)/1e3,self.startLoc[1]+self.dL_scan[1]*(Ny-1)/1e3,self.startLoc[2]+self.dL_scan[2]*(Nz-1)/1e3]
+        self.startLoc = [self.ini_scan_pos[0] / 1e6, self.ini_scan_pos[1] / 1e6, self.ini_scan_pos[2] / 1e6]
+        self.endLoc = [self.startLoc[0] + self.dL_scan[0] * (Nx - 1) / 1e3, self.startLoc[1] + self.dL_scan[1] * (Ny - 1) / 1e3,
+                       self.startLoc[2] + self.dL_scan[2] * (Nz - 1) / 1e3]
 
         # self.Plot_Scan() #000
-        self.Plot_Scan(Nx = Nx, Ny = Ny, array_2d=self.scan_intensities[:,:,0], startLoc = self.startLoc, endLoc = self.endLoc)
-        #tic
+        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc, endLoc=self.endLoc)
+        # tic
         if isDebug:
             print("start scan steps")
         start_time = time.time()
@@ -5232,35 +4917,27 @@ class GUI_OPX(): #todo: support several device
         for ch in range(3):
             res = self.readInpos(ch)
 
-        self.positioner.SetPositionTrigger(x_channel,
-                                            min_position_x_scan-1000,
-                                            max_position_x_scan-self.dL_scan[x_channel]*1e3-1000,
-                                            self.dL_scan[x_channel]*1e3,
-                                            1,  # Trigger on increasing values
-                                            50000,  # pulse width in ns
-                                            min_position_x_scan-1000,
-                                            True)
+        self.positioner.SetPositionTrigger(x_channel, min_position_x_scan - 1000, max_position_x_scan - self.dL_scan[x_channel] * 1e3 - 1000,
+                                           self.dL_scan[x_channel] * 1e3, 1,  # Trigger on increasing values
+                                           50000,  # pulse width in ns
+                                           min_position_x_scan - 1000, True)
 
-        self.positioner.set_in_position_delay(x_channel,delay=0) # todo:  tried both 0,2 and 10 however no effect on total scan time. why?
-        self.positioner.set_in_position_delay(z_channel,delay=0) # todo:  tried both 0,2 and 10 however no effect on total scan time. why?
+        self.positioner.set_in_position_delay(x_channel, delay=0)  # todo:  tried both 0,2 and 10 however no effect on total scan time. why?
+        self.positioner.set_in_position_delay(z_channel, delay=0)  # todo:  tried both 0,2 and 10 however no effect on total scan time. why?
         # [nm/ms] = 1e6 [pm/s]
         # scanning_velocity = self.dL_scan[x_channel] / (self.total_integration_time + self.smaract_ttl_duration) * 0.2 * 1e6
         # self.positioner.SetVelocity(x_channel, scanning_velocity)
 
         self.qmm.clear_all_job_results()
-        self.initQUA_gen(
-                    n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-                    num_measurement_per_array=Nx)
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=Nx)
         res_handles = self.job.result_handles
         counts_handle = res_handles.get("counts_fastscan")
         # self.logger.stdin.write(f"Starting scan\n".encode())
-        z_calibration_offset = int(calculate_z_series(self.ZCalibrationData,
-                                                          np.array([self.initial_scan_Location[0]]),
-                                                          self.initial_scan_Location[1])[0])
-        
-        
-        stream_config_points = [(x_channel,1,z_channel,1)] if self.b_Zcorrection and not self.ZCalibrationData is None else [(x_channel,1)]
-        self.positioner.confingure_stream_params(points = stream_config_points, pulse_width=50000, verbose=True)
+        z_calibration_offset = int(
+            calculate_z_series(self.ZCalibrationData, np.array([self.initial_scan_Location[0]]), self.initial_scan_Location[1])[0])
+
+        stream_config_points = [(x_channel, 1, z_channel, 1)] if self.b_Zcorrection and not self.ZCalibrationData is None else [(x_channel, 1)]
+        self.positioner.confingure_stream_params(points=stream_config_points, pulse_width=50000, verbose=True)
 
         for i in range(Nz):  # Z
             if self.stopScan:
@@ -5275,13 +4952,13 @@ class GUI_OPX(): #todo: support several device
             for j in range(Ny):  # Y
                 if self.stopScan:
                     break
-                if j>0:
+                if j > 0:
                     self.prepare_scan_data(max_position_x_scan, min_position_x_scan)
                     self.save_scan_data(Nx, Ny, Nz, self.scanFN)
 
                 slice_start_time = time.time()
-                self.positioner.MoveABSOLUTE(y_channel, int(y_vec[j]))         
-                if self.b_Zcorrection and not self.ZCalibrationData is None:                    
+                self.positioner.MoveABSOLUTE(y_channel, int(y_vec[j]))
+                if self.b_Zcorrection and not self.ZCalibrationData is None:
                     z_vec_corrected = calculate_z_series(self.ZCalibrationData, x_vec, int(y_vec[j])) - z_calibration_offset + z_vec[i]
                     motion_stream_points = [(x_channel, int(x), z_channel, int(z)) for x, z in zip(x_vec, z_vec_corrected)]
                 # self.logger.stdin.write(b"Preparing and saving scan data\n")
@@ -5298,18 +4975,14 @@ class GUI_OPX(): #todo: support several device
 
                 # time.sleep(0.2)
                 self.positioner.DisablePositionTrigger(0)
-                self.positioner.SetPositionTrigger(x_channel,
-                                            min_position_x_scan-1000,
-                                            max_position_x_scan-self.dL_scan[x_channel]*1e3-1000,
-                                            self.dL_scan[x_channel]*1e3,
-                                            1,  # Trigger on increasing values
-                                            50000,  # pulse width in ns
-                                            min_position_x_scan-1000,
-                                            True)
-                              
-                self.positioner.SetUpStream(points=motion_stream_points, trigger_mode=triggerMode)                            
+                self.positioner.SetPositionTrigger(x_channel, min_position_x_scan - 1000, max_position_x_scan - self.dL_scan[x_channel] * 1e3 - 1000,
+                                                   self.dL_scan[x_channel] * 1e3, 1,  # Trigger on increasing values
+                                                   50000,  # pulse width in ns
+                                                   min_position_x_scan - 1000, True)
+
+                self.positioner.SetUpStream(points=motion_stream_points, trigger_mode=triggerMode)
                 while (not self.positioner.is_streaming_active(x_channel)):
-                    time.sleep(5e-3) 
+                    time.sleep(5e-3)
                 while not self.job.is_paused():
                     time.sleep(5e-3)
                 self.job.resume()
@@ -5318,14 +4991,14 @@ class GUI_OPX(): #todo: support several device
                 while not self.job.is_paused():
                     time.sleep(5e-3)
                 print('Waiting for motion end')
-                
+
                 # init strip
                 self.positioner.DisablePositionTrigger(0)
                 self.readInpos(x_channel)
-                self.positioner.MoveABSOLUTE(x_channel,int(max_position_x_scan + motion_buffer))
+                self.positioner.MoveABSOLUTE(x_channel, int(max_position_x_scan + motion_buffer))
                 time.sleep(t_wait_motionStart)
                 self.readInpos(x_channel)
-                self.positioner.MoveABSOLUTE(x_channel,int(min_position_x_scan - motion_buffer))
+                self.positioner.MoveABSOLUTE(x_channel, int(min_position_x_scan - motion_buffer))
                 time.sleep(t_wait_motionStart)
                 self.readInpos(x_channel)
                 # Wait for data to be available
@@ -5334,48 +5007,45 @@ class GUI_OPX(): #todo: support several device
                     counts_handle.wait_for_values(1)
                     counts = counts_handle.fetch_all()
                     self.qmm.clear_all_job_results()
-                    self.scan_intensities[:,j,i] = counts / self.total_integration_time # counts/ms = Kcounts/s
-                    self.UpdateGuiDuringScan(self.scan_intensities[:, :, i],use_fast_rgb=True)
+                    self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
+                    self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)
 
                 else:
                     print('The OPX counts stream is inactive. Aborting scan')
                     self.stopScan = True
                     break
-                print(f"Time to scan one slice in X: {np.round(time.time() - slice_start_time,2)} ")
+                print(f"Time to scan one slice in X: {np.round(time.time() - slice_start_time, 2)} ")
 
         # back to start position
         for i in range(3):
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
             res = self.readInpos(i)
             self.positioner.GetPosition()
-            print(
-                f"ch{i}: in position = {res}, position = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
+            print(f"ch{i}: in position = {res}, position = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
 
         end_time = time.time()
         print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
-        print(f"number of points ={Nx*Ny*Nz}")
+        print(f"number of points ={Nx * Ny * Nz}")
         print(f"Elapsed time: {elapsed_time} seconds")
 
         self.prepare_scan_data(max_position_x_scan, min_position_x_scan)
-        self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False)) # 333
+        self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.stopScan = True
 
         # convert Stop Scan to Start scan
         dpg.set_item_label("btnOPX_StartScan", "Start Scan")
         dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
-        self.positioner.set_in_position_delay(x_channel,delay=10)
+        self.positioner.set_in_position_delay(x_channel, delay=10)
 
     def prepare_scan_data(self, max_position_x_scan, min_position_x_scan):
         # Create object to be saved in excel
         self.scan_Out = []
         # probably unit issue
         x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
-        y_vec = np.linspace(self.ini_scan_pos[1], self.ini_scan_pos[1] + self.L_scan[1] * 1e3,
-                            np.size(self.scan_intensities, 1), endpoint=False)
-        z_vec = np.linspace(self.ini_scan_pos[2], self.ini_scan_pos[2] + self.L_scan[2] * 1e3,
-                            np.size(self.scan_intensities, 2), endpoint=False)
+        y_vec = np.linspace(self.ini_scan_pos[1], self.ini_scan_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
+        z_vec = np.linspace(self.ini_scan_pos[2], self.ini_scan_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
         for i in range(np.size(self.scan_intensities, 2)):
             for j in range(np.size(self.scan_intensities, 1)):
                 for k in range(np.size(self.scan_intensities, 0)):
@@ -5398,56 +5068,57 @@ class GUI_OPX(): #todo: support several device
         root.destroy()  # Close the main window if your application has finished using it
 
         return file_path
-    
+
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
-    
-    def Plot_data(self,data, bLoad = False):
+
+    def Plot_data(self, data, bLoad=False):
         np_array = np.array(data)
         # Nx = int(np_array[1,10])
         # Ny = int(np_array[1,11])
         # Nz = int(np_array[1,12])
-        allPoints = np_array[0:,3]
-        self.Xv = np_array[0:,4].astype(float)/1e6
-        self.Yv = np_array[0:,5].astype(float)/1e6
-        self.Zv = np_array[0:,6].astype(float)/1e6
+        allPoints = np_array[0:, 3]
+        self.Xv = np_array[0:, 4].astype(float) / 1e6
+        self.Yv = np_array[0:, 5].astype(float) / 1e6
+        self.Zv = np_array[0:, 6].astype(float) / 1e6
 
-        allPoints = allPoints.astype(float) # intensities
-        Nx = int(round((self.Xv[-1]-self.Xv[0])/(self.Xv[1]-self.Xv[0])) + 1)
-        if self.Yv[Nx]-self.Yv[0]==0:
+        allPoints = allPoints.astype(float)  # intensities
+        Nx = int(round((self.Xv[-1] - self.Xv[0]) / (self.Xv[1] - self.Xv[0])) + 1)
+        if self.Yv[Nx] - self.Yv[0] == 0:
             if bLoad:
-                dpg.set_value("Scan_Message","Stopped in the middle of a frame")
+                dpg.set_value("Scan_Message", "Stopped in the middle of a frame")
                 Nx, allPoints = self.attempt_to_display_unfinished_frame(allPoints=allPoints)
             else:
-                return 0 # Running mode
+                return 0  # Running mode
 
-        Ny = int(round((self.Yv[-1]-self.Yv[0])/(self.Yv[Nx]-self.Yv[0])) + 1) #777
-        if Nx*Ny<len(self.Zv) and self.Zv[Ny*Nx]-self.Zv[0]>0:#Z[Ny*Nx]-Z[0] > 0:
-            Nz = int(round((self.Zv[-1]-self.Zv[0])/(self.Zv[Ny*Nx]-self.Zv[0])) + 1)
-            res = np.reshape(allPoints,(Nz,Ny,Nx))
-            dpg.set_value("Scan_Message",f"Number of Z slices is {Nz}")
+        Ny = int(round((self.Yv[-1] - self.Yv[0]) / (self.Yv[Nx] - self.Yv[0])) + 1)  # 777
+        if Nx * Ny < len(self.Zv) and self.Zv[Ny * Nx] - self.Zv[0] > 0:  # Z[Ny*Nx]-Z[0] > 0:
+            Nz = int(round((self.Zv[-1] - self.Zv[0]) / (self.Zv[Ny * Nx] - self.Zv[0])) + 1)
+            res = np.reshape(allPoints, (Nz, Ny, Nx))
+            dpg.set_value("Scan_Message", f"Number of Z slices is {Nz}")
         else:
             Nz = 1
-            res = np.reshape(allPoints[0:Nx*Ny],(Nz,Ny,Nx))
-            dpg.set_value("Scan_Message",f"Number of Z slices is {Nz}")
-              
-        self.scan_data=res
-        
-        self.Xv=self.Xv[0:Nx] 
-        self.Yv=self.Yv[0:Nx*Ny:Nx] 
-        self.Zv=self.Zv[0:-1:Nx*Ny] 
-        #xy
-        self.startLoc = [int(np_array[1,4].astype(float)/1e6), int(np_array[1,5].astype(float)/1e6), int(np_array[1,6].astype(float)/1e6)] #um
-        self.endLoc =  [int(np_array[-1,4].astype(float)/1e6),int(np_array[-1,5].astype(float)/1e6), int(np_array[-1,6].astype(float)/1e6)] #um
+            res = np.reshape(allPoints[0:Nx * Ny], (Nz, Ny, Nx))
+            dpg.set_value("Scan_Message", f"Number of Z slices is {Nz}")
+
+        self.scan_data = res
+
+        self.Xv = self.Xv[0:Nx]
+        self.Yv = self.Yv[0:Nx * Ny:Nx]
+        self.Zv = self.Zv[0:-1:Nx * Ny]
+        # xy
+        self.startLoc = [int(np_array[1, 4].astype(float) / 1e6), int(np_array[1, 5].astype(float) / 1e6),
+                         int(np_array[1, 6].astype(float) / 1e6)]  # um
+        self.endLoc = [int(np_array[-1, 4].astype(float) / 1e6), int(np_array[-1, 5].astype(float) / 1e6),
+                       int(np_array[-1, 6].astype(float) / 1e6)]  # um
 
         # todo align image (camera) with xy grap (scan output)
 
         if bLoad:
-            self.Plot_Loaded_Scan(use_fast_rgb=True) ### HERE
+            self.Plot_Loaded_Scan(use_fast_rgb=True)  ### HERE
             print("Done.")
         else:
-            self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=np.flipud(res[0, :, :]), startLoc=self.startLoc, endLoc=self.endLoc,
-                           switchAxes=bLoad)
+            self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=np.flipud(res[0, :, :]), startLoc=self.startLoc, endLoc=self.endLoc, switchAxes=bLoad)
 
     import numpy as np
 
@@ -5484,7 +5155,6 @@ class GUI_OPX(): #todo: support several device
 
         return x_fixed, y_fixed, z_fixed, allPoints_fixed, pattern_length
 
-    
     def btnGetLoggedPoints(self):
         current_label = dpg.get_item_label("btnOPX_GetLoggedPoint")
         prefix = "mcs"
@@ -5540,7 +5210,7 @@ class GUI_OPX(): #todo: support several device
                 self.ZCalibrationData = np.array(self.positioner.LoggedPoints[:3])
             else:
                 self.ZCalibrationData = np.array(self.pico.LoggedPoints[:3])
-            
+
             self.to_xml()
             dpg.set_value("Scan_Message", "Logged points loaded from " + prefix)
 
@@ -5548,12 +5218,12 @@ class GUI_OPX(): #todo: support several device
             print(f"Unexpected error: {e}")
             dpg.set_value("Scan_Message", "An unexpected error occurred.")
 
-    def btnLoadScan(self): #111
+    def btnLoadScan(self):  # 111
         fn = self.OpenDialog()
         data = self.loadFromCSV(fn)
-        self.Plot_data(data,True)
-        
-    def save_scan_data(self, Nx, Ny, Nz, fileName = None):
+        self.Plot_data(data, True)
+
+    def save_scan_data(self, Nx, Ny, Nz, fileName=None):
         if fileName == None:
             fileName = self.create_scan_file_name()
 
@@ -5562,15 +5232,9 @@ class GUI_OPX(): #todo: support several device
 
         # raw data
         Scan_array = np.array(self.scan_Out)
-        RawData_to_save = {
-            'X': Scan_array[:, 0].tolist(),
-            'Y': Scan_array[:, 1].tolist(),
-            'Z': Scan_array[:, 2].tolist(),
-            'Intensity': Scan_array[:, 3].tolist(),
-            'Xexpected': Scan_array[:, 4].tolist(),
-            'Yexpected': Scan_array[:, 5].tolist(),
-            'Zexpected': Scan_array[:, 6].tolist(),
-        }
+        RawData_to_save = {'X': Scan_array[:, 0].tolist(), 'Y': Scan_array[:, 1].tolist(), 'Z': Scan_array[:, 2].tolist(),
+            'Intensity': Scan_array[:, 3].tolist(), 'Xexpected': Scan_array[:, 4].tolist(), 'Yexpected': Scan_array[:, 5].tolist(),
+            'Zexpected': Scan_array[:, 6].tolist(), }
         #     'dx': self.dL_scan[0],  # shai 30-7-24
         #     'dy': self.dL_scan[1],
         #     'dz': self.dL_scan[2],
@@ -5585,8 +5249,7 @@ class GUI_OPX(): #todo: support several device
             self.Scan_intensity = Scan_array[:, 3]
             # self.Scan_matrix = np.reshape(self.Scan_intensity,
             #                               (len(self.V_scan[2]), len(self.V_scan[1]), len(self.V_scan[0])))
-            self.Scan_matrix = np.reshape(self.scan_intensities,
-                                          (Nz, Ny, Nx)) # shai 30-7-24
+            self.Scan_matrix = np.reshape(self.scan_intensities, (Nz, Ny, Nx))  # shai 30-7-24
             # Nz = int(len(self.V_scan[2]) / 2)
             slice2D = self.Scan_matrix[int(Nz / 2), :, :]  # ~ middle layer
             self.Save_2D_matrix2IMG(slice2D)
@@ -5597,19 +5260,20 @@ class GUI_OPX(): #todo: support several device
             image.save(self.image_path)
 
             self.scan_data = self.Scan_matrix
-            self.idx_scan = [Nz,0,0] 
-            
-            self.startLoc = [Scan_array[1, 4]/1e6, Scan_array[1, 5]/1e6, Scan_array[1, 6]/1e6]
-            if Nz==0:
-                self.endLoc =  [self.startLoc[0]+self.dL_scan[0]*(Nx-1)/1e3,self.startLoc[1]+self.dL_scan[1]*(Ny-1)/1e3,0]
-            else:
-                self.endLoc =  [self.startLoc[0]+self.dL_scan[0]*(Nx-1)/1e3,self.startLoc[1]+self.dL_scan[1]*(Ny-1)/1e3,self.startLoc[2]+self.dL_scan[2]*(Nz-1)/1e3]
+            self.idx_scan = [Nz, 0, 0]
 
-            #self.Plot_Scan()
-        
+            self.startLoc = [Scan_array[1, 4] / 1e6, Scan_array[1, 5] / 1e6, Scan_array[1, 6] / 1e6]
+            if Nz == 0:
+                self.endLoc = [self.startLoc[0] + self.dL_scan[0] * (Nx - 1) / 1e3, self.startLoc[1] + self.dL_scan[1] * (Ny - 1) / 1e3, 0]
+            else:
+                self.endLoc = [self.startLoc[0] + self.dL_scan[0] * (Nx - 1) / 1e3, self.startLoc[1] + self.dL_scan[1] * (Ny - 1) / 1e3,
+                               self.startLoc[2] + self.dL_scan[2] * (Nz - 1) / 1e3]
+
+            # self.Plot_Scan()
+
         return fileName
 
-    def create_scan_file_name(self, local =False):
+    def create_scan_file_name(self, local=False):
         # file name
         timeStamp = self.getCurrentTimeStamp()  # get current time stamp
         if local:
@@ -5647,7 +5311,7 @@ class GUI_OPX(): #todo: support several device
         for ch in range(3):
             self.track_X = []
             self.coordinate = []
-            
+
             if (ch == 2):
                 self.trackStep = 2 * 75000  # [pm]
                 initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
@@ -5668,9 +5332,9 @@ class GUI_OPX(): #todo: support several device
 
             for i in range(self.track_numberOfPoints):
                 # grab/fetch new data from stream
-                time.sleep(self.tTrackingSignaIntegrationTime*1e-3 + 0.001) # [sec]
+                time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001)  # [sec]
                 self.GlobalFetchData()
-                while (last_iteration == self.iteration): # wait for new data
+                while (last_iteration == self.iteration):  # wait for new data
                     time.sleep(0.01)  # according to OS priorities
                     self.GlobalFetchData()
                 self.lock.acquire()
@@ -5679,17 +5343,15 @@ class GUI_OPX(): #todo: support several device
                 self.lock.release()
 
                 # Log data                
-                self.coordinate.append(i * self.trackStep + self.absPos) # Log axis position
-                self.track_X.append(lastRef)# Loa signal to array
+                self.coordinate.append(i * self.trackStep + self.absPos)  # Log axis position
+                self.track_X.append(lastRef)  # Loa signal to array
 
                 # move to next location (relative move)
                 self.positioner.MoveRelative(ch, self.trackStep)
                 res = self.positioner.ReadIsInPosition(ch)
                 while not (res):
-                    res = self.positioner.ReadIsInPosition(ch)
-                # print(f"i = {i}, ch = {ch}, is in position = {res}")
+                    res = self.positioner.ReadIsInPosition(ch)  # print(f"i = {i}, ch = {ch}, is in position = {res}")
 
-            
             print(f"x(ch={ch}): ", end="")
             for i in range(len(self.coordinate)):
                 print(f", {self.coordinate[i]: .3f}", end="")
@@ -5703,7 +5365,7 @@ class GUI_OPX(): #todo: support several device
             if True:
                 coefficients = np.polyfit(self.coordinate, self.track_X, 2)
                 a, b, c = coefficients
-                maxPos_parabula = int(-b/(2*a))
+                maxPos_parabula = int(-b / (2 * a))
                 print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula}")
 
             # find max signal
@@ -5718,24 +5380,24 @@ class GUI_OPX(): #todo: support several device
         print(f"new ref Signal = {self.refSignal}")
 
         # get new val for comparison
-        time.sleep(self.tTrackingSignaIntegrationTime*1e-3 + 0.001 + 0.1) # [sec]
+        time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001 + 0.1)  # [sec]
         self.GlobalFetchData()
         print(f"self.tracking_ref = {self.tracking_ref}")
-        
+
         # shift back tp experiment sequence
-        self.qm.set_io1_value(0) 
+        self.qm.set_io1_value(0)
         time.sleep(0.1)
 
     def SearchPeakIntensity(self):
         if self.bEnableSignalIntensityCorrection:
             if (self.refSignal == 0) and (not (self.MAxSignalTh.is_alive())):
-                self.refSignal = self.tracking_ref#round(sum(self.Y_Last_ref) / len(self.Y_Last_ref))
+                self.refSignal = self.tracking_ref  # round(sum(self.Y_Last_ref) / len(self.Y_Last_ref))
             elif (self.refSignal * self.TrackingThreshold > self.tracking_ref) and (not (self.MAxSignalTh.is_alive())):
-                self.qm.set_io1_value(1) # shift to reference only
+                self.qm.set_io1_value(1)  # shift to reference only
                 self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
                 self.MAxSignalTh.start()
             elif (not (self.MAxSignalTh.is_alive())):
-                self.refSignal = self.refSignal if self.refSignal>self.tracking_ref else self.tracking_ref
+                self.refSignal = self.refSignal if self.refSignal > self.tracking_ref else self.tracking_ref
 
     def format_time(self, seconds):
         """
@@ -5759,8 +5421,7 @@ class GUI_OPX(): #todo: support several device
 
     def getCurrentTimeStamp(self):
         now = datetime.now()
-        return str(now.year) + "_" + str(now.month) + "_" + str(now.day) + "_" + str(now.hour) + "_" + str(
-            now.minute) + "_" + str(now.second)
+        return str(now.year) + "_" + str(now.month) + "_" + str(now.day) + "_" + str(now.hour) + "_" + str(now.minute) + "_" + str(now.second)
 
     def saveExperimentsNotes(self, appdata, sender):
         # dpg.set_value("text item", f"Mouse Button ID: {app_data}")
@@ -5770,7 +5431,7 @@ class GUI_OPX(): #todo: support several device
     def saveToCSV(self, file_name, data):
         print("Saving to CSV")
         # Find the length of the longest list
-        
+
         max_length = max(len(values) for values in data.values())
 
         # Pad shorter lists with None  # I guess data was changed
@@ -5822,10 +5483,8 @@ class GUI_OPX(): #todo: support several device
 
             elif isinstance(value, list):
                 list_elem = ET.SubElement(root, key)
-                if (list_elem.tag != "scan_Out" and
-                        list_elem.tag != "X_vec" and list_elem.tag != "Y_vec" and list_elem.tag != "Z_vec" and
-                        list_elem.tag != "X_vec_ref" and list_elem.tag != "Y_vec_ref" and list_elem.tag != "Z_vec_ref" and
-                        list_elem.tag != "V_scan" and list_elem.tag != "expected_pos"):
+                if (
+                        list_elem.tag != "scan_Out" and list_elem.tag != "X_vec" and list_elem.tag != "Y_vec" and list_elem.tag != "Z_vec" and list_elem.tag != "X_vec_ref" and list_elem.tag != "Y_vec_ref" and list_elem.tag != "Z_vec_ref" and list_elem.tag != "V_scan" and list_elem.tag != "expected_pos"):
                     for item in value:
                         item_elem = ET.SubElement(list_elem, "item")
                         item_elem.text = str(item)
@@ -5837,7 +5496,6 @@ class GUI_OPX(): #todo: support several device
                         for sub_item in item:
                             item_sub_elem = ET.SubElement(item_elem, "item")
                             item_sub_elem.text = str(sub_item)
-
 
         tree = ET.ElementTree(root)
         with open(filename, "wb") as f:
@@ -5859,8 +5517,7 @@ class GUI_OPX(): #todo: support several device
                         list_items = []
                         counter = 0
                         for item in param:
-                            converted_item = self.convert_to_correct_type(attribute=param.tag, value=item.text,
-                                                                          idx=counter)
+                            converted_item = self.convert_to_correct_type(attribute=param.tag, value=item.text, idx=counter)
                             list_items.append(converted_item)
                             counter += 1
                         setattr(self, param.tag, list_items if isinstance(getattr(self, param.tag), list) else np.array(list_items))
@@ -5889,7 +5546,7 @@ class GUI_OPX(): #todo: support several device
         else:
             return value
 
-    def fast_rgb_convert(self,Array2D):
+    def fast_rgb_convert(self, Array2D):
         # Mask for non-zero values
         mask_non_zero = Array2D > 0
 
@@ -5903,4 +5560,4 @@ class GUI_OPX(): #todo: support several device
         # Add the alpha channel: 1 for non-zero values, 0 for zero values
         alpha_channel = mask_non_zero.astype(float)
 
-        return np.dstack((result_array_,alpha_channel))
+        return np.dstack((result_array_, alpha_channel))

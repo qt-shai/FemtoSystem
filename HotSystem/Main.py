@@ -12,10 +12,10 @@ def main(simulation:bool = False):
     guiDPG = PyGuiOverlay(simulation) # dear imgui
     app = Application_singletone()
     app.PushOverLay(gui)
-    app.PushOverLay(guiDPG)
+    app.PushOverLay(layer=guiDPG,simulation=simulation)
     app.Run()
 
 
 if __name__ == "__main__":
-    simulation: bool = False
+    simulation: bool = True
     main(simulation)

@@ -11,6 +11,8 @@ import time
 
 from typing import Optional, Tuple, List
 import clr
+import math
+
 from SystemConfig import Instruments, Device
 
 # Add a reference to each .NET assembly required
@@ -68,6 +70,8 @@ class newportPicomotor():
         self.Address: Optional[int] = None
         self.LoggedPoints = []
         self.KeyboardEnabled = True
+        self.U = [1, 0, 0]
+        self.V = [0, 1, 0]
 
     def __del__(self):
         self.Disconnect()
@@ -438,4 +442,28 @@ class newportPicomotor():
         status = self.Pico.MoveToHome(self.ky, self.Address, Motor)
         if not status:
             print(f"Failed to move motor {Motor} to home position.")
+
+    def calc_uv(self):
+        if len(self.LoggedPoints) < 3:
+            print(f"Please log at least three points prior to calculating u & v")
+            return
+        p1, p2, p3 = self.LoggedPoints[-3:]
+        self.U = self.calculate_vector(p1, p2)
+        self.V = self.calculate_vector(p2, p3)
+
+    def calculate_vector(self, p1, p2):
+        difference = [p2[i] - p1[i] for i in range(len(p1))]
+        try:
+            magnitude = math.sqrt(sum([component ** 2 for component in difference]))
+            if magnitude == 0 or magnitude == 0:
+                print("The two points are identical, cannot compute vector.")
+                return None
+                # raise ValueError("The two points are identical, cannot compute vector.")
+
+            return [component / magnitude for component in difference]
+
+        except ZeroDivisionError:
+            print("Division by zero error encountered during vector normalization.")
+        except ValueError as e:
+            print(e)
         

@@ -78,7 +78,7 @@ class HW_devices:
 
             elif instrument == Instruments.COBOLT:
                 cobolt_config: Device = [x for x in self.config.devices if x.instrument is Instruments.COBOLT][0]
-                self.cobolt = Cobolt06MLD(cobolt_config.com_port)
+                self.cobolt = Cobolt06MLD(com_port=cobolt_config.com_port,simulation=self.simulation)
 
             elif instrument == Instruments.PICOMOTOR:
                 self.picomotor = newportPicomotor(self.simulation)

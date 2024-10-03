@@ -1,3 +1,4 @@
+import math
 import sys
 from enum import Enum
 from typing import List, Tuple, Optional
@@ -74,6 +75,8 @@ class smaractMCS2():
         self.StepsIn1mm=1e9
         self.KeyboardEnabled = True
         self.no_of_channels = 3  # For support in simulation mode
+        self.U = [1, 0, 0]
+        self.V = [0, 1, 0]
 
     def __del__(self):
         self.Disconnect()
@@ -538,6 +541,30 @@ class smaractMCS2():
     def GetPosition(self):
         for ax in range(self.no_of_channels):
             self.AxesPositions[ax], self.AxesPosUnits[ax] = self.ReadPosition(ax)
+
+    def calc_uv(self):
+        if len(self.LoggedPoints)<3:
+            print(f"Please log at least three points prior to calculating u & v")
+            return
+        p1, p2, p3 = self.LoggedPoints[-3:]
+        self.U = self.calculate_vector(p1, p2)
+        self.V = self.calculate_vector(p2, p3)
+
+    def calculate_vector(self, p1, p2):
+        difference = [p2[i] - p1[i] for i in range(len(p1))]
+        try:
+            magnitude = math.sqrt(sum([component ** 2 for component in difference]))
+            if magnitude == 0 or magnitude == 0:
+                print("The two points are identical, cannot compute vector.")
+                return None
+                # raise ValueError("The two points are identical, cannot compute vector.")
+
+            return [component / magnitude for component in difference]
+
+        except ZeroDivisionError:
+            print("Division by zero error encountered during vector normalization.")
+        except ValueError as e:
+            print(e)
 
     def GetVelocities(self):
         for ax in range(self.no_of_channels):

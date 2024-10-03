@@ -148,7 +148,6 @@ def load_instrument_images():
                     placeholder_data = [255, 255, 255, 255] * 50 * 50
                     dpg.add_static_texture(50, 50, placeholder_data, tag=texture_tag)
 
-
 def create_themes():
     """
     Create the themes for selected and default states with pastel colors.
@@ -202,6 +201,8 @@ def run_system_config_gui():
     instruments_with_na_identifiers = set()
     if system_config:
         for configured_device in system_config.devices:
+            for device in devices_list:
+                device.com_port = configured_device.com_port
             # Check if all identifiers are 'N/A' or None
             if (configured_device.serial_number in [None, 'N/A'] and
                 configured_device.mac_address in [None, 'N/A'] and

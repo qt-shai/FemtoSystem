@@ -1,7 +1,9 @@
 import math
 import os
+import pdb
 import sys
 import time
+import traceback
 
 import dearpygui.dearpygui as dpg
 from functools import partial
@@ -1151,6 +1153,7 @@ class Map:
     def map_click_callback(self, app_data):
         # Get the mouse position relative to the map widget
         try:
+
             mouse_pos = dpg.get_mouse_pos(local=True)
 
             if mouse_pos is None:
@@ -1173,14 +1176,18 @@ class Map:
                 print("No Z calibration data.")
                 return 1
 
+            # pdb.set_trace()  # Insert a manual breakpoint
             # Calculate the relative position of the click on the map
             relative_x = (mouse_x - self.map_item_x - dpg.get_value("MapOffsetX")) * dpg.get_value("MapFactorX")
             relative_y = (mouse_y - self.map_item_y - dpg.get_value("MapOffsetY")) * dpg.get_value("MapFactorY")
-            z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)), int(relative_y * 1e6))) / 1e6
+
+            # Make sure to pass both x and y as separate parameters, not in an array
+            z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)), np.array(int(relative_y * 1e6)))) / 1e6
+
             # Update the text with the coordinates
             dpg.set_value("coordinates_text", f"x = {relative_x:.1f}, y = {relative_y:.1f}, z = {z_evaluation:.2f}")
-            # Check if the current clicked_position is equal to the previous clicked position
 
+            # Check if the current clicked_position is equal to the previous clicked position
             if self.marker_exists((relative_x, relative_y)):
                 print("A marker with the same relative coordinates already exists.")
                 return 1  # Prevent creating a new marker
@@ -1195,7 +1202,9 @@ class Map:
                 self.click_coord = (relative_x, relative_y, z_evaluation)
 
         except Exception as e:
+            # Print the error message along with the detailed traceback
             print(f"Error in map_click_callback: {e}")
+            traceback.print_exc()  # This will print the complete traceback, including the line number of the error
 
     def delete_all_markers(self):
         # Delete all point markers and their associated text
@@ -1249,35 +1258,39 @@ class Map:
         print("All markers and rectangles except active ones have been deleted.")
 
     def mark_point_on_map(self):
-        if hasattr(self, 'clicked_position'):
-            x_pos, y_pos = self.clicked_position
+        # Ensure that self.clicked_position exists and is not None
+        if not hasattr(self, 'clicked_position') or self.clicked_position is None:
+            print("Error: Clicked position is not defined.")
+            return  # Exit the function if clicked position is not set
 
-            marker_tag = f"marker_{len(self.markers)}"
-            text_tag = f"text_{len(self.markers)}"
+        x_pos, y_pos = self.clicked_position
 
-            # Retrieve the number of digits from the input field
-            num_of_digits = dpg.get_value("MapNumOfDigits")
+        marker_tag = f"marker_{len(self.markers)}"
+        text_tag = f"text_{len(self.markers)}"
 
-            # Update the format string to use the retrieved number of digits
-            coord_text = f"({self.click_coord[0]:.{num_of_digits}f}, {self.click_coord[1]:.{num_of_digits}f}, {self.click_coord[2]:.{num_of_digits}f})"
+        # Retrieve the number of digits from the input field
+        num_of_digits = dpg.get_value("MapNumOfDigits")
 
-            # Add a circle at the clicked position
-            dpg.draw_circle(center=(x_pos, y_pos), radius=2, color=(255, 0, 0, 255), fill=(255, 0, 0, 100), parent="map_draw_layer", tag=marker_tag)
+        # Update the format string to use the retrieved number of digits
+        coord_text = f"({self.click_coord[0]:.{num_of_digits}f}, {self.click_coord[1]:.{num_of_digits}f}, {self.click_coord[2]:.{num_of_digits}f})"
 
-            # Add text next to the marker showing the 3 coordinates, using the selected text color
-            dpg.draw_text(pos=(x_pos, y_pos), text=coord_text, color=self.text_color, size=14 + num_of_digits * 2,
-                          parent="map_draw_layer", tag=text_tag)
+        # Add a circle at the clicked position
+        dpg.draw_circle(center=(x_pos, y_pos), radius=2, color=(255, 0, 0, 255), fill=(255, 0, 0, 100), parent="map_draw_layer", tag=marker_tag)
 
-            print(coord_text)
+        # Add text next to the marker showing the 3 coordinates, using the selected text color
+        dpg.draw_text(pos=(x_pos, y_pos), text=coord_text, color=self.text_color, size=14 + num_of_digits * 2,
+                      parent="map_draw_layer", tag=text_tag)
 
-            # Store the marker and text tags, along with the relative and clicked positions
-            self.markers.append((marker_tag, text_tag, self.click_coord, self.clicked_position))
+        print(coord_text)
 
-            # Activate the newly added marker by setting it as the active marker
-            self.active_marker_index = len(self.markers) - 1
+        # Store the marker and text tags, along with the relative and clicked positions
+        self.markers.append((marker_tag, text_tag, self.click_coord, self.clicked_position))
 
-            self.update_markers_table()
-            self.update_marker_texts()
+        # Activate the newly added marker by setting it as the active marker
+        self.active_marker_index = len(self.markers) - 1
+
+        self.update_markers_table()
+        self.update_marker_texts()
 
     def update_marker_texts(self, full=1):
         # Retrieve the updated number of digits
