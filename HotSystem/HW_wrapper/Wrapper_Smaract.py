@@ -549,6 +549,7 @@ class smaractMCS2():
         p1, p2, p3 = self.LoggedPoints[-3:]
         self.U = self.calculate_vector(p1, p2)
         self.V = self.calculate_vector(p2, p3)
+        print(f"Smaract: U={self.U}, V={self.V}")
 
     def calculate_vector(self, p1, p2):
         difference = [p2[i] - p1[i] for i in range(len(p1))]
@@ -559,7 +560,7 @@ class smaractMCS2():
                 return None
                 # raise ValueError("The two points are identical, cannot compute vector.")
 
-            return [component / magnitude for component in difference]
+            return [round(component / magnitude,3) for component in difference]
 
         except ZeroDivisionError:
             print("Division by zero error encountered during vector normalization.")

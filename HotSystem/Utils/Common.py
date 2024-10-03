@@ -47,6 +47,8 @@ def calculate_plane_normal(plane_calibration_matrix: np.ndarray) -> Tuple[np.nda
     v1 = p2 - p1
     v2 = p3 - p1
 
+    print((v1, v2))
+
     normal = np.cross(v1, v2) # cross product not normalized to unit vector
 
     if np.linalg.norm(normal) == 0:

@@ -235,19 +235,18 @@ class GUI_picomotor():
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
 
         for ch in range(3):
-            position[ch] = position[ch] / self.dev.StepsIn1mm * 1e3
+            position[ch] = position[ch] / self.dev.StepsIn1mm * 1e3 * 1e6 #[pm]
 
         self.dev.LoggedPoints.append(position.copy())  # [um]
-        self.NumOfLoggedPoints += 1
         print(self.dev.LoggedPoints)
 
         # Update the UI
-        dpg.set_value(f"{self.prefix}_logged_points", "* " * self.NumOfLoggedPoints)
+        dpg.set_value(f"{self.prefix}_logged_points", "* " * len(self.dev.LoggedPoints))
         self.update_table()
 
         # Prepare the text to copy with only the last logged point and the increment line
         last_point = self.dev.LoggedPoints[-1]
-        text_to_copy = f"self.dev.LoggedPoints.append({last_point})\nself.NumOfLoggedPoints += 1"
+        text_to_copy = f"self.dev.LoggedPoints.append({last_point})\n"
 
         print(text_to_copy)
 
@@ -264,15 +263,13 @@ class GUI_picomotor():
 
         if self.dev.IsConnected:
             self.dev.LoggedPoints.pop()  # [pm]  Removes the last item
-            self.NumOfLoggedPoints -= 1
-            dpg.set_value(f"{self.prefix}_logged_points", "* " * self.NumOfLoggedPoints)
+            dpg.set_value(f"{self.prefix}_logged_points", "* " * len(self.dev.LoggedPoints))
             self.update_table()
         else:
             print("Cannot log point while Smaract is disconnected.")
             if self.simulation:
                 self.dev.LoggedPoints.pop()  # [pm]  Removes the last item
-                self.NumOfLoggedPoints -= 1
-                dpg.set_value(f"{self.prefix}_logged_points", "* " * self.NumOfLoggedPoints)
+                dpg.set_value(f"{self.prefix}_logged_points", "* " * len(self.dev.LoggedPoints))
                 self.update_table()
 
     def update_table(self):
@@ -287,9 +284,9 @@ class GUI_picomotor():
         for i, point in enumerate(self.dev.LoggedPoints, start=1):
             with dpg.table_row(parent=table_id):
                 dpg.add_text(f"Point {i}")
-                dpg.add_text(f"{point[0]:.3f}")
-                dpg.add_text(f"{point[1]:.3f}")
-                dpg.add_text(f"{point[2]:.3f}")
+                dpg.add_text(f"{point[0]/1e6:.3f}")
+                dpg.add_text(f"{point[1]/1e6:.3f}")
+                dpg.add_text(f"{point[2]/1e6:.3f}")
                 # # Add a delete button in the last column
                 # dpg.add_button(label="Delete", width=60, height=20, callback=lambda s=i - 1: self.delete_row(s))
                 # Use partial to pass the correct index to the callback function

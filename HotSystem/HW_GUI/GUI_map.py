@@ -13,8 +13,9 @@ import numpy as np
 from Utils import calculate_z_series
 
 class Map:
-    def __init__(self,ZCalibrationData: np.ndarray | None = None):
+    def __init__(self,ZCalibrationData: np.ndarray | None = None, use_picomotor = False):
         # Initialize variables
+        self.disable_d_click = False
         self.click_coord = None
         self.clicked_position = None
         self.map_item_x = 0
@@ -46,7 +47,7 @@ class Map:
         self.ZCalibrationData = ZCalibrationData
 
         # Load map parameters
-        self.load_map_parameters()
+        self.use_picomotor, self.exp_notes = self.load_map_parameters()
 
     def delete_map_gui(self):
         self.delete_all_markers()
@@ -57,6 +58,8 @@ class Map:
             dpg.delete_item("handler_registry")
 
     def create_map_gui(self, win_size, win_pos):
+        use_pico=False
+        exp_notes=""
 
         # Check if the handler_registry already exists
         if not dpg.does_item_exist("handler_registry"):
@@ -151,7 +154,7 @@ class Map:
                                                       width=150, min_value=50, default_value=60, step=1, step_fast=10)
                                     dpg.add_button(label="Scan All Area Markers", callback=self.scan_all_area_markers)
                                     dpg.bind_item_theme(dpg.last_item(), theme="btnYellowTheme")
-                                    dpg.add_checkbox(label="Picomotor", tag="chkbox_use_picomotor", indent=-1,
+                                    dpg.add_checkbox(label="Pico", tag="checkbox_map_use_picomotor", indent=-1,
                                                      callback=self.toggle_use_picomotor, default_value=self.use_picomotor)
 
                                 with dpg.group(horizontal=True):
@@ -161,6 +164,7 @@ class Map:
                                                       width=150, min_value=0, default_value=1, step=1,
                                                       step_fast=100, callback=self.btn_num_of_digits_change)
                                     dpg.add_button(label="Fix area", callback=self.fix_area)
+                                    dpg.add_checkbox(label="Disable d.click",tag="checkbox_disable_d_click", callback=self.toggle_disable_d_click, default_value=self.disable_d_click)
 
                             # Group for marker movement buttons
                             with dpg.child_window(width=child_width, height=child_height):
@@ -249,11 +253,11 @@ class Map:
                             # Display the map image
                             dpg.add_image("map_texture", width=self.width, height=self.height, tag="map_image")
                             dpg.add_draw_layer(tag="map_draw_layer", parent="Map_window")
-
-            self.load_map_parameters()  # load map parameters
-            self.move_mode = "marker"
         else:
             print(f"{self.image_path} does not exist")
+
+        use_pico, exp_notes = self.load_map_parameters()  # load map parameters
+        return use_pico, exp_notes
 
     # Placeholder methods for the callbacks used in the GUI
     def fix_area(self):
@@ -764,7 +768,7 @@ class Map:
             for line in lines:
                 if any(param in line for param in
                        ["OffsetX", "OffsetY", "FactorX", "FactorY", "MoveStep", "NumOfDigits", "ImageWidth",
-                        "ImageHeight", "Exp_notes", "LoggedPoint", "Marker", "Rectangle", "use_picomotor"]):
+                        "ImageHeight", "Exp_notes", "picoLoggedPoint", "mcsLoggedPoint", "Marker", "Rectangle", "use_picomotor"]):
                     # Skip lines that will be replaced by the new map parameters, points, and markers
                     continue
                 new_content.append(line)
@@ -778,9 +782,7 @@ class Map:
             new_content.append(f"NumOfDigits: {dpg.get_value('MapNumOfDigits')}\n")
             new_content.append(f"ImageWidth: {dpg.get_value('width_slider')}\n")
             new_content.append(f"ImageHeight: {dpg.get_value('height_slider')}\n")
-
-            # Save experimental notes
-            new_content.append(f"Exp_notes: {self.expNotes}\n")
+            new_content.append(f"Exp_notes: {dpg.get_value('inTxtScan_expText')}\n")
 
             # Save the use_picomotor state
             new_content.append(f"use_picomotor: {self.use_picomotor}\n")
@@ -806,6 +808,49 @@ class Map:
 
     def load_map_parameters(self):
         try:
+            exp_notes = ""
+            # Dictionaries to store positions and sizes loaded from the file
+            window_positions = {}
+            window_sizes = {}
+
+            # Check if the configuration file exists
+            with open("map_config.txt", "r") as file:
+                lines = file.readlines()
+                for line in lines:
+                    # Split the line and check if it has the correct format
+                    parts = line.split(": ")
+                    if len(parts) < 2:
+                        continue  # Skip lines that don't have the expected format
+
+                    key = parts[0]
+                    value = parts[1].strip()  # Remove any extra whitespace
+
+                    # Load experimental notes
+                    if key == "Exp_notes":
+                        exp_notes = value
+                        if dpg.does_item_exist("inTxtScan_expText"):
+                            dpg.set_value("inTxtScan_expText", value)  # Update the input text widget with the loaded notes
+
+                    # Load and update use_picomotor state
+                    elif key == "use_picomotor":
+                        self.use_picomotor = value.lower() == "true"  # Convert to boolean
+                        if dpg.does_item_exist("checkbox_map_use_picomotor"):
+                            dpg.set_value("checkbox_map_use_picomotor", self.use_picomotor)
+
+                    # Check if the key is a window position entry
+                    elif "_Pos" in key:
+                        # Extract window name and coordinates
+                        window_name = key.replace("_Pos", "")
+                        x, y = value.split(", ")
+                        window_positions[window_name] = (float(x), float(y))
+
+                    # Check if the key is a window size entry
+                    elif "_Size" in key:
+                        # Extract window name and dimensions
+                        window_name = key.replace("_Size", "")
+                        width, height = value.split(", ")
+                        window_sizes[window_name] = (int(width), int(height))
+
             if not dpg.does_item_exist("map_image"):
                 print("map image does not exist.")
             else:
@@ -892,29 +937,37 @@ class Map:
                                 print(len(rect_coords))
                                 print("Rectangle should have 5 values (4 coordinates and Z scan state)")
 
-                        # Load experimental notes
-                        elif key == "Exp_notes":
-                            self.expNotes = value
-                            dpg.set_value("inTxtScan_expText", value)  # Update the input text widget with the loaded notes
+                # Activate the last marker and area marker after loading
+                if self.markers:
+                    self.active_marker_index = len(self.markers) - 1
+                    self.act_marker(self.active_marker_index)  # Activate the last marker
 
-                        # Load and update use_picomotor state
-                        elif key == "use_picomotor":
-                            self.use_picomotor = value.lower() == "true"  # Convert to boolean
-                            if dpg.does_item_exist("chkbox_use_picomotor"):
-                                dpg.set_value("chkbox_use_picomotor", self.use_picomotor)
+                if self.area_markers:
+                    self.active_area_marker_index = len(self.area_markers) - 1
+                    self.act_area_marker(self.active_area_marker_index)  # Activate the last area marker
 
-            print("Map parameters and markers loaded.")
+                self.update_markers_table()
 
-            # Activate the last marker and area marker after loading
-            if self.markers:
-                self.active_marker_index = len(self.markers) - 1
-                self.act_marker(self.active_marker_index)  # Activate the last marker
+                print("Map parameters and markers loaded.")
 
-            if self.area_markers:
-                self.active_area_marker_index = len(self.area_markers) - 1
-                self.act_area_marker(self.active_area_marker_index)  # Activate the last area marker
+            # Update window positions and sizes in Dear PyGui if the windows exist
+            for window_name, pos in window_positions.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_pos(window_name, pos)
+                    print(f"Loaded position for {window_name}: {pos}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
 
-            self.update_markers_table()
+            for window_name, size in window_sizes.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_width(window_name, size[0])
+                    dpg.set_item_height(window_name, size[1])
+                    print(f"Loaded size for {window_name}: {size}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
+            return self.use_picomotor, exp_notes
+
         except FileNotFoundError:
             print("map_config.txt not found.")
         except Exception as e:
@@ -1192,7 +1245,7 @@ class Map:
                 print("A marker with the same relative coordinates already exists.")
                 return 1  # Prevent creating a new marker
 
-            if self.click_coord == (relative_x, relative_y, z_evaluation):
+            if self.click_coord == (relative_x, relative_y, z_evaluation) and not self.disable_d_click:
                 # Do something when the positions are equal
                 print("Current click position is the same as the previous click.")
                 self.mark_point_on_map()
@@ -1675,8 +1728,11 @@ class Map:
     def toggle_use_picomotor(sender, app_data, user_data):
         sender.use_picomotor = user_data
         time.sleep(0.001)
-        dpg.set_value(item="chkbox_use_picomotor", value=sender.use_picomotor)
+        dpg.set_value(item="checkbox_map_use_picomotor", value=sender.use_picomotor)
         print("Set use_picomotor to: " + str(sender.use_picomotor))
 
-
+    def toggle_disable_d_click(self, app_data, user_data):
+        self.disable_d_click = user_data
+        dpg.set_value(item="checkbox_disable_d_click", value=self.disable_d_click)
+        print("Set disable d click to: " + str(self.disable_d_click))
 

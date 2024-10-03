@@ -4,6 +4,7 @@
 # actually we need to split to OPX wrapper and OPX GUI          *
 # ***************************************************************
 import csv
+import pdb
 from datetime import datetime
 import os
 import sys
@@ -970,6 +971,10 @@ class GUI_OPX():  # todo: support several device
         item_width = int(200 * self.window_scale_factor)
         if self.bScanChkbox:
 
+            self.map = Map(ZCalibrationData=self.ZCalibrationData, use_picomotor=self.use_picomotor)
+            self.use_picomotor = self.map.use_picomotor
+            self.expNotes = self.map.exp_notes
+
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=1200, pos=win_pos):
                 with dpg.group(horizontal=True):
                     # Left side: Scan settings and controls
@@ -1006,7 +1011,7 @@ class GUI_OPX():  # todo: support several device
                                                   default_value=self.L_scan[2], min_value=0, max_value=500000, step=1)
 
                             with dpg.group(horizontal=True):
-                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=200, callback=self.saveExperimentsNotes)
+                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=200, callback=self.saveExperimentsNotes, default_value=self.expNotes)
 
                                 dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}", tag="text_expectedScanTime",
                                              indent=-1)
@@ -1033,7 +1038,7 @@ class GUI_OPX():  # todo: support several device
                     with dpg.group(horizontal=False):
                         dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
                         dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
-                        dpg.add_button(label="Z-calibrate", callback=self.z_calibrate, width=130)
+                        dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=130)
                         with dpg.group(horizontal=True):
                             dpg.add_button(label="plot", callback=self.plot_graph)
                             dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor", callback=self.toggle_use_picomotor,
@@ -1047,14 +1052,19 @@ class GUI_OPX():  # todo: support several device
                         dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=120, tag="xy_span_um")
 
                     self.btnGetLoggedPoints()  # get logged points
-                    self.map = Map(self.ZCalibrationData)
+                    # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
                     self.map.create_map_gui(win_size, win_pos)  # dpg.set_frame_callback(1, self.load_pos)
         else:
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
 
+    def btn_z_calibrate(self):
+        self.ScanTh = threading.Thread(target=self.z_calibrate)
+        self.ScanTh.start()
+
     def z_calibrate(self):
+        # pdb.set_trace()  # Insert a manual breakpoint
         xy_span_um = dpg.get_value("xy_span_um")
         if xy_span_um > 60:
             self.use_picomotor = True
@@ -1065,18 +1075,23 @@ class GUI_OPX():  # todo: support several device
 
         for ch in range(2):
             position = self.get_device_position(device)
+            # pdb.set_trace()  # Insert a manual breakpoint
             device.LoggedPoints.append(position.copy())
             device.MoveRelative(ch if not self.use_picomotor else ch + 1, int(xy_span_um * 1e-3 * device.StepsIn1mm))
             self.auto_focus()
 
+        position = self.get_device_position(device)
+        # pdb.set_trace()  # Insert a manual breakpoint
+        device.LoggedPoints.append(position.copy())
         device.calc_uv()
 
     def get_device_position(self, device):
         device.GetPosition()
         position = [0] * 3
         for channel in range(3):
-            position[channel] = device.AxesPositions[channel] / device.StepsIn1mm * 1e3
+            position[channel] = int(device.AxesPositions[channel] / device.StepsIn1mm * 1e3 * 1e6) #[pm]
         return position
+
 
     # Define the callback function to run the input string
     def execute_input_string(self, app_data, user_data):
@@ -1088,11 +1103,12 @@ class GUI_OPX():  # todo: support several device
         except Exception as e:
             print(f"Error executing input string: {e}")
 
-    def toggle_use_picomotor(sender, app_data, user_data):
-        sender.use_picomotor = user_data
+    def toggle_use_picomotor(self, app_data, user_data):
+        self.use_picomotor = user_data
         time.sleep(0.001)
-        dpg.set_value(item="checkbox_use_picomotor", value=sender.use_picomotor)
-        print("Set use_picomotor to: " + str(sender.use_picomotor))
+        dpg.set_value(item="checkbox_use_picomotor", value=self.use_picomotor)
+        self.map.toggle_use_picomotor(app_data = app_data, user_data = user_data)
+        print("Set use_picomotor to: " + str(self.use_picomotor))
 
     def plot_graph(self):
         # Check if plt_x and plt_y are not None
@@ -4565,13 +4581,6 @@ class GUI_OPX():  # todo: support several device
         # move to max signal position
         self.positioner.MoveABSOLUTE(ch, int(max_pos))
 
-        # shift back tp experiment sequence
-        self.qm.set_io1_value(0)
-        time.sleep(0.1)
-
-        # stop and close job
-        self.StopJob(self.job, self.qm)
-
         dpg.set_value("power_input", original_power)
         self.HW.cobolt.set_power(original_power)
 
@@ -4579,6 +4588,14 @@ class GUI_OPX():  # todo: support several device
             print(f"Moving pico {-max_pos * 1e-9}")
             self.HW.picomotor.MoveRelative(Motor=ch + 1, Steps=int(-max_pos * 1e-9 * self.pico.StepsIn1mm))
             self.positioner.MoveABSOLUTE(ch, 0)
+
+        # shift back tp experiment sequence
+        self.qm.set_io1_value(0)
+        time.sleep(0.1)
+
+        # stop and close job
+        self.StopJob(self.job, self.qm)
+
 
     def StartScan3D(self):  # currently flurascence scan
         print("start scan steps")
@@ -5207,12 +5224,13 @@ class GUI_OPX():  # todo: support several device
 
             print("Logged points loaded from " + prefix)
             if prefix == "mcs":
-                self.ZCalibrationData = np.array(self.positioner.LoggedPoints[:3])
+                self.map.ZCalibrationData = np.array(self.positioner.LoggedPoints[:3])
             else:
-                self.ZCalibrationData = np.array(self.pico.LoggedPoints[:3])
+                self.map.ZCalibrationData = np.array(self.pico.LoggedPoints[:3])
 
             self.to_xml()
             dpg.set_value("Scan_Message", "Logged points loaded from " + prefix)
+            print(self.map.ZCalibrationData)
 
         except Exception as e:
             print(f"Unexpected error: {e}")
