@@ -617,6 +617,8 @@ class PyGuiOverlay(Layer):
             raise Exception("No system config")
 
         """Load specific instruments based on the system configuration."""
+        self.simulation = any(device.instrument == Instruments.SIMULATION for device in self.system_config.devices)
+
         for device in self.system_config.devices:
             instrument = device.instrument
             if instrument == Instruments.ROHDE_SCHWARZ:

@@ -15,6 +15,8 @@ from Utils import calculate_z_series
 class Map:
     def __init__(self,ZCalibrationData: np.ndarray | None = None, use_picomotor = False):
         # Initialize variables
+        self.control_windows_shrunk = False
+        self.win_size = [300, 900]
         self.disable_d_click = False
         self.click_coord = None
         self.clicked_position = None
@@ -57,7 +59,46 @@ class Map:
         if dpg.does_item_exist("handler_registry"):
             dpg.delete_item("handler_registry")
 
+    def toggle_shrink_child_windows(self):
+        """Toggle shrinking and expanding of child windows to make the map image more visible."""
+
+        # Define child window tags
+        child_windows_to_toggle = [
+            "child_window_1",
+            "child_window_2",  # Add all child window tags here
+            "child_window_3",
+            "child_window_4",
+            "child_window_5"
+        ]
+
+        # Toggle between shrinking and expanding
+        if self.control_windows_shrunk:
+            child_width = int(self.win_size[0] * 0.45)
+            child_height = int(self.win_size[1] * 0.5)
+            # Expand child windows to original size
+            for child_window in child_windows_to_toggle:
+                if dpg.does_item_exist(child_window):
+                    dpg.set_item_width(child_window,  child_width)  # Original width
+                    dpg.set_item_height(child_window, child_height)  # Original height
+            # Update button label
+            dpg.set_item_label("toggle_shrink_button", "<<<")
+            self.control_windows_shrunk = False
+        else:
+            # Shrink child windows
+            child_width = int(self.win_size[0] * 0.15)
+            child_height = int(self.win_size[1] * 0.5)
+            for child_window in child_windows_to_toggle:
+                if dpg.does_item_exist(child_window):
+                    dpg.set_item_width(child_window, child_width)  # Shrunk width
+                    dpg.set_item_height(child_window, child_height)  # Shrunk height
+            # Update button label
+            dpg.set_item_label("toggle_shrink_button", ">>>")
+            self.control_windows_shrunk = True
+
+
+
     def create_map_gui(self, win_size, win_pos):
+        self.win_size = win_size
         use_pico=False
         exp_notes=""
 
@@ -83,7 +124,7 @@ class Map:
                         # Left-hand side: Control panels
                         with dpg.group(horizontal=False):
                             # Group for map controls: Width, Height, and Aspect Ratio
-                            with dpg.child_window(width=child_width, height=child_height):
+                            with dpg.child_window(width=child_width, height=child_height,tag = "child_window_1",horizontal_scrollbar=True):
                                 dpg.add_text("Map Size & Aspect Ratio Controls", bullet=True)
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
 
@@ -103,8 +144,10 @@ class Map:
                                                       callback=self.resize_from_input, width=100)
                                     dpg.add_button(label="ON", callback=self.toggle_aspect_ratio)
 
+                                dpg.add_button(label="<<<", tag="toggle_shrink_button", callback=self.toggle_shrink_child_windows)
+
                             # Group for Offset Controls
-                            with dpg.child_window(width=child_width, height=child_height*1.2):
+                            with dpg.child_window(width=child_width, height=child_height*1.2, tag = "child_window_2",horizontal_scrollbar=True):
                                 dpg.add_text("Offset Controls", bullet=True)
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
                                 with dpg.group(horizontal=True):
@@ -132,7 +175,7 @@ class Map:
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
 
                             # Group for marking points, areas, and update scan
-                            with dpg.child_window(width=child_width, height=child_height):
+                            with dpg.child_window(width=child_width, height=child_height, tag = "child_window_3",horizontal_scrollbar=True):
                                 dpg.add_text("Marker & Scan Controls", bullet=True)
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
 
@@ -167,7 +210,7 @@ class Map:
                                     dpg.add_checkbox(label="Disable d.click",tag="checkbox_disable_d_click", callback=self.toggle_disable_d_click, default_value=self.disable_d_click)
 
                             # Group for marker movement buttons
-                            with dpg.child_window(width=child_width, height=child_height):
+                            with dpg.child_window(width=child_width, height=child_height, tag = "child_window_4",horizontal_scrollbar=True):
                                 dpg.add_text("Marker Movement Controls", bullet=True)
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
                                 with dpg.group(horizontal=True):
@@ -228,7 +271,7 @@ class Map:
                                                    callback=lambda: self.stretch_squeeze_area_marker("squeeze_y"))
 
                             # Table for displaying markers
-                            with dpg.child_window(width=child_width, height=900):
+                            with dpg.child_window(width=child_width, height=900, tag = "child_window_5",horizontal_scrollbar=True):
                                 with dpg.group(horizontal=True):
                                     dpg.add_text("Markers Table   ", bullet=True)
                                     dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")

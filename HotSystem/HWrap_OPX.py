@@ -365,6 +365,8 @@ class GUI_OPX():  # todo: support several device
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.plt_max1 = None
+        self.plt_max = None
         self.max1 = None
         self.max = None
         self.plt_y = None

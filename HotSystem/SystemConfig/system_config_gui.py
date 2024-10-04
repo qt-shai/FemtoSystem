@@ -158,12 +158,18 @@ def create_themes():
             dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green
         with dpg.theme_component(dpg.mvText):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+        with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green background
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
     # Default theme (pastel light gray background)
     with dpg.theme(tag="default_theme"):
         with dpg.theme_component(dpg.mvChildWindow):
             dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray
         with dpg.theme_component(dpg.mvText):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+        with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray background
             dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
     # Pastel magenta theme for the main window
