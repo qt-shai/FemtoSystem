@@ -15,7 +15,7 @@ from Utils import calculate_z_series
 class Map:
     def __init__(self,ZCalibrationData: np.ndarray | None = None, use_picomotor = False):
         # Initialize variables
-        self.control_windows_shrunk = False
+        self.is_windows_shrunk = False
         self.win_size = [300, 900]
         self.disable_d_click = False
         self.click_coord = None
@@ -72,7 +72,7 @@ class Map:
         ]
 
         # Toggle between shrinking and expanding
-        if self.control_windows_shrunk:
+        if not self.is_windows_shrunk:
             child_width = int(self.win_size[0] * 0.45)
             child_height = int(self.win_size[1] * 0.5)
             # Expand child windows to original size
@@ -82,7 +82,7 @@ class Map:
                     dpg.set_item_height(child_window, child_height)  # Original height
             # Update button label
             dpg.set_item_label("toggle_shrink_button", "<<<")
-            self.control_windows_shrunk = False
+            self.is_windows_shrunk = True
         else:
             # Shrink child windows
             child_width = int(self.win_size[0] * 0.15)
@@ -93,7 +93,7 @@ class Map:
                     dpg.set_item_height(child_window, child_height)  # Shrunk height
             # Update button label
             dpg.set_item_label("toggle_shrink_button", ">>>")
-            self.control_windows_shrunk = True
+            self.is_windows_shrunk = False
 
 
 
@@ -300,6 +300,7 @@ class Map:
             print(f"{self.image_path} does not exist")
 
         use_pico, exp_notes = self.load_map_parameters()  # load map parameters
+        self.toggle_shrink_child_windows()
         return use_pico, exp_notes
 
     # Placeholder methods for the callbacks used in the GUI
@@ -811,7 +812,7 @@ class Map:
             for line in lines:
                 if any(param in line for param in
                        ["OffsetX", "OffsetY", "FactorX", "FactorY", "MoveStep", "NumOfDigits", "ImageWidth",
-                        "ImageHeight", "Exp_notes", "picoLoggedPoint", "mcsLoggedPoint", "Marker", "Rectangle", "use_picomotor"]):
+                        "ImageHeight", "Exp_notes", "Marker", "Rectangle", "use_picomotor", "disable_d_click", "is_windows_shrunk"]):
                     # Skip lines that will be replaced by the new map parameters, points, and markers
                     continue
                 new_content.append(line)
@@ -826,6 +827,8 @@ class Map:
             new_content.append(f"ImageWidth: {dpg.get_value('width_slider')}\n")
             new_content.append(f"ImageHeight: {dpg.get_value('height_slider')}\n")
             new_content.append(f"Exp_notes: {dpg.get_value('inTxtScan_expText')}\n")
+            new_content.append(f"disable_d_click: {self.disable_d_click}\n")
+            new_content.append(f"is_windows_shrunk: {self.is_windows_shrunk}\n")
 
             # Save the use_picomotor state
             new_content.append(f"use_picomotor: {self.use_picomotor}\n")
@@ -874,11 +877,20 @@ class Map:
                         if dpg.does_item_exist("inTxtScan_expText"):
                             dpg.set_value("inTxtScan_expText", value)  # Update the input text widget with the loaded notes
 
-                    # Load and update use_picomotor state
                     elif key == "use_picomotor":
                         self.use_picomotor = value.lower() == "true"  # Convert to boolean
                         if dpg.does_item_exist("checkbox_map_use_picomotor"):
                             dpg.set_value("checkbox_map_use_picomotor", self.use_picomotor)
+
+                    elif key == "disable_d_click":
+                        self.disable_d_click = value.lower() == "true"
+                        if dpg.does_item_exist("checkbox_map_disable_d_click"):
+                            dpg.set_value("checkbox_map_disable_d_click", self.disable_d_click)
+
+                    elif key == "is_windows_shrunk":
+                        self.is_windows_shrunk = value.lower() == "true"
+                        if dpg.does_item_exist("checkbox_map_is_windows_shrunk"):
+                            dpg.set_value("checkbox_map_is_windows_shrunk", self.is_windows_shrunk)
 
                     # Check if the key is a window position entry
                     elif "_Pos" in key:
@@ -1010,7 +1022,6 @@ class Map:
                     print(f"{window_name} does not exist in the current context.")
 
             return self.use_picomotor, exp_notes
-
         except FileNotFoundError:
             print("map_config.txt not found.")
         except Exception as e:

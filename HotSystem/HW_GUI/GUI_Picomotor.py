@@ -235,7 +235,7 @@ class GUI_picomotor():
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
 
         for ch in range(3):
-            position[ch] = position[ch] / self.dev.StepsIn1mm * 1e3 * 1e6 #[pm]
+            position[ch] = round(position[ch] / self.dev.StepsIn1mm * 1e3 * 1e6,3) #[pm]
 
         self.dev.LoggedPoints.append(position.copy())  # [um]
         print(self.dev.LoggedPoints)

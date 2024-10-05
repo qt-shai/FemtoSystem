@@ -432,7 +432,7 @@ class GUI_smaract():
         dpg.configure_item(f"{self.prefix}_Win", height=new_height)
 
         if self.dev.IsConnected:
-            self.log_point(self.dev.AxesPositions)
+            self.log_point(round(self.dev.AxesPositions,3))
         elif self.simulation:
             simulated_position = [random.uniform(-1e9, 1e9) for _ in range(3)]
             self.log_point(simulated_position)
