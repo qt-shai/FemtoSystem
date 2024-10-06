@@ -6,7 +6,7 @@ import HW_wrapper.Wrapper_Cobolt
 from HW_wrapper.HW_devices import HW_devices
 
 
-class GUI_Cobolt():  # todo: support several devices
+class GUI_Cobolt():  # todo1: support several devices
     # init parameters
     def __init__(self, simulation: bool = False, com_port: str = "4"):
         self.HW = HW_devices(simulation=simulation)
