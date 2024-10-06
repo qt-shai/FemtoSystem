@@ -1289,7 +1289,10 @@ class Map:
             relative_y = (mouse_y - self.map_item_y - dpg.get_value("MapOffsetY")) * dpg.get_value("MapFactorY")
 
             # Make sure to pass both x and y as separate parameters, not in an array
-            z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)), np.array(int(relative_y * 1e6)))) / 1e6
+            z_evaluation=0
+            if hasattr(self, 'ZCalibrationData') and self.ZCalibrationData is not None and len(self.ZCalibrationData) > 0:
+                print(self.ZCalibrationData)
+                z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)), np.array(int(relative_y * 1e6)))) / 1e6
 
             # Update the text with the coordinates
             dpg.set_value("coordinates_text", f"x = {relative_x:.1f}, y = {relative_y:.1f}, z = {z_evaluation:.2f}")
@@ -1420,8 +1423,11 @@ class Map:
                 relative_y = (abs_y - self.map_item_y - dpg.get_value("MapOffsetY")) * dpg.get_value("MapFactorY")
 
                 # Recalculate Z based on the updated relative coordinates
-                z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)),
-                                                        int(relative_y * 1e6))) / 1e6
+                z_evaluation=0
+                if hasattr(self, 'ZCalibrationData') and self.ZCalibrationData is not None and len(
+                        self.ZCalibrationData) > 0:
+                    z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)),
+                                                            int(relative_y * 1e6))) / 1e6
 
                 # Update click_coord with the new calculated relative X, Y, and Z values
                 click_coord = [relative_x, relative_y, z_evaluation]

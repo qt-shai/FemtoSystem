@@ -40,6 +40,7 @@ class Zelux:
 
     def __init__(self, simulation : bool = False):
         self.simulation = simulation
+        self.lateset_image_buffer = None
         if simulation:
             self.available_cameras = []
             self.imageNotes = ""

@@ -304,7 +304,7 @@ class CoboltLaser:
                 logger.debug(
                     f"received from laser [{self}] message [{received_string}]"
                 )
-                return received_string
+                return received_string.splitlines()[0]
 
         raise RuntimeError("Syntax Error: No response")
 

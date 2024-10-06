@@ -1050,7 +1050,7 @@ class GUI_OPX():  # todo: support several device
                         dpg.add_input_float(label="Step (um)", default_value=0.2, width=120, tag="step_um")
                         dpg.add_input_float(label="Z Span (um)", default_value=6.0, width=120, tag="z_span_um")
                         dpg.add_input_float(label="Laser Power (mW)", default_value=40.0, width=120, tag="laser_power_mw")
-                        dpg.add_input_float(label="Int time (ms)", default_value=10.0, width=120, tag="int_time_ms")
+                        dpg.add_input_float(label="Int time (ms)", default_value=200.0, width=120, tag="int_time_ms")
                         dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=120, tag="xy_span_um")
 
                     self.btnGetLoggedPoints()  # get logged points
@@ -1643,6 +1643,7 @@ class GUI_OPX():  # todo: support several device
         time.sleep(0.001)
         dpg.set_value(item="chkbox_Zcorrection", value=sender.b_Zcorrection)
         print("Set b_Zcorrection to: " + str(sender.b_Zcorrection))
+        print(sender.ZCalibrationData)
 
     # QUA
     def QUA_shuffle(self, array, array_len):
@@ -4481,16 +4482,16 @@ class GUI_OPX():  # todo: support several device
             self.StartFastScan()
         self.positioner.KeyboardEnabled = True
 
-    def fetch_peak_intensity(self):
+    def fetch_peak_intensity(self, integration_time):
         self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
-        time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
+        time.sleep(integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
 
         if self.counts_handle.is_processing():
-            print('Waiting for QUA counts')
+            # print('Waiting for QUA counts')
             self.counts_handle.wait_for_values(1)
             time.sleep(0.1)
             counts = self.counts_handle.fetch_all()
-            print(f"counts.size =  {counts.size}")
+            # print(f"counts.size =  {counts.size}")
 
             self.qmm.clear_all_job_results()
             return counts
@@ -4498,6 +4499,8 @@ class GUI_OPX():  # todo: support several device
     def auto_focus(self, ch=2):  # units microns
         # Dictionary to store the retrieved values
         auto_focus = {}
+        dpg.set_value("Scan_Message", "Auto-focus started")
+        print("Auto-focus started")
 
         # List of item tags to retrieve values from
         item_tags = ["step_um", "z_span_um", "laser_power_mw", "int_time_ms"]
@@ -4520,9 +4523,10 @@ class GUI_OPX():  # todo: support several device
         coordinate = []
 
         # set laser PWR
-        original_power = dpg.get_value("power_input")
-        dpg.set_value("power_input", auto_focus["laser_power_mw"])
-        self.HW.cobolt.set_power(auto_focus["laser_power_mw"])
+        # original_power = dpg.get_value("power_input")
+        # print(f"Original power: {original_power}")
+        # print(f"set power: {auto_focus['laser_power_mw']}")
+        # self.HW.cobolt.set_power(auto_focus["laser_power_mw"])
 
         time.sleep(0.1)
 
@@ -4537,12 +4541,18 @@ class GUI_OPX():  # todo: support several device
         self.absPos = self.positioner.AxesPositions[ch]
 
         # init - fetch data
-        self.fetch_peak_intensity()
+        self.fetch_peak_intensity(auto_focus["int_time_ms"])
 
         # loop over all locations
         for i in range(N):
+            # Calculate the progress percentage
+            progress_percentage = (i + 1) / N * 100
+
+            # Update the message with the progress percentage
+            dpg.set_value("Scan_Message", f"Auto-focus in progress: {progress_percentage:.1f}%")
+
             # fetch new data from stream
-            last_intensity = self.fetch_peak_intensity()[0]
+            last_intensity = self.fetch_peak_intensity(auto_focus["int_time_ms"])[0]
 
             # Log data
             coordinate.append(i * auto_focus["step_um"] * self.positioner.StepsIn1mm * 1e-3 + self.absPos)  # Log axis position
@@ -4550,8 +4560,10 @@ class GUI_OPX():  # todo: support several device
 
             # move to next location (relative move)
             self.positioner.MoveRelative(ch, int(auto_focus["step_um"] * self.positioner.StepsIn1mm * 1e-3))
+            time.sleep(0.001)
             res = self.positioner.ReadIsInPosition(ch)
             while not (res):
+                time.sleep(0.001)
                 res = self.positioner.ReadIsInPosition(ch)
 
         # print
@@ -4583,8 +4595,8 @@ class GUI_OPX():  # todo: support several device
         # move to max signal position
         self.positioner.MoveABSOLUTE(ch, int(max_pos))
 
-        dpg.set_value("power_input", original_power)
-        self.HW.cobolt.set_power(original_power)
+        # print(f"Original power: {original_power}")
+        # self.HW.cobolt.set_power(original_power)
 
         if self.use_picomotor:
             print(f"Moving pico {-max_pos * 1e-9}")
@@ -4597,6 +4609,8 @@ class GUI_OPX():  # todo: support several device
 
         # stop and close job
         self.StopJob(self.job, self.qm)
+        dpg.set_value("Scan_Message", "Auto-focus done")
+        print("Auto-focus done")
 
 
     def StartScan3D(self):  # currently flurascence scan
