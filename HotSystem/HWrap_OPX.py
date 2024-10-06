@@ -5098,10 +5098,12 @@ class GUI_OPX():  # todo: support several device
                     I = self.scan_intensities[k, j, i]
                     self.scan_Out.append([x, y, z, I, x, y, z])
 
-    def OpenDialog(self):  # move to common
+    def OpenDialog(self, filetypes=None):  # move to common
+        if filetypes is None:
+            filetypes = [("All Files", "*.*")]
         root = tk.Tk()  # Create the root window
         root.withdraw()  # Hide the main window
-        file_path = filedialog.askopenfilename()  # Open a file dialog
+        file_path = filedialog.askopenfilename(filetypes=filetypes)  # Open a file dialog
 
         if file_path:  # Check if a file was selected
             print(f"Selected file: {file_path}")  # add to logger
@@ -5262,11 +5264,13 @@ class GUI_OPX():  # todo: support several device
             print(f"Unexpected error: {e}")
             dpg.set_value("Scan_Message", "An unexpected error occurred.")
 
-    def btnLoadScan(self):  # 111
-        fn = self.OpenDialog()
-        data = self.loadFromCSV(fn)
-        self.idx_scan=[0, 0, 0]
-        self.Plot_data(data, True)
+    def btnLoadScan(self):
+        # Open the dialog with a filter for .csv files and all file types
+        fn = self.OpenDialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
+        if fn:  # Check if a file is selected
+            data = self.loadFromCSV(fn)
+            self.idx_scan = [0, 0, 0]
+            self.Plot_data(data, True)
 
     def save_scan_data(self, Nx, Ny, Nz, fileName=None):
         if fileName == None:
