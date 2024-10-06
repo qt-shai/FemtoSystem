@@ -72,7 +72,7 @@ class Map:
         ]
 
         # Toggle between shrinking and expanding
-        if not self.is_windows_shrunk:
+        if self.is_windows_shrunk:
             child_width = int(self.win_size[0] * 0.45)
             child_height = int(self.win_size[1] * 0.5)
             # Expand child windows to original size
@@ -82,7 +82,7 @@ class Map:
                     dpg.set_item_height(child_window, child_height)  # Original height
             # Update button label
             dpg.set_item_label("toggle_shrink_button", "<<<")
-            self.is_windows_shrunk = True
+            self.is_windows_shrunk = False
         else:
             # Shrink child windows
             child_width = int(self.win_size[0] * 0.15)
@@ -93,7 +93,7 @@ class Map:
                     dpg.set_item_height(child_window, child_height)  # Shrunk height
             # Update button label
             dpg.set_item_label("toggle_shrink_button", ">>>")
-            self.is_windows_shrunk = False
+            self.is_windows_shrunk = True
 
 
 

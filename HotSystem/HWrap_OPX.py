@@ -1052,6 +1052,7 @@ class GUI_OPX():  # todo: support several device
                         dpg.add_input_float(label="Laser Power (mW)", default_value=40.0, width=120, tag="laser_power_mw")
                         dpg.add_input_float(label="Int time (ms)", default_value=200.0, width=120, tag="int_time_ms")
                         dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=120, tag="xy_span_um")
+                        dpg.add_input_float(label="Offset (nm)", default_value=300.0, width=120, tag="offset_from_focus_nm")
 
                     self.btnGetLoggedPoints()  # get logged points
                     # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
@@ -1120,8 +1121,8 @@ class GUI_OPX():  # todo: support several device
             # Check if self.max and self.max1 are not None before plotting vertical lines
             if self.plt_max is not None:
                 plt.axvline(x=self.plt_max, color='r', linestyle='--', label=f"Max: {self.plt_max}")
-            if self.plt_max1 is not None:
-                plt.axvline(x=self.plt_max1, color='g', linestyle='--', label=f"Max1: {self.plt_max1}")
+            # if self.plt_max1 is not None:
+            #     plt.axvline(x=self.plt_max1, color='g', linestyle='--', label=f"Max1: {self.plt_max1}")
 
             # Add labels and legend
             plt.xlabel("Z-axis")
@@ -4386,40 +4387,42 @@ class GUI_OPX():  # todo: support several device
         return report
 
     def btnStop(self):  # Stop Exp
-        # todo: creat methode that handle OPX close job and instances
-        self.stopScan = True
-        self.StopFetch = True
-        if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
-            if self.bEnableSignalIntensityCorrection:
-                if self.MAxSignalTh.is_alive():
-                    self.MAxSignalTh.join()
-        else:
-            dpg.set_item_label("btnOPX_StartScan", "Start Scan")
-            dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
+        try:
+            # todo: creat methode that handle OPX close job and instances
+            self.stopScan = True
+            self.StopFetch = True
+            if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
+                if self.bEnableSignalIntensityCorrection:
+                    if self.MAxSignalTh.is_alive():
+                        self.MAxSignalTh.join()
+            else:
+                dpg.set_item_label("btnOPX_StartScan", "Start Scan")
+                dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
-        self.GUI_ParametersControl(True)
-        if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
-            if (self.fetchTh.is_alive()):
-                self.fetchTh.join()
-        else:
-            dpg.enable_item("btnOPX_StartScan")
+            self.GUI_ParametersControl(True)
+            if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
+                if (self.fetchTh.is_alive()):
+                    self.fetchTh.join()
+            else:
+                dpg.enable_item("btnOPX_StartScan")
 
-        if (self.job):
-            self.StopJob(self.job, self.qm)
+            if (self.job):
+                self.StopJob(self.job, self.qm)
 
-        if self.exp == Experimet.COUNTER or self.exp == Experimet.SCAN:
-            pass
-        else:
-            self.mwModule.Get_RF_state()
-            if self.mwModule.RFstate:
-                self.mwModule.Turn_RF_OFF()
+            if self.exp == Experimet.COUNTER or self.exp == Experimet.SCAN:
+                pass
+            else:
+                self.mwModule.Get_RF_state()
+                if self.mwModule.RFstate:
+                    self.mwModule.Turn_RF_OFF()
 
-        if self.exp not in [Experimet.COUNTER, Experimet.FAST_SCAN, Experimet.SCAN]:
-            self.btnSave()
+            if self.exp not in [Experimet.COUNTER, Experimet.FAST_SCAN, Experimet.SCAN]:
+                self.btnSave()
+        except Exception as e:
+            print(f"An error occurred in btnStop: {e}")
 
     def btnSave(self, folder=None):  # save data
         try:
-
             # file name
             # timeStamp = self.getCurrentTimeStamp()  # get current time stamp
             if folder == None:
@@ -4503,7 +4506,7 @@ class GUI_OPX():  # todo: support several device
         print("Auto-focus started")
 
         # List of item tags to retrieve values from
-        item_tags = ["step_um", "z_span_um", "laser_power_mw", "int_time_ms"]
+        item_tags = ["step_um", "z_span_um", "laser_power_mw", "int_time_ms", "offset_from_focus_nm"]
 
         # Using a for loop to get each value and assign it to the auto_focus dictionary
         for tag in item_tags:
@@ -4586,6 +4589,8 @@ class GUI_OPX():  # todo: support several device
         # find max signal
         max_pos = coordinate[intensities.index(max(intensities))]
         print(f"maxPos={max_pos / 1e3}")
+        max_pos = max_pos - auto_focus["offset_from_focus_nm"] * self.positioner.StepsIn1mm * 1e-6
+        print(f"maxPos after offset={max_pos / 1e3}")
 
         self.plt_x = np.array(coordinate) * 1e-3
         self.plt_y = intensities
@@ -4626,17 +4631,22 @@ class GUI_OPX():  # todo: support several device
 
         try:
             # Define the source files and destinations
+            # file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
+            #     "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
+            #     "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
+            #     {"src": 'D:/HotSysSW/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
+            #         "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"}]
             file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
                 "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
                 "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
-                {"src": 'D:/HotSysSW/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
+                {"src": 'C:/WC/HotSystem/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
                     "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"}]
 
             # Move each file for both local and remote
             for file_map in file_mappings:
                 for dest in [file_map["dest_local"], file_map["dest_remote"]]:
                     if os.path.exists(file_map["src"]):
-                        shutil.move(file_map["src"], dest)
+                        shutil.copy(file_map["src"], dest)
                         print(f"File moved to {dest}")
                     else:
                         print(f"Source file {file_map['src']} does not exist.")
@@ -5153,7 +5163,7 @@ class GUI_OPX():  # todo: support several device
         else:
             self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=np.flipud(res[0, :, :]), startLoc=self.startLoc, endLoc=self.endLoc, switchAxes=bLoad)
 
-    import numpy as np
+
 
     def attempt_to_display_unfinished_frame(self, allPoints):
         # Check and remove incomplete repetition if needed
@@ -5255,6 +5265,7 @@ class GUI_OPX():  # todo: support several device
     def btnLoadScan(self):  # 111
         fn = self.OpenDialog()
         data = self.loadFromCSV(fn)
+        self.idx_scan=[0, 0, 0]
         self.Plot_data(data, True)
 
     def save_scan_data(self, Nx, Ny, Nz, fileName=None):
@@ -5269,13 +5280,7 @@ class GUI_OPX():  # todo: support several device
         RawData_to_save = {'X': Scan_array[:, 0].tolist(), 'Y': Scan_array[:, 1].tolist(), 'Z': Scan_array[:, 2].tolist(),
             'Intensity': Scan_array[:, 3].tolist(), 'Xexpected': Scan_array[:, 4].tolist(), 'Yexpected': Scan_array[:, 5].tolist(),
             'Zexpected': Scan_array[:, 6].tolist(), }
-        #     'dx': self.dL_scan[0],  # shai 30-7-24
-        #     'dy': self.dL_scan[1],
-        #     'dz': self.dL_scan[2],
-        #     'Nx': Nx,
-        #     'Ny': Ny,
-        #     'Nz': Nz,
-        # }
+
         self.saveToCSV(fileName + ".csv", RawData_to_save)
 
         if self.stopScan != True:
@@ -5294,7 +5299,7 @@ class GUI_OPX():  # todo: support several device
             image.save(self.image_path)
 
             self.scan_data = self.Scan_matrix
-            self.idx_scan = [Nz, 0, 0]
+            self.idx_scan = [Nz-1, 0, 0]
 
             self.startLoc = [Scan_array[1, 4] / 1e6, Scan_array[1, 5] / 1e6, Scan_array[1, 6] / 1e6]
             if Nz == 0:
