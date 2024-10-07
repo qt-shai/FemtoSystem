@@ -158,7 +158,7 @@ class Zelux:
 
             # Attempt to increase brightness and save again
             try:
-                increase_brightness(folder_path + "Last_Image.png", folder_path + "Zelux_Last_Image.png", 10)
+                increase_brightness(folder_path + "Last_Image.png", folder_path + "Zelux_Last_Image.png", 2)
                 print("Brightness increased and saved to Zelux_Last_Image.png")
             except Exception as e:
                 print(f"Failed to increase brightness and save: {e}")
