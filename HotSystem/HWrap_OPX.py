@@ -1646,18 +1646,12 @@ class GUI_OPX(): #todo: support several device
         tBfield = self.time_in_multiples_cycle_time(tMW2+tEdge)
         Npump = self.n_nuc_pump
 
-        fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
+        fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz 
         self.verify_insideQUA_FreqValues(fMW_res)
-        fMW_res1 = fMW_res
-        fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz
+        fMW_res1 = fMW_res # here should be zero
+        fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz # Hz
         self.verify_insideQUA_FreqValues(fMW_2nd_res)
         fMW_res2 = fMW_2nd_res
-
-        # MW frequency scan vector
-        f_min = 0 * self.u.MHz                              # [Hz], start of freq sweep
-        f_max = self.mw_freq_scan_range * self.u.MHz        # [Hz] end of freq sweep
-        df = self.mw_df * self.u.MHz                        # [Hz], freq step
-        self.f_vec = np.arange(f_min, f_max + df/10, df)    # [Hz], frequencies vector
 
         # time scan vector
         tScan_min = self.scan_t_start//4 if self.scan_t_start//4 > 0 else 1     # in [cycles]
@@ -1673,8 +1667,16 @@ class GUI_OPX(): #todo: support several device
         if pRF == 0:
             print(f"error RF freq is out of limit {pRF}")
         dp_N = float(self.N_p_amp)
-        p_vec_ini = np.arange(0, 1, 1/dp_N, dtype=float)  # proportion vect   
+        p_vec_ini = np.arange(0, 0.4, 1/dp_N, dtype=float)  # proportion vect   
         self.rf_Pwr_vec = p_vec_ini*self.OPX_rf_amp       # in [V], used to plot the graph
+
+        # MW frequency scan vector
+        # fitCoff - see Eilon's Onenote
+        # f2_GHz*1e9 + (b*V/(V + c))*1e9
+        b = 0.0344
+        c = 0.124
+        self.f_vec = (fMW_res2 + (self.rf_Pwr_vec*b/(self.rf_Pwr_vec + c))*1e9)    # [Hz], frequencies vector
+        self.f_vec = self.f_vec.astype(int)
 
         # length and idx vector
         array_length = len(p_vec_ini)                      # amps vector size
@@ -1686,15 +1688,15 @@ class GUI_OPX(): #todo: support several device
         tSequencePeriod = ((tMW+tRF+tPump)*Npump+tBfield+tWait+tMW+tLaser)*2*array_length 
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//tMeasure
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
         trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
-
+        
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(int)         # frequency variable which we change during scan
+            f = declare(int)         # frequency variable which we change during scan - here f is according to calibration function
             t = declare(int)         # [cycles] time variable which we change during scan
             p = declare(fixed)         # [unit less] proportional amp factor which we change during scan
 
@@ -1716,7 +1718,9 @@ class GUI_OPX(): #todo: support several device
             counts_ref = declare(int, size=array_length) # reference signal (vector)
 
             # Shuffle parameters
-            val_vec_qua = declare(fixed, value=p_vec_ini)    # frequencies QUA vector
+            # f_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))
+            f_vec_qua = declare(int, value=self.f_vec)    # frequencies QUA vector
+            val_vec_qua = declare(fixed, value=p_vec_ini)    # volts QUA vector
             idx_vec_qua = declare(int, value=idx_vec_ini)                               # indexes QUA vector
             idx = declare(int)                                                          # index variable to sweep over all indexes
 
@@ -1740,6 +1744,8 @@ class GUI_OPX(): #todo: support several device
                     with if_(sequenceState == 0):
                         # set new RF proportional amplitude
                         assign(p, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
+
+                        assign(f, f_vec_qua[idx_vec_qua[idx]])
                         
                         # signal
                         # polarize (@fMW_res @ fRF_res)
@@ -1758,7 +1764,7 @@ class GUI_OPX(): #todo: support several device
                         align()
 
                         wait(tEdge,"MW")
-                        update_frequency("MW", fMW_res2)
+                        update_frequency("MW", f)
                         play("cw"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)  # play microwave pulse
                         wait(300//4,"RF") # manual calibration
                         update_frequency("RF", 0 * self.u.MHz) # set RF frequency to resonance
@@ -4352,8 +4358,9 @@ class GUI_OPX(): #todo: support several device
         self.exp = Experimet.Nuclear_Fast_Rot
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        self.mw_freq = min(self.mw_freq_resonance,self.mw_2ndfreq_resonance)-0.001 # [GHz]
-        self.mwModule.Set_freq(self.mw_freq)
+        # self.mw_freq = min(self.mw_freq_resonance,self.mw_2ndfreq_resonance)-0.001 # [GHz] # todo: remove in all other experiment and also fix QUA
+        self.mw_freq = self.mw_freq_resonance
+        # self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
         self.mwModule.Set_IQ_mode_ON()
         self.mwModule.Set_PulseModulation_ON()
@@ -5663,13 +5670,15 @@ class GUI_OPX(): #todo: support several device
             elif isinstance(value, list):
                 list_elem = ET.SubElement(root, key)
                 if (list_elem.tag not in ["scan_Out","X_vec", "Y_vec", "Z_vec","X_vec_ref","Y_vec_ref","Z_vec_ref","V_scan","expected_pos","t_vec",
-                                              "ini_scan_pos","startLoc","endLoc","Xv","Yv","Zv","viewport_width","viewport_height","window_scale_factor",
+                                              "startLoc","endLoc","Xv","Yv","Zv","viewport_width","viewport_height","window_scale_factor",
                                               "timeStamp","counter","maintain_aspect_ratio","scan_intensities","initial_scan_Location","V_scan",
                                               "absPosunits","Scan_intensity","Scan_matrix","image_path","f_vec","signal","ref_signal","tracking_ref","t_vec","t_vec_ini"] 
                         ):
                     for item in value:
                         item_elem = ET.SubElement(list_elem, "item")
                         item_elem.text = str(item)
+                else:
+                    1
             elif isinstance(value, (np.ndarray)):
                 list_elem = ET.SubElement(root, key)
                 if list_elem.tag == "ZCalibrationData":
