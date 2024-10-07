@@ -382,7 +382,6 @@ class PyGuiOverlay(Layer):
         self.smaract_thread = None
         self.smaractGUI = None
         self.atto_positioner_gui:Optional[GUIMotor] = None
-        self.lsr = None
         self.opx = None
         self.cam = None
         self.simulation = simulation
@@ -409,31 +408,31 @@ class PyGuiOverlay(Layer):
         while self.KeepThreadRunning:
             time.sleep(1)
             try:
-                if self.lsr.isConnected:
-                    Laser_state=self.lsr.laser.get_state() #111
+                if self.coboltGUI.laser.isConnected:
+                    Laser_state=self.coboltGUI.laser.get_state() #111
                     dpg.set_value("Laser State","State:  "+Laser_state)
-                    Laser_mode=self.lsr.laser.get_mode()
+                    Laser_mode=self.coboltGUI.laser.get_mode()
                     dpg.set_value("Laser Mode","Mode: "+Laser_mode)
 
-                    if self.lsr.laser.is_on():
+                    if self.coboltGUI.laser.is_on():
                         dpg.set_value("Laser ON OFF","The Laser is ON")
                         dpg.set_value("Turn_ON_OFF",True)
                     else:
                         dpg.set_value("Laser ON OFF","The Laser is OFF")
                         dpg.set_value("Turn_ON_OFF",False)
 
-                    Laser_power=str(round(self.lsr.laser.get_power()*10)/10)
-                    Laser_current=str(self.lsr.laser.get_current())
-                    Laser_mod_power=str(round(self.lsr.laser.get_modulation_power()*10)/10)
-                    Base_temp=self.lsr.laser.get_Base_temperature()
-                    TEC_temp=self.lsr.laser.get_TEC_temperature()
+                    Laser_power=str(round(self.coboltGUI.laser.get_power()*10)/10)
+                    Laser_current=str(self.coboltGUI.laser.get_current())
+                    Laser_mod_power=str(round(self.coboltGUI.laser.get_modulation_power()*10)/10)
+                    Base_temp=self.coboltGUI.laser.get_Base_temperature()
+                    TEC_temp=self.coboltGUI.laser.get_TEC_temperature()
 
                     dpg.set_value("Laser Power","Power "+Laser_power+" mW")
                     dpg.set_value("Laser Current","Current "+Laser_current+" mA")
                     dpg.set_value("Laser Mod Power","Mod. Power "+Laser_mod_power+" mW")
                     dpg.set_value("Laser TEC","TEC "+TEC_temp+" C")
                     dpg.set_value("Laser Base","Base Plate "+Base_temp+" C")
-                    am,dm = self.lsr.laser.get_modulation_state()
+                    am,dm = self.coboltGUI.laser.get_modulation_state()
                     dpg.set_value("Analog_Modulation_cbx",am=='1')
                     dpg.set_value("Digital_Modulation_cbx",dm=='1')
 
@@ -628,7 +627,7 @@ class PyGuiOverlay(Layer):
                     self.smaract_thread = threading.Thread(target=self.render_smaract)
                     self.smaract_thread.start()
             elif instrument == Instruments.COBOLT:
-                self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation)
+                self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation, com_port = device.com_port)
                 if not self.simulation:
                     self.cobolt_thread = threading.Thread(target=self.render_cobolt)
                     self.cobolt_thread.start()

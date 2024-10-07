@@ -48,7 +48,7 @@ class CoboltLaser():
 
         if self.port != None:
             try:
-                self.address = serial.Serial(self.port, self.baudrate, timeout=1)
+                self.address = serial.Serial(self.port, self.baudrate, timeout=100)
             except Exception as err:
                 self.address = None
                 raise SerialException(f"{self.port} not accesible.") from err
@@ -318,7 +318,7 @@ class Cobolt06MLD(CoboltLaser):
     """For lasers of type 06-MLD"""
 
     def __init__(self, port=None, serialnumber=None, simulation : bool = False):
-        super().__init__(port, serialnumber, simulation)
+        super().__init__(port= port, serialnumber=serialnumber, simulation=simulation)
         self.simulation = simulation
 
     def modulation_mode(self, power=None):

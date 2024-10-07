@@ -1,5 +1,6 @@
 # from ECM import *
 # from ImGuiwrappedMethods import *
+import time
 from functools import partial
 
 import dearpygui.dearpygui as dpg
@@ -226,7 +227,7 @@ class GUI_picomotor():
         self.dev.GetPosition()
 
         if self.dev.IsConnected:
-            self.log_point(self.dev.AxesPositions)
+            self.log_point(self.dev.AxesPositions[:3])
         elif self.simulation:
             simulated_position = [random.uniform(-1e9, 1e9) for _ in range(3)]
             self.log_point(simulated_position)
@@ -387,14 +388,18 @@ class GUI_picomotor():
             if not is_coarse:
                 value1 = value1 / 10
 
-            steps = int(direction * value1 / 1e3 * self.dev.StepsIn1mm)
-            amount = [self.U[i] * steps for i in range(3)] if ch == 0 else [self.V[i] * steps for i in range(3)]
+            steps = direction * value1 / 1e3 * self.dev.StepsIn1mm
+            amount = [int(self.U[i] * steps) for i in range(3)] if ch == 0 else [int(self.V[i] * steps) for i in range(3)]
             print(f"{self.prefix}:")
             print(amount)
 
             for channel in range(3):
                 if not self.simulation:
-                    self.dev.MoveRelative(channel+1, int(amount[channel]))
+                    self.dev.MoveRelative(channel+1, amount[channel])
+                    while(not self.dev.GetMotionDone(channel+1)):
+                        time.sleep(0.05)
+
+                    time.sleep(0.1)
 
         except Exception as e:
             print(f"An error occurred: {e}")

@@ -1,1 +1,42 @@
-<SystemInfo><System><Identifier>Femto</Identifier><Devices><Device><Instrument>atto_scanner</Instrument><IPAddress>N/A</IPAddress><MACAddress>N/A</MACAddress><SerialNumber>N/A</SerialNumber></Device><Device><Instrument>atto_positioner</Instrument><IPAddress>N/A</IPAddress><MACAddress>N/A</MACAddress><SerialNumber>N/A</SerialNumber></Device><Device><Instrument>picomotor</Instrument><IPAddress>N/A</IPAddress><MACAddress>N/A</MACAddress><SerialNumber>N/A</SerialNumber></Device></Devices></System></SystemInfo>
+<SystemInfo>
+	<System>
+		<Identifier>HotSystem</Identifier>
+		<Devices>
+			<Device>
+				<Instrument>smaract_slip</Instrument>
+				<IPAddress>192.168.101.60</IPAddress>
+				<MACAddress>N/A</MACAddress>
+				<SerialNumber>MCS2-00017055</SerialNumber>
+                <COMPort>N/A</COMPort>
+			</Device>
+			<Device>
+				<Instrument>rohde_schwarz</Instrument>
+				<IPAddress>N/A</IPAddress>
+				<MACAddress>N/A</MACAddress>
+				<SerialNumber>N/A</SerialNumber>
+                <COMPort>N/A</COMPort>
+			</Device>
+			<!-- <Device>
+				<Instrument>cobolt</Instrument>
+				<IPAddress>N/A</IPAddress>
+				<MACAddress>N/A</MACAddress>
+				<SerialNumber>N/A</SerialNumber>
+                <COMPort>N/A</COMPort>
+			</Device> -->
+			<Device>
+				<Instrument>zelux</Instrument>
+				<IPAddress>N/A</IPAddress>
+				<MACAddress>N/A</MACAddress>
+				<SerialNumber>N/A</SerialNumber>
+                <COMPort>N/A</COMPort>
+			</Device>
+			<Device>
+				<Instrument>OPX</Instrument>
+				<IPAddress>N/A</IPAddress>
+				<MACAddress>N/A</MACAddress>
+				<SerialNumber>N/A</SerialNumber>
+                <COMPort>N/A</COMPort>
+			</Device>
+		</Devices>
+	</System>
+</SystemInfo>
