@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from SystemConfig.QuaConfigs import QUAConfigBase
+from SystemConfig import QUAConfigBase
 
 
 class AttoQuaConfig(QUAConfigBase):
@@ -149,7 +149,7 @@ class AttoQuaConfig(QUAConfigBase):
                     # },
                 },
                 "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
-                "outputs": {"out1": ("con1", 1)},  
+                "outputs": {"out1": ("con1", 1)},
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
