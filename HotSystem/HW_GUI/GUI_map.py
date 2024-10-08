@@ -304,7 +304,7 @@ class Map:
             print(f"{self.image_path} does not exist")
 
         use_pico, exp_notes = self.load_map_parameters()  # load map parameters
-        self.update_from_xml()
+        # self.update_from_xml()
 
         self.toggle_shrink_child_windows()
         return use_pico, exp_notes
@@ -1132,6 +1132,7 @@ class Map:
             print("map_config.txt not found.")
         except Exception as e:
             print(f"Error loading map parameters: {e}")
+            traceback.print_exc()  # This will print the full traceback including the line number
 
     def update_markers_table(self):
         """Rebuild the table rows to show both markers and area markers."""
@@ -1530,10 +1531,15 @@ class Map:
 
                 # Recalculate Z based on the updated relative coordinates
                 z_evaluation=0
-                if hasattr(self, 'ZCalibrationData') and self.ZCalibrationData is not None and len(
-                        self.ZCalibrationData) > 0:
-                    z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)),
-                                                            int(relative_y * 1e6))) / 1e6
+                try:
+                    if hasattr(self, 'ZCalibrationData') and self.ZCalibrationData is not None and len(
+                            self.ZCalibrationData) > 2:
+                        z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)),
+                                                                int(relative_y * 1e6))) / 1e6
+                except Exception as e:
+                    # Catch all other exceptions
+                    print(f"An unexpected error occurred: {e}")
+
 
                 # Update click_coord with the new calculated relative X, Y, and Z values
                 click_coord = [relative_x, relative_y, z_evaluation]

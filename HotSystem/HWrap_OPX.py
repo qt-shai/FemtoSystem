@@ -1052,7 +1052,7 @@ class GUI_OPX():  # todo: support several device
                         dpg.add_input_float(label="Laser Power (mW)", default_value=40.0, width=120, tag="laser_power_mw")
                         dpg.add_input_float(label="Int time (ms)", default_value=200.0, width=120, tag="int_time_ms")
                         dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=120, tag="xy_span_um")
-                        dpg.add_input_float(label="Offset (nm)", default_value=6500.0, width=120, tag="offset_from_focus_nm")
+                        dpg.add_input_float(label="Offset (nm)", default_value=1500.0, width=120, tag="offset_from_focus_nm")
 
                     self.btnGetLoggedPoints()  # get logged points
                     # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
@@ -1215,6 +1215,10 @@ class GUI_OPX():  # todo: support several device
                         print(f"Axis {ch} in position at {self.positioner.AxesPositions[ch]}.")
                     else:
                         print(f"Failed to move axis {ch} to position.")
+
+                # autofocus
+                if self.map.use_picomotor:
+                    self.auto_focus()
 
                 # Start the scan automatically
                 print(f"Starting scan for area marker {index + 1}.")
@@ -4603,10 +4607,10 @@ class GUI_OPX():  # todo: support several device
         # print(f"Original power: {original_power}")
         # self.HW.cobolt.set_power(original_power)
 
-        if self.use_picomotor:
-            print(f"Moving pico {-max_pos * 1e-9}")
-            self.HW.picomotor.MoveRelative(Motor=ch + 1, Steps=int(-max_pos * 1e-9 * self.pico.StepsIn1mm))
-            self.positioner.MoveABSOLUTE(ch, 0)
+        # if self.use_picomotor:
+        #     print(f"Moving pico {-max_pos * 1e-9}")
+        #     self.HW.picomotor.MoveRelative(Motor=ch + 1, Steps=int(-max_pos * 1e-9 * self.pico.StepsIn1mm))
+        #     self.positioner.MoveABSOLUTE(ch, 0)
 
         # shift back tp experiment sequence
         self.qm.set_io1_value(0)
