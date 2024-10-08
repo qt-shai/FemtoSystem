@@ -1052,7 +1052,7 @@ class GUI_OPX():  # todo: support several device
                         dpg.add_input_float(label="Laser Power (mW)", default_value=40.0, width=120, tag="laser_power_mw")
                         dpg.add_input_float(label="Int time (ms)", default_value=200.0, width=120, tag="int_time_ms")
                         dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=120, tag="xy_span_um")
-                        dpg.add_input_float(label="Offset (nm)", default_value=300.0, width=120, tag="offset_from_focus_nm")
+                        dpg.add_input_float(label="Offset (nm)", default_value=6500.0, width=120, tag="offset_from_focus_nm")
 
                     self.btnGetLoggedPoints()  # get logged points
                     # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
@@ -1153,7 +1153,7 @@ class GUI_OPX():  # todo: support several device
             Y_pos = (max_y + min_y) / 2
 
             # Calculate the Z evaluation
-            z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array([int(X_pos * 1e6)]), int(Y_pos * 1e6))) / 1e6
+            z_evaluation = float(calculate_z_series(self.map.ZCalibrationData, np.array([int(X_pos * 1e6)]), int(Y_pos * 1e6))) / 1e6
 
             # Call Update_Lx_Scan and Update_Ly_Scan with the calculated values
             self.Update_Lx_Scan(app_data=None, user_data=Lx_scan)
@@ -1200,12 +1200,12 @@ class GUI_OPX():  # todo: support several device
 
                 # Move to the calculated scan start position for each axis
                 for ch in range(3):
-                    if self.map.use_picomotor:
-                        self.pico.MoveABSOLUTE(ch + 1, int(point[ch]))  # Move absolute to start location
-                        print(f"Moved to start position for channel {ch} at {point[ch]} µm, by picomotor.")
-                    else:
-                        self.positioner.MoveABSOLUTE(ch, int(point[ch]))  # Move absolute to start location
-                        print(f"Moved to start position for channel {ch} at {point[ch]} µm.")
+                    # if self.map.use_picomotor:
+                    self.pico.MoveABSOLUTE(ch + 1, int(point[ch]*self.pico.StepsIn1mm/1e6))  # Move absolute to start location
+                    print(f"Moved to start position for channel {ch} at {point[ch]} µm, by picomotor.")
+                    # else:
+                    #     self.positioner.MoveABSOLUTE(ch, int(point[ch]))  # Move absolute to start location
+                    #     print(f"Moved to start position for channel {ch} at {point[ch]} µm.")
 
                 # Ensure the stage has reached its position
                 time.sleep(0.005)  # Allow motion to start

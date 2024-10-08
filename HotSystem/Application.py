@@ -712,6 +712,7 @@ class PyGuiOverlay(Layer):
 
             # Determine if coarse movement is enabled (for OPX and other devices)
             is_coarse = self.CURRENT_KEY == KeyboardKeys.CTRL_KEY
+            is_coarse_pico = self.CURRENT_KEY == KeyboardKeys.ALT_KEY
 
             # Map the key data to the KeyboardKeys enum
             if key_data in KeyboardKeys._value2member_map_:
@@ -732,7 +733,7 @@ class PyGuiOverlay(Layer):
             # Handle Picomotor controls
             elif self.CURRENT_KEY in [KeyboardKeys.ALT_KEY, KeyboardKeys.Z_KEY]:
                 print("picomotor key")
-                self.handle_picomotor_controls(key_data_enum, is_coarse)
+                self.handle_picomotor_controls(key_data_enum, is_coarse_pico)
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
@@ -1118,10 +1119,10 @@ class PyGuiOverlay(Layer):
         try:
             print("pico movement")
             if Coarse_or_Fine==0:
-                self.picomotorGUI.dev.MoveRelative(ax,dir*self.picomotorGUI.dev.AxesKeyBoardSmallStep[ax])
+                self.picomotorGUI.dev.MoveRelative(ax+1,dir*self.picomotorGUI.dev.AxesKeyBoardSmallStep[ax])
             else:
                 print("Large step")
-                self.picomotorGUI.dev.MoveRelative(ax,dir*self.picomotorGUI.dev.AxesKeyBoardLargeStep[ax])
+                self.picomotorGUI.dev.MoveRelative(ax+1,dir*self.picomotorGUI.dev.AxesKeyBoardLargeStep[ax])
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
             # raise

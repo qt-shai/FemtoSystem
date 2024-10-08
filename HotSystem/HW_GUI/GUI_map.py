@@ -12,6 +12,8 @@ import numpy as np
 
 from Utils import calculate_z_series
 
+import xml.etree.ElementTree as ET
+
 class Map:
     def __init__(self,ZCalibrationData: np.ndarray | None = None, use_picomotor = False):
         # Initialize variables
@@ -50,6 +52,8 @@ class Map:
 
         # Load map parameters
         self.use_picomotor, self.exp_notes = self.load_map_parameters()
+
+        # self.update_from_xml()
 
     def delete_map_gui(self):
         self.delete_all_markers()
@@ -300,6 +304,8 @@ class Map:
             print(f"{self.image_path} does not exist")
 
         use_pico, exp_notes = self.load_map_parameters()  # load map parameters
+        self.update_from_xml()
+
         self.toggle_shrink_child_windows()
         return use_pico, exp_notes
 
@@ -849,8 +855,108 @@ class Map:
 
             print("Map parameters, point markers, and rectangles saved without touching device states.")
 
+            # self.to_xml()
+
         except Exception as e:
             print(f"Error saving map parameters: {e}")
+
+    def to_xml(self, filename="Map_params.xml"):
+
+        root = ET.Element("MapParameters")
+
+        # Iterate over attributes in the class
+        for key, value in self.__dict__.items():
+            # Save basic data types directly
+            if isinstance(value, (int, float, str, bool)):
+                param = ET.SubElement(root, key)
+                param.text = str(value)
+
+            # Save lists
+            elif isinstance(value, list):
+                list_elem = ET.SubElement(root, key)
+                for item in value:
+                    item_elem = ET.SubElement(list_elem, "item")
+                    if isinstance(item, (int, float, str, bool)):
+                        item_elem.text = str(item)
+                    elif isinstance(item, dict):  # Handle dicts inside lists
+                        for sub_key, sub_value in item.items():
+                            sub_elem = ET.SubElement(item_elem, sub_key)
+                            sub_elem.text = str(sub_value)
+
+            # Save NumPy arrays
+            elif isinstance(value, np.ndarray):
+                array_elem = ET.SubElement(root, key)
+                for row in value:
+                    row_elem = ET.SubElement(array_elem, "row")
+                    if isinstance(row, (np.ndarray, list)):
+                        for cell in row:
+                            cell_elem = ET.SubElement(row_elem, "cell")
+                            cell_elem.text = str(cell)
+                    else:
+                        row_elem.text = str(row)
+
+        # Write to XML file
+        tree = ET.ElementTree(root)
+        with open(filename, "wb") as f:
+            tree.write(f)
+
+    def convert_to_correct_type(self, attribute, value, idx=None):
+        # Conversion based on attribute name or type
+        attr_type = type(getattr(self, attribute, None))
+
+        if attr_type == bool:
+            return value.lower() in ("true", "1")
+        elif attr_type == int:
+            return int(value)
+        elif attr_type == float:
+            return float(value)
+        elif isinstance(getattr(self, attribute, None), list):
+            # If the attribute is a list, convert each element to the correct type
+            try:
+                # Convert the value to float for all elements in the list
+                return float(value)
+            except ValueError:
+                # Fallback to original value if it cannot be converted
+                return value
+        elif isinstance(getattr(self, attribute, None), np.ndarray):
+            return np.float64(value)  # Assuming numpy arrays store float data
+        else:
+            return value
+
+    def update_from_xml(self, filename="Map_params.xml"):
+        try:
+            # Parse XML file
+            tree = ET.parse(filename)
+            root = tree.getroot()
+
+            # Get the properties of the class
+            properties = vars(self).keys()
+
+            for param in root:
+                # Update only if the parameter is a property of the class
+                if param.tag in properties:
+                    current_attr = getattr(self, param.tag)
+
+                    # Handle list or numpy array types
+                    if isinstance(current_attr, (list, np.ndarray)):
+                        list_items = []
+                        for idx, item in enumerate(param):
+                            converted_item = self.convert_to_correct_type(attribute=param.tag, value=item.text, idx=idx)
+                            list_items.append(converted_item)
+
+                        # Set as list or convert to numpy array based on original type
+                        updated_value = list_items if isinstance(current_attr, list) else np.array(list_items)
+                        setattr(self, param.tag, updated_value)
+
+                    else:
+                        # Convert the text value to the appropriate type
+                        value = self.convert_to_correct_type(param.tag, param.text)
+                        setattr(self, param.tag, value)
+
+        except Exception as ex:
+            # Capture and print error details
+            self.error = f"Unexpected error: {ex} ({type(ex).__name__}) in line: {sys.exc_info()[-1].tb_lineno}"
+            print(self.error)
 
     def load_map_parameters(self):
         try:
