@@ -1181,6 +1181,12 @@ class PyGuiOverlay(Layer):
         # dpg.add_theme_style(dpg.mvPlotStyleVar_Marker, dpg.mvPlotMarker_Diamond, category=dpg.mvThemeCat_Plots)
         # dpg.add_theme_style(dpg.mvPlotStyleVar_MarkerSize, 7, category=dpg.mvThemeCat_Plots)
 
+        dpg.add_theme(tag="LineCyanTheme")
+        dpg.add_theme_component(item_type = dpg.mvLineSeries,parent="LineCyanTheme",tag="LineCyanThemeCmp")
+        dpg.add_theme_color(target = dpg.mvPlotCol_Line, value = (0, 255, 255), category=dpg.mvThemeCat_Plots,parent="LineCyanThemeCmp")
+        # dpg.add_theme_style(dpg.mvPlotStyleVar_Marker, dpg.mvPlotMarker_Diamond, category=dpg.mvThemeCat_Plots)
+        # dpg.add_theme_style(dpg.mvPlotStyleVar_MarkerSize, 7, category=dpg.mvThemeCat_Plots)
+
         dpg.add_theme(tag="NewTheme")
         # dpg.add_theme_component(item_type = dpg.mvAll,parent="NewTheme",tag="NewThemeCmp")
         dpg.add_theme_component(item_type = dpg.mvInputDouble,parent="NewTheme",tag="NewThemeCmp")

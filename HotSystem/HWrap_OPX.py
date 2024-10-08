@@ -205,6 +205,7 @@ class GUI_OPX(): #todo: support several device
         self.Y_vec = []
         self.X_vec_ref = []
         self.Y_vec_ref = []
+        self.Y_vec_ref2 = []
 
         self.Xv=[]
         self.Yv=[]
@@ -504,13 +505,13 @@ class GUI_OPX(): #todo: support several device
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False,
                           parent="graphXY")  # REQUIRED: create x and y axes
-        dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis",
-                            tag="series_counts")  # series belong to a y axis
-        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis",
-                            tag="series_counts_ref")  # series belong to a y axis
+        dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
+        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis", tag="series_counts_ref")
+        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref2, label="counts_ref2", parent="y_axis", tag="series_counts_ref2")
 
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+        dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
 
         dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=False)
         self.GUI_ParametersControl(True)
@@ -1488,9 +1489,9 @@ class GUI_OPX(): #todo: support several device
 
     def ODMR_Bfield_QUA_PGM(self):  # CW_ODMR
         # time
-        tMeasueProcess = self.MeasProcessTime
+        tMeasueProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle+tMeasueProcess)
-        tMW = self.t_mw
+        tMW = self.time_in_multiples_cycle_time(self.t_mw)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
         tEdge = self.time_in_multiples_cycle_time(self.Tedge)
@@ -1568,7 +1569,7 @@ class GUI_OPX(): #todo: support several device
                         update_frequency("MW", f)  # update frequency
 
                         # Signal
-                        wait(tEdge,"MW")
+                        wait(tEdge//4,"MW")
                         play("cw", "MW", duration=tMW // 4)  # play microwave pulse
                         wait(300//4,"RF")
                         play("const" * amp(p), "RF",duration=tBfield // 4)
@@ -1582,7 +1583,7 @@ class GUI_OPX(): #todo: support several device
 
                         # reference sequence
                         # don't play MW
-                        wait(tEdge,"MW")
+                        wait(tEdge//4,"MW")
                         play("cw", "MW", duration=tMW // 4)  # play microwave pulse
                         # play("const" * amp(p), "RF",duration=tBfield // 4)
 
@@ -1633,17 +1634,17 @@ class GUI_OPX(): #todo: support several device
 
     def NuclearFastRotation_QUA_PGM(self):
         # time
-        tMeasueProcess = self.MeasProcessTime
+        tMeasueProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle+tMeasueProcess)
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
-        tMW = self.t_mw
-        tMW2 = self.t_mw2
+        tMW = self.time_in_multiples_cycle_time(self.t_mw)
+        tMW2 = self.time_in_multiples_cycle_time(self.t_mw2)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
         tEdge = self.time_in_multiples_cycle_time(self.Tedge)
-        tWait = self.time_in_multiples_cycle_time(self.Twait)
+        tWait = self.time_in_multiples_cycle_time(self.Twait*1e3)
         tRF = self.time_in_multiples_cycle_time(self.rf_pulse_time)
-        tBfield = self.time_in_multiples_cycle_time(tMW2+tEdge)
+        tBfield = self.time_in_multiples_cycle_time(tMW2+2*tEdge)
         Npump = self.n_nuc_pump
 
         fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz 
@@ -1675,7 +1676,7 @@ class GUI_OPX(): #todo: support several device
         # f2_GHz*1e9 + (b*V/(V + c))*1e9
         b = 0.0344
         c = 0.124
-        self.f_vec = (fMW_res2 + (self.rf_Pwr_vec*b/(self.rf_Pwr_vec + c))*1e9)    # [Hz], frequencies vector
+        self.f_vec = ((fMW_res1+fMW_res2)/2 + (self.rf_Pwr_vec*b/(self.rf_Pwr_vec + c))*1e9)    # [Hz], frequencies vector
         self.f_vec = self.f_vec.astype(int)
 
         # length and idx vector
@@ -1685,7 +1686,7 @@ class GUI_OPX(): #todo: support several device
         idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
 
         # tracking signal
-        tSequencePeriod = ((tMW+tRF+tPump)*Npump+tBfield+tWait+tMW+tLaser)*2*array_length 
+        tSequencePeriod = ((tMW+tRF+tPump)*Npump+tBfield+tWait+tMW+tLaser)*3*array_length 
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
@@ -1706,6 +1707,7 @@ class GUI_OPX(): #todo: support several device
 
             counts_tmp = declare(int)                    # temporary variable for number of counts
             counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+            counts_ref2_tmp = declare(int)                # temporary variable for number of counts reference
             
             runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
             track_idx = declare(int, value=0)         # iteration variable
@@ -1716,6 +1718,7 @@ class GUI_OPX(): #todo: support several device
 
             counts = declare(int, size=array_length)     # experiment signal (vector)
             counts_ref = declare(int, size=array_length) # reference signal (vector)
+            counts_ref2 = declare(int, size=array_length) # reference signal (vector)
 
             # Shuffle parameters
             # f_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))
@@ -1727,10 +1730,12 @@ class GUI_OPX(): #todo: support several device
             # stream parameters
             counts_st = declare_stream()      # experiment signal
             counts_ref_st = declare_stream()  # reference signal
+            counts_ref2_st = declare_stream()  # reference signal
             
             with for_(n, 0, n < self.n_avg, n + 1):
                 # reset
                 with for_(idx, 0, idx < array_length, idx + 1):
+                    assign(counts_ref2[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts_ref[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts[idx], 0)  # shuffle - assign new val from randon index
                 
@@ -1763,15 +1768,15 @@ class GUI_OPX(): #todo: support several device
                             play("Turn_ON", "Laser", duration=tPump//4)
                         align()
 
-                        wait(tEdge,"MW")
+                        wait(tEdge//4,"MW")
                         update_frequency("MW", f)
                         play("cw"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)  # play microwave pulse
-                        wait(300//4,"RF") # manual calibration
+                        # wait(20//4,"RF") # manual calibration
                         update_frequency("RF", 0 * self.u.MHz) # set RF frequency to resonance
                         play("const" * amp(p), "RF",duration=tBfield // 4)
                         
                         align()
-                        wait(tWait)
+                        wait(tWait//4)
                         update_frequency("MW", fMW_res1)
                         play("cw"*amp(self.mw_P_amp), "MW", duration=tMW // 4)  # play microwave pulse
 
@@ -1798,15 +1803,15 @@ class GUI_OPX(): #todo: support several device
                             play("Turn_ON", "Laser", duration=tPump//4)
                         align()
 
-                        wait(tEdge,"MW")
-                        update_frequency("MW", fMW_res2)
-                        play("cw"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)  # play microwave pulse
+                        wait((tEdge+tMW2+tWait)//4,"MW")
+                        # update_frequency("MW", fMW_res2)
+                        # play("cw"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)  # play microwave pulse
                         # wait(300//4,"RF") # manual calibration
                         # update_frequency("RF", 0 * self.u.MHz) # set RF frequency to resonance
                         # play("const" * amp(p), "RF",duration=tBfield // 4)
                         
-                        align()
-                        wait(tWait)
+                        # align()
+                        # wait(tWait)
                         update_frequency("MW", fMW_res1)
                         play("cw"*amp(self.mw_P_amp), "MW", duration=tMW // 4)  # play microwave pulse
 
@@ -1815,6 +1820,42 @@ class GUI_OPX(): #todo: support several device
                         align("MW","Detector_OPD")
                         measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+                        
+                        align()
+
+                        # reference sequence
+                        # polarize (@fMW_res @ fRF_res)
+                        with for_(m, 0, m < Npump, m + 1):
+                            # set MW frequency to resonance
+                            update_frequency("MW", fMW_res1)
+                            #play MW
+                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)  
+                            # play RF (@resonance freq & pulsed time)
+                            align("MW","RF")
+                            update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
+                            play("const" * amp(pRF), "RF",duration=tRF // 4)
+                            # turn on laser to polarize
+                            align("RF","Laser")
+                            play("Turn_ON", "Laser", duration=tPump//4)
+                        align()
+
+                        wait((tEdge+tMW2+tWait)//4,"MW")
+                        # update_frequency("MW", fMW_res2)
+                        # play("cw"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)  # play microwave pulse
+                        # wait(300//4,"RF") # manual calibration
+                        # update_frequency("RF", 0 * self.u.MHz) # set RF frequency to resonance
+                        # play("const" * amp(p), "RF",duration=tBfield // 4)
+                        
+                        # align()
+                        # wait(tWait//4)
+                        update_frequency("MW", fMW_res2)
+                        play("cw"*amp(self.mw_P_amp), "MW", duration=tMW // 4)  # play microwave pulse
+
+                        align("MW","Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        align("MW","Detector_OPD")
+                        measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref2_tmp))
+                        assign(counts_ref2[idx_vec_qua[idx]], counts_ref2[idx_vec_qua[idx]] + counts_ref2_tmp)
                         
                         align()
 
@@ -1843,6 +1884,7 @@ class GUI_OPX(): #todo: support several device
                     with for_(idx, 0, idx < array_length,idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
+                        save(counts_ref2[idx], counts_ref2_st)
 
                 save(n, n_st)  # save number of iteration inside for_loop
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
@@ -1850,6 +1892,7 @@ class GUI_OPX(): #todo: support several device
             with stream_processing():
                 counts_st.buffer(len(self.f_vec)).average().save("counts")
                 counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
+                counts_ref2_st.buffer(len(self.f_vec)).average().save("counts_ref2")
                 n_st.save("iteration")
                 tracking_signal_st.save("tracking_ref")
 
@@ -4068,34 +4111,14 @@ class GUI_OPX(): #todo: support several device
         dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal: .1f},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
         dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
         dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+        if self.exp == Experimet.Nuclear_Fast_Rot:
+            dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
+
         dpg.set_item_label("y_axis", _yLabel)
         dpg.set_item_label("x_axis", _xLabel)
         dpg.fit_axis_data('x_axis')
         dpg.fit_axis_data('y_axis')
     
-    def FastScan_updateGraph(self):
-        # Update the graph label with the current experiment name, iteration, and last Y value
-        dpg.set_item_label("graphXY",
-                           f"{self.exp.name}, iteration = {self.iteration}, lastVal = {round(self.Y_vec[-1], 0)}")
-
-        # Set the values for the X and Y data series
-        dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-
-        # Set the reference counts series to be empty
-        dpg.set_value("series_counts_ref", [[], []])
-
-        # Update the axis labels
-        dpg.set_item_label("y_axis", "Intensity [kCounts/sec]")
-        dpg.set_item_label("x_axis", "Position [pm]")
-
-        # Fit the axis data to the new data range
-        dpg.fit_axis_data('x_axis')
-        dpg.fit_axis_data('y_axis')
-
-        # Bind themes to the data series for visual distinction
-        dpg.bind_item_theme("series_counts", "LineYellowTheme")
-        dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
-
     def FetchData(self):
         self.refSignal = 0
         if self.bEnableSignalIntensityCorrection: # prepare search maxI thread
@@ -4109,6 +4132,8 @@ class GUI_OPX(): #todo: support several device
         # fetch right parameters
         if self.exp == Experimet.COUNTER:
             self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
+        elif self.exp == Experimet.Nuclear_Fast_Rot:
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
         else:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration","tracking_ref"], mode="live")
 
@@ -4120,6 +4145,7 @@ class GUI_OPX(): #todo: support several device
 
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+        dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
 
         
         lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
@@ -4131,6 +4157,7 @@ class GUI_OPX(): #todo: support several device
                            f"{self.exp.name}, iteration = {self.iteration}, lastVal = {round(self.Y_vec[-1], 0)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
                 dpg.set_value("series_counts_ref", [[], []])
+                dpg.set_value("series_counts_ref2", [[], []])
                 dpg.set_item_label("y_axis", "I [kCounts/sec]")
                 dpg.set_item_label("x_axis", "time [sec]")
                 dpg.fit_axis_data('x_axis')
@@ -4138,6 +4165,7 @@ class GUI_OPX(): #todo: support several device
 
                 dpg.bind_item_theme("series_counts", "LineYellowTheme")
                 dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+                dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
                 # self.Counter_updateGraph()
             if self.exp == Experimet.ODMR_CW:  #freq
                 self.SearchPeakIntensity()
@@ -4194,6 +4222,10 @@ class GUI_OPX(): #todo: support several device
         if self.exp == Experimet.COUNTER:
             self.lock.acquire()
             self.counter_Signal, self.iteration = self.results.fetch_all()
+            self.lock.release()
+        elif self.exp == Experimet.Nuclear_Fast_Rot:
+            self.lock.acquire()
+            self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
             self.lock.release()
         else:
             self.lock.acquire()
@@ -4285,6 +4317,7 @@ class GUI_OPX(): #todo: support several device
             self.X_vec = [e for e in self.rf_Pwr_vec]  # [msec]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3  
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref2 = self.ref_signal2 / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
 
