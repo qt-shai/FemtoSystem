@@ -183,7 +183,7 @@ class GUI_OPX(): #todo: support several device
         self.t_mw = 289  # [nsec] # from rabi experiment
         self.t_mw2 = 164  # [nsec] # from rabi experiment
         self.Tedge = 100 # [nsec]
-        self.Twait = 2 # [usec]
+        self.Twait = 2.0 # [usec]
 
         self.OPX_rf_amp = 0.5  # [V], OPX max amplitude
         self.rf_Pwr = 0.1  # [V], requied OPX amplitude
@@ -516,7 +516,6 @@ class GUI_OPX(): #todo: support several device
         dpg.add_group(tag="Params_Controls", before="Graph_group", parent="OPX Window", horizontal=False)
         self.GUI_ParametersControl(True)
 
-
     def GUI_ParametersControl(self, isStart):
         child_width = int(2900 * self.window_scale_factor)
         child_height = int(80 * self.window_scale_factor)
@@ -543,7 +542,7 @@ class GUI_OPX(): #todo: support several device
                                           default_value=self.Tpump, min_value=1, max_value=60000000, step=100)
                         dpg.add_text(default_value="TcounterPulsed [nsec]", tag="text_TcounterPulsed")
                         dpg.add_input_int(label="", tag="inInt_TcounterPulsed", width=item_width,
-                                          callback=self.UpdateTcounterPulsed, default_value=self.TcounterPulsed,
+                                           callback=self.UpdateTcounterPulsed, default_value=self.TcounterPulsed,
                                           min_value=1, max_value=60000000, step=100)
                         dpg.add_text(default_value="Tsettle [nsec]", tag="text_measure_time")
                         dpg.add_input_int(label="", tag="inInt_Tsettle", width=item_width, callback=self.UpdateTsettle,
@@ -553,9 +552,11 @@ class GUI_OPX(): #todo: support several device
                         dpg.add_text(default_value="Twait [usec]", tag="text_wait_time")
                         # dpg.add_input_int(label="", tag="inInt_wait_time", width=item_width, callback=self.UpdateWaitTime, default_value=self.Twait, min_value=1, max_value=1000, step=1)
                         dpg.add_input_double(label="", tag="inDbl_wait_time", width=item_width, callback=self.UpdateWaitTime, default_value=self.Twait, min_value=0.001, max_value=10000000000, step=0.001,format="%.3f")
-
                         dpg.add_text(default_value="Tedge [nsec]", tag="text_edge_time")
                         dpg.add_input_int(label="", tag="inInt_edge_time", width=item_width, callback=self.UpdateEdgeTime, default_value=self.Tedge, min_value=1, max_value=1000, step=1)
+
+                        dpg.add_text(default_value="Tprocess [nsec]", tag="text_process_time")
+                        dpg.add_input_int(label="", tag="inInt_process_time", width=item_width, default_value=300, min_value=1, max_value=1000, step=1)
 
                 dpg.add_child_window(label="", tag="child_Freq_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
                               width=child_width, height=child_height)
@@ -881,8 +882,6 @@ class GUI_OPX(): #todo: support several device
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
-
-
 
     def update_from_map(self,index=0):
         """Update scan parameters based on the selected area marker."""
@@ -1486,22 +1485,47 @@ class GUI_OPX(): #todo: support several device
     def verify_insideQUA_FreqValues(self, freq ,min = 0, max = 400): # [MHz]
         if freq < min* self.u.MHz or freq > max* self.u.MHz:
             raise Exception('freq is out of range. verify base freq is up to 400 MHz relative to resonance')
+    
+    def GetItemsVal(self,items_tag=[]):
+        items_val = {}
+        # Using a for loop to get each value and assign it to the auto_focus dictionary
+        for tag in items_tag:
+            items_val[tag] = dpg.get_value(tag)
+            print(f"{tag}: {items_val[tag]}")
+
+        return items_val
+    
+    def GenVector(self,min,max,delta, asInt = False ):
+        N = int((max - min)/delta + 1)
+        vec1 = np.linspace(min,max,N,endpoint=True)
+        if asInt:
+            vec1 = vec1.astype(int)
+        # vec2 = np.arange(min, max + delta/10, delta)
+        return vec1
+
 
     def ODMR_Bfield_QUA_PGM(self):  # CW_ODMR
-        # time
-        tMeasueProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)
-        tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed+self.Tsettle+tMeasueProcess)
-        tMW = self.time_in_multiples_cycle_time(self.t_mw)
-        tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
-        tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
-        tEdge = self.time_in_multiples_cycle_time(self.Tedge)
-        tBfield = self.time_in_multiples_cycle_time(tMW + tEdge)
+        
+        # get values
+        items_val = self.GetItemsVal(items_tag=["inInt_process_time","inInt_TcounterPulsed","inInt_Tsettle","inInt_t_mw","inInt_edge_time"])
 
-        # MW frequency scan vector
-        f_min = 0 * self.u.MHz                              # [Hz], start of freq sweep
-        f_max = self.mw_freq_scan_range * self.u.MHz        # [Hz] end of freq sweep
-        df = self.mw_df * self.u.MHz                        # [Hz], freq step
-        self.f_vec = np.arange(f_min, f_max + df/10, df)    # [Hz], frequencies vector
+        # time
+        # tMeasueProcess = self.time_in_multiples_cycle_time(items_val["inInt_process_time"]) #self.MeasProcessTime)
+        tLaser = self.time_in_multiples_cycle_time(items_val["inInt_TcounterPulsed"] + 
+                                                   items_val["inInt_Tsettle"] + 
+                                                   items_val["inInt_process_time"]) #self.TcounterPulsed+self.Tsettle+tMeasueProcess)
+        tMW = self.time_in_multiples_cycle_time(items_val["inInt_t_mw"])#self.t_mw)
+        tMeasure = self.time_in_multiples_cycle_time(items_val["inInt_TcounterPulsed"])#self.TcounterPulsed)
+        tSettle = self.time_in_multiples_cycle_time(items_val["inInt_Tsettle"])#self.Tsettle)
+        tEdge = self.time_in_multiples_cycle_time(items_val["inInt_edge_time"])#self.Tedge)
+        tBfield = self.time_in_multiples_cycle_time(tMW + 2*tEdge)
+
+        vec = self.GenVector(min=0 * self.u.MHz,max = self.mw_freq_scan_range * self.u.MHz ,delta=self.mw_df * self.u.MHz) # MW frequency scan vector
+        # f_min = 0 * self.u.MHz                              # [Hz], start of freq sweep
+        # f_max = self.mw_freq_scan_range * self.u.MHz        # [Hz] end of freq sweep
+        # df = self.mw_df * self.u.MHz                        # [Hz], freq step
+        # self.f_vec = np.arange(f_min, f_max + df/10, df)    # [Hz], frequencies vector
+        self.f_vec = vec
 
         # length and idx vector
         array_length = len(self.f_vec)                      # frquencies vector size
@@ -1571,7 +1595,7 @@ class GUI_OPX(): #todo: support several device
                         # Signal
                         wait(tEdge//4,"MW")
                         play("cw", "MW", duration=tMW // 4)  # play microwave pulse
-                        wait(300//4,"RF")
+                        # wait(300//4,"RF")
                         play("const" * amp(p), "RF",duration=tBfield // 4)
 
                         align("MW","Laser")
@@ -1631,7 +1655,6 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
-
     def NuclearFastRotation_QUA_PGM(self):
         # time
         tMeasueProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)
@@ -1897,8 +1920,6 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
-
-
     def Electron_lifetime_QUA_PGM(self): #T1
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
@@ -2697,7 +2718,6 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
-    
     def Electron_Coherence_QUA_PGM(self): # Also CPMG when N>0
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
@@ -2897,7 +2917,6 @@ class GUI_OPX(): #todo: support several device
                 tracking_signal_st.save("tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
-
     def Hahn_QUA_PGM(self):
         # sequence parameters
         tMeasureProcess = self.MeasProcessTime
@@ -4373,7 +4392,6 @@ class GUI_OPX(): #todo: support several device
     
     def btnStartODMR_Bfield(self):
         self.exp = Experimet.ODMR_Bfield
-        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
@@ -4384,6 +4402,8 @@ class GUI_OPX(): #todo: support several device
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
         
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
     
@@ -5702,7 +5722,7 @@ class GUI_OPX(): #todo: support several device
 
             elif isinstance(value, list):
                 list_elem = ET.SubElement(root, key)
-                if (list_elem.tag not in ["scan_Out","X_vec", "Y_vec", "Z_vec","X_vec_ref","Y_vec_ref","Z_vec_ref","V_scan","expected_pos","t_vec",
+                if (list_elem.tag not in ["ini_scan_pos","scan_Out","X_vec", "Y_vec", "Z_vec","X_vec_ref","Y_vec_ref","Z_vec_ref","V_scan","expected_pos","t_vec",
                                               "startLoc","endLoc","Xv","Yv","Zv","viewport_width","viewport_height","window_scale_factor",
                                               "timeStamp","counter","maintain_aspect_ratio","scan_intensities","initial_scan_Location","V_scan",
                                               "absPosunits","Scan_intensity","Scan_matrix","image_path","f_vec","signal","ref_signal","tracking_ref","t_vec","t_vec_ini"] 
