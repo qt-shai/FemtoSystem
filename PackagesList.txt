@@ -1,0 +1,51 @@
+#pip install -U pip setuptools wheel
+#pip install setuptools==65
+
+NumPy
+pyserial
+matplotlib
+
+glfw
+PyOpenGL
+imgui[full]
+dearpygui
+
+pulsestreamer
+
+rohdeschwarz
+
+qm-qua
+qualang-tools
+
+# see C:\SmarAct\MCS2\Documentation\Using SmarAct Python SDKs.pdf
+# install both:
+# Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\Stages\Smaract\SLC2430\FromUSB\MCS2\MCS2_Installer_2.2.1.exe
+# Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\Stages\Smaract\SLC2430\FromUSB\MCS2\MCS2_HSDR_Installer_2.1.5.exe
+C:\SmarAct\MCS2\SDK\Python\packages\smaract.ctl-1.4.3.zip
+C:\SmarAct\MCS2\SDK\Python\packages\smaract.hsdr-1.0.0.zip
+C:\SmarAct\MCS2\SDK\Python\packages\smaract.si-2.1.6.zip
+
+# ThorLabs Zelux CS165MU see Python_README.txt
+# install: Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\2D Camera\ThorLabZelux\Thorlabs Scientific Imaging Software x64.exe
+
+# D: lab version
+#D:\HotSysSW\ExampleZeluxCam\Scientific Camera Interfaces\SDK\Python Toolkit\thorlabs_tsi_camera_python_sdk_package.zip
+# Amir' version
+#C:\WC\QT_code\Python\ExampleZeluxCam\Scientific Camera Interfaces\SDK\Python Toolkit\thorlabs_tsi_camera_python_sdk_package.zip
+# developer version
+C:\WC\QuTi\HotSystem\ExampleZeluxCam\Scientific Camera Interfaces\SDK\Python Toolkit\thorlabs_tsi_camera_python_sdk_package.zip
+
+pandas
+pino
+#cairosvg
+#seaborn
+#Pillow
+#opencv-python
+PyQt5
+pyvisa-py
+
+# picomotor package
+pythonnet
+
+#pytest
+#pyperclip
