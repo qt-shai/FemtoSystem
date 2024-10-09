@@ -17,15 +17,13 @@ from SystemConfig import Instruments
 
 class GUI_smaract():
     def __init__(self, simulation: bool = False, serial_number:str = "") -> None:
-        self.HW = hw_devices.HW_devices()
+        self.HW = hw_devices.HW_devices(simulation)
         self.dev = self.HW.positioner
         self.selectedDevice = serial_number
         self.dev.error = None
         self.simulation = simulation
         self.dev.GetAvailableDevices()
-        self.NumOfLoggedPoints = 0
-        self.U = [1, 0, 0]
-        self.V = [0, 1, 0]
+
         self.prefix = "mcs"
         self.ch_offset = 0
 
@@ -85,13 +83,12 @@ class GUI_smaract():
                     dpg.add_text(" Ref.")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Ref. " + str(ch))
-                    dpg.add_button(label="Calc U",tag=f"{self.prefix}_calc_u",callback=self.btn_calc_u)
 
                 with dpg.group(horizontal=False, tag="_column 5_", width=child_width*.8):
                     dpg.add_text("  Zero   ")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Zero " + str(ch), callback=self.btn_zero, user_data=ch)
-                    dpg.add_button(label="Calc V",tag=f"{self.prefix}_calc_v", callback=self.btn_calc_v)
+                    # dpg.add_button(label="Calc V",tag=f"{self.prefix}_calc_v", callback=self.btn_calc_v)
 
                 with dpg.group(horizontal=False, tag="_column 6_", width=child_width *.8):
                     dpg.add_text(" Move UV")
@@ -105,7 +102,9 @@ class GUI_smaract():
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
                             dpg.add_button(label="+", width=20, callback=self.move_uv, user_data=(ch, 1, True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
-                    dpg.add_button(label="ToText", callback=self.generate_to_text)
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="ToText", callback=self.generate_to_text)
+                        dpg.add_button(label="Calc UV", tag=f"{self.prefix}_calc_uv", callback=self.btn_calc_uv)
                     with dpg.group(horizontal=True):
                         dpg.add_button(label="AutoFill", callback=self.AutoFill)
                         dpg.add_button(label="Load", callback=self.load_points)
@@ -174,51 +173,24 @@ class GUI_smaract():
             self.dev.AxesKeyBoardLargeStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Cset") * self.dev.StepsIn1mm / 1e3) for ch in range(3)]
             self.dev.AxesKeyBoardSmallStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Fset") * self.dev.StepsIn1mm / 1e6) for ch in range(3)]
 
+
     def save_pos(self):
+        # Define the list of windows to check and save positions for
+        window_names = [
+            "pico_Win", "mcs_Win", "Zelux Window",
+            "OPX Window", "Map_window", "Scan_Window", "LaserWin"
+        ]
+
         # Dictionary to store window positions and dimensions
         window_positions = {}
 
-        # Check if pico_Win exists and get its position and size
-        if dpg.does_item_exist("pico_Win"):
-            pico_win_pos = dpg.get_item_pos("pico_Win")
-            pico_win_size = dpg.get_item_width("pico_Win"), dpg.get_item_height("pico_Win")
-            window_positions["pico_Win"] = (pico_win_pos, pico_win_size)
-            print(f"Position of pico_Win: {pico_win_pos}, Size: {pico_win_size}")
-
-        # Check if mcs_Win exists and get its position and size
-        if dpg.does_item_exist("mcs_Win"):
-            mcs_win_pos = dpg.get_item_pos("mcs_Win")
-            mcs_win_size = dpg.get_item_width("mcs_Win"), dpg.get_item_height("mcs_Win")
-            window_positions["mcs_Win"] = (mcs_win_pos, mcs_win_size)
-            print(f"Position of mcs_Win: {mcs_win_pos}, Size: {mcs_win_size}")
-
-        # Check if Zelux Window exists and get its position and size
-        if dpg.does_item_exist("Zelux Window"):
-            zelux_win_pos = dpg.get_item_pos("Zelux Window")
-            zelux_win_size = dpg.get_item_width("Zelux Window"), dpg.get_item_height("Zelux Window")
-            window_positions["Zelux Window"] = (zelux_win_pos, zelux_win_size)
-            print(f"Position of Zelux Window: {zelux_win_pos}, Size: {zelux_win_size}")
-
-        # Check if OPX Window exists and get its position and size
-        if dpg.does_item_exist("OPX Window"):
-            opx_win_pos = dpg.get_item_pos("OPX Window")
-            opx_win_size = dpg.get_item_width("OPX Window"), dpg.get_item_height("OPX Window")
-            window_positions["OPX Window"] = (opx_win_pos, opx_win_size)
-            print(f"Position of OPX Window: {opx_win_pos}, Size: {opx_win_size}")
-
-        # Check if Map_window exists and get its position and size
-        if dpg.does_item_exist("Map_window"):
-            map_win_pos = dpg.get_item_pos("Map_window")
-            map_win_size = dpg.get_item_width("Map_window"), dpg.get_item_height("Map_window")
-            window_positions["Map_window"] = (map_win_pos, map_win_size)
-            print(f"Position of Map_window: {map_win_pos}, Size: {map_win_size}")
-
-        # Check if Scan_Window exists and get its position and size
-        if dpg.does_item_exist("Scan_Window"):
-            scan_win_pos = dpg.get_item_pos("Scan_Window")
-            scan_win_size = dpg.get_item_width("Scan_Window"), dpg.get_item_height("Scan_Window")
-            window_positions["Scan_Window"] = (scan_win_pos, scan_win_size)
-            print(f"Position of Scan_Window: {scan_win_pos}, Size: {scan_win_size}")
+        # Iterate through the list of window names and collect their positions and sizes if they exist
+        for win_name in window_names:
+            if dpg.does_item_exist(win_name):
+                win_pos = dpg.get_item_pos(win_name)
+                win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
+                window_positions[win_name] = (win_pos, win_size)
+                print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
 
         try:
             # Read existing map_config.txt content, if available
@@ -228,13 +200,8 @@ class GUI_smaract():
             except FileNotFoundError:
                 lines = []
 
-            # Create a list to store the updated content
-            new_content = []
-
             # Remove any existing window position and size entries
-            for line in lines:
-                if not any(win_name in line for win_name in window_positions.keys()):
-                    new_content.append(line)
+            new_content = [line for line in lines if not any(win_name in line for win_name in window_positions.keys())]
 
             # Append the new window positions and dimensions to the content
             for win_name, (position, size) in window_positions.items():
@@ -478,37 +445,29 @@ class GUI_smaract():
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
 
         self.dev.LoggedPoints.append(position.copy())  # [pm]
-        self.NumOfLoggedPoints += 1
         print(self.dev.LoggedPoints)
 
         # Update the UI
-        dpg.set_value(f"{self.prefix}logged_points", "* " * self.NumOfLoggedPoints)
+        dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
         self.update_table()
 
         # Prepare the text to copy with only the last logged point and the increment line
         last_point = self.dev.LoggedPoints[-1]
-        text_to_copy = f"self.dev.LoggedPoints.append({last_point})\nself.NumOfLoggedPoints += 1"
+        text_to_copy = f"self.dev.LoggedPoints.append({last_point})"
         
         print(text_to_copy)
 
         # Check the number of logged points and calculate vectors accordingly
-        if len(self.dev.LoggedPoints) == 2:
-            self.calc_vector('u')
-            dpg.bind_item_theme(f"{self.prefix}_calc_u", yellow_theme)
-        elif len(self.dev.LoggedPoints) == 3:
-            self.calc_vector('v')
-            dpg.bind_item_theme(f"{self.prefix}_calc_v", yellow_theme)
+        if len(self.dev.LoggedPoints) == 3:
+            self.dev.calc_uv()
+            dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
 
     def AutoFill(self):
         self.dev.LoggedPoints.append([0, 0, 700000])
-        self.NumOfLoggedPoints += 1
         self.dev.LoggedPoints.append([940000327, 369, -5800002])
-        self.NumOfLoggedPoints += 1
-        self.calc_vector('u')
         self.dev.LoggedPoints.append([940000327, -766999940, -22899927])
-        self.NumOfLoggedPoints += 1
-        self.calc_vector('v')
-        dpg.set_value(f"{self.prefix}logged_points", "* " * self.NumOfLoggedPoints)
+        self.dev.calc_uv()
+        dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
         self.update_table()
 
     def load_points(self):
@@ -521,7 +480,6 @@ class GUI_smaract():
 
                 # Clear the existing LoggedPoints
                 self.dev.LoggedPoints = []
-                self.NumOfLoggedPoints = 0  # Reset the count of logged points
                 loading_points = False
 
                 for line in lines:
@@ -533,22 +491,18 @@ class GUI_smaract():
                         if len(coords) == 3:  # Ensure we have 3 coordinates
                             logged_point = (float(coords[0]), float(coords[1]), float(coords[2]))
                             self.dev.LoggedPoints.append(logged_point)
-                            self.NumOfLoggedPoints += 1
 
                             current_height = dpg.get_item_height(f"{self.prefix}_Win")
                             new_height = current_height + 30  # Increase height by 50 units
                             dpg.configure_item(f"{self.prefix}_Win", height=new_height)
 
                             # Check how many points have been logged and calculate u or v
-                            if self.NumOfLoggedPoints == 2:
-                                self.calc_vector('u')
-                                dpg.bind_item_theme(f"{self.prefix}_calc_u", yellow_theme)
-                            elif self.NumOfLoggedPoints == 3:
-                                self.calc_vector('v')
-                                dpg.bind_item_theme(f"{self.prefix}_calc_v", yellow_theme)
+                            if len(self.dev.LoggedPoints) == 3:
+                                self.dev.calc_uv()
+                                dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
 
                 # Update the logged points indicator and table
-                dpg.set_value(f"{self.prefix}logged_points", "* " * self.NumOfLoggedPoints)
+                dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
                 self.update_table()
                 print("Logged points loaded successfully.")
 
@@ -615,8 +569,7 @@ class GUI_smaract():
 
             # Remove the selected point
             del self.dev.LoggedPoints[index]
-            self.NumOfLoggedPoints -= 1
-            dpg.set_value(f"{self.prefix}logged_points", "* " * self.NumOfLoggedPoints)
+            dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
             # Rebuild the table to reflect the change
             self.update_table()
 
@@ -627,59 +580,24 @@ class GUI_smaract():
 
         if self.dev.IsConnected:
             self.dev.LoggedPoints.pop()  # [pm]  Removes the last item
-            self.NumOfLoggedPoints -= 1
-            dpg.set_value(f"{self.prefix}logged_points", "* " * self.NumOfLoggedPoints)
+            dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
             self.update_table()
         else:
             print("Cannot log point while Smaract is disconnected.")
             if self.simulation:
                 random_numbers = [random.randint(-1000, 1000) for _ in range(3)]
                 self.dev.LoggedPoints.pop()  # [pm]  Removes the last item
-                self.NumOfLoggedPoints -= 1
-                dpg.set_value(f"{self.prefix}logged_points", "* " * self.NumOfLoggedPoints)
+                dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
                 self.update_table()
 
-    def btn_calc_u(self):
+    def btn_calc_uv(self):
         themes = DpgThemes()
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
-        self.calc_vector('u')
-        dpg.bind_item_theme(f"{self.prefix}_calc_u", yellow_theme)
-
-    def btn_calc_v(self):
-        themes = DpgThemes()
-        yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
-        self.calc_vector('v')
-        dpg.bind_item_theme(f"{self.prefix}_calc_v", yellow_theme)
-
-    def calc_vector(self, vector_name):
-        if len(self.dev.LoggedPoints) < 2:
-            print(f"Please log at least two points prior to calculating {vector_name.upper()}")
-        else:
-            print(f"Calculating {vector_name.upper()}")
-            p1 = self.dev.LoggedPoints[-2]
-            p2 = self.dev.LoggedPoints[-1]
-            difference = [p2[i] - p1[i] for i in range(len(p1))]
-
-            try:
-                magnitude = math.sqrt(sum([component ** 2 for component in difference]))
-                if magnitude == 0:
-                    raise ValueError("The two points are identical, cannot compute vector.")
-
-                normalized_vector = [component / magnitude for component in difference]
-
-                if vector_name.lower() == 'u':
-                    self.U = normalized_vector
-                    print(self.U)
-                elif vector_name.lower() == 'v':
-                    self.V = normalized_vector
-                    print(self.V)
-                else:
-                    print(f"Unknown vector name: {vector_name}")
-
-            except ZeroDivisionError:
-                print("Division by zero error encountered during vector normalization.")
-            except ValueError as e:
-                print(e)
+        dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
+        if len(self.dev.LoggedPoints)<3:
+            print(f"Please log at least three points prior to calculating u & v")
+            return
+        self.dev.calc_uv()
 
     def cmb_device_selector(self, app_data, item):
         self.selectedDevice = item
@@ -716,7 +634,7 @@ class GUI_smaract():
                 value1 = value1 / 10
 
             steps = int(direction * value1 / 1e3 * self.dev.StepsIn1mm)
-            amount = [self.U[i] * steps for i in range(3)] if ch == 0 else [self.V[i] * steps for i in range(3)]
+            amount = [self.dev.U[i] * steps for i in range(3)] if ch == 0 else [self.dev.V[i] * steps for i in range(3)]
             print(amount)
 
             for channel in range(3):

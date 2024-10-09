@@ -34,7 +34,6 @@ class Common_Counter_Singletone:
     def Step_down(self):
         self.counter -= 1
 
-
 def get_ip_address(domain_name: str) -> str:
     """
     Look up a domain name in the DNS and return the corresponding IP address.
@@ -64,11 +63,9 @@ def getCurrentTimeStamp() -> str:
     # Return a generic timestamp if an error occurs
     return "1970_01_01_00_00_00"
 
-
 # Example usage:
 # ip = get_ip_address("example.com")
 # print(ip)
-
 
 class KeyboardKeys(Enum): # Mapping keys to custom values
     CTRL_KEY = 17
@@ -152,8 +149,6 @@ def increase_brightness(image_path: str, output_path: str, factor: float) -> Non
         img_enhanced = enhancer.enhance(factor)
         # Save the enhanced image
         img_enhanced.save(output_path)
-
-
 
 class DpgThemes:
     

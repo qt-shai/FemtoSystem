@@ -2,7 +2,7 @@ import os
 import xml.etree.ElementTree as ET
 from typing import List, Optional
 
-from numpy.array_api import trunc
+# from numpy.array_api import trunc
 
 from Utils import remove_overlap_from_string, get_square_matrix_size
 import dearpygui.dearpygui as dpg
@@ -148,7 +148,6 @@ def load_instrument_images():
                     placeholder_data = [255, 255, 255, 255] * 50 * 50
                     dpg.add_static_texture(50, 50, placeholder_data, tag=texture_tag)
 
-
 def create_themes():
     """
     Create the themes for selected and default states with pastel colors.
@@ -159,12 +158,18 @@ def create_themes():
             dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green
         with dpg.theme_component(dpg.mvText):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+        with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green background
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
     # Default theme (pastel light gray background)
     with dpg.theme(tag="default_theme"):
         with dpg.theme_component(dpg.mvChildWindow):
             dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray
         with dpg.theme_component(dpg.mvText):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+        with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray background
             dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
     # Pastel magenta theme for the main window
@@ -202,6 +207,8 @@ def run_system_config_gui():
     instruments_with_na_identifiers = set()
     if system_config:
         for configured_device in system_config.devices:
+            for device in devices_list:
+                device.com_port = configured_device.com_port
             # Check if all identifiers are 'N/A' or None
             if (configured_device.serial_number in [None, 'N/A'] and
                 configured_device.mac_address in [None, 'N/A'] and

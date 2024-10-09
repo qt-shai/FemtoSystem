@@ -9,13 +9,13 @@ from Utils import SerialDevice
 
 logger = logging.getLogger(__name__)
 
-class CoboltLaser():
+class CoboltLaser:
     """Creates a laser object using either COM-port or serial number to connect to laser. \n Will automatically return proper subclass, if applicable"""
 
-    def __init__(self, port=None, serialnumber=None, baudrate=115200, simulation : bool = False):
+    def __init__(self, com_port=None, serialnumber=None, baudrate=115200, simulation : bool = False):
         self.simulation = simulation
         self.serialnumber = serialnumber
-        self.port = port
+        self.port = com_port
         self.modelnumber = None
         self.baudrate = baudrate
         self.address = None
@@ -48,7 +48,8 @@ class CoboltLaser():
 
         if self.port != None:
             try:
-                self.address = serial.Serial(self.port, self.baudrate, timeout=100)
+                port = self.port if "COM" in self.port else f"COM{self.port}"
+                self.address = serial.Serial(port, self.baudrate, timeout=100)
             except Exception as err:
                 self.address = None
                 raise SerialException(f"{self.port} not accesible.") from err
@@ -303,7 +304,7 @@ class CoboltLaser():
                 logger.debug(
                     f"received from laser [{self}] message [{received_string}]"
                 )
-                return received_string
+                return received_string.splitlines()[0]
 
         raise RuntimeError("Syntax Error: No response")
 
@@ -317,8 +318,8 @@ class CoboltLaser():
 class Cobolt06MLD(CoboltLaser):
     """For lasers of type 06-MLD"""
 
-    def __init__(self, port=None, serialnumber=None, simulation : bool = False):
-        super().__init__(port= port, serialnumber=serialnumber, simulation=simulation)
+    def __init__(self, simulation : bool = False, com_port=None,serialnumber=None):
+        super().__init__(simulation=simulation, com_port=com_port,serialnumber=serialnumber)
         self.simulation = simulation
 
     def modulation_mode(self, power=None):

@@ -14,7 +14,6 @@ class SystemType(Enum):
     BOAZ = "Boaz"
     AMIR = "Amir"
     SHAI = "Shai"
-    SIMULATION = "Simulation"
 
 class Instruments(Enum):
     HIGHLAND = "highland"
@@ -29,6 +28,7 @@ class Instruments(Enum):
     ZELUX = "zelux"
     OPX = "OPX"
     ELC_POWER_SUPPLY = "elc_power_supply"
+    SIMULATION = "simulation"
 
 class InstrumentsIP(Enum):
     MCS2_00018624 = "192.168.101.70"

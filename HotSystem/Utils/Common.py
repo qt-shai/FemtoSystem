@@ -1,4 +1,5 @@
 import math
+import pdb
 import tkinter as tk
 import csv
 from tkinter import filedialog
@@ -45,6 +46,8 @@ def calculate_plane_normal(plane_calibration_matrix: np.ndarray) -> Tuple[np.nda
     p3 = plane_calibration_matrix[2,:].astype(float)
     v1 = p2 - p1
     v2 = p3 - p1
+
+    print((v1, v2))
 
     normal = np.cross(v1, v2) # cross product not normalized to unit vector
 
@@ -101,6 +104,7 @@ def calculate_z_series(calibration_matrix: np.ndarray, x_series: np.ndarray, y_c
     :param y_const: Constant y-coordinate for the x-axis points.
     :return: Array of corresponding z values along the x-axis.
     """
+    # pdb.set_trace()  # Insert a manual breakpoint
     normal, d = calculate_plane_normal(calibration_matrix)
     z_series = generate_z_series(normal, d, x_series, y_const)
     return z_series
