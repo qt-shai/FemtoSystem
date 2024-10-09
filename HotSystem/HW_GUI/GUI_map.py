@@ -64,40 +64,44 @@ class Map:
             dpg.delete_item("handler_registry")
 
     def toggle_shrink_child_windows(self):
-        """Toggle shrinking and expanding of child windows to make the map image more visible."""
+        try:
+            """Toggle shrinking and expanding of child windows to make the map image more visible."""
 
-        # Define child window tags
-        child_windows_to_toggle = [
-            "child_window_1",
-            "child_window_2",  # Add all child window tags here
-            "child_window_3",
-            "child_window_4",
-            "child_window_5"
-        ]
+            # Define child window tags
+            child_windows_to_toggle = [
+                "child_window_1",
+                "child_window_2",  # Add all child window tags here
+                "child_window_3",
+                "child_window_4",
+                "child_window_5"
+            ]
 
-        # Toggle between shrinking and expanding
-        if self.is_windows_shrunk:
-            child_width = int(self.win_size[0] * 0.45)
-            child_height = int(self.win_size[1] * 0.5)
-            # Expand child windows to original size
-            for child_window in child_windows_to_toggle:
-                if dpg.does_item_exist(child_window):
-                    dpg.set_item_width(child_window,  child_width)  # Original width
-                    dpg.set_item_height(child_window, child_height)  # Original height
-            # Update button label
-            dpg.set_item_label("toggle_shrink_button", "<<<")
-            self.is_windows_shrunk = False
-        else:
-            # Shrink child windows
-            child_width = int(self.win_size[0] * 0.15)
-            child_height = int(self.win_size[1] * 0.5)
-            for child_window in child_windows_to_toggle:
-                if dpg.does_item_exist(child_window):
-                    dpg.set_item_width(child_window, child_width)  # Shrunk width
-                    dpg.set_item_height(child_window, child_height)  # Shrunk height
-            # Update button label
-            dpg.set_item_label("toggle_shrink_button", ">>>")
-            self.is_windows_shrunk = True
+            # Toggle between shrinking and expanding
+            if self.is_windows_shrunk:
+                child_width = int(self.win_size[0] * 0.45)
+                child_height = int(self.win_size[1] * 0.5)
+                # Expand child windows to original size
+                for child_window in child_windows_to_toggle:
+                    if dpg.does_item_exist(child_window):
+                        dpg.set_item_width(child_window,  child_width)  # Original width
+                        dpg.set_item_height(child_window, child_height)  # Original height
+                # Update button label
+                dpg.set_item_label("toggle_shrink_button", "<<<")
+                self.is_windows_shrunk = False
+            else:
+                # Shrink child windows
+                child_width = int(self.win_size[0] * 0.15)
+                child_height = int(self.win_size[1] * 0.5)
+                for child_window in child_windows_to_toggle:
+                    if dpg.does_item_exist(child_window):
+                        dpg.set_item_width(child_window, child_width)  # Shrunk width
+                        dpg.set_item_height(child_window, child_height)  # Shrunk height
+                # Update button label
+                dpg.set_item_label("toggle_shrink_button", ">>>")
+                self.is_windows_shrunk = True
+
+        except Exception as e:
+            print(f"Error: {e}")
 
 
 

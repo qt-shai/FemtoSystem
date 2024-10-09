@@ -134,7 +134,6 @@ class GUI_OPX():  # todo: support several device
         self.ZCalibrationData: np.ndarray | None = None
         self.Zcorrection_threshold = 10  # [nm]
         self.iniShift_scan = [0, 0, 0]  # [nm]
-        self.ini_scan_pos = [0, 0, 0]  # [nm]
         self.idx_scan = [0, 0, 0]  # Z Y X
         self.startLoc = [0, 0, 0]
         self.endLoc = [0, 0, 0]
@@ -4989,14 +4988,15 @@ class GUI_OPX():  # todo: support several device
                 print(f"ch{ch}: in position = {res}, position = {self.initial_scan_Location[ch]} {self.positioner.AxesPosUnits[ch]}")
 
         # goto scan start location
+        ini_scan_pos = [0, 0, 0]
         for ch in range(3):
             V_scan = []
             if self.b_Scan[ch]:
-                self.ini_scan_pos[ch] = self.initial_scan_Location[ch] - self.L_scan[ch] * 1e3 / 2  # [pm]
-                self.positioner.MoveABSOLUTE(ch, int(self.ini_scan_pos[ch]))  # move absolute to start location
+                ini_scan_pos[ch] = self.initial_scan_Location[ch] - self.L_scan[ch] * 1e3 / 2  # [pm]
+                self.positioner.MoveABSOLUTE(ch, int(ini_scan_pos[ch]))  # move absolute to start location
                 N[ch] = (int(self.L_scan[ch] / self.dL_scan[ch]))
                 for i in range(N[ch]):
-                    V_scan.append(i * self.dL_scan[ch] * 1e3 + self.ini_scan_pos[ch])
+                    V_scan.append(i * self.dL_scan[ch] * 1e3 + ini_scan_pos[ch])
 
                 time.sleep(t_wait_motionStart)  # allow motion to start
                 res = self.readInpos(ch)  # wait motion ends
@@ -5004,7 +5004,7 @@ class GUI_OPX():  # todo: support several device
                     print(f"ch{ch} at initial scan position")
 
             else:
-                self.ini_scan_pos[ch] = self.initial_scan_Location[ch]
+                ini_scan_pos[ch] = self.initial_scan_Location[ch]
                 V_scan.append(self.initial_scan_Location[ch])
 
             self.V_scan.append(V_scan)
@@ -5111,7 +5111,7 @@ class GUI_OPX():  # todo: support several device
 
                 if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
                     j = j + 1
-                    self.prepare_scan_data(self.endLoc[0] * 1e6 + self.dL_scan[0] * 1e3, self.startLoc[0] * 1e6)
+                    self.prepare_scan_data(max_position_x_scan = self.endLoc[0] * 1e6 + self.dL_scan[0] * 1e3, min_position_x_scan = self.startLoc[0] * 1e6,start_pos=ini_scan_pos)
                     self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
                 else:
                     print("****** error: ******\nNumber of measurements is not consistent with excpected.\nthis line will be repeated.")
@@ -5151,240 +5151,13 @@ class GUI_OPX():  # todo: support several device
         if not (self.stopScan):
             self.btnStop()
 
-    def StartFastScan(self):  # currently flurascence scan
-        # todo: verify all axes are in closed loop
-
-        if self.stopScan == False:
-            self.stopScan = True
-            # self.btnStop()
-            return
-
-        # init
-        # self.logger = create_logger(f"{self.create_scan_file_name()}_log.txt")
-        self.positioner.SetVelocity(0, 0)
-        self.positioner.DisablePositionTrigger(0)
-        self.positioner.set_in_position_delay(0, delay=0)
-        # self.positioner.stream_manager.close_stream()
-        triggerMode = ctl.StreamTriggerMode.EXTERNAL
-        t_wait_motionStart = 5e-3
-        self.to_xml()  # save last params to xml
-        self.stopScan = False
-        isDebug = True
-        self.scan_Out = []
-        self.scan_intensities = []
-        self.scanFN = self.create_scan_file_name(local=True)
-
-        # convert Start Scan to Stop scan
-        dpg.set_item_label("btnOPX_StartScan", "Stop Scan")
-        dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnRedTheme")
-
-        self.exp = Experimet.FAST_SCAN
-        self.GUI_ParametersControl(isStart=False)
-
-        self.Xv = [0]
-        self.Yv = [0]
-        self.Zv = [0]
-        self.Y_vec_ref = []
-        self.initial_scan_Location = []
-        self.V_scan = []
-
-        x_channel = 0
-        y_channel = 1
-        z_channel = 2
-        motion_buffer = 10000  # pm
-
-        Nx = int(self.L_scan[x_channel] / self.dL_scan[x_channel]) if (self.dL_scan[x_channel] > 0 and self.b_Scan[x_channel]) else 1
-        Ny = int(self.L_scan[y_channel] / self.dL_scan[y_channel]) if (self.dL_scan[y_channel] > 0 and self.b_Scan[y_channel]) else 1
-        Nz = int(self.L_scan[z_channel] / self.dL_scan[z_channel]) if (self.dL_scan[z_channel] > 0 and self.b_Scan[z_channel]) else 1
-
-        # get current (initial) position
-        for ch in range(3):
-            res = self.readInpos(ch)
-        self.positioner.GetPosition()
-        self.absPosunits = list(self.positioner.AxesPosUnits)  # includes offset
-        self.initial_scan_Location = list(self.positioner.AxesPositions)  # includes offset
-        for ch in range(3):
-            if isDebug:
-                print(f"ch{ch}: in position = {res}, position = {self.initial_scan_Location[ch]} {self.positioner.AxesPosUnits[ch]}")
-
-        # goto scan start location
-        for ch in range(3):
-            if self.b_Scan[ch]:
-                self.ini_scan_pos[ch] = self.initial_scan_Location[ch] - self.L_scan[ch] * 1e3 / 2  # [pm]
-                self.positioner.MoveABSOLUTE(ch, int(self.ini_scan_pos[ch]))  # move absolute to start location
-                time.sleep(t_wait_motionStart)  # allow motion to start
-                res = self.readInpos(ch)  # wait motion ends
-                if isDebug:
-                    print(f"ch{ch} at initial scan position")
-            else:
-                self.ini_scan_pos[ch] = self.initial_scan_Location[ch]
-
-        self.positioner.GetPosition()
-
-        if isDebug:
-            for i in range(3):
-                print(f"ch[{i}] Pos = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
-
-        min_position_x_scan = self.ini_scan_pos[x_channel]
-        max_position_x_scan = self.ini_scan_pos[x_channel] + self.L_scan[x_channel] * 1e3
-
-        x_vec = np.linspace(min_position_x_scan, max_position_x_scan, Nx, endpoint=False)
-        y_vec = np.linspace(self.ini_scan_pos[y_channel], self.ini_scan_pos[y_channel] + self.L_scan[y_channel] * 1e3, Ny, endpoint=False)
-        z_vec = np.linspace(self.ini_scan_pos[z_channel], self.ini_scan_pos[z_channel] + self.L_scan[z_channel] * 1e3, Nz, endpoint=False)
-        motion_stream_points = [(x_channel, int(x)) for x in x_vec]
-        # x_motion_stream_points += [(x_channel, int(max_position_x_scan + motion_buffer))] + [(x_channel, int(min_position_x_scan - motion_buffer))]
-
-        self.scan_intensities = np.zeros((Nx, Ny, Nz))
-        self.scan_data = self.scan_intensities
-        self.idx_scan = [0, 0, 0]
-
-        self.startLoc = [self.ini_scan_pos[0] / 1e6, self.ini_scan_pos[1] / 1e6, self.ini_scan_pos[2] / 1e6]
-        self.endLoc = [self.startLoc[0] + self.dL_scan[0] * (Nx - 1) / 1e3, self.startLoc[1] + self.dL_scan[1] * (Ny - 1) / 1e3,
-                       self.startLoc[2] + self.dL_scan[2] * (Nz - 1) / 1e3]
-
-        # self.Plot_Scan() #000
-        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc, endLoc=self.endLoc)
-        # tic
-        if isDebug:
-            print("start scan steps")
-        start_time = time.time()
-        if isDebug:
-            print(f"start_time: {self.format_time(start_time)}")
-
-        self.positioner.MoveABSOLUTE(x_channel, int(min_position_x_scan - motion_buffer))
-        time.sleep(t_wait_motionStart)
-        for ch in range(3):
-            res = self.readInpos(ch)
-
-        self.positioner.SetPositionTrigger(x_channel, min_position_x_scan - 1000, max_position_x_scan - self.dL_scan[x_channel] * 1e3 - 1000,
-                                           self.dL_scan[x_channel] * 1e3, 1,  # Trigger on increasing values
-                                           50000,  # pulse width in ns
-                                           min_position_x_scan - 1000, True)
-
-        self.positioner.set_in_position_delay(x_channel, delay=0)  # todo:  tried both 0,2 and 10 however no effect on total scan time. why?
-        self.positioner.set_in_position_delay(z_channel, delay=0)  # todo:  tried both 0,2 and 10 however no effect on total scan time. why?
-        # [nm/ms] = 1e6 [pm/s]
-        # scanning_velocity = self.dL_scan[x_channel] / (self.total_integration_time + self.smaract_ttl_duration) * 0.2 * 1e6
-        # self.positioner.SetVelocity(x_channel, scanning_velocity)
-
-        self.qmm.clear_all_job_results()
-        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=Nx)
-        res_handles = self.job.result_handles
-        counts_handle = res_handles.get("counts_fastscan")
-        # self.logger.stdin.write(f"Starting scan\n".encode())
-        z_calibration_offset = int(
-            calculate_z_series(self.ZCalibrationData, np.array([self.initial_scan_Location[0]]), self.initial_scan_Location[1])[0])
-
-        stream_config_points = [(x_channel, 1, z_channel, 1)] if self.b_Zcorrection and not self.ZCalibrationData is None else [(x_channel, 1)]
-        self.positioner.confingure_stream_params(points=stream_config_points, pulse_width=50000, verbose=True)
-
-        for i in range(Nz):  # Z
-            if self.stopScan:
-                # self.logger.stdin.write(f"Scan stopped by user at z index {i}".encode())
-                break
-
-            # self.logger.stdin.write(f"Moving to Z position {z_vec[i]}\n".encode())
-            self.positioner.MoveABSOLUTE(2, int(z_vec[i]))
-            time.sleep(t_wait_motionStart)
-            self.readInpos(z_channel)
-
-            for j in range(Ny):  # Y
-                if self.stopScan:
-                    break
-                if j > 0:
-                    self.prepare_scan_data(max_position_x_scan, min_position_x_scan)
-                    self.save_scan_data(Nx, Ny, Nz, self.scanFN)
-
-                slice_start_time = time.time()
-                self.positioner.MoveABSOLUTE(y_channel, int(y_vec[j]))
-                if self.b_Zcorrection and not self.ZCalibrationData is None:
-                    z_vec_corrected = calculate_z_series(self.ZCalibrationData, x_vec, int(y_vec[j])) - z_calibration_offset + z_vec[i]
-                    motion_stream_points = [(x_channel, int(x), z_channel, int(z)) for x, z in zip(x_vec, z_vec_corrected)]
-                # self.logger.stdin.write(b"Preparing and saving scan data\n")
-
-                time.sleep(t_wait_motionStart)
-                self.readInpos(y_channel)
-                self.positioner.GetPosition()
-                print(f"Standing in position {self.positioner.AxesPositions[x_channel]}")
-
-                # start line scan in X direction (ch = 0)
-                # time.sleep(1) # unknown sleep
-                # self.positioner.DisablePositionTrigger(0)
-                # self.logger.stdin.write(f"Standing in position {self.positioner.AxesPositions}\n".encode())
-
-                # time.sleep(0.2)
-                self.positioner.DisablePositionTrigger(0)
-                self.positioner.SetPositionTrigger(x_channel, min_position_x_scan - 1000, max_position_x_scan - self.dL_scan[x_channel] * 1e3 - 1000,
-                                                   self.dL_scan[x_channel] * 1e3, 1,  # Trigger on increasing values
-                                                   50000,  # pulse width in ns
-                                                   min_position_x_scan - 1000, True)
-
-                self.positioner.SetUpStream(points=motion_stream_points, trigger_mode=triggerMode)
-                while (not self.positioner.is_streaming_active(x_channel)):
-                    time.sleep(5e-3)
-                while not self.job.is_paused():
-                    time.sleep(5e-3)
-                self.job.resume()
-                # while (self.positioner.is_streaming_active(x_channel)):
-                #     time.sleep(5e-3)    
-                while not self.job.is_paused():
-                    time.sleep(5e-3)
-                print('Waiting for motion end')
-
-                # init strip
-                self.positioner.DisablePositionTrigger(0)
-                self.readInpos(x_channel)
-                self.positioner.MoveABSOLUTE(x_channel, int(max_position_x_scan + motion_buffer))
-                time.sleep(t_wait_motionStart)
-                self.readInpos(x_channel)
-                self.positioner.MoveABSOLUTE(x_channel, int(min_position_x_scan - motion_buffer))
-                time.sleep(t_wait_motionStart)
-                self.readInpos(x_channel)
-                # Wait for data to be available
-                if counts_handle.is_processing():
-                    print('Waiting for QUA counts')
-                    counts_handle.wait_for_values(1)
-                    counts = counts_handle.fetch_all()
-                    self.qmm.clear_all_job_results()
-                    self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
-                    self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)
-
-                else:
-                    print('The OPX counts stream is inactive. Aborting scan')
-                    self.stopScan = True
-                    break
-                print(f"Time to scan one slice in X: {np.round(time.time() - slice_start_time, 2)} ")
-
-        # back to start position
-        for i in range(3):
-            self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
-            res = self.readInpos(i)
-            self.positioner.GetPosition()
-            print(f"ch{i}: in position = {res}, position = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
-
-        end_time = time.time()
-        print(f"end_time: {end_time}")
-        elapsed_time = end_time - start_time
-        print(f"number of points ={Nx * Ny * Nz}")
-        print(f"Elapsed time: {elapsed_time} seconds")
-
-        self.prepare_scan_data(max_position_x_scan, min_position_x_scan)
-        self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
-        self.stopScan = True
-
-        # convert Stop Scan to Start scan
-        dpg.set_item_label("btnOPX_StartScan", "Start Scan")
-        dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
-
-        self.positioner.set_in_position_delay(x_channel, delay=10)
-
-    def prepare_scan_data(self, max_position_x_scan, min_position_x_scan):
+    def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
         # Create object to be saved in excel
         self.scan_Out = []
         # probably unit issue
         x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
-        y_vec = np.linspace(self.ini_scan_pos[1], self.ini_scan_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
-        z_vec = np.linspace(self.ini_scan_pos[2], self.ini_scan_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
+        y_vec = np.linspace(start_pos[1], start_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
+        z_vec = np.linspace(start_pos[2], start_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
         for i in range(np.size(self.scan_intensities, 2)):
             for j in range(np.size(self.scan_intensities, 1)):
                 for k in range(np.size(self.scan_intensities, 0)):
