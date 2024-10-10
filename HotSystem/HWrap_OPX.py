@@ -1542,11 +1542,11 @@ class GUI_OPX():  # todo: support several device
 
     def ODMR_Bfield_QUA_PGM(self):  # CW_ODMR
         
-        # get values
+        # specific per experiment
+        # get experiment values from GUI
         items_val = self.GetItemsVal(items_tag=["inInt_process_time","inInt_TcounterPulsed","inInt_Tsettle","inInt_t_mw","inInt_edge_time"])
 
-        # time
-        # tMeasueProcess = self.time_in_multiples_cycle_time(items_val["inInt_process_time"]) #self.MeasProcessTime)
+        # Experiment time period parameters
         tLaser = self.time_in_multiples_cycle_time(items_val["inInt_TcounterPulsed"] + 
                                                    items_val["inInt_Tsettle"] + 
                                                    items_val["inInt_process_time"]) #self.TcounterPulsed+self.Tsettle+tMeasueProcess)
@@ -1556,15 +1556,12 @@ class GUI_OPX():  # todo: support several device
         tEdge = self.time_in_multiples_cycle_time(items_val["inInt_edge_time"])#self.Tedge)
         tBfield = self.time_in_multiples_cycle_time(tMW + 2*tEdge)
 
-        vec = self.GenVector(min=0 * self.u.MHz,max = self.mw_freq_scan_range * self.u.MHz ,delta=self.mw_df * self.u.MHz) # MW frequency scan vector
-        # f_min = 0 * self.u.MHz                              # [Hz], start of freq sweep
-        # f_max = self.mw_freq_scan_range * self.u.MHz        # [Hz] end of freq sweep
-        # df = self.mw_df * self.u.MHz                        # [Hz], freq step
-        # self.f_vec = np.arange(f_min, f_max + df/10, df)    # [Hz], frequencies vector
+        # Scan over MW frequency - gen its vector
+        vec = self.GenVector(min=0 * self.u.MHz,max = self.mw_freq_scan_range * self.u.MHz ,delta=self.mw_df * self.u.MHz) 
+        array_length = len(vec)                      
         self.f_vec = vec
 
         # length and idx vector
-        array_length = len(self.f_vec)                      # frquencies vector size
         idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
 
         # tracking signal
