@@ -16,13 +16,13 @@
 				<SerialNumber>N/A</SerialNumber>
                 <COMPort>N/A</COMPort>
 			</Device>
-			<!-- <Device>
+			<Device>
 				<Instrument>cobolt</Instrument>
 				<IPAddress>N/A</IPAddress>
 				<MACAddress>N/A</MACAddress>
 				<SerialNumber>N/A</SerialNumber>
-                <COMPort>N/A</COMPort>
-			</Device> -->
+                <COMPort>3</COMPort>
+			</Device>
 			<Device>
 				<Instrument>zelux</Instrument>
 				<IPAddress>N/A</IPAddress>
