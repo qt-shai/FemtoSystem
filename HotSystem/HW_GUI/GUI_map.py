@@ -1,7 +1,9 @@
 import math
 import os
+import pdb
 import sys
 import time
+import traceback
 
 import dearpygui.dearpygui as dpg
 from functools import partial
@@ -10,9 +12,14 @@ import numpy as np
 
 from Utils import calculate_z_series
 
+import xml.etree.ElementTree as ET
+
 class Map:
-    def __init__(self,ZCalibrationData: np.ndarray | None = None):
+    def __init__(self,ZCalibrationData: np.ndarray | None = None, use_picomotor = False):
         # Initialize variables
+        self.is_windows_shrunk = False
+        self.win_size = [300, 900]
+        self.disable_d_click = False
         self.click_coord = None
         self.clicked_position = None
         self.map_item_x = 0
@@ -44,7 +51,9 @@ class Map:
         self.ZCalibrationData = ZCalibrationData
 
         # Load map parameters
-        self.load_map_parameters()
+        self.use_picomotor, self.exp_notes = self.load_map_parameters()
+
+        # self.update_from_xml()
 
     def delete_map_gui(self):
         self.delete_all_markers()
@@ -54,7 +63,52 @@ class Map:
         if dpg.does_item_exist("handler_registry"):
             dpg.delete_item("handler_registry")
 
+    def toggle_shrink_child_windows(self):
+        try:
+            """Toggle shrinking and expanding of child windows to make the map image more visible."""
+
+            # Define child window tags
+            child_windows_to_toggle = [
+                "child_window_1",
+                "child_window_2",  # Add all child window tags here
+                "child_window_3",
+                "child_window_4",
+                "child_window_5"
+            ]
+
+            # Toggle between shrinking and expanding
+            if self.is_windows_shrunk:
+                child_width = int(self.win_size[0] * 0.45)
+                child_height = int(self.win_size[1] * 0.5)
+                # Expand child windows to original size
+                for child_window in child_windows_to_toggle:
+                    if dpg.does_item_exist(child_window):
+                        dpg.set_item_width(child_window,  child_width)  # Original width
+                        dpg.set_item_height(child_window, child_height)  # Original height
+                # Update button label
+                dpg.set_item_label("toggle_shrink_button", "<<<")
+                self.is_windows_shrunk = False
+            else:
+                # Shrink child windows
+                child_width = int(self.win_size[0] * 0.15)
+                child_height = int(self.win_size[1] * 0.5)
+                for child_window in child_windows_to_toggle:
+                    if dpg.does_item_exist(child_window):
+                        dpg.set_item_width(child_window, child_width)  # Shrunk width
+                        dpg.set_item_height(child_window, child_height)  # Shrunk height
+                # Update button label
+                dpg.set_item_label("toggle_shrink_button", ">>>")
+                self.is_windows_shrunk = True
+
+        except Exception as e:
+            print(f"Error: {e}")
+
+
+
     def create_map_gui(self, win_size, win_pos):
+        self.win_size = win_size
+        use_pico=False
+        exp_notes=""
 
         # Check if the handler_registry already exists
         if not dpg.does_item_exist("handler_registry"):
@@ -70,7 +124,7 @@ class Map:
                     self.Map_aspect_ratio = self.width / self.height
 
                 with dpg.window(label="Map Resizer", width=win_size[0], height=win_size[1]*3, tag="Map_window",
-                                pos=[700, 5], horizontal_scrollbar=True):
+                                pos=[700, 5], horizontal_scrollbar=True, collapsed=True):
                     child_width = win_size[0]*0.45
                     child_height = win_size[1]*0.5
                     # Main horizontal group to separate controls and map
@@ -78,7 +132,7 @@ class Map:
                         # Left-hand side: Control panels
                         with dpg.group(horizontal=False):
                             # Group for map controls: Width, Height, and Aspect Ratio
-                            with dpg.child_window(width=child_width, height=child_height):
+                            with dpg.child_window(width=child_width, height=child_height,tag = "child_window_1",horizontal_scrollbar=True):
                                 dpg.add_text("Map Size & Aspect Ratio Controls", bullet=True)
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
 
@@ -98,8 +152,10 @@ class Map:
                                                       callback=self.resize_from_input, width=100)
                                     dpg.add_button(label="ON", callback=self.toggle_aspect_ratio)
 
+                                dpg.add_button(label="<<<", tag="toggle_shrink_button", callback=self.toggle_shrink_child_windows)
+
                             # Group for Offset Controls
-                            with dpg.child_window(width=child_width, height=child_height*1.2):
+                            with dpg.child_window(width=child_width, height=child_height*1.2, tag = "child_window_2",horizontal_scrollbar=True):
                                 dpg.add_text("Offset Controls", bullet=True)
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
                                 with dpg.group(horizontal=True):
@@ -127,7 +183,7 @@ class Map:
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
 
                             # Group for marking points, areas, and update scan
-                            with dpg.child_window(width=child_width, height=child_height):
+                            with dpg.child_window(width=child_width, height=child_height, tag = "child_window_3",horizontal_scrollbar=True):
                                 dpg.add_text("Marker & Scan Controls", bullet=True)
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
 
@@ -149,7 +205,7 @@ class Map:
                                                       width=150, min_value=50, default_value=60, step=1, step_fast=10)
                                     dpg.add_button(label="Scan All Area Markers", callback=self.scan_all_area_markers)
                                     dpg.bind_item_theme(dpg.last_item(), theme="btnYellowTheme")
-                                    dpg.add_checkbox(label="Picomotor", tag="chkbox_use_picomotor", indent=-1,
+                                    dpg.add_checkbox(label="Pico", tag="checkbox_map_use_picomotor", indent=-1,
                                                      callback=self.toggle_use_picomotor, default_value=self.use_picomotor)
 
                                 with dpg.group(horizontal=True):
@@ -159,9 +215,10 @@ class Map:
                                                       width=150, min_value=0, default_value=1, step=1,
                                                       step_fast=100, callback=self.btn_num_of_digits_change)
                                     dpg.add_button(label="Fix area", callback=self.fix_area)
+                                    dpg.add_checkbox(label="Disable d.click",tag="checkbox_disable_d_click", callback=self.toggle_disable_d_click, default_value=self.disable_d_click)
 
                             # Group for marker movement buttons
-                            with dpg.child_window(width=child_width, height=child_height):
+                            with dpg.child_window(width=child_width, height=child_height, tag = "child_window_4",horizontal_scrollbar=True):
                                 dpg.add_text("Marker Movement Controls", bullet=True)
                                 dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
                                 with dpg.group(horizontal=True):
@@ -222,7 +279,7 @@ class Map:
                                                    callback=lambda: self.stretch_squeeze_area_marker("squeeze_y"))
 
                             # Table for displaying markers
-                            with dpg.child_window(width=child_width, height=900):
+                            with dpg.child_window(width=child_width, height=900, tag = "child_window_5",horizontal_scrollbar=True):
                                 with dpg.group(horizontal=True):
                                     dpg.add_text("Markers Table   ", bullet=True)
                                     dpg.bind_item_theme(dpg.last_item(), "highlighted_header_theme")
@@ -247,11 +304,14 @@ class Map:
                             # Display the map image
                             dpg.add_image("map_texture", width=self.width, height=self.height, tag="map_image")
                             dpg.add_draw_layer(tag="map_draw_layer", parent="Map_window")
-
-            self.load_map_parameters()  # load map parameters
-            self.move_mode = "marker"
         else:
             print(f"{self.image_path} does not exist")
+
+        use_pico, exp_notes = self.load_map_parameters()  # load map parameters
+        # self.update_from_xml()
+
+        self.toggle_shrink_child_windows()
+        return use_pico, exp_notes
 
     # Placeholder methods for the callbacks used in the GUI
     def fix_area(self):
@@ -762,7 +822,7 @@ class Map:
             for line in lines:
                 if any(param in line for param in
                        ["OffsetX", "OffsetY", "FactorX", "FactorY", "MoveStep", "NumOfDigits", "ImageWidth",
-                        "ImageHeight", "Exp_notes", "LoggedPoint", "Marker", "Rectangle", "use_picomotor"]):
+                        "ImageHeight", "Exp_notes", "Marker", "Rectangle", "use_picomotor", "disable_d_click", "is_windows_shrunk"]):
                     # Skip lines that will be replaced by the new map parameters, points, and markers
                     continue
                 new_content.append(line)
@@ -776,9 +836,9 @@ class Map:
             new_content.append(f"NumOfDigits: {dpg.get_value('MapNumOfDigits')}\n")
             new_content.append(f"ImageWidth: {dpg.get_value('width_slider')}\n")
             new_content.append(f"ImageHeight: {dpg.get_value('height_slider')}\n")
-
-            # Save experimental notes
-            new_content.append(f"Exp_notes: {self.expNotes}\n")
+            new_content.append(f"Exp_notes: {dpg.get_value('inTxtScan_expText')}\n")
+            new_content.append(f"disable_d_click: {self.disable_d_click}\n")
+            new_content.append(f"is_windows_shrunk: {self.is_windows_shrunk}\n")
 
             # Save the use_picomotor state
             new_content.append(f"use_picomotor: {self.use_picomotor}\n")
@@ -799,11 +859,163 @@ class Map:
 
             print("Map parameters, point markers, and rectangles saved without touching device states.")
 
+            # self.to_xml()
+
         except Exception as e:
             print(f"Error saving map parameters: {e}")
 
+    def to_xml(self, filename="Map_params.xml"):
+
+        root = ET.Element("MapParameters")
+
+        # Iterate over attributes in the class
+        for key, value in self.__dict__.items():
+            # Save basic data types directly
+            if isinstance(value, (int, float, str, bool)):
+                param = ET.SubElement(root, key)
+                param.text = str(value)
+
+            # Save lists
+            elif isinstance(value, list):
+                list_elem = ET.SubElement(root, key)
+                for item in value:
+                    item_elem = ET.SubElement(list_elem, "item")
+                    if isinstance(item, (int, float, str, bool)):
+                        item_elem.text = str(item)
+                    elif isinstance(item, dict):  # Handle dicts inside lists
+                        for sub_key, sub_value in item.items():
+                            sub_elem = ET.SubElement(item_elem, sub_key)
+                            sub_elem.text = str(sub_value)
+
+            # Save NumPy arrays
+            elif isinstance(value, np.ndarray):
+                array_elem = ET.SubElement(root, key)
+                for row in value:
+                    row_elem = ET.SubElement(array_elem, "row")
+                    if isinstance(row, (np.ndarray, list)):
+                        for cell in row:
+                            cell_elem = ET.SubElement(row_elem, "cell")
+                            cell_elem.text = str(cell)
+                    else:
+                        row_elem.text = str(row)
+
+        # Write to XML file
+        tree = ET.ElementTree(root)
+        with open(filename, "wb") as f:
+            tree.write(f)
+
+    def convert_to_correct_type(self, attribute, value, idx=None):
+        # Conversion based on attribute name or type
+        attr_type = type(getattr(self, attribute, None))
+
+        if attr_type == bool:
+            return value.lower() in ("true", "1")
+        elif attr_type == int:
+            return int(value)
+        elif attr_type == float:
+            return float(value)
+        elif isinstance(getattr(self, attribute, None), list):
+            # If the attribute is a list, convert each element to the correct type
+            try:
+                # Convert the value to float for all elements in the list
+                return float(value)
+            except ValueError:
+                # Fallback to original value if it cannot be converted
+                return value
+        elif isinstance(getattr(self, attribute, None), np.ndarray):
+            return np.float64(value)  # Assuming numpy arrays store float data
+        else:
+            return value
+
+    def update_from_xml(self, filename="Map_params.xml"):
+        try:
+            # Parse XML file
+            tree = ET.parse(filename)
+            root = tree.getroot()
+
+            # Get the properties of the class
+            properties = vars(self).keys()
+
+            for param in root:
+                # Update only if the parameter is a property of the class
+                if param.tag in properties:
+                    current_attr = getattr(self, param.tag)
+
+                    # Handle list or numpy array types
+                    if isinstance(current_attr, (list, np.ndarray)):
+                        list_items = []
+                        for idx, item in enumerate(param):
+                            converted_item = self.convert_to_correct_type(attribute=param.tag, value=item.text, idx=idx)
+                            list_items.append(converted_item)
+
+                        # Set as list or convert to numpy array based on original type
+                        updated_value = list_items if isinstance(current_attr, list) else np.array(list_items)
+                        setattr(self, param.tag, updated_value)
+
+                    else:
+                        # Convert the text value to the appropriate type
+                        value = self.convert_to_correct_type(param.tag, param.text)
+                        setattr(self, param.tag, value)
+
+        except Exception as ex:
+            # Capture and print error details
+            self.error = f"Unexpected error: {ex} ({type(ex).__name__}) in line: {sys.exc_info()[-1].tb_lineno}"
+            print(self.error)
+
     def load_map_parameters(self):
         try:
+            exp_notes = ""
+            # Dictionaries to store positions and sizes loaded from the file
+            window_positions = {}
+            window_sizes = {}
+
+            # Check if the configuration file exists
+            with open("map_config.txt", "r") as file:
+                lines = file.readlines()
+                for line in lines:
+                    # Split the line and check if it has the correct format
+                    parts = line.split(": ")
+                    if len(parts) < 2:
+                        continue  # Skip lines that don't have the expected format
+
+                    key = parts[0]
+                    value = parts[1].strip()  # Remove any extra whitespace
+
+                    # Load experimental notes
+                    if key == "Exp_notes":
+                        exp_notes = value
+                        if dpg.does_item_exist("inTxtScan_expText"):
+                            dpg.set_value("inTxtScan_expText", value)  # Update the input text widget with the loaded notes
+
+                    elif key == "use_picomotor":
+                        self.use_picomotor = value.lower() == "true"  # Convert to boolean
+                        if dpg.does_item_exist("checkbox_map_use_picomotor"):
+                            dpg.set_value("checkbox_map_use_picomotor", self.use_picomotor)
+
+                    elif key == "disable_d_click":
+                        self.disable_d_click = value.lower() == "true"
+                        if dpg.does_item_exist("checkbox_map_disable_d_click"):
+                            dpg.set_value("checkbox_map_disable_d_click", self.disable_d_click)
+
+                    elif key == "is_windows_shrunk":
+                        self.is_windows_shrunk = value.lower() == "true"
+                        if dpg.does_item_exist("checkbox_map_is_windows_shrunk"):
+                            dpg.set_value("checkbox_map_is_windows_shrunk", self.is_windows_shrunk)
+
+                    # Check if the key is a window position entry
+                    elif "_Pos" in key:
+                        # Extract window name and coordinates
+                        window_name = key.replace("_Pos", "")
+                        x, y = value.split(", ")
+                        window_positions[window_name] = (float(x), float(y))
+
+                    # Check if the key is a window size entry
+                    elif "_Size" in key:
+                        # Extract window name and dimensions
+                        window_name = key.replace("_Size", "")
+                        width, height = value.split(", ")
+                        window_sizes[window_name] = (int(width), int(height))
+
             if not dpg.does_item_exist("map_image"):
                 print("map image does not exist.")
             else:
@@ -890,33 +1102,41 @@ class Map:
                                 print(len(rect_coords))
                                 print("Rectangle should have 5 values (4 coordinates and Z scan state)")
 
-                        # Load experimental notes
-                        elif key == "Exp_notes":
-                            self.expNotes = value
-                            dpg.set_value("inTxtScan_expText", value)  # Update the input text widget with the loaded notes
+                # Activate the last marker and area marker after loading
+                if self.markers:
+                    self.active_marker_index = len(self.markers) - 1
+                    self.act_marker(self.active_marker_index)  # Activate the last marker
 
-                        # Load and update use_picomotor state
-                        elif key == "use_picomotor":
-                            self.use_picomotor = value.lower() == "true"  # Convert to boolean
-                            if dpg.does_item_exist("chkbox_use_picomotor"):
-                                dpg.set_value("chkbox_use_picomotor", self.use_picomotor)
+                if self.area_markers:
+                    self.active_area_marker_index = len(self.area_markers) - 1
+                    self.act_area_marker(self.active_area_marker_index)  # Activate the last area marker
 
-            print("Map parameters and markers loaded.")
+                self.update_markers_table()
 
-            # Activate the last marker and area marker after loading
-            if self.markers:
-                self.active_marker_index = len(self.markers) - 1
-                self.act_marker(self.active_marker_index)  # Activate the last marker
+                print("Map parameters and markers loaded.")
 
-            if self.area_markers:
-                self.active_area_marker_index = len(self.area_markers) - 1
-                self.act_area_marker(self.active_area_marker_index)  # Activate the last area marker
+            # Update window positions and sizes in Dear PyGui if the windows exist
+            for window_name, pos in window_positions.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_pos(window_name, pos)
+                    print(f"Loaded position for {window_name}: {pos}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
 
-            self.update_markers_table()
+            for window_name, size in window_sizes.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_width(window_name, size[0])
+                    dpg.set_item_height(window_name, size[1])
+                    print(f"Loaded size for {window_name}: {size}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
+            return self.use_picomotor, exp_notes
         except FileNotFoundError:
             print("map_config.txt not found.")
         except Exception as e:
             print(f"Error loading map parameters: {e}")
+            traceback.print_exc()  # This will print the full traceback including the line number
 
     def update_markers_table(self):
         """Rebuild the table rows to show both markers and area markers."""
@@ -1151,6 +1371,7 @@ class Map:
     def map_click_callback(self, app_data):
         # Get the mouse position relative to the map widget
         try:
+
             mouse_pos = dpg.get_mouse_pos(local=True)
 
             if mouse_pos is None:
@@ -1173,19 +1394,26 @@ class Map:
                 print("No Z calibration data.")
                 return 1
 
+            # pdb.set_trace()  # Insert a manual breakpoint
             # Calculate the relative position of the click on the map
             relative_x = (mouse_x - self.map_item_x - dpg.get_value("MapOffsetX")) * dpg.get_value("MapFactorX")
             relative_y = (mouse_y - self.map_item_y - dpg.get_value("MapOffsetY")) * dpg.get_value("MapFactorY")
-            z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)), int(relative_y * 1e6))) / 1e6
+
+            # Make sure to pass both x and y as separate parameters, not in an array
+            z_evaluation=0
+            if hasattr(self, 'ZCalibrationData') and self.ZCalibrationData is not None and len(self.ZCalibrationData) > 0:
+                print(self.ZCalibrationData)
+                z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)), np.array(int(relative_y * 1e6)))) / 1e6
+
             # Update the text with the coordinates
             dpg.set_value("coordinates_text", f"x = {relative_x:.1f}, y = {relative_y:.1f}, z = {z_evaluation:.2f}")
-            # Check if the current clicked_position is equal to the previous clicked position
 
+            # Check if the current clicked_position is equal to the previous clicked position
             if self.marker_exists((relative_x, relative_y)):
                 print("A marker with the same relative coordinates already exists.")
                 return 1  # Prevent creating a new marker
 
-            if self.click_coord == (relative_x, relative_y, z_evaluation):
+            if self.click_coord == (relative_x, relative_y, z_evaluation) and not self.disable_d_click:
                 # Do something when the positions are equal
                 print("Current click position is the same as the previous click.")
                 self.mark_point_on_map()
@@ -1195,7 +1423,9 @@ class Map:
                 self.click_coord = (relative_x, relative_y, z_evaluation)
 
         except Exception as e:
+            # Print the error message along with the detailed traceback
             print(f"Error in map_click_callback: {e}")
+            traceback.print_exc()  # This will print the complete traceback, including the line number of the error
 
     def delete_all_markers(self):
         # Delete all point markers and their associated text
@@ -1249,35 +1479,39 @@ class Map:
         print("All markers and rectangles except active ones have been deleted.")
 
     def mark_point_on_map(self):
-        if hasattr(self, 'clicked_position'):
-            x_pos, y_pos = self.clicked_position
+        # Ensure that self.clicked_position exists and is not None
+        if not hasattr(self, 'clicked_position') or self.clicked_position is None:
+            print("Error: Clicked position is not defined.")
+            return  # Exit the function if clicked position is not set
 
-            marker_tag = f"marker_{len(self.markers)}"
-            text_tag = f"text_{len(self.markers)}"
+        x_pos, y_pos = self.clicked_position
 
-            # Retrieve the number of digits from the input field
-            num_of_digits = dpg.get_value("MapNumOfDigits")
+        marker_tag = f"marker_{len(self.markers)}"
+        text_tag = f"text_{len(self.markers)}"
 
-            # Update the format string to use the retrieved number of digits
-            coord_text = f"({self.click_coord[0]:.{num_of_digits}f}, {self.click_coord[1]:.{num_of_digits}f}, {self.click_coord[2]:.{num_of_digits}f})"
+        # Retrieve the number of digits from the input field
+        num_of_digits = dpg.get_value("MapNumOfDigits")
 
-            # Add a circle at the clicked position
-            dpg.draw_circle(center=(x_pos, y_pos), radius=2, color=(255, 0, 0, 255), fill=(255, 0, 0, 100), parent="map_draw_layer", tag=marker_tag)
+        # Update the format string to use the retrieved number of digits
+        coord_text = f"({self.click_coord[0]:.{num_of_digits}f}, {self.click_coord[1]:.{num_of_digits}f}, {self.click_coord[2]:.{num_of_digits}f})"
 
-            # Add text next to the marker showing the 3 coordinates, using the selected text color
-            dpg.draw_text(pos=(x_pos, y_pos), text=coord_text, color=self.text_color, size=14 + num_of_digits * 2,
-                          parent="map_draw_layer", tag=text_tag)
+        # Add a circle at the clicked position
+        dpg.draw_circle(center=(x_pos, y_pos), radius=2, color=(255, 0, 0, 255), fill=(255, 0, 0, 100), parent="map_draw_layer", tag=marker_tag)
 
-            print(coord_text)
+        # Add text next to the marker showing the 3 coordinates, using the selected text color
+        dpg.draw_text(pos=(x_pos, y_pos), text=coord_text, color=self.text_color, size=14 + num_of_digits * 2,
+                      parent="map_draw_layer", tag=text_tag)
 
-            # Store the marker and text tags, along with the relative and clicked positions
-            self.markers.append((marker_tag, text_tag, self.click_coord, self.clicked_position))
+        print(coord_text)
 
-            # Activate the newly added marker by setting it as the active marker
-            self.active_marker_index = len(self.markers) - 1
+        # Store the marker and text tags, along with the relative and clicked positions
+        self.markers.append((marker_tag, text_tag, self.click_coord, self.clicked_position))
 
-            self.update_markers_table()
-            self.update_marker_texts()
+        # Activate the newly added marker by setting it as the active marker
+        self.active_marker_index = len(self.markers) - 1
+
+        self.update_markers_table()
+        self.update_marker_texts()
 
     def update_marker_texts(self, full=1):
         # Retrieve the updated number of digits
@@ -1300,8 +1534,16 @@ class Map:
                 relative_y = (abs_y - self.map_item_y - dpg.get_value("MapOffsetY")) * dpg.get_value("MapFactorY")
 
                 # Recalculate Z based on the updated relative coordinates
-                z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)),
-                                                        int(relative_y * 1e6))) / 1e6
+                z_evaluation=0
+                try:
+                    if hasattr(self, 'ZCalibrationData') and self.ZCalibrationData is not None and len(
+                            self.ZCalibrationData) > 2:
+                        z_evaluation = float(calculate_z_series(self.ZCalibrationData, np.array(int(relative_x * 1e6)),
+                                                                int(relative_y * 1e6))) / 1e6
+                except Exception as e:
+                    # Catch all other exceptions
+                    print(f"An unexpected error occurred: {e}")
+
 
                 # Update click_coord with the new calculated relative X, Y, and Z values
                 click_coord = [relative_x, relative_y, z_evaluation]
@@ -1662,8 +1904,11 @@ class Map:
     def toggle_use_picomotor(sender, app_data, user_data):
         sender.use_picomotor = user_data
         time.sleep(0.001)
-        dpg.set_value(item="chkbox_use_picomotor", value=sender.use_picomotor)
+        dpg.set_value(item="checkbox_map_use_picomotor", value=sender.use_picomotor)
         print("Set use_picomotor to: " + str(sender.use_picomotor))
 
-
+    def toggle_disable_d_click(self, app_data, user_data):
+        self.disable_d_click = user_data
+        dpg.set_value(item="checkbox_disable_d_click", value=self.disable_d_click)
+        print("Set disable d click to: " + str(self.disable_d_click))
 

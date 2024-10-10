@@ -1,6 +1,6 @@
 # Import the .NET Common Language Runtime (CLR) to allow interaction with .NET
 # Install the 'pythonnet' package using 'pip install pythonnet'
-
+import time
 # Solution: Unblock the Assembly
 # Unblock the Assembly:
 #
@@ -11,6 +11,8 @@
 
 from typing import Optional, Tuple, List
 import clr
+import math
+
 from SystemConfig import Instruments, Device
 
 # Add a reference to each .NET assembly required
@@ -68,6 +70,8 @@ class newportPicomotor():
         self.Address: Optional[int] = None
         self.LoggedPoints = []
         self.KeyboardEnabled = True
+        self.U = [1, 0, 0]
+        self.V = [0, 1, 0]
 
     def __del__(self):
         self.Disconnect()
@@ -251,7 +255,12 @@ class newportPicomotor():
             for ch in range(self.no_of_channels):
                 status, self.AxesPositions[ch] = self.Pico.GetPosition(self.ky, ch + 1, 0)
                 if not status:
-                    print(f"Failed to get position for channel {ch+1}")
+                    print('Connection probably lost, trying to reconnect')
+                    self.connect()
+                    time.sleep(0.3)
+                    status, self.AxesPositions[ch] = self.Pico.GetPosition(self.ky, ch + 1, 0)
+                    if not status:
+                        print(f"Failed to get position for channel {ch+1}")
         except Exception as e:
             self.error = f"Failed to get position: {e}"
             print(self.error)
@@ -433,4 +442,29 @@ class newportPicomotor():
         status = self.Pico.MoveToHome(self.ky, self.Address, Motor)
         if not status:
             print(f"Failed to move motor {Motor} to home position.")
+
+    def calc_uv(self):
+        if len(self.LoggedPoints) < 3:
+            print(f"Please log at least three points prior to calculating u & v")
+            return
+        p1, p2, p3 = self.LoggedPoints[-3:]
+        self.U = self.calculate_vector(p1, p2)
+        self.V = self.calculate_vector(p2, p3)
+        print(f"Picomotor: U={self.U}, V={self.V}")
+
+    def calculate_vector(self, p1, p2):
+        difference = [p2[i] - p1[i] for i in range(len(p1))]
+        try:
+            magnitude = math.sqrt(sum([component ** 2 for component in difference]))
+            if magnitude == 0 or magnitude == 0:
+                print("The two points are identical, cannot compute vector.")
+                return None
+                # raise ValueError("The two points are identical, cannot compute vector.")
+
+            return [round(component / magnitude,3) for component in difference]
+
+        except ZeroDivisionError:
+            print("Division by zero error encountered during vector normalization.")
+        except ValueError as e:
+            print(e)
         

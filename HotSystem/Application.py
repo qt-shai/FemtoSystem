@@ -1,4 +1,5 @@
 import inspect
+import pdb
 from typing import Optional
 import dearpygui.demo as DPGdemo
 import imgui
@@ -16,7 +17,8 @@ from HW_GUI import GUI_Zelux as gui_Zelux
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_mattise import GUIMatisse
 from HW_GUI.GUI_motors import GUIMotor
-from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
+from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments, \
+    create_system_config_selector, load_instrument_images
 from Window import Window_singleton
 import threading
 import glfw
@@ -366,7 +368,6 @@ class Application_singletone:
 
 class PyGuiOverlay(Layer):
 
-
     CURRENT_KEY: Optional[KeyboardKeys]
 
     m_Time = 0.0
@@ -386,7 +387,6 @@ class PyGuiOverlay(Layer):
         self.smaractGUI = None
         self.atto_positioner_gui:Optional[GUIMotor] = None
         self.highland_gui: Optional[GUIHighlandT130] = None
-        self.lsr = None
         self.opx = None
         self.cam = None
         self.simulation = simulation
@@ -413,31 +413,31 @@ class PyGuiOverlay(Layer):
         while self.KeepThreadRunning:
             time.sleep(1)
             try:
-                if self.lsr.isConnected:
-                    Laser_state=self.lsr.laser.get_state() #111
+                if self.coboltGUI.laser.isConnected:
+                    Laser_state=self.coboltGUI.laser.get_state() #111
                     dpg.set_value("Laser State","State:  "+Laser_state)
-                    Laser_mode=self.lsr.laser.get_mode()
+                    Laser_mode=self.coboltGUI.laser.get_mode()
                     dpg.set_value("Laser Mode","Mode: "+Laser_mode)
 
-                    if self.lsr.laser.is_on():
+                    if self.coboltGUI.laser.is_on():
                         dpg.set_value("Laser ON OFF","The Laser is ON")
                         dpg.set_value("Turn_ON_OFF",True)
                     else:
                         dpg.set_value("Laser ON OFF","The Laser is OFF")
                         dpg.set_value("Turn_ON_OFF",False)
 
-                    Laser_power=str(round(self.lsr.laser.get_power()*10)/10)
-                    Laser_current=str(self.lsr.laser.get_current())
-                    Laser_mod_power=str(round(self.lsr.laser.get_modulation_power()*10)/10)
-                    Base_temp=self.lsr.laser.get_Base_temperature()
-                    TEC_temp=self.lsr.laser.get_TEC_temperature()
+                    Laser_power=str(round(self.coboltGUI.laser.get_power()*10)/10)
+                    Laser_current=str(self.coboltGUI.laser.get_current())
+                    Laser_mod_power=str(round(self.coboltGUI.laser.get_modulation_power()*10)/10)
+                    Base_temp=self.coboltGUI.laser.get_Base_temperature()
+                    TEC_temp=self.coboltGUI.laser.get_TEC_temperature()
 
                     dpg.set_value("Laser Power","Power "+Laser_power+" mW")
                     dpg.set_value("Laser Current","Current "+Laser_current+" mA")
                     dpg.set_value("Laser Mod Power","Mod. Power "+Laser_mod_power+" mW")
                     dpg.set_value("Laser TEC","TEC "+TEC_temp+" C")
                     dpg.set_value("Laser Base","Base Plate "+Base_temp+" C")
-                    am,dm = self.lsr.laser.get_modulation_state()
+                    am,dm = self.coboltGUI.laser.get_modulation_state()
                     dpg.set_value("Analog_Modulation_cbx",am=='1')
                     dpg.set_value("Digital_Modulation_cbx",dm=='1')
 
@@ -629,6 +629,8 @@ class PyGuiOverlay(Layer):
         vertical_spacing = 20  # Spacing between GUIs
 
         """Load specific instruments based on the system configuration."""
+        self.simulation = any(device.instrument == Instruments.SIMULATION for device in self.system_config.devices)
+
         for device in self.system_config.devices:
             instrument = device.instrument
 
@@ -649,10 +651,9 @@ class PyGuiOverlay(Layer):
                     self.smaract_thread.start()
 
             elif instrument == Instruments.COBOLT:
-                self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation)
+                self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation, com_port = device.com_port)
                 dpg.set_item_pos(self.coboltGUI.window_tag, [20, y_offset])
                 y_offset += dpg.get_item_height(self.coboltGUI.window_tag) + vertical_spacing
-
                 if not self.simulation:
                     self.cobolt_thread = threading.Thread(target=self.render_cobolt)
                     self.cobolt_thread.start()
@@ -763,6 +764,7 @@ class PyGuiOverlay(Layer):
 
             # Determine if coarse movement is enabled (for OPX and other devices)
             is_coarse = self.CURRENT_KEY == KeyboardKeys.CTRL_KEY
+            is_coarse_pico = self.CURRENT_KEY == KeyboardKeys.ALT_KEY
 
             # Map the key data to the KeyboardKeys enum
             if key_data in KeyboardKeys._value2member_map_:
@@ -771,7 +773,7 @@ class PyGuiOverlay(Layer):
                 return
 
 
-            # Handle OPX movement logic if enabled
+            # Handle OPX map logic if enabled
             if hasattr(self.opx, 'map') and self.opx.map is not None:
                 if self.opx.map.map_keyboard_enable:
                     self.handle_opx_keyboard_movement(key_data_enum, is_coarse)
@@ -783,7 +785,7 @@ class PyGuiOverlay(Layer):
             # Handle Picomotor controls
             elif self.CURRENT_KEY in [KeyboardKeys.ALT_KEY, KeyboardKeys.Z_KEY]:
                 print("picomotor key")
-                self.handle_picomotor_controls(key_data_enum, is_coarse)
+                self.handle_picomotor_controls(key_data_enum, is_coarse_pico)
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
@@ -1006,6 +1008,15 @@ class PyGuiOverlay(Layer):
     def handle_smaract_controls(self, key_data_enum, is_coarse):
         """Handles keyboard input for Smaract device controls."""
         try:
+            if key_data_enum == KeyboardKeys.S_KEY: # Save all even if keyboard disabled
+                #pdb.set_trace()  # Insert a manual breakpoint
+                self.smaractGUI.save_log_points()
+                self.picomotorGUI.save_log_points()
+                self.smaractGUI.save_pos()
+                if hasattr(self.opx, 'map') and self.opx.map is not None:
+                    self.opx.map.save_map_parameters()
+                return
+
             if self.smaractGUI.dev.KeyboardEnabled:
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
@@ -1160,10 +1171,10 @@ class PyGuiOverlay(Layer):
         try:
             print("pico movement")
             if Coarse_or_Fine==0:
-                self.picomotorGUI.dev.MoveRelative(ax,dir*self.picomotorGUI.dev.AxesKeyBoardSmallStep[ax])
+                self.picomotorGUI.dev.MoveRelative(ax+1,dir*self.picomotorGUI.dev.AxesKeyBoardSmallStep[ax])
             else:
                 print("Large step")
-                self.picomotorGUI.dev.MoveRelative(ax,dir*self.picomotorGUI.dev.AxesKeyBoardLargeStep[ax])
+                self.picomotorGUI.dev.MoveRelative(ax+1,dir*self.picomotorGUI.dev.AxesKeyBoardLargeStep[ax])
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
             # raise
@@ -1232,6 +1243,12 @@ class PyGuiOverlay(Layer):
         dpg.add_theme(tag="LineMagentaTheme")
         dpg.add_theme_component(item_type = dpg.mvLineSeries,parent="LineMagentaTheme",tag="LineMagentaThemeCmp")
         dpg.add_theme_color(target = dpg.mvPlotCol_Line, value = (255, 0, 255), category=dpg.mvThemeCat_Plots,parent="LineMagentaThemeCmp")
+        # dpg.add_theme_style(dpg.mvPlotStyleVar_Marker, dpg.mvPlotMarker_Diamond, category=dpg.mvThemeCat_Plots)
+        # dpg.add_theme_style(dpg.mvPlotStyleVar_MarkerSize, 7, category=dpg.mvThemeCat_Plots)
+
+        dpg.add_theme(tag="LineCyanTheme")
+        dpg.add_theme_component(item_type = dpg.mvLineSeries,parent="LineCyanTheme",tag="LineCyanThemeCmp")
+        dpg.add_theme_color(target = dpg.mvPlotCol_Line, value = (0, 255, 255), category=dpg.mvThemeCat_Plots,parent="LineCyanThemeCmp")
         # dpg.add_theme_style(dpg.mvPlotStyleVar_Marker, dpg.mvPlotMarker_Diamond, category=dpg.mvThemeCat_Plots)
         # dpg.add_theme_style(dpg.mvPlotStyleVar_MarkerSize, 7, category=dpg.mvThemeCat_Plots)
 

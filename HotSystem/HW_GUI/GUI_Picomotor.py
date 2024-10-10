@@ -1,5 +1,6 @@
 # from ECM import *
 # from ImGuiwrappedMethods import *
+import time
 from functools import partial
 
 import dearpygui.dearpygui as dpg
@@ -99,8 +100,7 @@ class GUI_picomotor():
                             dpg.add_button(label="+", width=20, callback=self.move_uv, user_data=(ch,1,True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
                     with dpg.group(horizontal=True):
-                        dpg.add_button(label="Calc U",tag=f"{self.prefix}_calc_u", callback=self.btn_calc_u)
-                        dpg.add_button(label="Calc V",tag=f"{self.prefix}_calc_v", callback=self.btn_calc_v)
+                        dpg.add_button(label="Calc UV",tag=f"{self.prefix}_calc_uv", callback=self.btn_calc_uv)
 
                 with dpg.group(horizontal=False, tag="column 6_",width=Child_Width*2):
                     dpg.add_text("Abs. (nm)")
@@ -172,12 +172,9 @@ class GUI_picomotor():
                             dpg.configure_item(self.window_tag, height=new_height)
 
                             # Check how many points have been logged and calculate u or v
-                            if self.NumOfLoggedPoints == 2:
-                                self.calc_vector('u')
-                                dpg.bind_item_theme(f"{self.prefix}_calc_u", yellow_theme)
-                            elif self.NumOfLoggedPoints == 3:
-                                self.calc_vector('v')
-                                dpg.bind_item_theme(f"{self.prefix}_calc_v", yellow_theme)
+                            if self.NumOfLoggedPoints == 3:
+                                self.dev.calc_uv()
+                                dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
 
                 # Update the logged points indicator and table
                 dpg.set_value(f"{self.prefix}_logged_points", "* " * self.NumOfLoggedPoints)
@@ -227,7 +224,7 @@ class GUI_picomotor():
         self.dev.GetPosition()
 
         if self.dev.IsConnected:
-            self.log_point(self.dev.AxesPositions)
+            self.log_point(self.dev.AxesPositions[:3])
         elif self.simulation:
             simulated_position = [random.uniform(-1e9, 1e9) for _ in range(3)]
             self.log_point(simulated_position)
@@ -239,29 +236,25 @@ class GUI_picomotor():
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
 
         for ch in range(3):
-            position[ch] = position[ch] / self.dev.StepsIn1mm * 1e3
+            position[ch] = round(position[ch] / self.dev.StepsIn1mm * 1e3 * 1e6,3) #[pm]
 
         self.dev.LoggedPoints.append(position.copy())  # [um]
-        self.NumOfLoggedPoints += 1
         print(self.dev.LoggedPoints)
 
         # Update the UI
-        dpg.set_value(f"{self.prefix}_logged_points", "* " * self.NumOfLoggedPoints)
+        dpg.set_value(f"{self.prefix}_logged_points", "* " * len(self.dev.LoggedPoints))
         self.update_table()
 
         # Prepare the text to copy with only the last logged point and the increment line
         last_point = self.dev.LoggedPoints[-1]
-        text_to_copy = f"self.dev.LoggedPoints.append({last_point})\nself.NumOfLoggedPoints += 1"
+        text_to_copy = f"self.dev.LoggedPoints.append({last_point})\n"
 
         print(text_to_copy)
 
         # Check the number of logged points and calculate vectors accordingly
-        if len(self.dev.LoggedPoints) == 2:
-            self.calc_vector('u')
-            dpg.bind_item_theme(f"{self.prefix}_calc_u", yellow_theme)
-        elif len(self.dev.LoggedPoints) == 3:
-            self.calc_vector('v')
-            dpg.bind_item_theme(f"{self.prefix}_calc_v", yellow_theme)
+        if len(self.dev.LoggedPoints) == 3:
+            self.dev.calc_uv()
+            dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
 
     def btnDelPoint(self):
 
@@ -271,15 +264,13 @@ class GUI_picomotor():
 
         if self.dev.IsConnected:
             self.dev.LoggedPoints.pop()  # [pm]  Removes the last item
-            self.NumOfLoggedPoints -= 1
-            dpg.set_value(f"{self.prefix}_logged_points", "* " * self.NumOfLoggedPoints)
+            dpg.set_value(f"{self.prefix}_logged_points", "* " * len(self.dev.LoggedPoints))
             self.update_table()
         else:
             print("Cannot log point while Smaract is disconnected.")
             if self.simulation:
                 self.dev.LoggedPoints.pop()  # [pm]  Removes the last item
-                self.NumOfLoggedPoints -= 1
-                dpg.set_value(f"{self.prefix}_logged_points", "* " * self.NumOfLoggedPoints)
+                dpg.set_value(f"{self.prefix}_logged_points", "* " * len(self.dev.LoggedPoints))
                 self.update_table()
 
     def update_table(self):
@@ -294,9 +285,9 @@ class GUI_picomotor():
         for i, point in enumerate(self.dev.LoggedPoints, start=1):
             with dpg.table_row(parent=table_id):
                 dpg.add_text(f"Point {i}")
-                dpg.add_text(f"{point[0]:.3f}")
-                dpg.add_text(f"{point[1]:.3f}")
-                dpg.add_text(f"{point[2]:.3f}")
+                dpg.add_text(f"{point[0]/1e6:.3f}")
+                dpg.add_text(f"{point[1]/1e6:.3f}")
+                dpg.add_text(f"{point[2]/1e6:.3f}")
                 # # Add a delete button in the last column
                 # dpg.add_button(label="Delete", width=60, height=20, callback=lambda s=i - 1: self.delete_row(s))
                 # Use partial to pass the correct index to the callback function
@@ -323,17 +314,14 @@ class GUI_picomotor():
         for ch, value in enumerate(point):
             dpg.set_value(f"{self.prefix}_ch{ch}_ABS", value/1e6)
 
-    def btn_calc_u(self):
+    def btn_calc_uv(self):
         themes = DpgThemes()
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
-        self.calc_vector('u')
-        dpg.bind_item_theme(f"{self.prefix}_calc_u", yellow_theme)
-
-    def btn_calc_v(self):
-        themes = DpgThemes()
-        yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
-        self.calc_vector('v')
-        dpg.bind_item_theme(f"{self.prefix}_calc_v", yellow_theme)
+        dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
+        if len(self.dev.LoggedPoints) < 3:
+            print(f"Please log at least three points prior to calculating u & v")
+            return
+        self.dev.calc_uv()
 
     def calc_vector(self, vector_name):
         if len(self.dev.LoggedPoints) < 2:
@@ -388,14 +376,18 @@ class GUI_picomotor():
             if not is_coarse:
                 value1 = value1 / 10
 
-            steps = int(direction * value1 / 1e3 * self.dev.StepsIn1mm)
-            amount = [self.U[i] * steps for i in range(3)] if ch == 0 else [self.V[i] * steps for i in range(3)]
+            steps = direction * value1 / 1e3 * self.dev.StepsIn1mm
+            amount = [int(self.U[i] * steps) for i in range(3)] if ch == 0 else [int(self.V[i] * steps) for i in range(3)]
             print(f"{self.prefix}:")
             print(amount)
 
             for channel in range(3):
                 if not self.simulation:
-                    self.dev.MoveRelative(channel+1, int(amount[channel]))
+                    self.dev.MoveRelative(channel+1, amount[channel])
+                    while(not self.dev.GetMotionDone(channel+1)):
+                        time.sleep(0.05)
+
+                    time.sleep(0.1)
 
         except Exception as e:
             print(f"An error occurred: {e}")

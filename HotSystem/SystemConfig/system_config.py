@@ -14,7 +14,6 @@ class SystemType(Enum):
     BOAZ = "Boaz"
     AMIR = "Amir"
     SHAI = "Shai"
-    SIMULATION = "Simulation"
 
 class Instruments(Enum):
     HIGHLAND = "highland"
@@ -29,6 +28,7 @@ class Instruments(Enum):
     ZELUX = "zelux"
     OPX = "OPX"
     ELC_POWER_SUPPLY = "elc_power_supply"
+    SIMULATION = "simulation"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"
@@ -39,11 +39,12 @@ class Device:
     """
     Represents a device with its instrument type and additional information.
     """
-    def __init__(self, instrument: Instruments, ip_address: str = None, mac_address: str = None, serial_number: str = None):
+    def __init__(self, instrument: Instruments, ip_address: str = None, mac_address: str = None, serial_number: str = None, com_port: str = None):
         self.instrument = instrument
         self.ip_address = ip_address
         self.mac_address = mac_address
         self.serial_number = serial_number
+        self.com_port = com_port
 
     @property
     def device_key(self):
@@ -112,15 +113,19 @@ def load_system_from_xml(file_path: str) -> Optional[SystemConfig]:
             ip_element = device_element.find("IPAddress")
             mac_element = device_element.find("MACAddress")
             sn_element = device_element.find("SerialNumber")
+            com_port_element = device_element.find("COMPort")
+
             ip_address = ip_element.text.strip() if ip_element is not None and ip_element.text else None
             mac_address = mac_element.text.strip() if mac_element is not None and mac_element.text else None
             serial_number = sn_element.text.strip() if sn_element is not None and sn_element.text else None
+            com_port = com_port_element.text.strip() if com_port_element is not None and com_port_element.text else None
 
             device = Device(
                 instrument=instrument_enum,
                 ip_address=ip_address,
                 mac_address=mac_address,
-                serial_number=serial_number
+                serial_number=serial_number,
+                com_port=com_port,
             )
             devices.append(device)
 

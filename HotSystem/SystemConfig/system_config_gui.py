@@ -1,6 +1,9 @@
 import os
 import xml.etree.ElementTree as ET
 from typing import List, Optional
+
+# from numpy.array_api import trunc
+
 from Utils import remove_overlap_from_string, get_square_matrix_size
 import dearpygui.dearpygui as dpg
 import HW_wrapper.Wrapper_Smaract as Smaract
@@ -50,7 +53,10 @@ def save_to_xml(system_type: SystemType, selected_devices_list: list):
 
     # Add selected devices
     devices_element = ET.SubElement(system_element, "Devices")
+
     for device in selected_devices_list:
+        print(device.instrument.value)
+        print(device.com_port)
         if device is not None:
             device_element = ET.SubElement(devices_element, "Device")
             instrument_element = ET.SubElement(device_element, "Instrument")
@@ -61,6 +67,9 @@ def save_to_xml(system_type: SystemType, selected_devices_list: list):
             mac_element.text = device.mac_address or 'N/A'
             sn_element = ET.SubElement(device_element, "SerialNumber")
             sn_element.text = device.serial_number or 'N/A'
+            # Save COM Port information
+            com_port_element = ET.SubElement(device_element, "COMPort")
+            com_port_element.text = device.com_port or 'N/A'
         else:
             print("Warning: A None value found in selected_devices_list, skipping...")
 
@@ -140,7 +149,6 @@ def load_instrument_images():
                     placeholder_data = [255, 255, 255, 255] * 50 * 50
                     dpg.add_static_texture(50, 50, placeholder_data, tag=texture_tag)
 
-
 def create_themes():
     """
     Create the themes for selected and default states with pastel colors.
@@ -151,12 +159,18 @@ def create_themes():
             dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green
         with dpg.theme_component(dpg.mvText):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+        with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green background
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
     # Default theme (pastel light gray background)
     with dpg.theme(tag="default_theme"):
         with dpg.theme_component(dpg.mvChildWindow):
             dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray
         with dpg.theme_component(dpg.mvText):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+        with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray background
             dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
     # Pastel magenta theme for the main window
@@ -185,6 +199,8 @@ def run_system_config_gui():
     instruments_with_na_identifiers = set()
     if system_config:
         for configured_device in system_config.devices:
+            for device in devices_list:
+                device.com_port = configured_device.com_port
             # Check if all identifiers are 'N/A' or None
             if (configured_device.serial_number in [None, 'N/A'] and
                 configured_device.mac_address in [None, 'N/A'] and
@@ -213,7 +229,8 @@ def run_system_config_gui():
                 instrument=instrument,
                 ip_address='N/A',
                 mac_address='N/A',
-                serial_number='N/A'
+                serial_number='N/A',
+                com_port='N/A'
             )
             placeholder_device.is_placeholder = True
             devices_list.append(placeholder_device)
@@ -269,6 +286,11 @@ def run_system_config_gui():
                                         dpg.add_text(f"IP: {device.ip_address or 'N/A'}")
                                         dpg.add_text(f"MAC: {device.mac_address or 'N/A'}")
                                         dpg.add_text(f"SN: {device.serial_number or 'N/A'}")
+                                        with dpg.group(horizontal=True):
+                                            dpg.add_text(f"COM Port:")
+                                            dpg.add_input_text(default_value=device.com_port or '',
+                                                               callback=update_device_com_port,  # Use the defined function
+                                                               user_data=device)  # Pass the device object
 
                                     # Adjust the size of the child window based on content
                                     # dpg.set_item_width(window_id, total_cell_width)
@@ -298,6 +320,17 @@ def run_system_config_gui():
         dpg.add_text("", tag="ErrorText")
 
     dpg.create_viewport(title="System Configuration GUI", width=total_cell_width * matrix_size + 50, height=120 * matrix_size + 200)
+
+def update_device_com_port(sender, app_data, user_data):
+    """
+    Update the com_port attribute of the device.
+    sender: the ID of the calling widget
+    app_data: the value from the widget
+    user_data: the device object passed as user_data
+    """
+    device = user_data
+    device.com_port = app_data  # Update the com_port attribute of the device
+
 
 if __name__ == "__main__":
     dpg.create_context()
