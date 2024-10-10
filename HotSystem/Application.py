@@ -17,8 +17,7 @@ from HW_GUI import GUI_Zelux as gui_Zelux
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_mattise import GUIMatisse
 from HW_GUI.GUI_motors import GUIMotor
-from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments, \
-    create_system_config_selector, load_instrument_images
+from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Window import Window_singleton
 import threading
 import glfw
@@ -635,9 +634,10 @@ class PyGuiOverlay(Layer):
             instrument = device.instrument
 
             if instrument == Instruments.ROHDE_SCHWARZ:
-                self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
-                dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
+                pass
+                # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
+                # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
+                # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
 
 
             elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
