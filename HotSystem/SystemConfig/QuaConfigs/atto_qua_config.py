@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from SystemConfig import QUAConfigBase
+from SystemConfig.QuaConfigs import QUAConfigBase
 
 
 class AttoQuaConfig(QUAConfigBase):
