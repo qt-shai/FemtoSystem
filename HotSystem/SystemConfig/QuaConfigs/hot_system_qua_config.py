@@ -53,7 +53,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                     "mixer": "mixer_NV",
                 },
                 "intermediate_frequency": self.NV_IF_freq,
-                "digitalInputs": {
+                "digitalInputs": { # 'digitalInputs' is actually 'digital_outputs'. MW switch (ON/OFF)
                     "marker": {
                         "port": ("con1", 2),
                         "delay": self.switch_delay,
@@ -74,22 +74,10 @@ class HotSystemQuaConfig(QUAConfigBase):
                 },
             },
             "Laser": {
-                "digitalInputs": {
+                "digitalInputs": { # actually outputs
                     "marker": {
                         "port": ("con1", 1),
                         "delay": self.laser_delay,
-                        "buffer": 0,
-                    },
-                },
-                "operations": {
-                    "Turn_ON": "laser_ON",
-                },
-            },
-            "SmaractTrigger": {
-                "digitalInputs": {
-                    "marker": {
-                        "port": ("con1", 4),
-                        "delay": 0,
                         "buffer": 0,
                     },
                 },

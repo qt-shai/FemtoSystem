@@ -54,7 +54,6 @@ class Experimet(Enum):
     NUCLEAR_RABI = 6
     NUCLEAR_POL_ESR = 7
     NUCLEAR_MR = 8
-    FAST_SCAN = 10
     SCAN = 11
     Nuclear_spin_lifetimeS0 = 12
     Nuclear_spin_lifetimeS1 = 13
@@ -117,7 +116,6 @@ class GUI_OPX():  # todo: support several device
         self.z_correction_threshold = 10000
         self.expected_pos = None
         self.smaract_ttl_duration = 0.001  # ms, updated from XML (loaded using 'self.update_from_xml()')
-        self.fast_scan_enabled = False
         self.lock = threading.Lock()
 
         # Coordinates + scan XYZ parameters
@@ -696,7 +694,6 @@ class GUI_OPX():  # todo: support several device
                                  indent=-1, default_value=self.bEnableSimulate)
                 dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1, callback=self.Update_scan,
                                  default_value=self.bScanChkbox)
-                # dpg.add_checkbox(label="Scan XYZ Fast", tag="chkbox_scan_fast", parent="chkbox_group", indent=-1, callback=self.Update_scan_fast, default_value=self.fast_scan_enabled)
                 dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm,
                                  default_value=self.chkbox_close_all_qm)
 
@@ -1337,12 +1334,6 @@ class GUI_OPX():  # todo: support several device
         print("Set bScan to: " + str(sender.bScanChkbox))
         sender.GUI_ScanControls()
 
-    def Update_scan_fast(sender, app_data, user_data):
-        sender.fast_scan_enabled = user_data
-        # time.sleep(0.001)
-        # dpg.set_value(item = "chkbox_scan_fast",value=sender.fast_scan_enabled)
-        print("Set fast scan to: " + str(sender.fast_scan_enabled))  # sender.GUI_ScanControls()
-
     def Update_close_all_qm(sender, app_data, user_data):
         sender.chkbox_close_all_qm = user_data
         time.sleep(0.001)
@@ -1477,9 +1468,6 @@ class GUI_OPX():  # todo: support several device
             self.Electron_lifetime_QUA_PGM()
         if self.exp == Experimet.Electron_Coherence:
             self.Electron_Coherence_QUA_PGM()
-        if self.exp == Experimet.FAST_SCAN: # triggered scan current arbitrarly crash
-            self.counter_array_QUA_PGM(num_bins_per_measurement=int(n_count),
-                                       num_measurement_per_array=int(num_measurement_per_array))
         if self.exp == Experimet.SCAN: # ~ 35 msec per measurement for on average for larage scans
             self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),triggerThreshold=self.ScanTrigger)
         if self.exp == Experimet.ODMR_Bfield:
@@ -4134,8 +4122,9 @@ class GUI_OPX():  # todo: support several device
                     assign(total_counts, 0)
 
                     align()
-                    wait(pulsesTriggerDelay, "SmaractTrigger")
-                    play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
+                    wait(pulsesTriggerDelay)
+                    # wait(pulsesTriggerDelay, "SmaractTrigger")
+                    # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
 
                     align()
                     assign(meas_idx, meas_idx + 1)
@@ -4146,42 +4135,6 @@ class GUI_OPX():  # todo: support several device
                 counts_st.buffer(num_measurement_per_array).save("counts_scanLine")
 
         self.qm, self.job = self.QUA_execute()
-
-    def counter_array_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1):
-        # Calculate values outside the FPGA to save FPGA compute time
-        laser_on_duration = int(self.Tcounter * self.u.ns // 4)
-        single_integration_time = int(self.Tcounter * self.u.ns)
-        smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
-
-        with program() as self.quaPGM:
-            times = declare(int, size=1000)  # num_measurement_per_array)
-            counts = declare(int)  # apd1
-            total_counts = declare(int, value=0)  # apd1
-            n = declare(int)  #
-            x_loop_counter = declare(int)
-            counts_st = declare_stream()
-
-            with infinite_loop_():
-                pause()
-                with for_(x_loop_counter, 0, x_loop_counter < num_measurement_per_array, x_loop_counter + 1):
-                    play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-                    wait_for_trigger("Laser")  # wait for smaract trigger
-                    align("Laser", "Detector_OPD", "SmaractTrigger")
-                    # wait(int(15 * self.u.ms //4))
-                    with for_(n, 0, n < num_bins_per_measurement, n + 1):
-                        play("Turn_ON", "Laser", duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
-                        assign(total_counts, total_counts + counts)  # align()
-                    save(total_counts, counts_st)
-                    assign(total_counts,
-                           0)  # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)  # align()  # wait(int(15 * self.u.ms //4), "SmaractTrigger")  # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-
-            with stream_processing():
-                counts_st.buffer(num_measurement_per_array).save("counts_fastscan")
-
-        # set,open and execute the program
-        self.qm = self.qmm.open_qm(self.quaCFG)
-        self.job = self.qm.execute(self.quaPGM)
 
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         # todo: use this function as general update graph for all experiments
@@ -4683,7 +4636,7 @@ class GUI_OPX():  # todo: support several device
             # todo: creat methode that handle OPX close job and instances
             self.stopScan = True
             self.StopFetch = True
-            if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
+            if not self.exp == Experimet.SCAN:
                 if self.bEnableSignalIntensityCorrection:
                     if self.MAxSignalTh.is_alive():
                         self.MAxSignalTh.join()
@@ -4692,7 +4645,7 @@ class GUI_OPX():  # todo: support several device
                 dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
             self.GUI_ParametersControl(True)
-            if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
+            if not self.exp == Experimet.SCAN:
                 if (self.fetchTh.is_alive()):
                     self.fetchTh.join()
             else:
@@ -4708,7 +4661,7 @@ class GUI_OPX():  # todo: support several device
                 if self.mwModule.RFstate:
                     self.mwModule.Turn_RF_OFF()
 
-            if self.exp not in [Experimet.COUNTER, Experimet.FAST_SCAN, Experimet.SCAN]:
+            if self.exp not in [Experimet.COUNTER, Experimet.SCAN]:
                 self.btnSave()
         except Exception as e:
             print(f"An error occurred in btnStop: {e}")
@@ -4771,10 +4724,7 @@ class GUI_OPX():  # todo: support several device
 
     def StartScan(self):
         self.positioner.KeyboardEnabled = False  # TODO: Update the check box in the gui!!
-        if not self.fast_scan_enabled:
-            self.StartScan3D()
-        else:
-            self.StartFastScan()
+        self.StartScan3D()
         self.positioner.KeyboardEnabled = True
 
     def fetch_peak_intensity(self, integration_time):
