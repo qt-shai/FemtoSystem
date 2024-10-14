@@ -18,6 +18,10 @@ class AttoQuaConfig(QUAConfigBase):
         Initialize the AttoQuaConfig with default parameters.
         """
         super().__init__()
+        # todo: updates parameters (delays, wave forums, ...) per CFG
+        self.scannerX_delay = 0
+        self.scannerY_delay = 0
+        self.phaseEOM_delay = 0
 
     def get_controllers(self) -> Dict[str, Any]:
         """
@@ -29,32 +33,37 @@ class AttoQuaConfig(QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
+                    1: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},  # QM: why? because
                     4: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW I
                     5: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW Q
                     6: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},  # RF
-                    7: {"offset": 0.0, "delay": 0, "shareable": True},              # Atto scanner X
-                    8: {"offset": 0.0, "delay": 0, "shareable": True},              # Atto scanner Y
-                    9: {"offset": 0.0, "delay": 0, "shareable": True},              # Atto scanner Z
-                    # Analog output 10 is still available
+                    7: {"offset": 0.0, "delay": self.scannerX_delay, "shareable": True},              # Atto scanner X
+                    8: {"offset": 0.0, "delay": self.scannerY_delay, "shareable": True},              # Atto scanner Y
+                    9: {"offset": 0.0, "delay": self.phaseEOM_delay, "shareable": True},              # Phase EOM
                 },
                 "digital_outputs": {
-                    5: {"shareable": True},  # Laser
-                    9: {"shareable": True},  # MW_switch
-                    10: {"shareable": True},  # Detector_OPD marker
-                    # Digital outputs 1-4 and 6-8 are used by other systems
+                    4: {"shareable": True},  # trigger Laser (Cobolt)
+                    5: {"shareable": True},  # trigger MW (Rohde Schwarz)
+                    8: {"shareable": True},  # amplitude EOM trigger
                 },
                 "analog_inputs": {
-                    3: {"offset": 0.00979, "gain_db": 0, "shareable": True},  # Detector_OPD
-                    # Analog inputs 1 and 2 are used by other systems
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": True}, # QM: why? because
+                    2: {"offset": 0.00979, 'gain_db': 0, "shareable": True}, # QM: why? because
                 },
-                "digital_inputs": {
-                    3: {
+                "digital_inputs": { # counter 1
+                    4: {
                         "polarity": "RISING",
                         "deadtime": 4,
                         "threshold": self.signal_threshold_OPD,
                         "shareable": True,
                     },
-                    # Digital inputs 1 and 2 are used by other systems
+                    5: { # counter 2
+                        "polarity": "RISING",
+                        "deadtime": 4,
+                        "threshold": self.signal_threshold_OPD,
+                        "shareable": True,
+                    },
+
                 },
             }
         }
@@ -80,14 +89,16 @@ class AttoQuaConfig(QUAConfigBase):
                     "mixer": "mixer_NV",
                 },
                 "intermediate_frequency": self.NV_IF_freq,
-                "digitalInputs": {
+                "digitalInputs": { # 'digitalInputs' is actually 'digital_outputs'. MW switch (ON/OFF)
                     "marker": {
-                        "port": ("con1", 9),  # Digital output 9
+                        "port": ("con1", 5),  # Digital output 9
                         "delay": self.switch_delay,
                         "buffer": self.switch_buffer,
                     },
                 },
                 "operations": {
+                    "xPulse": "x_pulse",
+                    "yPulse": "y_pulse",
                     "cw": "const_pulse",
                     "pi": "x180_pulse",
                     "pi_half": "x90_pulse",
@@ -99,9 +110,9 @@ class AttoQuaConfig(QUAConfigBase):
                 },
             },
             "Laser": {
-                "digitalInputs": {
+                "digitalInputs": { # here it is actually outputs
                     "marker": {
-                        "port": ("con1", 5),  # Digital output 5
+                        "port": ("con1", 4),  # Digital output 4
                         "delay": self.laser_delay,
                         "buffer": 0,
                     },
@@ -109,9 +120,19 @@ class AttoQuaConfig(QUAConfigBase):
                 "operations": {"Turn_ON": "laser_ON"},
             },
             "MW_switch": {
-                "digitalInputs": {
+                "digitalInputs": { # here it is actually outputs
                     "marker": {
-                        "port": ("con1", 9),  # Digital output 9
+                        "port": ("con1", 5),  # Digital output 5
+                        "delay": self.switch_delay,
+                        "buffer": self.switch_buffer,
+                    },
+                },
+                "operations": {"ON": "switch_ON"},
+            },
+            "Amplitude_EOM": {
+                "digitalInputs": { # here it is actually outputs
+                    "marker": {
+                        "port": ("con1", 8),  # Digital output 8
                         "delay": self.switch_delay,
                         "buffer": self.switch_buffer,
                     },
@@ -119,16 +140,16 @@ class AttoQuaConfig(QUAConfigBase):
                 "operations": {"ON": "switch_ON"},
             },
             "Detector_OPD": {
-                "singleInput": {"port": ("con1", 3)},  # Analog input 3
+                "singleInput": {"port": ("con1", 1)},  # not used
                 "digitalInputs": {
-                    "marker": {
-                        "port": ("con1", 10),  # Digital output 10
-                        "delay": self.detection_delay_OPD,
-                        "buffer": 0,
-                    },
+                    # "marker": {
+                    #     "port": ("con1", 10),  # Digital output 10
+                    #     "delay": self.detection_delay_OPD,
+                    #     "buffer": 0,
+                    # },
                 },
-                "digitalOutputs": {"out1": ("con1", 3)},  # Digital input/output 3
-                "outputs": {"out1": ("con1", 3)},  # Analog input 3
+                "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
+                "outputs": {"out1": ("con1", 1)},  
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
@@ -140,15 +161,11 @@ class AttoQuaConfig(QUAConfigBase):
             },
             # Atto scanner control elements
             "atto_scanner_x": {
-                "singleInput": {"port": ("con1", 7)},  # Analog output 7
+                "singleInput": {"port": ("con1", 7)},  # actually analog output 7
                 "operations": {"set_voltage": "atto_set_voltage_pulse"},
             },
             "atto_scanner_y": {
-                "singleInput": {"port": ("con1", 8)},  # Analog output 8
-                "operations": {"set_voltage": "atto_set_voltage_pulse"},
-            },
-            "atto_scanner_z": {
-                "singleInput": {"port": ("con1", 9)},  # Analog output 9
+                "singleInput": {"port": ("con1", 8)},  # actually analog output 8
                 "operations": {"set_voltage": "atto_set_voltage_pulse"},
             },
         }
