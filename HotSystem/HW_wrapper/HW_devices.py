@@ -3,7 +3,7 @@ from typing import Optional
 import threading
 
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse
+    SirahMatisse, Keysight33500B
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 
@@ -22,6 +22,7 @@ class HW_devices:
 
         :param simulation: A boolean flag indicating if the simulation mode is enabled.
         """
+        self.keysight_awg_device: Optional[Keysight33500B] = None
         if not getattr(self, 'initialized', False):
             self.simulation = simulation
             self.elc_power_supply: Optional[ALR3206T] = None
