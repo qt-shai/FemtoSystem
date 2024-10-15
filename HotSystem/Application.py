@@ -18,6 +18,7 @@ from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
 from HW_GUI.GUI_mattise import GUIMatisse
 from HW_GUI.GUI_motors import GUIMotor
+from HW_wrapper import AttoScannerWrapper
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Window import Window_singleton
 import threading
@@ -378,6 +379,7 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
         self.mwGUI = None
@@ -717,6 +719,15 @@ class PyGuiOverlay(Layer):
                 )
                 dpg.set_item_pos(self.keysight_gui.window_tag, [20, y_offset])
                 y_offset += dpg.get_item_height(self.keysight_gui.window_tag) + vertical_spacing
+
+            elif instrument == Instruments.ATTO_SCANNER:
+                self.atto_scanner_gui = GUIMotor(
+                    motor= hw_devices.HW_devices(simulation=self.simulation).atto_scanner,
+                    instrument=Instruments.ATTO_SCANNER,
+                    simulation=self.simulation
+                )
+                dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, y_offset])
+                y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle

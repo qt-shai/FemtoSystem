@@ -58,6 +58,8 @@ class SystemConfig:
 
     microwave_ip: str = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     atto_positioner_ip: str = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
+    atto_scanner_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
+    keysight_awg_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
     opx_ip = '192.168.101.56'
     opx_port = 80
     opx_cluster = 'Cluster_1'
