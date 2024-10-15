@@ -3,7 +3,7 @@ from typing import Optional
 import threading
 
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B
+    SirahMatisse, Keysight33500B, AttoScannerWrapper
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 
@@ -22,7 +22,7 @@ class HW_devices:
 
         :param simulation: A boolean flag indicating if the simulation mode is enabled.
         """
-        self.keysight_awg_device: Optional[Keysight33500B] = None
+
         if not getattr(self, 'initialized', False):
             self.simulation = simulation
             self.elc_power_supply: Optional[ALR3206T] = None
@@ -34,6 +34,9 @@ class HW_devices:
             self.picomotor:Optional[newportPicomotor] = None
             self.cobolt:Optional[CoboltLaser] = None
             self.matisse_device: Optional[SirahMatisse] = None
+            self.atto_scanner: Optional[AttoScannerWrapper] = None
+            self.keysight_awg_device: Optional[Keysight33500B] = None
+
 
 
     def __new__(cls, simulation:bool = False) -> 'HW_devices':
@@ -97,7 +100,11 @@ class HW_devices:
                                                   simulation=self.simulation)
 
             elif instrument == Instruments.ATTO_SCANNER:
-                pass
+                self.keysight_awg_device = Keysight33500B(address=SystemConfig.keysight_awg_ip, simulation=self.simulation)  # Replace with actual address
+                self.atto_scanner = AttoScannerWrapper(awg = self.keysight_awg_device,
+                                                       max_travel_x=40.0, max_travel_y=40.0,
+                                                       name="atto_scanner",
+                                                       )
 
             elif instrument == Instruments.MATTISE:
                 self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=self.simulation)

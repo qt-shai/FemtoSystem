@@ -10,6 +10,7 @@ from .SmarAct.smaract_movement import Movement
 from .SmarAct.smaract_stream_manager import StreamManager
 from .wrapper_mattise import SirahMatisse
 from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
+from HW_wrapper.Attocube.atto_piezo_scanner import AttoScannerWrapper
 
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     'Movement',
     'StreamManager',
     'SirahMatisse',
-    'Keysight33500B'
+    'Keysight33500B',
+    'AttoScannerWrapper'
 ]
