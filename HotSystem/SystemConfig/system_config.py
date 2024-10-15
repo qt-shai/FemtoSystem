@@ -29,6 +29,7 @@ class Instruments(Enum):
     OPX = "OPX"
     ELC_POWER_SUPPLY = "elc_power_supply"
     SIMULATION = "simulation"
+    KEYSIGHT_AWG = "keysight_awg"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"

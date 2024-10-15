@@ -9,6 +9,7 @@ from .Wrapper_Smaract import smaractMCS2
 from .SmarAct.smaract_movement import Movement
 from .SmarAct.smaract_stream_manager import StreamManager
 from .wrapper_mattise import SirahMatisse
+from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
 
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     'newportPicomotor',
     'Movement',
     'StreamManager',
-    'SirahMatisse'
+    'SirahMatisse',
+    'Keysight33500B'
 ]
