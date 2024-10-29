@@ -392,6 +392,12 @@ class GUI_OPX():  # todo: support several device
         time.sleep(0.001)
         dpg.set_value(item="inInt_t_mw2", value=sender.t_mw2)
         print("Set t_mw2 to: " + str(sender.t_mw2))
+    
+    def Update_rf_pulse_time(sender, app_data, user_data):
+        sender.rf_pulse_time = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="inInt_rf_pulse_time", value=sender.rf_pulse_time)
+        print("Set rf_pulse_time to: " + str(sender.rf_pulse_time))
 
     def Update_tGetTrackingSignalEveryTime(sender, app_data, user_data):
         sender.tGetTrackingSignalEveryTime = (user_data)
@@ -631,10 +637,11 @@ class GUI_OPX():  # todo: support several device
 
                 dpg.add_text(default_value="t_mw2 [ns]", parent="Time_delay_Controls", tag="text_t_mw2", indent=-1)
                 dpg.add_input_int(label="", tag="inInt_t_mw2", indent=-1, parent="Time_delay_Controls", width=item_width, callback=self.UpdateT_mw2, default_value=self.t_mw2, min_value=0, max_value=50000, step=1)
-                
 
-                dpg.add_text(default_value="rf_pulse_time [ns]", parent="Time_delay_Controls", tag="text_rf_pulse_time",
-                             indent=-1)
+                dpg.add_text(default_value="rf_pulse_time [ns]", parent="Time_delay_Controls", tag="text_rf_pulse_time", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_rf_pulse_time", indent=-1, parent="Time_delay_Controls", width=item_width, callback=self.Update_rf_pulse_time, default_value=self.rf_pulse_time, min_value=0, max_value=50000, step=1)
+                
+                dpg.add_text(default_value="GetTrackingSignalEveryTime [ns]", parent="Time_delay_Controls", tag="text_GetTrackingSignalEveryTime", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_tGetTrackingSignalEveryTime", indent=-1, parent="Time_delay_Controls", format="%.3f",
                                      width=item_width, callback=self.Update_tGetTrackingSignalEveryTime,
                                      default_value=self.tGetTrackingSignalEveryTime, min_value=0.001, max_value=10, step=0.1)
