@@ -1,11 +1,11 @@
 from typing import List, Optional
-from HW_wrapper import Keysight33500B, Motor  # Assuming the Keysight33500B wrapper exists
 import numpy as np
+from HW_wrapper import Motor, Keysight33500B
 
 
 class AttoScannerWrapper(Motor):
-    def __init__(self, awg: Keysight33500B, max_travel_x: float = 40, max_travel_y: float = 40,
-                 serial_number: str = None, name: str = None):
+    def __init__(self, awg: Keysight33500B, max_travel_x: float = 40.0, max_travel_y: float = 40.0,
+                 serial_number: Optional[str] = None, name: Optional[str] = None):
         """
         Initializes the Atto Scanner Wrapper with the Keysight 33500B AWG and implements the Motor interface.
 
@@ -19,102 +19,149 @@ class AttoScannerWrapper(Motor):
         self.awg = awg
         self.max_travel_x = max_travel_x  # Max travel range in microns for X
         self.max_travel_y = max_travel_y  # Max travel range in microns for Y
-        self.voltage_limit = 10  # The AWG cannot exceed ±10V
+        self.voltage_limit = 10.0  # The AWG cannot exceed ±10V
         self.no_of_channels = 2  # Two channels for X and Y
-        self.channels = [1, 2]  # Channels for X and Y
-        self.velocity: Optional[List[float]] = [0.0, 0.0]  # Default velocities for both channels
+        self.channels = [0, 1]  # Logical channels: 0 for X, 1 for Y
+        self.StepsIn1mm = 1000  # Steps per mm; adjust as needed
+        self._axes_positions: List[float] = [0.0, 0.0]  # Initial positions for both axes in microns
+        self._axes_pos_units: List[str] = ["microns", "microns"]  # Units for each axis
+        self.velocity: List[float] = [1.0, 1.0]  # Default velocities for both axes in microns/second
+
+        # Internal state
+        self._axes_positions: List[float] = [0.0, 0.0]  # Positions in microns
+        self._axes_pos_units: List[str] = ["µm", "µm"]
+        self._connected: bool = False
+
 
     def connect(self) -> None:
-        """
-        Establish a connection to the Keysight 33500B AWG.
-        """
+        """Establish a connection to the Keysight 33500B AWG."""
         self.awg.connect()
+        print("AttoScanner connected.")
 
     def disconnect(self) -> None:
-        """
-        Disconnect the Keysight 33500B AWG.
-        """
+        """Disconnect the Keysight 33500B AWG."""
         self.awg.disconnect()
+        print("AttoScanner disconnected.")
 
     def is_connected(self) -> bool:
-        """
-        Check if the Keysight 33500B AWG is connected.
-        :return: True if connected, False otherwise.
-        """
+        """Check if the Keysight 33500B AWG is connected."""
         return self.awg.is_connected
 
     def stop_all_axes(self) -> None:
-        """
-        Stop all movement by resetting the AWG output to zero for both channels.
-        """
-        self.awg.set_offset(0.0, channel=1)
-        self.awg.set_offset(0.0, channel=2)
+        """Stop all movement by resetting the AWG output to zero for both channels."""
+        for ch in [1, 2]:
+            self.awg.set_offset(0.0, channel=ch)
         print("All axes stopped.")
 
     def move_to_home(self, channel: int) -> None:
         """
         Move a specific channel to its home position (0 volts).
 
-        :param channel: The channel number (1 for X-axis, 2 for Y-axis).
+        :param channel: The logical channel number (0 for X-axis, 1 for Y-axis).
         """
-        if channel in self.channels:
-            self.awg.set_offset(0.0, channel=channel)
+        awg_channel = self._map_channel_to_awg_channel(channel)
+        if awg_channel is not None:
+            self.awg.set_offset(0.0, channel=awg_channel)
+            self._axes_positions[channel] = 0.0
             print(f"Channel {channel} moved to home position (0V).")
         else:
-            raise ValueError(f"Invalid channel: {channel}. Only channels 1 and 2 are supported.")
+            raise ValueError(f"Invalid channel: {channel}. Only channels 0 and 1 are supported.")
 
-    def move_absolute(self, channel: int, position: int|float) -> None:
+    def move_absolute(self, channel: int, position: float) -> None:
         """
         Move a specific channel to an absolute position by converting the position to a voltage.
 
-        :param channel: The channel number (1 for X, 2 for Y).
-        :param position: The target position in microns.
+        :param channel: The logical channel number (0 for X, 1 for Y).
+        :param position: The target position in microns
         """
-        if channel == 1:
-            voltage = self._position_to_voltage(position, self.max_travel_x)
-        elif channel == 2:
-            voltage = self._position_to_voltage(position, self.max_travel_y)
+        awg_channel = self._map_channel_to_awg_channel(channel)
+        if awg_channel is not None:
+            if channel == 0:
+                voltage = self._position_to_voltage(position, self.max_travel_x)
+            elif channel == 1:
+                voltage = self._position_to_voltage(position, self.max_travel_y)
+            else:
+                raise ValueError("Invalid channel. Only channel 0 (X-axis) or channel 1 (Y-axis) are supported.")
+
+            self.awg.set_offset(voltage, channel=awg_channel)
+            self._axes_positions[channel] = position
+            print(f"Moved channel {channel} to absolute position {position} microns (voltage: {voltage}V).")
         else:
-            raise ValueError("Invalid channel. Only channel 1 (X-axis) or channel 2 (Y-axis) are supported.")
+            raise ValueError(f"Invalid channel: {channel}. Only channels 0 and 1 are supported.")
 
-        self.awg.set_offset(voltage, channel=channel)
-        print(f"Moved channel {channel} to absolute position {position} microns (voltage: {voltage}V).")
-
-    def move_relative(self, channel: int, steps: int) -> None:
+    def move_relative(self, channel: int, travel_distance: float) -> None:
         """
-        Move a specific channel by a relative number of steps (microns).
+        Move a specific channel by a relative number of steps (microns converted to steps).
 
-        :param channel: The channel number to move.
-        :param steps: The number of steps to move relative to the current position.
+        :param channel: The logical channel number to move.
+        :param steps: The number of steps to move.
         """
-        current_voltage = self.awg.get_current_voltage(channel)
-        current_position = self._voltage_to_position(current_voltage, channel)
-        new_position = current_position + steps
-        self.move_absolute(channel, new_position)
-        print(f"Moved channel {channel} by {steps} microns (relative movement).")
+        awg_channel = self._map_channel_to_awg_channel(channel)
+        if awg_channel is not None:
+            current_position = self._axes_positions[channel]
+            new_position = current_position + travel_distance
+            self.move_absolute(channel, new_position)
+            print(f"Moved channel {channel} by {travel_distance} microns (relative movement).")
+        else:
+            raise ValueError(f"Invalid channel: {channel}. Only channels 0 and 1 are supported.")
 
     def set_zero_position(self, channel: int) -> None:
         """
         Set the current position of a specific channel to zero (resets the position to home).
 
-        :param channel: The channel number to zero.
+        :param channel: The logical channel number to zero.
         """
         self.move_to_home(channel)
         print(f"Set channel {channel} to zero position.")
 
     def get_status(self, channel: int) -> str:
         """
-        Get the status of a specific channel. For the AWG, this can be simplified to show whether
-        the channel is outputting or stopped.
+        Get the status of a specific channel.
 
-        :param channel: The channel number to check.
+        :param channel: The logical channel number to check.
         :return: Status as a string.
         """
-        voltage = self.awg.get_current_voltage(channel)
-        if voltage == 0:
-            return f"Channel {channel} is at home position (0V)."
+        awg_channel = self._map_channel_to_awg_channel(channel)
+        if awg_channel is not None:
+            voltage = self.awg.get_current_voltage(awg_channel)
+            if voltage == 0.0:
+                return f"Channel {channel} is at home position (0V)."
+            else:
+                return f"Channel {channel} is outputting {voltage}V."
         else:
-            return f"Channel {channel} is outputting {voltage}V."
+            return f"Channel {channel} is invalid."
+
+    def init_before_scan(self) -> None:
+        """
+        Initialize the AWG settings before starting a scan.
+        """
+        # Set up the AWG for scanning, e.g., set trigger modes, waveforms, etc.
+        for axis in self.channels:
+            awg_channel = self._map_channel_to_awg_channel(axis)
+            self.awg.set_waveform_type("TRIANGLE", awg_channel)
+            # Additional configuration can be done here
+        print("AttoScanner initialized before scan.")
+
+    def _map_channel_to_awg_channel(self, channel: int) -> Optional[int]:
+        """
+        Map logical channel (0, 1) to AWG channel (1, 2).
+
+        :param channel: The logical channel number (0 for X, 1 for Y).
+        :return: The corresponding AWG channel number (1 or 2), or None if invalid channel.
+        """
+        channel_mapping = {0: 1, 1: 2}
+        return channel_mapping.get(channel)
+
+    def _position_to_voltage(self, position: float, max_travel: float) -> float:
+        """
+        Convert a position in microns to the corresponding voltage.
+
+        :param position: The position in microns.
+        :param max_travel: The maximum travel range for the axis in microns.
+        :return: The corresponding voltage, limited to ±10V.
+        """
+        voltage = position * (self.voltage_limit / max_travel)
+        return self._enforce_voltage_limit(voltage)
 
     def _enforce_voltage_limit(self, voltage: float) -> float:
         """
@@ -123,100 +170,74 @@ class AttoScannerWrapper(Motor):
         :param voltage: The desired voltage.
         :return: The voltage, limited to the range of ±10V.
         """
-        return np.clip(voltage, -self.voltage_limit, self.voltage_limit)
+        return float(np.clip(voltage, -self.voltage_limit, self.voltage_limit))
 
-    def _position_to_voltage(self, position: float, max_travel: float) -> float:
+    def readInpos(self, channel: int) -> bool:
         """
-        Convert a position in microns to the corresponding voltage, respecting the max travel range.
+        For the AttoScanner, assume it is always in position.
 
-        :param position: The position in microns.
-        :param max_travel: The maximum travel range for the axis in microns.
-        :return: The corresponding voltage, limited to ±10V.
+        :param channel: The logical channel number.
+        :return: True, as the AttoScanner is assumed to reach the position instantaneously.
         """
-        voltage = position / (max_travel / self.voltage_limit)  # Scale to voltage range
-        return self._enforce_voltage_limit(voltage)
+        return True
+
+    def generatePulse(self, channel: int) -> None:
+        """
+        No operation for AttoScannerWrapper.
+
+        :param channel: The channel number.
+        """
+        pass
+
+    def get_current_position(self, channel: int) -> float:
+        """
+        Get the current position of the specified axis in microns.
+
+        :param channel: Logical channel (0 for X-axis, 1 for Y-axis).
+        :return: Current position in microns.
+        """
+        return self._axes_positions[channel]
+
+    def GetPosition(self) -> None:
+        """
+        Update internal position data by reading current voltage and converting to position.
+        """
+        for channel in self.channels:
+            awg_channel = self._map_channel_to_awg_channel(channel)
+            voltage = self.awg.get_current_voltage(awg_channel)
+            position = self._voltage_to_position(voltage, channel)
+            self._axes_positions[channel] = position
 
     def _voltage_to_position(self, voltage: float, channel: int) -> float:
         """
         Convert a voltage to a position in microns based on the travel range for the channel.
 
         :param voltage: The voltage to convert.
-        :param channel: The channel to calculate for (1 for X-axis, 2 for Y-axis).
+        :param channel: The logical channel to calculate for (0 for X-axis, 1 for Y-axis).
         :return: The corresponding position in microns.
         """
-        if channel == 1:
+        if channel == 0:
             return voltage * (self.max_travel_x / self.voltage_limit)
-        elif channel == 2:
+        elif channel == 1:
             return voltage * (self.max_travel_y / self.voltage_limit)
         else:
-            raise ValueError(f"Invalid channel: {channel}. Only channels 1 and 2 are supported.")
+            raise ValueError(f"Invalid channel: {channel}. Only channels 0 and 1 are supported.")
 
-    def MoveABSOLUTE(self, channel: int, position: float) -> None:
+    def get_position_unit(self, channel: int) -> str:
         """
-        Move to an absolute position by setting a DC value on the specified channel.
+        Get the position unit of the specified axis.
 
-        :param channel: The AWG channel (1 for X, 2 for Y).
-        :param position: Desired position in microns.
+        :param channel: Logical channel (0 for X-axis, 1 for Y-axis).
+        :return: Position unit as a string.
         """
-        if channel == 1:
-            voltage = self._position_to_voltage(position, self.max_travel_x)
-        elif channel == 2:
-            voltage = self._position_to_voltage(position, self.max_travel_y)
-        else:
-            raise ValueError("Invalid channel. Only channel 1 (X-axis) or channel 2 (Y-axis) are supported.")
+        return self._axes_pos_units[channel]
 
-        self._move_with_velocity(channel, self.awg.get_current_voltage(channel), voltage)
-        print(f"Moved channel {channel} to {position} microns (voltage: {voltage}V).")
+    @property
+    def AxesPositions(self) -> List[float]:
+        """List of current axis positions in microns."""
+        return self._axes_positions
 
-    def _move_with_velocity(self, channel: int, start_position: float, end_position: float) -> None:
-        """
-        Move from start to end position by ramping the voltage, simulating a velocity-based movement.
-
-        :param channel: The AWG channel (1 for X, 2 for Y).
-        :param start_position: Starting position in microns.
-        :param end_position: Ending position in microns.
-        """
-        if channel == 1:
-            start_voltage = self._position_to_voltage(start_position, self.max_travel_x)
-            end_voltage = self._position_to_voltage(end_position, self.max_travel_x)
-        elif channel == 2:
-            start_voltage = self._position_to_voltage(start_position, self.max_travel_y)
-            end_voltage = self._position_to_voltage(end_position, self.max_travel_y)
-        else:
-            raise ValueError("Invalid channel. Only channel 1 (X-axis) or channel 2 (Y-axis) are supported.")
-
-        duration = abs(end_position - start_position) / self.velocity[channel]  # Time for the movement
-        num_points = int(duration * 1000)  # 1 ms step for smooth ramp
-        voltage_ramp = [start_voltage + (end_voltage - start_voltage) * i / num_points for i in range(num_points)]
-
-        self.awg.write_arbitrary_waveform(voltage_ramp, channel=channel)
-        print(f"Ramping channel {channel} from {start_position} to {end_position} microns.")
-
-    def MoveToPoints(self, channel: int, points: List[float]) -> None:
-        """
-        Move to a series of points using an arbitrary waveform and external triggers.
-
-        :param channel: The AWG channel (1 for X, 2 for Y).
-        :param points: List of points in microns to move through.
-        """
-        if channel == 1:
-            voltage_points = [self._position_to_voltage(p, self.max_travel_x) for p in points]
-        elif channel == 2:
-            voltage_points = [self._position_to_voltage(p, self.max_travel_y) for p in points]
-        else:
-            raise ValueError("Invalid channel. Only channel 1 (X-axis) or channel 2 (Y-axis) are supported.")
-
-        self.awg.write_arbitrary_waveform(voltage_points, channel=channel)
-        self.awg.set_external_trigger_advance()
-        print(f"Set up movement on channel {channel} for points: {points} microns.")
-
-    def SetVelocity(self, channel: int, velocity: float) -> None:
-        """
-        Set the velocity for continuous movement.
-
-        :param channel: The AWG channel (1 for X, 2 for Y).
-        :param velocity: The velocity in microns/second.
-        """
-        print(f"Velocity set to {velocity} microns/second on channel {channel}.")
-        # This could be tied into the ramping function for gradual movement.
-        self.velocity[channel] = velocity
+    @property
+    def AxesPosUnits(self) -> List[str]:
+        """List of position units for each axis."""
+        return self._axes_pos_units

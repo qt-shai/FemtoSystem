@@ -75,6 +75,7 @@ class smaractMCS2():
         self.StepsIn1mm=1e9
         self.KeyboardEnabled = True
         self.no_of_channels = 3  # For support in simulation mode
+        self.channels = [0,1,2]
         self.U = [1, 0, 0]
         self.V = [0, 1, 0]
 
