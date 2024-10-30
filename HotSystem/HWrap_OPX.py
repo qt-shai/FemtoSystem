@@ -29,7 +29,7 @@ from smaract import ctl
 import matplotlib
 
 from HW_GUI.GUI_map import Map
-from HW_wrapper import HW_devices as hw_devices
+from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized
 import dearpygui.dearpygui as dpg
 from PIL import Image
@@ -41,11 +41,27 @@ import SystemConfig as configs
 
 matplotlib.use('qtagg')
 
+from typing import List, Any
+import time
+import numpy as np
+from Utils.scan_utils import (
+    copy_files,
+    format_time,
+    read_in_position,
+    move_to_positions,
+    generate_scan_vectors,
+    generate_scan_indices,
+    fetch_measurement,
+    save_scan_data,
+    plot_scan,
+    format_elapsed_time
+)
+
 def create_logger(log_file_path: str):
     log_file = open(log_file_path, 'w')
     return subprocess.Popen(['npx', 'pino-pretty'], stdin=subprocess.PIPE, stdout=log_file)
 
-class Experimet(Enum):
+class Experiment(Enum):
     SCRIPT = 0
     RABI = 1
     ODMR_CW = 2
@@ -79,6 +95,7 @@ class GUI_OPX():  # todo: support several device
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.verbose:bool = False
         self.plt_max1 = None
         self.plt_max = None
         self.max1 = None
@@ -97,6 +114,10 @@ class GUI_OPX():  # todo: support several device
         if (self.HW.config.system_type == configs.SystemType.HOT_SYSTEM):
             self.ScanTrigger = 1
             self.TrackingTrigger = 1
+        if (self.HW.config.system_type == configs.SystemType.ATTO):
+            self.ScanTrigger = 1001  # IO2
+            self.TrackingTrigger = 1001  # IO1
+
 
         # At the end of the init - all values are overwritten from XML!
         # To update values of the parameters - update the XML or the corresponding place in the GUI
@@ -161,7 +182,7 @@ class GUI_OPX():  # todo: support several device
         self.u = unit()
 
         # common parameters
-        self.exp = Experimet.COUNTER
+        self.exp = Experiment.COUNTER
 
         self.mw_Pwr = -20.0  # [dBm]
         self.mw_freq = 2.177  # [GHz], base frequency. Both start freq for scan and base frequency
@@ -1452,40 +1473,40 @@ class GUI_OPX():  # todo: support several device
             assign(array[array_len - 1 - i], temp)
 
     def initQUA_gen(self, n_count=1, num_measurement_per_array=1):
-        if self.exp == Experimet.COUNTER:
+        if self.exp == Experiment.COUNTER:
             self.counter_QUA_PGM(n_count=int(n_count))
-        if self.exp == Experimet.ODMR_CW:
+        if self.exp == Experiment.ODMR_CW:
             self.ODMR_CW_QUA_PGM()
-        if self.exp == Experimet.RABI:
+        if self.exp == Experiment.RABI:
             self.RABI_QUA_PGM()
-        if self.exp == Experimet.PULSED_ODMR:
+        if self.exp == Experiment.PULSED_ODMR:
             self.PulsedODMR_QUA_PGM()
-        if self.exp == Experimet.NUCLEAR_RABI:
+        if self.exp == Experiment.NUCLEAR_RABI:
             self.NuclearRABI_QUA_PGM()
-        if self.exp == Experimet.NUCLEAR_POL_ESR:
+        if self.exp == Experiment.NUCLEAR_POL_ESR:
             self.NuclearSpinPolarization_pulsedODMR_QUA_PGM()
-        if self.exp == Experimet.NUCLEAR_MR:
+        if self.exp == Experiment.NUCLEAR_MR:
             self.NuclearMR_QUA_PGM()
-        if self.exp == Experimet.Nuclear_spin_lifetimeS0:
+        if self.exp == Experiment.Nuclear_spin_lifetimeS0:
             self.Nuclear_spin_lifetimeS0_QUA_PGM()
-        if self.exp == Experimet.Nuclear_spin_lifetimeS1:
+        if self.exp == Experiment.Nuclear_spin_lifetimeS1:
             self.Nuclear_spin_lifetimeS1_QUA_PGM()
-        if self.exp == Experimet.Nuclear_Ramsay:
+        if self.exp == Experiment.Nuclear_Ramsay:
             self.Nuclear_Ramsay_QUA_PGM()
-        if self.exp == Experimet.Hahn:
+        if self.exp == Experiment.Hahn:
             self.Hahn_QUA_PGM()
-        if self.exp == Experimet.Electron_lifetime:
+        if self.exp == Experiment.Electron_lifetime:
             self.Electron_lifetime_QUA_PGM()
-        if self.exp == Experimet.Electron_Coherence:
+        if self.exp == Experiment.Electron_Coherence:
             self.Electron_Coherence_QUA_PGM()
-        if self.exp == Experimet.FAST_SCAN: # triggered scan current arbitrarly crash
+        if self.exp == Experiment.FAST_SCAN: # triggered scan current arbitrarly crash
             self.counter_array_QUA_PGM(num_bins_per_measurement=int(n_count),
                                        num_measurement_per_array=int(num_measurement_per_array))
-        if self.exp == Experimet.SCAN: # ~ 35 msec per measurement for on average for larage scans
+        if self.exp == Experiment.SCAN: # ~ 35 msec per measurement for on average for larage scans
             self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),triggerThreshold=self.ScanTrigger)
-        if self.exp == Experimet.ODMR_Bfield:
+        if self.exp == Experiment.ODMR_Bfield:
             self.ODMR_Bfield_QUA_PGM()
-        if self.exp == Experimet.Nuclear_Fast_Rot:
+        if self.exp == Experiment.Nuclear_Fast_Rot:
             self.NuclearFastRotation_QUA_PGM()
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
@@ -4192,7 +4213,7 @@ class GUI_OPX():  # todo: support several device
         dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal: .1f},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
         dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
         dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
-        if self.exp == Experimet.Nuclear_Fast_Rot:
+        if self.exp == Experiment.Nuclear_Fast_Rot:
             dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
 
         dpg.set_item_label("y_axis", _yLabel)
@@ -4234,9 +4255,9 @@ class GUI_OPX():  # todo: support several device
         time.sleep(0.1)
 
         # fetch right parameters
-        if self.exp == Experimet.COUNTER:
+        if self.exp == Experiment.COUNTER:
             self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
-        elif self.exp == Experimet.Nuclear_Fast_Rot:
+        elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
         else:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
@@ -4255,7 +4276,7 @@ class GUI_OPX():  # todo: support several device
         while self.results.is_processing():
             self.GlobalFetchData()
 
-            if self.exp == Experimet.COUNTER:
+            if self.exp == Experiment.COUNTER:
                 dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, lastVal = {round(self.Y_vec[-1], 0)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
                 dpg.set_value("series_counts_ref", [[], []])
@@ -4269,51 +4290,51 @@ class GUI_OPX():  # todo: support several device
                 dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
                 dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
                 # self.Counter_updateGraph()
-            if self.exp == Experimet.ODMR_CW:  #freq
+            if self.exp == Experiment.ODMR_CW:  #freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experimet.RABI:  # time
+            if self.exp == Experiment.RABI:  # time
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [nsec]")
-            if self.exp == Experimet.ODMR_Bfield:  #freq
+            if self.exp == Experiment.ODMR_Bfield:  #freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experimet.PULSED_ODMR:  #freq
+            if self.exp == Experiment.PULSED_ODMR:  #freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experimet.NUCLEAR_RABI:  # time
+            if self.exp == Experiment.NUCLEAR_RABI:  # time
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [nsec]")
-            if self.exp == Experimet.NUCLEAR_MR:  # freq
+            if self.exp == Experiment.NUCLEAR_MR:  # freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [MHz]")
-            if self.exp == Experimet.NUCLEAR_POL_ESR:  # freq
+            if self.exp == Experiment.NUCLEAR_POL_ESR:  # freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experimet.Nuclear_spin_lifetimeS0:
+            if self.exp == Experiment.Nuclear_spin_lifetimeS0:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Nuclear_spin_lifetimeS1:
+            if self.exp == Experiment.Nuclear_spin_lifetimeS1:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Nuclear_Ramsay:
+            if self.exp == Experiment.Nuclear_Ramsay:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Hahn:
+            if self.exp == Experiment.Hahn:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Electron_lifetime:
+            if self.exp == Experiment.Electron_lifetime:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Electron_Coherence:
+            if self.exp == Experiment.Electron_Coherence:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experimet.Nuclear_Fast_Rot:
+            if self.exp == Experiment.Nuclear_Fast_Rot:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="amp [v]")
 
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
-            if not(self.exp == Experimet.COUNTER) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
+            if not(self.exp == Experiment.COUNTER) and (current_time - lastTime)>self.tGetTrackingSignalEveryTime:
                 self.btnSave(folder= "d:/temp/")
                 lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
 
@@ -4321,11 +4342,11 @@ class GUI_OPX():  # todo: support several device
                 break
 
     def GlobalFetchData(self):
-        if self.exp == Experimet.COUNTER:
+        if self.exp == Experiment.COUNTER:
             self.lock.acquire()
             self.counter_Signal, self.iteration = self.results.fetch_all()
             self.lock.release()
-        elif self.exp == Experimet.Nuclear_Fast_Rot:
+        elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.lock.acquire()
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
             self.lock.release()
@@ -4334,7 +4355,7 @@ class GUI_OPX():  # todo: support several device
             self.signal, self.ref_signal, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
             self.lock.release()
 
-        if self.exp == Experimet.COUNTER:
+        if self.exp == Experiment.COUNTER:
             if len(self.X_vec) > self.NumOfPoints:
                 self.Y_vec = self.Y_vec[-self.NumOfPoints:]  # get last NumOfPoint elements from end
                 self.X_vec = self.X_vec[-self.NumOfPoints:]
@@ -4342,79 +4363,79 @@ class GUI_OPX():  # todo: support several device
             self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
             self.X_vec.append(self.counter_Signal[1] / self.u.s)  # Convert timestamps to seconds
 
-        if self.exp == Experimet.ODMR_CW:  # freq
+        if self.exp == Experiment.ODMR_CW:  # freq
             self.X_vec = self.f_vec / self.u.MHz / 1e3 + self.mw_freq  # [GHz]
             self.Y_vec = self.signal / 1000 / (self.Tcounter * 1e-9)
             self.Y_vec_ref = self.ref_signal / 1000 / (self.Tcounter * 1e-9)
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.RABI:  # time
+        if self.exp == Experiment.RABI:  # time
             self.X_vec = self.t_vec  # [nsec]]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.ODMR_Bfield:  #freq
+        if self.exp == Experiment.ODMR_Bfield:  #freq
             self.X_vec = self.f_vec / float(1e9) + self.mw_freq  # [GHz]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.PULSED_ODMR:  #freq
+        if self.exp == Experiment.PULSED_ODMR:  #freq
             self.X_vec = self.f_vec / float(1e9) + self.mw_freq  # [GHz]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.NUCLEAR_RABI:  # time
+        if self.exp == Experiment.NUCLEAR_RABI:  # time
             self.X_vec = self.t_vec  # [nsec]]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.NUCLEAR_MR:  # freq
+        if self.exp == Experiment.NUCLEAR_MR:  # freq
             self.X_vec = self.f_vec / float(1e6)  # [MHz]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.NUCLEAR_POL_ESR:  # freq
+        if self.exp == Experiment.NUCLEAR_POL_ESR:  # freq
             self.X_vec = self.f_vec / float(1e9) + self.mw_freq  # [GHz]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.Nuclear_spin_lifetimeS0:  # time
+        if self.exp == Experiment.Nuclear_spin_lifetimeS0:  # time
             self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.Nuclear_spin_lifetimeS1:  # time
+        if self.exp == Experiment.Nuclear_spin_lifetimeS1:  # time
             self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.Nuclear_Ramsay or self.exp == Experimet.Electron_Coherence:  # time
+        if self.exp == Experiment.Nuclear_Ramsay or self.exp == Experiment.Electron_Coherence:  # time
             self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.Hahn:  # time
+        if self.exp == Experiment.Hahn:  # time
             self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.Electron_lifetime:  # time
+        if self.exp == Experiment.Electron_lifetime:  # time
             self.X_vec = [e / 1e6 for e in self.t_vec]  # [msec]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
-        if self.exp == Experimet.Nuclear_Fast_Rot: # time
+        if self.exp == Experiment.Nuclear_Fast_Rot: # time
             self.X_vec = [e for e in self.rf_Pwr_vec]  # [msec]
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
@@ -4431,7 +4452,7 @@ class GUI_OPX():  # todo: support several device
         self.fetchTh.start()
 
     def btnStartCounterLive(self, b_startFetch=True):
-        self.exp = Experimet.COUNTER
+        self.exp = Experiment.COUNTER
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
         # TODO: Boaz - Check for edge cases in number of measurements per array
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
@@ -4441,7 +4462,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartODMR_CW(self):
-        self.exp = Experimet.ODMR_CW
+        self.exp = Experiment.ODMR_CW
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mwModule.Set_freq(self.mw_freq)
@@ -4458,7 +4479,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartRABI(self):
-        self.exp = Experimet.RABI
+        self.exp = Experiment.RABI
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mwModule.Set_freq(self.mw_freq_resonance)
@@ -4474,7 +4495,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartODMR_Bfield(self):
-        self.exp = Experimet.ODMR_Bfield
+        self.exp = Experiment.ODMR_Bfield
 
         self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
@@ -4491,7 +4512,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearFastRot(self):
-        self.exp = Experimet.Nuclear_Fast_Rot
+        self.exp = Experiment.Nuclear_Fast_Rot
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         # self.mw_freq = min(self.mw_freq_resonance,self.mw_2ndfreq_resonance)-0.001 # [GHz] # todo: remove in all other experiment and also fix QUA
@@ -4509,7 +4530,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartPulsedODMR(self):
-        self.exp = Experimet.PULSED_ODMR
+        self.exp = Experiment.PULSED_ODMR
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mwModule.Set_freq(self.mw_freq)
@@ -4525,7 +4546,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearRABI(self):
-        self.exp = Experimet.NUCLEAR_RABI
+        self.exp = Experiment.NUCLEAR_RABI
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
         self.mwModule.Set_freq(self.mw_freq_resonance)
         self.mwModule.Set_power(self.mw_Pwr)
@@ -4540,7 +4561,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearPolESR(self):
-        self.exp = Experimet.NUCLEAR_POL_ESR
+        self.exp = Experiment.NUCLEAR_POL_ESR
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
@@ -4557,7 +4578,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearMR(self):
-        self.exp = Experimet.NUCLEAR_MR
+        self.exp = Experiment.NUCLEAR_MR
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mwModule.Set_freq(self.mw_freq_resonance)
@@ -4573,7 +4594,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearSpinLifetimeS0(self):
-        self.exp = Experimet.Nuclear_spin_lifetimeS0
+        self.exp = Experiment.Nuclear_spin_lifetimeS0
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mw_freq = min(self.mw_freq_resonance, self.mw_2ndfreq_resonance) - 0.001  # [GHz]
@@ -4590,7 +4611,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearSpinLifetimeS1(self):
-        self.exp = Experimet.Nuclear_spin_lifetimeS1
+        self.exp = Experiment.Nuclear_spin_lifetimeS1
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mw_freq = min(self.mw_freq_resonance, self.mw_2ndfreq_resonance) - 0.001  # [GHz]
@@ -4607,7 +4628,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearRamsay(self):
-        self.exp = Experimet.Nuclear_Ramsay
+        self.exp = Experiment.Nuclear_Ramsay
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mw_freq = min(self.mw_freq_resonance, self.mw_2ndfreq_resonance) - 0.001  # [GHz]
@@ -4624,7 +4645,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartElectron_Coherence(self):
-        self.exp = Experimet.Electron_Coherence
+        self.exp = Experiment.Electron_Coherence
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         # self.mw_freq = min(self.mw_freq_resonance,self.mw_2ndfreq_resonance)-0.001 # [GHz]
@@ -4641,7 +4662,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartHahn(self):
-        self.exp = Experimet.Hahn
+        self.exp = Experiment.Hahn
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mw_freq = min(self.mw_freq_resonance, self.mw_2ndfreq_resonance) - 0.001  # [GHz]
@@ -4658,7 +4679,7 @@ class GUI_OPX():  # todo: support several device
             self.StartFetch(_target=self.FetchData)
 
     def btnStartElectronLifetime(self):
-        self.exp = Experimet.Electron_lifetime
+        self.exp = Experiment.Electron_lifetime
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.mwModule.Set_freq(self.mw_freq_resonance)
@@ -4687,7 +4708,7 @@ class GUI_OPX():  # todo: support several device
             # todo: creat methode that handle OPX close job and instances
             self.stopScan = True
             self.StopFetch = True
-            if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
+            if not self.exp == Experiment.FAST_SCAN and not self.exp == Experiment.SCAN:
                 if self.bEnableSignalIntensityCorrection:
                     if self.MAxSignalTh.is_alive():
                         self.MAxSignalTh.join()
@@ -4696,7 +4717,7 @@ class GUI_OPX():  # todo: support several device
                 dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
             self.GUI_ParametersControl(True)
-            if not self.exp == Experimet.FAST_SCAN and not self.exp == Experimet.SCAN:
+            if not self.exp == Experiment.FAST_SCAN and not self.exp == Experiment.SCAN:
                 if (self.fetchTh.is_alive()):
                     self.fetchTh.join()
             else:
@@ -4705,14 +4726,14 @@ class GUI_OPX():  # todo: support several device
             if (self.job):
                 self.StopJob(self.job, self.qm)
 
-            if self.exp == Experimet.COUNTER or self.exp == Experimet.SCAN:
+            if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
                 pass
             else:
                 self.mwModule.Get_RF_state()
                 if self.mwModule.RFstate:
                     self.mwModule.Turn_RF_OFF()
 
-            if self.exp not in [Experimet.COUNTER, Experimet.FAST_SCAN, Experimet.SCAN]:
+            if self.exp not in [Experiment.COUNTER, Experiment.FAST_SCAN, Experiment.SCAN]:
                 self.btnSave()
         except Exception as e:
             print(f"An error occurred in btnStop: {e}")
@@ -4810,7 +4831,7 @@ class GUI_OPX():  # todo: support several device
             print(f"{tag}: {auto_focus[tag]}")
 
         # start Qua pgm
-        self.exp = Experimet.SCAN
+        self.exp = Experiment.SCAN
         self.initQUA_gen(n_count=int(auto_focus["int_time_ms"] * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=1)
         res_handles = self.job.result_handles
         self.counts_handle = res_handles.get("counts_scanLine")
@@ -4914,13 +4935,13 @@ class GUI_OPX():  # todo: support several device
         print("Auto-focus done")
 
 
-    def StartScan3D(self):  # currently flurascence scan
+    def StartScan3D(self):  # currently fluorescence scan
         print("start scan steps")
         start_time = time.time()
         print(f"start_time: {self.format_time(start_time)}")
 
         # init
-        self.exp = Experimet.SCAN
+        self.exp = Experiment.SCAN
         self.GUI_ParametersControl(isStart=False)
         self.to_xml()  # save last params to xml
         self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")  # moved near end of scan
@@ -4954,12 +4975,13 @@ class GUI_OPX():  # todo: support several device
         self.scan_Out = []
         self.scan_intensities = []
 
-        # reset stage motion parameters (stream, motion delays, mav velocity)
-        self.positioner.set_in_position_delay(0, delay=0)  # reset delays yo minimal
-        self.positioner.DisablePositionTrigger(0)  # disable triggers
-        self.positioner.SetVelocity(0, 0)  # set max velocity (ch 0)
-        self.positioner.setIOmoduleEnable(dev=0)
-        self.positioner.set_Channel_Constant_Mode_State(channel=0)
+        if self.positioner is smaractMCS2:
+            # reset stage motion parameters (stream, motion delays, mav velocity)
+            self.positioner.set_in_position_delay(0, delay=0)  # reset delays yo minimal
+            self.positioner.DisablePositionTrigger(0)  # disable triggers
+            self.positioner.SetVelocity(0, 0)  # set max velocity (ch 0)
+            self.positioner.setIOmoduleEnable(dev=0)
+            self.positioner.set_Channel_Constant_Mode_State(channel=0)
 
         # GUI - convert Start Scan to Stop scan
         dpg.disable_item("btnOPX_StartScan")
@@ -4984,13 +5006,13 @@ class GUI_OPX():  # todo: support several device
         self.positioner.GetPosition()
         self.absPosunits = list(self.positioner.AxesPosUnits)
         self.initial_scan_Location = list(self.positioner.AxesPositions)
-        for ch in range(3):
+        for ch in self.positioner.channels:
             if isDebug:
                 print(f"ch{ch}: in position = {res}, position = {self.initial_scan_Location[ch]} {self.positioner.AxesPosUnits[ch]}")
 
         # goto scan start location
         ini_scan_pos = [0, 0, 0]
-        for ch in range(3):
+        for ch in self.positioner.channels:
             V_scan = []
             if self.b_Scan[ch]:
                 ini_scan_pos[ch] = self.initial_scan_Location[ch] - self.L_scan[ch] * 1e3 / 2  # [pm]
@@ -5011,7 +5033,7 @@ class GUI_OPX():  # todo: support several device
             self.V_scan.append(V_scan)
         self.positioner.GetPosition()
         if isDebug:
-            for i in range(3):
+            for i in self.positioner.channels:
                 print(f"ch[{i}] Pos = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
 
         Nx = len(self.V_scan[0])
@@ -5037,7 +5059,7 @@ class GUI_OPX():  # todo: support several device
         scanPx_Start = int(list(self.V_scan[0])[0] - self.dL_scan[x_channel] * 1e3)
         self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
         time.sleep(0.005)  # allow motion to start
-        for q in range(3):
+        for q in self.positioner.channels:
             self.readInpos(q)  # wait motion ends
 
         self.dir = 1
@@ -5089,7 +5111,7 @@ class GUI_OPX():  # todo: support several device
                     # move to next X - when trigger the OPX will measure and append the results
                     self.positioner.MoveABSOLUTE(0, int(V[k]))
                     time.sleep(5e-3)
-                    for q in range(3):
+                    for q in self.positioner.channels:
                         self.readInpos(q)  # wait motion ends
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
                     self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
@@ -5123,7 +5145,7 @@ class GUI_OPX():  # todo: support several device
                 # offset in X start point from 
                 self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
                 time.sleep(0.005)  # allow motion to start
-                for q in range(3):
+                for q in self.positioner.channels:
                     self.readInpos(q)  # wait motion ends
 
                 Line_time_End = time.time()
@@ -5134,7 +5156,7 @@ class GUI_OPX():  # todo: support several device
                 dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
 
         # back to start position
-        for i in range(3):
+        for i in self.positioner.channels:
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
             res = self.readInpos(i)
             self.positioner.GetPosition()

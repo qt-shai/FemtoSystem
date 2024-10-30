@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 
 
 class Motor(ABC):
@@ -8,7 +8,7 @@ class Motor(ABC):
     This class defines the interface that all motor types must implement to be compatible with the GUI.
     """
 
-    def __init__(self, serial_number: str = None, name: str = None):
+    def __init__(self, serial_number: Optional[str] = None, name: Optional[str] = None):
         """
         Initialize the motor with optional unique identifiers.
 
@@ -18,8 +18,8 @@ class Motor(ABC):
         self.no_of_channels: int = 0
         self.channels: List[int] = []
         self.StepsIn1mm: int = 1000000  # Default steps in 1mm for positioning; can be overridden
-        self.serial_number: str = serial_number  # Optional serial number
-        self.name: str = name  # Optional device name
+        self.serial_number: Optional[str] = serial_number  # Optional serial number
+        self.name: Optional[str] = name  # Optional device name
 
     @abstractmethod
     def connect(self) -> None:
@@ -55,7 +55,7 @@ class Motor(ABC):
         """
         Move a specific channel to an absolute position.
 
-        :param channel: The channel number to move.
+        :param channel: The target channel number.
         :param position: The target position in steps.
         """
         pass
@@ -65,7 +65,7 @@ class Motor(ABC):
         """
         Move a specific channel by a relative number of steps.
 
-        :param channel: The channel number to move.
+        :param channel: The target channel number.
         :param steps: The number of steps to move.
         """
         pass
@@ -86,5 +86,12 @@ class Motor(ABC):
 
         :param channel: The channel number to check.
         :return: Status as a string.
+        """
+        pass
+
+    def init_before_scan(self) -> None:
+        """
+        Optional method to initialize the motor before starting a scan.
+        This can be overridden by subclasses if needed.
         """
         pass
