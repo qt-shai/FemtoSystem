@@ -5300,7 +5300,7 @@ class GUI_OPX():  # todo: support several device
                 dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from MCS")
                 num_of_logged_points = len(self.positioner.LoggedPoints)
             elif current_label == "Logged from MCS":
-                pdb.set_trace()  # Insert a manual breakpoint
+                # pdb.set_trace()  # Insert a manual breakpoint
                 if self.use_picomotor:
                     dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from Pico")
                 else:
