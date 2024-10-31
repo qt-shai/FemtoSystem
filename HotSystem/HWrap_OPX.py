@@ -5,6 +5,7 @@
 # ***************************************************************
 import csv
 import pdb
+import traceback
 from datetime import datetime
 import os
 import sys
@@ -16,6 +17,8 @@ from typing import Union, Optional
 import glfw
 import numpy as np
 import tkinter as tk
+
+from Common import save_figure
 
 from gevent.libev.corecext import callback
 from matplotlib import pyplot as plt
@@ -95,6 +98,7 @@ class GUI_OPX():  # todo: support several device
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.limit = None
         self.verbose:bool = False
         self.plt_max1 = None
         self.plt_max = None
@@ -849,13 +853,14 @@ class GUI_OPX():  # todo: support several device
                         dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
                     with dpg.group(horizontal=False):
-                        dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
-                        dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
-                        dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=130)
+                        dpg.add_button(label="Updt from map", callback=self.update_from_map, width=160)
+                        dpg.add_button(label="scan all markers", callback=self.btnScanAllMarkers, width=160)
+                        dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=160)
                         with dpg.group(horizontal=True):
                             dpg.add_button(label="plot", callback=self.plot_graph)
                             dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor", callback=self.toggle_use_picomotor,
                                              default_value=self.use_picomotor)
+                        dpg.add_button(label="fill Z", callback=self.fill_z)
 
                     with dpg.group(horizontal=False):
                         dpg.add_input_float(label="Step (um)", default_value=0.2, width=120, tag="step_um")
@@ -872,6 +877,23 @@ class GUI_OPX():  # todo: support several device
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
+
+    def fill_z(self):
+        # Calculate Z value (if needed, otherwise set to 0)
+        x = dpg.get_value("mcs_ch0_ABS")
+        y = dpg.get_value("mcs_ch1_ABS")
+
+        point_on_plane = self.get_device_position(self.positioner)
+
+        Z0 = calculate_z_series(self.map.ZCalibrationData, np.array(point_on_plane[0]), point_on_plane[1])
+        Z1 = calculate_z_series(self.map.ZCalibrationData, np.array(x*1e6), int(y*1e6))
+        z = (point_on_plane[2] - Z0 + Z1)/1e6
+
+        dpg.set_value("mcs_ch2_ABS", z)
+
+        points = np.array(point_on_plane)/1e6
+        print(points)
+        print(z)
 
     def btn_z_calibrate(self):
         self.ScanTh = threading.Thread(target=self.z_calibrate)
@@ -923,6 +945,12 @@ class GUI_OPX():  # todo: support several device
         dpg.set_value(item="checkbox_use_picomotor", value=self.use_picomotor)
         self.map.toggle_use_picomotor(app_data = app_data, user_data = user_data)
         print("Set use_picomotor to: " + str(self.use_picomotor))
+
+    def toggle_limit(self, app_data, user_data):
+        self.limit = user_data
+        time.sleep(0.001)
+        dpg.set_value(item="checkbox_limit", value=self.limit)
+        print("Limit is " + str(self.limit))
 
     def plot_graph(self):
         # Check if plt_x and plt_y are not None
@@ -1011,12 +1039,12 @@ class GUI_OPX():  # todo: support several device
 
                 # Move to the calculated scan start position for each axis
                 for ch in range(3):
-                    # if self.map.use_picomotor:
-                    self.pico.MoveABSOLUTE(ch + 1, int(point[ch]*self.pico.StepsIn1mm/1e6))  # Move absolute to start location
-                    print(f"Moved to start position for channel {ch} at {point[ch]} µm, by picomotor.")
-                    # else:
-                    #     self.positioner.MoveABSOLUTE(ch, int(point[ch]))  # Move absolute to start location
-                    #     print(f"Moved to start position for channel {ch} at {point[ch]} µm.")
+                    if self.map.use_picomotor:
+                        self.pico.MoveABSOLUTE(ch + 1, int(point[ch]*self.pico.StepsIn1mm/1e6))  # Move absolute to start location
+                        print(f"Moved to start position for channel {ch} at {point[ch]} µm, by picomotor.")
+                    else:
+                        self.positioner.MoveABSOLUTE(ch, int(point[ch]))  # Move absolute to start location
+                        print(f"Moved to start position for channel {ch} at {point[ch]} µm. by smaract")
 
                 # Ensure the stage has reached its position
                 time.sleep(0.005)  # Allow motion to start
@@ -1322,6 +1350,10 @@ class GUI_OPX():  # todo: support several device
             print(f"Error setting texture tag value: {e}")
 
     def UpdateGuiDuringScan(self, Array2D, use_fast_rgb: bool = False):
+        # If self.limit is true, cap the values in Array2D at 200
+        if self.limit:
+            Array2D = np.where(Array2D > 200, 200, Array2D)
+
         val = Array2D.reshape(-1)
         idx = np.where(val != 0)[0]
         minI = val[idx].min()
@@ -4786,6 +4818,10 @@ class GUI_OPX():  # todo: support several device
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))  # raise
 
+    def btnScanAllMarkers(self):
+        self.ScanTh = threading.Thread(target=self.scan_all_markers)
+        self.ScanTh.start()
+
     def btnStartScan(self):
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
@@ -4795,12 +4831,12 @@ class GUI_OPX():  # todo: support several device
         self.ScanTh.start()
 
     def StartScan(self):
-        self.positioner.KeyboardEnabled = False  # TODO: Update the check box in the gui!!
-        if not self.fast_scan_enabled:
-            self.StartScan3D()
-        else:
-            self.StartFastScan()
-        self.positioner.KeyboardEnabled = True
+        if self.positioner:
+            self.positioner.KeyboardEnabled = False  # TODO: Update the check box in the gui!!
+        self.StartScan3D()
+        if self.positioner:
+            self.positioner.KeyboardEnabled = True  # TODO: Update the check box in the gui!!
+
 
     def fetch_peak_intensity(self, integration_time):
         self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
@@ -4948,11 +4984,6 @@ class GUI_OPX():  # todo: support several device
 
         try:
             # Define the source files and destinations
-            # file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
-            #     "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
-            #     "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
-            #     {"src": 'D:/HotSysSW/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
-            #         "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"}]
             file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
                 "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
                 "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
@@ -5001,7 +5032,7 @@ class GUI_OPX():  # todo: support several device
         N = [1, 1, 1]
 
         # get current (initial) position
-        for ch in range(3):  # verify in postion
+        for ch in self.positioner.channels:  # verify in postion
             res = self.readInpos(ch)
         self.positioner.GetPosition()
         self.absPosunits = list(self.positioner.AxesPosUnits)
@@ -5111,7 +5142,7 @@ class GUI_OPX():  # todo: support several device
                     # move to next X - when trigger the OPX will measure and append the results
                     self.positioner.MoveABSOLUTE(0, int(V[k]))
                     time.sleep(5e-3)
-                    for q in self.positioner.channels:
+                    for q in range(3):
                         self.readInpos(q)  # wait motion ends
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
                     self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
@@ -5135,7 +5166,7 @@ class GUI_OPX():  # todo: support several device
                 if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
                     j = j + 1
                     self.prepare_scan_data(max_position_x_scan = self.endLoc[0] * 1e6 + self.dL_scan[0] * 1e3, min_position_x_scan = self.startLoc[0] * 1e6,start_pos=ini_scan_pos)
-                    self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
+                    self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN, to_append = True)
                 else:
                     print("****** error: ******\nNumber of measurements is not consistent with excpected.\nthis line will be repeated.")
                     pass
@@ -5145,7 +5176,7 @@ class GUI_OPX():  # todo: support several device
                 # offset in X start point from 
                 self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
                 time.sleep(0.005)  # allow motion to start
-                for q in self.positioner.channels:
+                for q in range(3):
                     self.readInpos(q)  # wait motion ends
 
                 Line_time_End = time.time()
@@ -5156,7 +5187,7 @@ class GUI_OPX():  # todo: support several device
                 dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
 
         # back to start position
-        for i in self.positioner.channels:
+        for i in range(3):
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
             res = self.readInpos(i)
             self.positioner.GetPosition()
@@ -5164,6 +5195,8 @@ class GUI_OPX():  # todo: support several device
 
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
+
+        # save_figure(fn + "_highres", self.Scan_matrix[int(Nz / 2), :, :])
 
         end_time = time.time()
         print(f"end_time: {end_time}")
@@ -5177,16 +5210,12 @@ class GUI_OPX():  # todo: support several device
     def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
         # Create object to be saved in excel
         self.scan_Out = []
-        # probably unit issue
-        x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
-        y_vec = np.linspace(start_pos[1], start_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
-        z_vec = np.linspace(start_pos[2], start_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
-        for i in range(np.size(self.scan_intensities, 2)):
-            for j in range(np.size(self.scan_intensities, 1)):
-                for k in range(np.size(self.scan_intensities, 0)):
-                    x = x_vec[k]
-                    y = y_vec[j]
-                    z = z_vec[i]
+        for i in range(len(self.V_scan[2])):
+            for j in range(len(self.V_scan[1])):
+                for k in range(len(self.V_scan[0])):
+                    x = self.V_scan[0][k]
+                    y = self.V_scan[1][j]
+                    z = self.V_scan[2][i]
                     I = self.scan_intensities[k, j, i]
                     self.scan_Out.append([x, y, z, I, x, y, z])
 
@@ -5307,12 +5336,13 @@ class GUI_OPX():  # todo: support several device
                     dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from MCS")
                 return
             elif current_label == "Get Log from Pico":
-                if hasattr(self, 'pico'):
+                if hasattr(self, 'pico') and self.pico is not None:
                     dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from Pico")
                     prefix = "pico"
                     num_of_logged_points = len(self.pico.LoggedPoints)
                 else:
                     # If Pico does not exist, maintain prefix as mcs
+                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from MCS")
                     error_message = "Pico does not exist; defaulting to MCS."
                     print(error_message)
                     num_of_logged_points = len(self.positioner.LoggedPoints)
@@ -5355,7 +5385,8 @@ class GUI_OPX():  # todo: support several device
             print(self.map.ZCalibrationData)
 
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            print(f"Unexpected error while getting log points: {e}")
+            traceback.print_exc()  # This will print the full traceback
             dpg.set_value("Scan_Message", "An unexpected error occurred.")
 
     def btnLoadScan(self):
@@ -5366,7 +5397,7 @@ class GUI_OPX():  # todo: support several device
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)
 
-    def save_scan_data(self, Nx, Ny, Nz, fileName=None):
+    def save_scan_data(self, Nx, Ny, Nz, fileName=None, to_append:bool = False):
         if fileName == None:
             fileName = self.create_scan_file_name()
 
@@ -5375,11 +5406,16 @@ class GUI_OPX():  # todo: support several device
 
         # raw data
         Scan_array = np.array(self.scan_Out)
-        RawData_to_save = {'X': Scan_array[:, 0].tolist(), 'Y': Scan_array[:, 1].tolist(), 'Z': Scan_array[:, 2].tolist(),
+        if to_append:
+            RawData_to_save = {'X': Scan_array[-Nx:, 0].tolist(), 'Y': Scan_array[-Nx:, 1].tolist(), 'Z': Scan_array[-Nx:, 2].tolist(),
+                               'Intensity': Scan_array[-Nx:, 3].tolist(), 'Xexpected': Scan_array[-Nx:, 4].tolist(), 'Yexpected': Scan_array[-Nx:, 5].tolist(),
+                               'Zexpected': Scan_array[-Nx:, 6].tolist(), }
+        else:
+            RawData_to_save = {'X': Scan_array[:, 0].tolist(), 'Y': Scan_array[:, 1].tolist(), 'Z': Scan_array[:, 2].tolist(),
             'Intensity': Scan_array[:, 3].tolist(), 'Xexpected': Scan_array[:, 4].tolist(), 'Yexpected': Scan_array[:, 5].tolist(),
             'Zexpected': Scan_array[:, 6].tolist(), }
 
-        self.saveToCSV(fileName + ".csv", RawData_to_save)
+        self.saveToCSV(fileName + ".csv", RawData_to_save, to_append)
 
         if self.stopScan != True:
             # prepare image for plot
@@ -5565,7 +5601,7 @@ class GUI_OPX():  # todo: support several device
         self.expNotes = sender
         self.HW.camera.imageNotes = sender
 
-    def saveToCSV(self, file_name, data):
+    def saveToCSV(self, file_name, data, to_append:bool = False):
         print("Saving to CSV")
         # Find the length of the longest list
 
@@ -5576,14 +5612,18 @@ class GUI_OPX():  # todo: support several device
             while len(data[key]) < max_length:
                 data[key].append(None)
 
+        # Check if file exists, so we don't rewrite the headers when appending
+        file_exists = os.path.exists(file_name)
+
         # Writing to CSV
-        # todo: add protection try ...
         try:
-            with open(file_name, mode='w', newline='') as file:
+            # Open the file in append mode if to_append is True, otherwise in write mode
+            with open(file_name, mode='a' if to_append else 'w', newline='') as file:
                 writer = csv.writer(file)
 
-                # Write titles
-                writer.writerow(data.keys())
+                # Write titles only if not appending or file does not exist
+                if not to_append or not file_exists:
+                    writer.writerow(data.keys())
 
                 # Write data
                 writer.writerows(zip(*data.values()))

@@ -103,8 +103,6 @@ class Map:
         except Exception as e:
             print(f"Error: {e}")
 
-
-
     def create_map_gui(self, win_size, win_pos):
         self.win_size = win_size
         use_pico=False
@@ -1134,9 +1132,11 @@ class Map:
             return self.use_picomotor, exp_notes
         except FileNotFoundError:
             print("map_config.txt not found.")
+            return self.use_picomotor, exp_notes
         except Exception as e:
             print(f"Error loading map parameters: {e}")
             traceback.print_exc()  # This will print the full traceback including the line number
+            return self.use_picomotor, exp_notes
 
     def update_markers_table(self):
         """Rebuild the table rows to show both markers and area markers."""
@@ -1911,4 +1911,6 @@ class Map:
         self.disable_d_click = user_data
         dpg.set_value(item="checkbox_disable_d_click", value=self.disable_d_click)
         print("Set disable d click to: " + str(self.disable_d_click))
+
+
 

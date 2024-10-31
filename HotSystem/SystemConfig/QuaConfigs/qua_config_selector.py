@@ -22,5 +22,7 @@ class QuaConfigSelector:
         if system_type == config.SystemType.HOT_SYSTEM:
             config_instance = config.HotSystemQuaConfig()
         elif system_type == config.SystemType.FEMTO:
-            config_instance = config.FemtoQuaConfig()                
+            config_instance = config.FemtoQuaConfig()
+        elif system_type == config.SystemType.ATTO:
+            config_instance = config.AttoQuaConfig()
         return config_instance.get_config() if config_instance else None  # Return an instance of the found class

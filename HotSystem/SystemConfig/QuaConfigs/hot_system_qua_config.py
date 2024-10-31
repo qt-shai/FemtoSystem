@@ -6,7 +6,6 @@ class HotSystemQuaConfig(QUAConfigBase):
     def __init__(self) -> None:
         super().__init__()
 
-
     def get_controllers(self) -> Dict[str, Any]:
         return {
             "con1": {

@@ -637,94 +637,97 @@ class PyGuiOverlay(Layer):
         for device in self.system_config.devices:
             instrument = device.instrument
 
-            if instrument == Instruments.ROHDE_SCHWARZ:
-                pass
-                # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
-                # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
-                # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
+            try:
+
+                if instrument == Instruments.ROHDE_SCHWARZ:
+                    pass
+                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
+                    # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
+                    # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
 
 
-            elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
-                self.smaractGUI = gui_Smaract.GUI_smaract(simulation=self.simulation,
-                                                          serial_number=device.serial_number)
-                dpg.set_item_pos(self.smaractGUI.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.smaractGUI.window_tag) + vertical_spacing
+                elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
+                    self.smaractGUI = gui_Smaract.GUI_smaract(simulation=self.simulation,
+                                                              serial_number=device.serial_number)
+                    dpg.set_item_pos(self.smaractGUI.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.smaractGUI.window_tag) + vertical_spacing
 
-                if not self.simulation:
-                    self.smaract_thread = threading.Thread(target=self.render_smaract)
-                    self.smaract_thread.start()
+                    if not self.simulation:
+                        self.smaract_thread = threading.Thread(target=self.render_smaract)
+                        self.smaract_thread.start()
 
-            elif instrument == Instruments.COBOLT:
-                self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation, com_port = device.com_port)
-                dpg.set_item_pos(self.coboltGUI.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.coboltGUI.window_tag) + vertical_spacing
-                if not self.simulation:
-                    self.cobolt_thread = threading.Thread(target=self.render_cobolt)
-                    self.cobolt_thread.start()
+                elif instrument == Instruments.COBOLT:
+                    self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation, com_port = device.com_port)
+                    dpg.set_item_pos(self.coboltGUI.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.coboltGUI.window_tag) + vertical_spacing
+                    if not self.simulation:
+                        self.cobolt_thread = threading.Thread(target=self.render_cobolt)
+                        self.cobolt_thread.start()
 
-            elif instrument == Instruments.PICOMOTOR:
-                self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=self.simulation)
-                dpg.set_item_pos(self.picomotorGUI.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.picomotorGUI.window_tag) + vertical_spacing
+                elif instrument == Instruments.PICOMOTOR:
+                    self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=self.simulation)
+                    dpg.set_item_pos(self.picomotorGUI.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.picomotorGUI.window_tag) + vertical_spacing
 
-                if not self.simulation:
-                    self.picomotor_thread = threading.Thread(target=self.render_picomotor)
-                    self.picomotor_thread.start()
+                    if not self.simulation:
+                        self.picomotor_thread = threading.Thread(target=self.render_picomotor)
+                        self.picomotor_thread.start()
 
-            elif instrument == Instruments.ZELUX:
-                self.cam = gui_Zelux.ZeluxGUI()
-                if len(self.cam.cam.available_cameras) > 0:
-                    self.cam.Controls()
-                    dpg.set_item_pos(self.cam.window_tag, [20, y_offset])
-                    y_offset += dpg.get_item_height(self.cam.window_tag) + vertical_spacing
+                elif instrument == Instruments.ZELUX:
+                    self.cam = gui_Zelux.ZeluxGUI()
+                    if len(self.cam.cam.available_cameras) > 0:
+                        self.cam.Controls()
+                        dpg.set_item_pos(self.cam.window_tag, [self.Monitor_width-dpg.get_item_width(self.cam.window_tag)-vertical_spacing, vertical_spacing])
 
-            elif instrument == Instruments.OPX:
-                self.opx = GUI_OPX(self.simulation)
-                self.opx.controls()
-                dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
+                elif instrument == Instruments.OPX:
+                    self.opx = GUI_OPX(self.simulation)
+                    self.opx.controls()
+                    dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
 
-            elif instrument == Instruments.ATTO_POSITIONER:
-                self.atto_positioner_gui = GUIMotor(
-                    motor=hw_devices.HW_devices(simulation=self.simulation).atto_positioner,
-                    instrument=Instruments.ATTO_POSITIONER,
-                    simulation=self.simulation
-                )
-                dpg.set_item_pos(self.atto_positioner_gui.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.atto_positioner_gui.window_tag) + vertical_spacing
+                elif instrument == Instruments.ATTO_POSITIONER:
+                    self.atto_positioner_gui = GUIMotor(
+                        motor=hw_devices.HW_devices(simulation=self.simulation).atto_positioner,
+                        instrument=Instruments.ATTO_POSITIONER,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.atto_positioner_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.atto_positioner_gui.window_tag) + vertical_spacing
 
-            elif instrument == Instruments.HIGHLAND:
-                self.highland_gui = GUIHighlandT130(
-                    device=hw_devices.HW_devices(simulation=self.simulation).highland_eom_driver,
-                    simulation=self.simulation
-                )
-                dpg.set_item_pos(self.highland_gui.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.highland_gui.window_tag) + vertical_spacing
+                elif instrument == Instruments.HIGHLAND:
+                    self.highland_gui = GUIHighlandT130(
+                        device=hw_devices.HW_devices(simulation=self.simulation).highland_eom_driver,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.highland_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.highland_gui.window_tag) + vertical_spacing
 
-            elif instrument == Instruments.MATTISE:
-                self.mattise_gui = GUIMatisse(
-                    device=hw_devices.HW_devices(simulation=self.simulation).matisse_device,
-                    simulation=self.simulation
-                )
-                dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
+                elif instrument == Instruments.MATTISE:
+                    self.mattise_gui = GUIMatisse(
+                        device=hw_devices.HW_devices(simulation=self.simulation).matisse_device,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
 
-            elif instrument == Instruments.KEYSIGHT_AWG:
-                self.keysight_gui = GUIKeysight33500B(
-                    device= hw_devices.HW_devices(simulation=self.simulation).keysight_awg_device,
-                    simulation=self.simulation
-                )
-                dpg.set_item_pos(self.keysight_gui.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.keysight_gui.window_tag) + vertical_spacing
+                elif instrument == Instruments.KEYSIGHT_AWG:
+                    self.keysight_gui = GUIKeysight33500B(
+                        device= hw_devices.HW_devices(simulation=self.simulation).keysight_awg_device,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.keysight_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.keysight_gui.window_tag) + vertical_spacing
 
-            elif instrument == Instruments.ATTO_SCANNER:
-                self.atto_scanner_gui = GUIMotor(
-                    motor= hw_devices.HW_devices(simulation=self.simulation).atto_scanner,
-                    instrument=Instruments.ATTO_SCANNER,
-                    simulation=self.simulation
-                )
-                dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, y_offset])
-                y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
+                elif instrument == Instruments.ATTO_SCANNER:
+                    self.atto_scanner_gui = GUIMotor(
+                        motor= hw_devices.HW_devices(simulation=self.simulation).atto_scanner,
+                        instrument=Instruments.ATTO_SCANNER,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
+            except Exception as e:
+                print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle

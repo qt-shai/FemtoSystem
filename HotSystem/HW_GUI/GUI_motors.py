@@ -152,7 +152,7 @@ class GUIMotor:
 
     def btn_move_absolute(self, sender, app_data, ch):
         position = int(dpg.get_value(f"ch{ch}_ABS_{self.unique_id}") * self.dev.StepsIn1mm / 1e6)
-        self.dev.move_absolute(ch, position)
+        self.dev.MoveABSOLUTE(ch, position)
 
     def btn_move_negative_coarse(self, sender, app_data, ch):
         step = int(-dpg.get_value(f"ch{ch}_coarse_{self.unique_id}") * self.dev.StepsIn1mm / 1e3)

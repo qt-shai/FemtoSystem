@@ -35,6 +35,12 @@ class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"
     MCS2_00017055 = "192.168.101.59"
     MATTISE = "COM3"
+    KEYSIGHT_AWG = "TCPIP::K-33522B-03690.local::5025::SOCKET"
+    Rhode_Schwarz_hot_system = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
+    atto_positioner = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
+    opx_ip = '192.168.101.56'
+    opx_port = 80
+    opx_cluster = 'Cluster_1'
 
 class Device:
     """
@@ -58,7 +64,7 @@ class SystemConfig:
 
     microwave_ip: str = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     atto_positioner_ip: str = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
-    atto_scanner_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
+    # atto_scanner_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
     keysight_awg_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
     opx_ip = '192.168.101.56'
     opx_port = 80

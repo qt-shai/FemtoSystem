@@ -44,7 +44,7 @@ class AttoQuaConfig(QUAConfigBase):
                 "digital_outputs": {
                     4: {"shareable": True},  # trigger Laser (Cobolt)
                     5: {"shareable": True},  # trigger MW (Rohde Schwarz)
-                    8: {"shareable": True},  # amplitude EOM trigger
+                    # 8: {"shareable": True},  # amplitude EOM trigger
                 },
                 "analog_inputs": {
                     1: {"offset": 0.00979, "gain_db": 0, "shareable": True}, # QM: why? because
@@ -129,16 +129,16 @@ class AttoQuaConfig(QUAConfigBase):
                 },
                 "operations": {"ON": "switch_ON"},
             },
-            "Amplitude_EOM": {
-                "digitalInputs": { # here it is actually outputs
-                    "marker": {
-                        "port": ("con1", 8),  # Digital output 8
-                        "delay": self.switch_delay,
-                        "buffer": self.switch_buffer,
-                    },
-                },
-                "operations": {"ON": "switch_ON"},
-            },
+            # "Amplitude_EOM": {
+            #     "digitalInputs": { # here it is actually outputs
+            #         "marker": {
+            #             "port": ("con1", 8),  # Digital output 8
+            #             "delay": self.switch_delay,
+            #             "buffer": self.switch_buffer,
+            #         },
+            #     },
+            #     "operations": {"ON": "switch_ON"},
+            # },
             "Detector_OPD": {
                 "singleInput": {"port": ("con1", 1)},  # not used
                 "digitalInputs": {
@@ -150,6 +150,26 @@ class AttoQuaConfig(QUAConfigBase):
                 },
                 "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
                 "outputs": {"out1": ("con1", 1)},  
+                "operations": {
+                    "readout": "readout_pulse",
+                    "min_readout": "min_readout_pulse",
+                    "long_readout": "long_readout_pulse",
+                    "very_long_readout": "very_long_readout_pulse",
+                },
+                "time_of_flight": self.detection_delay_OPD,
+                "smearing": 0,
+            },
+            "Detector2_OPD": {
+                "singleInput": {"port": ("con1", 1)},  # not used
+                "digitalInputs": {
+                    # "marker": {
+                    #     "port": ("con1", 10),  # Digital output 10
+                    #     "delay": self.detection_delay_OPD,
+                    #     "buffer": 0,
+                    # },
+                },
+                "digitalOutputs": {"out1": ("con1", 5)},  # 'digitalOutputs' here is actually 'digital input' of OPD
+                "outputs": {"out1": ("con1", 1)},
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
