@@ -28,7 +28,7 @@ class HW_devices:
             self.elc_power_supply: Optional[ALR3206T] = None
             self.highland_eom_driver: Optional[HighlandT130]  = None
             self.microwave: Optional[RS_SGS100a] = None
-            self.positioner: Optional[smaractMCS2] = None
+            self.positioner: Optional[smaractMCS2|AttoScannerWrapper] = None
             self.camera: Optional[Zelux] = None
             self.atto_positioner: Optional[AttoDry800] = None
             self.picomotor:Optional[newportPicomotor] = None
@@ -100,11 +100,12 @@ class HW_devices:
                                                   simulation=self.simulation)
 
             elif instrument == Instruments.ATTO_SCANNER:
-                self.keysight_awg_device = Keysight33500B(address=SystemConfig.keysight_awg_ip, simulation=self.simulation)  # Replace with actual address
+                self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=self.simulation)  # Replace with actual address
                 self.atto_scanner = AttoScannerWrapper(awg = self.keysight_awg_device,
                                                        max_travel_x=40.0, max_travel_y=40.0,
                                                        name="atto_scanner",
                                                        )
+                self.positioner = self.atto_scanner
 
             elif instrument == Instruments.MATTISE:
                 self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=self.simulation)

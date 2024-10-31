@@ -51,7 +51,7 @@ class Motor(ABC):
         pass
 
     @abstractmethod
-    def move_absolute(self, channel: int, position: int) -> None:
+    def MoveABSOLUTE(self, channel: int, position: int) -> None:
         """
         Move a specific channel to an absolute position.
 

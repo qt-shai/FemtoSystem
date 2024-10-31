@@ -26,11 +26,9 @@ class Keysight33500B(SerialDevice):
         Sends *IDN? command to check device identity and ensure the connection is valid.
         """
         super().connect()
-        # Verify connection with *IDN? query
-        identity = self.query("*IDN?")
-        if "33500B" not in identity:
-            raise Exception("Failed to connect to Keysight 33500B. Device ID not recognized.")
-        print("Connected to Keysight 33500B")
+        # # Verify connection with *IDN? query
+        # identity = self.query("*IDN?")
+        # print(f"Connected to Keysight {identity}")
 
     def set_waveform_type(self, waveform_type: str, channel: int = 1):
         """
@@ -88,7 +86,7 @@ class Keysight33500B(SerialDevice):
         if channel not in [1, 2]:
             raise ValueError("Channel must be 1 or 2.")
         if not -5 <= offset <= 5:
-            raise ValueError("Offset must be between -5V and 5V.")
+            raise ValueError(f"Offset must be between -5V and 5V. Request value: {offset}")
         command = f"source{channel}:voltage:OFFS {offset}"
         self._send_command(command)
         time.sleep(0.1)

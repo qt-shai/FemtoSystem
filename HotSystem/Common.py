@@ -5,6 +5,8 @@ import threading
 from enum import Enum
 
 import dearpygui.dearpygui as dpg
+from matplotlib import pyplot as plt
+
 
 # add bubble sort
 class Common_Counter_Singletone:
@@ -170,4 +172,13 @@ class DpgThemes:
         return theme
                 
 
-    
+def save_figure(fileName, data, format_ext:str = "jpg"):
+    # Save slice2D as a high-resolution image with a Jet colormap using Matplotlib
+    fig, ax = plt.subplots(figsize=(10, 10), dpi=300)  # Set high resolution (300 DPI)
+    cax = ax.imshow(data, cmap='jet', interpolation='nearest')  # Apply Jet colormap
+    fig.colorbar(cax)  # Add colorbar for reference
+    plt.axis('off')  # Remove axis for a cleaner image
+    plt.savefig(fileName + "." + format_ext, bbox_inches='tight', pad_inches=0)  # Save as high-resolution image
+    plt.close()  # Close the plot to free up resources
+
+

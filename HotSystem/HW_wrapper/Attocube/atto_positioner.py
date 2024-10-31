@@ -152,7 +152,7 @@ class AttoDry800(Motor):
         self._check_and_enable_output(channel, verbose)
         self._perform_request(AttoJSONMethods.MOVE_TO_REFERENCE.value, [channel], verbose)
 
-    def move_absolute(self, channel: int, position: int, verbose: bool = False) -> None:
+    def MoveABSOLUTE(self, channel: int, position: int, verbose: bool = False) -> None:
         """
         Move a specific channel to an absolute position.
 
@@ -174,7 +174,7 @@ class AttoDry800(Motor):
         self._check_and_enable_output(channel, verbose)
         current_position = self.get_position(channel, verbose=verbose)
         target_position = current_position + steps
-        self.move_absolute(channel, int(target_position), verbose=verbose)
+        self.MoveABSOLUTE(channel, int(target_position))
 
     def set_zero_position(self, channel: int, verbose: bool = False) -> None:
         """
