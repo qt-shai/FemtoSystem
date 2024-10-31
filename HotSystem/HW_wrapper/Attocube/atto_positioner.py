@@ -1,11 +1,16 @@
 import time
-
-from ..Attocube import AttocubeDevice, AttoJSONMethods
+from typing import List, Optional
 from HW_wrapper.abstract_motor import Motor
 
+from ..Attocube import AttocubeDevice, AttoJSONMethods
 
 class AttoDry800(Motor):
-    def __init__(self, address: str, serial_number: str = None, name: str = "AttoDry800", simulation: bool = False):
+    """
+    Wrapper class for controlling the AttoDry800 cryostat.
+    Implements the Motor interface for compatibility with GUIMotor.
+    """
+
+    def __init__(self, address: str, serial_number: Optional[str] = None, name: str = "AttoDry800", simulation: bool = False):
         """
         Initialize the AttoDry800 cryostat.
 
@@ -14,24 +19,181 @@ class AttoDry800(Motor):
         :param name: The name of the cryostat device.
         :param simulation: Boolean flag to indicate if in simulation mode.
         """
-        super().__init__(serial_number, name)
+        super().__init__(serial_number=serial_number, name=name)
         self.simulation = simulation
         self.address = address
-        self.no_of_channels = 3  # Assuming 3 axes for movement
-        self.channels = [0, 1, 2]
+        self.no_of_channels: int = 3  # Assuming 3 axes for movement
+        self.channels: List[int] = [0, 1, 2]  # Logical channels for X, Y, Z axes
+        self.StepsIn1mm: int = 1000000  # Steps in 1mm (assuming 1 step = 1 nm)
+        self._axes_positions: List[float] = [0.0, 0.0, 0.0]  # Positions in nanometers
+        self._axes_pos_units: List[str] = ["nm", "nm", "nm"]
+        self._connected: bool = False
         self.device = AttocubeDevice(address, simulation=simulation)
 
-    def _simulate_action(self, action: str, verbose: bool = False) -> None:
+    def connect(self) -> None:
+        """Connect to the cryostat."""
+        if self.simulation:
+            self._simulate_action("connect to the cryostat")
+            self._connected = True
+        else:
+            try:
+                self.device.connect()
+                self._connected = True
+                print("Successfully connected to the cryostat.")
+            except Exception as e:
+                print(f"Error connecting to the device: {e}")
+                self._connected = False
+                raise e
+
+    def disconnect(self) -> None:
+        """Disconnect from the cryostat."""
+        if self.simulation:
+            self._simulate_action("disconnect from the cryostat")
+            self._connected = False
+        else:
+            try:
+                self.device.close()
+                self._connected = False
+                print("Successfully disconnected from the cryostat.")
+            except Exception as e:
+                print(f"Error disconnecting from the device: {e}")
+                raise e
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if the cryostat is connected."""
+        return self._connected
+
+    def stop_all_axes(self) -> None:
+        """Stop all movement on all axes."""
+        for axis in self.channels:
+            self._perform_request(AttoJSONMethods.STOP_MOVEMENT.value, [axis])
+
+    def move_to_home(self, channel: int) -> None:
+        """
+        Move a specific channel to its home position.
+
+        :param channel: The channel number to move.
+        """
+        self._check_and_enable_output(channel)
+        self._perform_request(AttoJSONMethods.MOVE_TO_REFERENCE.value, [channel])
+        self.wait_for_axes_to_stop([channel])
+        self.GetPosition()
+
+    def MoveABSOLUTE(self, channel: int, position: int, verbose: bool = False) -> None:
+        """
+        Move a specific channel to an absolute position.
+
+        :param channel: The channel number to move.
+        :param position: The target position in steps.
+        """
+        self._check_and_enable_output(channel)
+        self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, position])
+        self.wait_for_axes_to_stop([channel])
+        self.GetPosition()
+
+    def move_relative(self, channel: int, steps: int) -> None:
+        """
+        Move a specific channel by a relative number of steps.
+
+        :param channel: The channel number to move.
+        :param steps: The number of steps to move.
+        """
+        self._check_and_enable_output(channel, verbose)
+        current_position = self.get_position(channel, verbose=verbose)
+        target_position = current_position + steps
+        self.MoveABSOLUTE(channel, int(target_position))
+
+    def set_zero_position(self, channel: int) -> None:
+        """
+        Set the current position of a specific channel to zero.
+
+        :param channel: The channel number to zero.
+        """
+        self._axes_positions[channel] = 0.0
+        print(f"Channel {channel} position set to zero.")
+
+    def get_status(self, channel: int) -> str:
+        """
+        Get the status of a specific channel.
+
+        :param channel: The channel number to check.
+        :return: Status as a string ("Moving" or "Idle").
+        """
+        moving_status = self.get_moving_status()
+        if moving_status and channel in moving_status:
+            return "Moving" if moving_status[channel] else "Idle"
+        else:
+            return "Unknown"
+
+    def get_current_position(self, channel: int) -> float:
+        """
+        Get the current position of a specific channel in nanometers.
+
+        :param channel: The channel number.
+        :return: Current position in nanometers.
+        """
+        position = self.get_position(channel)
+        self._axes_positions[channel] = position
+        return position
+
+    def get_position_unit(self, channel: int) -> str:
+        """
+        Get the position unit of the specified channel.
+
+        :param channel: The channel number.
+        :return: Position unit as a string.
+        """
+        return self._axes_pos_units[channel]
+
+    def readInpos(self, channel: int) -> bool:
+        """
+        Check if the axis is in position (not moving).
+
+        :param channel: The channel number.
+        :return: True if in position, False otherwise.
+        """
+        moving_status = self.get_moving_status()
+        if moving_status and channel in moving_status:
+            return not moving_status[channel]
+        else:
+            return True  # Assume in position if status not available
+
+    def generatePulse(self, channel: int) -> None:
+        """
+        No operation for AttoDry800.
+
+        :param channel: The channel number.
+        """
+        pass
+
+    def GetPosition(self) -> None:
+        """Update internal positions for all axes."""
+        for channel in self.channels:
+            position = self.get_position(channel)
+            self._axes_positions[channel] = position
+
+    @property
+    def AxesPositions(self) -> List[float]:
+        """List of current axis positions in nanometers."""
+        return self._axes_positions
+
+    @property
+    def AxesPosUnits(self) -> List[str]:
+        """List of position units for each axis."""
+        return self._axes_pos_units
+
+    # Private helper methods
+    def _simulate_action(self, action: str) -> None:
         """
         Simulate an action if in simulation mode.
 
         :param action: The action description to print.
-        :param verbose: If True, print detailed output.
         """
-        if self.simulation and verbose:
+        if self.simulation:
             print(f"Simulating {action}.")
 
-    def _perform_request(self, method: str, params: list, verbose: bool = False) -> any:
+    def _perform_request(self, method: str, params: List, verbose: bool = False) -> any:
         """
         Perform a request to the device and handle errors.
 
@@ -41,9 +203,8 @@ class AttoDry800(Motor):
         :return: The response from the device.
         """
         if self.simulation:
-            self._simulate_action(f"{method} with params {params}", verbose)
+            self._simulate_action(f"{method} with params {params}")
             return
-
         try:
             response = self.device.request(method, params)
             self.device.handle_error(response, self.simulation)
@@ -54,231 +215,104 @@ class AttoDry800(Motor):
             print(f"Error performing request {method} with params {params}: {e}")
             raise e
 
-    # noinspection DuplicatedCode
-    def _check_and_enable_output(self, channel: int, verbose: bool = False) -> None:
+    def _check_and_enable_output(self, channel: int) -> None:
         """
         Check if the output and control move for a given channel are enabled; if not, enable them.
 
         :param channel: The channel number to check.
-        :param verbose: If True, print detailed output.
         """
-        if verbose:
-            print(f"Checking if output and control move are enabled for channel {channel}.")
-
         # Check if the control output is enabled
-        response_output = self._perform_request(AttoJSONMethods.GET_CONTROL_OUTPUT.value, [channel], verbose)
-        if response_output is None or response_output[1]:
-            if verbose:
-                print(f"Output for channel {channel} is already enabled.")
-        else:
-            if verbose:
-                print(f"Output for channel {channel} is not enabled. Enabling it.")
-            self._perform_request(AttoJSONMethods.SET_CONTROL_OUTPUT.value, [channel, True], verbose)
+        response_output = self._perform_request(AttoJSONMethods.GET_CONTROL_OUTPUT.value, [channel])
+        if response_output and not response_output[1]:
+            self._perform_request(AttoJSONMethods.SET_CONTROL_OUTPUT.value, [channel, True])
 
         # Check if the control move is enabled
-        response_move = self._perform_request(AttoJSONMethods.GET_CONTROL_MOVE.value, [channel], verbose)
-        if response_move is None or response_move[1]:
-            if verbose:
-                print(f"Control move for channel {channel} is already enabled.")
-        else:
-            if verbose:
-                print(f"Control move for channel {channel} is not enabled. Enabling it.")
-            self._perform_request(AttoJSONMethods.SET_CONTROL_MOVE.value, [channel, True], verbose)
+        response_move = self._perform_request(AttoJSONMethods.GET_CONTROL_MOVE.value, [channel])
+        if response_move and not response_move[1]:
+            self._perform_request(AttoJSONMethods.SET_CONTROL_MOVE.value, [channel, True])
 
-    def connect(self, verbose: bool = False) -> None:
-        """
-        Connect to the cryostat.
-
-        :param verbose: If True, print detailed output.
-        """
-        if verbose:
-            print("Attempting to connect to the cryostat.")
-        if self.simulation:
-            self._simulate_action("connect to the cryostat", verbose)
-
-        try:
-            self.device.connect()
-            if verbose:
-                print("Successfully connected to the cryostat.")
-        except Exception as e:
-            print(f"Error connecting to the device: {e}")
-
-    def disconnect(self, verbose: bool = False) -> None:
-        """
-        Disconnect from the cryostat.
-
-        :param verbose: If True, print detailed output.
-        """
-        if verbose:
-            print("Attempting to disconnect from the cryostat.")
-
-        try:
-            self.device.close()
-            if verbose:
-                print("Successfully disconnected from the cryostat.")
-        except Exception as e:
-            print(f"Error disconnecting from the device: {e}")
-
-    def is_connected(self, verbose: bool = False) -> bool:
-        """
-        Check if the cryostat is connected.
-
-        :param verbose: If True, print detailed output.
-        :return: True if connected, False otherwise.
-        """
-        connected = self.device.is_open
-        if verbose:
-            print(f"Connection status: {'Connected' if connected else 'Not Connected'}.")
-        return connected
-
-    def stop_all_axes(self, verbose: bool = False) -> None:
-        """
-        Stop all movement on all axes.
-
-        :param verbose: If True, print detailed output.
-        """
-        for axis in range(self.no_of_channels):
-            if verbose:
-                print(f"Stopping movement for axis {axis}.")
-            self._perform_request(AttoJSONMethods.STOP_MOVEMENT.value, [axis], verbose)
-
-    def move_to_home(self, channel: int, verbose: bool = False) -> None:
-        """
-        Move a specific channel to its home position.
-
-        :param channel: The channel number to move.
-        :param verbose: If True, print detailed output.
-        """
-        self._check_and_enable_output(channel, verbose)
-        self._perform_request(AttoJSONMethods.MOVE_TO_REFERENCE.value, [channel], verbose)
-
-    def MoveABSOLUTE(self, channel: int, position: int, verbose: bool = False) -> None:
-        """
-        Move a specific channel to an absolute position.
-
-        :param channel: The channel number to move.
-        :param position: The target position in steps.
-        :param verbose: If True, print detailed output.
-        """
-        self._check_and_enable_output(channel, verbose)
-        self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, position], verbose)
-
-    def move_relative(self, channel: int, steps: int, verbose: bool = False) -> None:
-        """
-        Move a specific channel by a relative number of steps.
-
-        :param channel: The channel number to move.
-        :param steps: The number of steps to move.
-        :param verbose: If True, print detailed output.
-        """
-        self._check_and_enable_output(channel, verbose)
-        current_position = self.get_position(channel, verbose=verbose)
-        target_position = current_position + steps
-        self.MoveABSOLUTE(channel, int(target_position))
-
-    def set_zero_position(self, channel: int, verbose: bool = False) -> None:
-        """
-        Set the current position of a specific channel to zero.
-
-        :param channel: The channel number to zero.
-        :param verbose: If True, print detailed output.
-        """
-        self._check_and_enable_output(channel, verbose)
-        self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, 0], verbose)
-
-    def get_position(self, axis: int, verbose: bool = False) -> float:
+    def get_position(self, axis: int) -> float:
         """
         Get the current position of a specific axis.
 
         :param axis: The axis number (0, 1, or 2).
-        :param verbose: If True, print detailed output.
-        :return: The current position (in nm or µ°).
+        :return: The current position in nanometers.
         """
-        response = self._perform_request(AttoJSONMethods.GET_POSITION.value, [axis], verbose)
-        return response[1] if response else -1.0
+        response = self._perform_request(AttoJSONMethods.GET_POSITION.value, [axis])
+        if response:
+            return response[1]  # Assuming the position is the second item in the response
+        else:
+            return -1.0
 
-    def get_status(self, channel: int, verbose: bool = False) -> str:
+    def get_moving_status(self) -> dict:
         """
-        Get the status of a specific channel.
+        Read the moving status of all axes.
 
-        :param channel: The channel number to check.
-        :param verbose: If True, print detailed output.
-        :return: Status as a string.
+        :return: A dictionary with axis numbers as keys and their moving status (True/False) as values.
         """
-        response = self._perform_request(AttoJSONMethods.GET_STATUS_MOVING_ALL_AXES.value, [channel], verbose)
-        return response[1] if response else "Error"
+        response = self._perform_request(AttoJSONMethods.GET_STATUS_MOVING_ALL_AXES.value, [])
+        if response:
+            # Assuming response[1] is a list of booleans indicating moving status for each axis
+            statuses = response[1]
+            return {axis: statuses[axis] for axis in self.channels}
+        else:
+            return {}
 
-    def set_temperature(self, temperature: float, verbose: bool = False) -> None:
+    def wait_for_axes_to_stop(self, axes: List[int], max_wait_time: float = 10.0) -> None:
+        """
+        Wait for a specified list of axes to stop moving.
+
+        :param axes: List of axes (channels) to wait for.
+        :param max_wait_time: Maximum time in seconds to wait for the axes to stop moving.
+        """
+        start_time = time.time()
+        while time.time() - start_time < max_wait_time:
+            moving_status = self.get_moving_status()
+            if all(not moving_status.get(axis, False) for axis in axes):
+                return
+            time.sleep(0.5)  # Wait for 500 ms before checking again
+        raise TimeoutError(f"Axes {axes} did not stop moving within {max_wait_time} seconds.")
+
+    # Additional methods for temperature control (if needed)
+    def set_temperature(self, temperature: float) -> None:
         """
         Set the temperature of the cryostat.
 
         :param temperature: The temperature to set (in Kelvin).
-        :param verbose: If True, print detailed output.
         """
-        self._perform_request(AttoJSONMethods.SET_TEMPERATURE.value, [temperature], verbose)
+        self._perform_request(AttoJSONMethods.SET_TEMPERATURE.value, [temperature])
 
-    def get_temperature(self, verbose: bool = False) -> float:
+    def get_temperature(self) -> float:
         """
         Get the current temperature of the cryostat.
 
-        :param verbose: If True, print detailed output.
         :return: The current temperature (in Kelvin).
         """
-        response = self._perform_request(AttoJSONMethods.GET_TEMPERATURE.value, [], verbose)
-        return response[1] if response else -1.0
+        response = self._perform_request(AttoJSONMethods.GET_TEMPERATURE.value, [])
+        if response:
+            return response[1]
+        else:
+            return -1.0
 
-    def stabilize_temperature(self, stabilize: bool, verbose: bool = False) -> None:
+    def stabilize_temperature(self, stabilize: bool) -> None:
         """
         Stabilize the temperature of the cryostat.
 
         :param stabilize: Whether to stabilize the temperature (True/False).
-        :param verbose: If True, print detailed output.
         """
-        self._perform_request(AttoJSONMethods.STABILIZE_TEMPERATURE.value, [stabilize], verbose)
+        self._perform_request(AttoJSONMethods.STABILIZE_TEMPERATURE.value, [stabilize])
 
-    def get_firmware_version(self, verbose: bool = False) -> str:
+    def get_firmware_version(self) -> str:
         """
         Get the firmware version of the cryostat.
 
-        :param verbose: If True, print detailed output.
         :return: The firmware version.
         """
-        response = self._perform_request(AttoJSONMethods.GET_FIRMWARE_VERSION.value, [], verbose)
-        return response[1] if response else "Error"
+        response = self._perform_request(AttoJSONMethods.GET_FIRMWARE_VERSION.value, [])
+        if response:
+            return response[1]
+        else:
+            return "Error"
 
-    def get_moving_status(self, verbose: bool = False) -> dict:
-        """
-        Read the moving status of all axes.
-
-        :param verbose: If True, print detailed output.
-        :return: A dictionary with axis numbers as keys and their moving status (True/False) as values.
-        """
-        response = self._perform_request(AttoJSONMethods.GET_STATUS_MOVING_ALL_AXES.value, [], verbose)
-        if verbose:
-            print(f"Axis {self.channels} status: {response.resultDict['result'][1:]}")
-
-        return response.resultDict['result'][1:] if response else {}
-
-    def wait_for_axes_to_stop(self, axes: list | int, max_wait_time: float = 10, verbose: bool = False) -> None:
-        """
-        Wait for a specified list of axes to stop moving.
-
-        :param axes: List of axes (channels) or a single axis to wait for.
-        :param max_wait_time: Maximum time in seconds to wait for the axes to stop moving.
-        :param verbose: If True, print detailed output.
-        """
-        # Ensure axes is a list even if a single integer is provided
-        if isinstance(axes, int):
-            axes = [axes]
-        start_time = time.time()
-        while time.time() - start_time < max_wait_time:
-            moving_status = self.get_moving_status(verbose=verbose)
-            if all(not moving_status[axis] for axis in axes):
-                if verbose:
-                    print(f"All specified axes {axes} have stopped moving.")
-                return
-            if verbose:
-                print(f"Waiting for axes {axes} to stop moving...")
-            time.sleep(0.5)  # Wait for 500 ms before checking again
-
-        raise TimeoutError(f"Axes {axes} did not stop moving within {max_wait_time} seconds.")
+    # Placeholder for time module import
+    import time
