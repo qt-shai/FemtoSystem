@@ -125,7 +125,7 @@ class SerialDevice:
         self._connection = None
         self.rm = None
 
-    def _send_command(self, command: str, get_response: bool = True, verbose: bool = False) -> Optional[str]:
+    def _send_command(self, command: str, get_response: bool = False, verbose: bool = False) -> Optional[str]:
         """
         Send a command to the device. Optionally, retrieve the response.
 

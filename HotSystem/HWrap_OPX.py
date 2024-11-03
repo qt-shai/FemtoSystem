@@ -5661,7 +5661,11 @@ class GUI_OPX():
 
         Nx = len(self.V_scan[0])
         Ny = len(self.V_scan[1])
-        Nz = len(self.V_scan[2])
+        if len(self.V_scan) > 2:
+            Nz = len(self.V_scan[2])
+        else:
+            Nz = 1
+            self.V_scan.append([0])
         self.scan_intensities = np.zeros((Nx, Ny, Nz))
         self.scan_data = self.scan_intensities
         self.idx_scan = [0, 0, 0]
@@ -5700,7 +5704,8 @@ class GUI_OPX():
         for i in range(N[2]):  # Z
             if self.stopScan:
                 break
-            self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][i]))
+            if 2 in self.positioner.channels:
+                self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][i]))
 
             j = 0
             # for j in range(N[1]):  # Y
@@ -5734,7 +5739,7 @@ class GUI_OPX():
                     # move to next X - when trigger the OPX will measure and append the results
                     self.positioner.MoveABSOLUTE(0, int(V[k]))
                     time.sleep(5e-3)
-                    for q in range(3):
+                    for q in self.positioner.channels:
                         self.readInpos(q)  # wait motion ends
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
                     self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
@@ -5768,7 +5773,7 @@ class GUI_OPX():
                 # offset in X start point from 
                 self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
                 time.sleep(0.005)  # allow motion to start
-                for q in range(3):
+                for q in self.positioner.channels:
                     self.readInpos(q)  # wait motion ends
 
                 Line_time_End = time.time()
@@ -5779,7 +5784,7 @@ class GUI_OPX():
                 dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
 
         # back to start position
-        for i in range(3):
+        for i in self.positioner.channels:
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
             res = self.readInpos(i)
             self.positioner.GetPosition()
