@@ -67,17 +67,17 @@ class AttoScannerWrapper(Motor):
         else:
             raise ValueError(f"Invalid channel: {channel}. Only channels 0 and 1 are supported.")
 
-    def MoveABSOLUTE(self, channel: int, position: float) -> None:
+    def MoveABSOLUTE(self, channel: int, newPosition: float) -> None:
         """
         Move a specific channel to an absolute position by converting the position to a voltage.
 
         :param channel: The logical channel number (0 for X, 1 for Y).
-        :param position: The target position in pm
+        :param newPosition: The target position in pm
         """
         awg_channel = self._map_channel_to_awg_channel(channel)
         if awg_channel is not None:
-            position_microns = position * 1000 / self.StepsIn1mm  # Convert steps to microns
-            voltage = self._position_to_voltage(position_microns, channel)
+            position_microns = newPosition * 1000 / self.StepsIn1mm  # Convert steps to microns
+            voltage = self._position_to_voltage(position_microns, self.max_travel_x if channel == 0 else self.max_travel_y)
             self.awg.set_offset(voltage, channel=awg_channel)
             self._axes_positions[channel] = position_microns
             print(f"Moved channel {channel} to position {position_microns:.2f} µm (voltage: {voltage:.2f} V).")

@@ -205,7 +205,7 @@ class Keysight33500B(SerialDevice):
         :param command: The SCPI command to send (e.g., '*IDN?').
         :return: The response from the device as a string.
         """
-        return self._send_command(command)
+        return self._send_command(command, get_response=True)
 
     def get_current_voltage(self, channel: int) -> float:
         """
