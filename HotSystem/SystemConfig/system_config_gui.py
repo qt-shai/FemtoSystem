@@ -33,6 +33,9 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
         devices = ZeluxCamera.Zelux.get_available_devices()
     if instrument == Instruments.ROHDE_SCHWARZ:
         devices = [find_ethernet_device(ip, instrument) for ip in [InstrumentsAddress.Rhode_Schwarz_hot_system.value,InstrumentsAddress.Rhode_Schwarz_atto.value]]
+        devices = [dev for dev in devices if dev]
+        if len(devices) == 0:
+            devices = None
     if instrument == Instruments.ATTO_POSITIONER:
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
     if not isinstance(devices, list) and devices:
@@ -216,13 +219,14 @@ def run_system_config_gui():
         available_devices = get_available_devices(instrument)
         if available_devices:
             for device in available_devices:
-                devices_list.append(device)
-                selected_devices[device.device_key] = False  # Initialize selection state
-                # Mark the device as selected if it exists in the system configuration
-                if device.device_key in configured_device_keys:
-                    selected_devices[device.device_key] = True
-                elif device.instrument in instruments_with_na_identifiers:
-                    selected_devices[device.device_key] = True
+                if device:
+                    devices_list.append(device)
+                    selected_devices[device.device_key] = False  # Initialize selection state
+                    # Mark the device as selected if it exists in the system configuration
+                    if device.device_key in configured_device_keys:
+                        selected_devices[device.device_key] = True
+                    elif device.instrument in instruments_with_na_identifiers:
+                        selected_devices[device.device_key] = True
         else:
             # Add a placeholder device
             placeholder_device = Device(
