@@ -80,7 +80,7 @@ class AttoDry800(Motor):
         self.wait_for_axes_to_stop([channel])
         self.GetPosition()
 
-    def MoveABSOLUTE(self, channel: int, position: int, verbose: bool = False) -> None:
+    def MoveABSOLUTE(self, channel: int, position: int) -> None:
         """
         Move a specific channel to an absolute position.
 
@@ -99,8 +99,8 @@ class AttoDry800(Motor):
         :param channel: The channel number to move.
         :param steps: The number of steps to move.
         """
-        self._check_and_enable_output(channel, verbose)
-        current_position = self.get_position(channel, verbose=verbose)
+        self._check_and_enable_output(channel)
+        current_position = self.get_position(channel)
         target_position = current_position + steps
         self.MoveABSOLUTE(channel, int(target_position))
 
@@ -253,8 +253,7 @@ class AttoDry800(Motor):
         response = self._perform_request(AttoJSONMethods.GET_STATUS_MOVING_ALL_AXES.value, [])
         if response:
             # Assuming response[1] is a list of booleans indicating moving status for each axis
-            statuses = response[1]
-            return {axis: statuses[axis] for axis in self.channels}
+            return {axis: response[axis] for axis in self.channels}
         else:
             return {}
 
@@ -314,5 +313,3 @@ class AttoDry800(Motor):
         else:
             return "Error"
 
-    # Placeholder for time module import
-    import time

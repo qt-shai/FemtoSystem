@@ -9,7 +9,7 @@ import dearpygui.dearpygui as dpg
 import HW_wrapper.Wrapper_Smaract as Smaract
 import HW_wrapper.Wrapper_Picomotor as Picomotor
 import HW_wrapper.Wrapper_Zelux as ZeluxCamera
-from SystemConfig import SystemConfig, find_ethernet_device
+from SystemConfig import SystemConfig, find_ethernet_device, InstrumentsAddress
 from SystemConfig import SystemType, Instruments, Device, load_system_from_xml
 
 # Initialize the devices list and selection dictionary
@@ -32,7 +32,7 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
     if instrument == Instruments.ZELUX:
         devices = ZeluxCamera.Zelux.get_available_devices()
     if instrument == Instruments.ROHDE_SCHWARZ:
-        devices = find_ethernet_device(SystemConfig.microwave_ip, instrument)
+        devices = [find_ethernet_device(ip, instrument) for ip in [InstrumentsAddress.Rhode_Schwarz_hot_system.value,InstrumentsAddress.Rhode_Schwarz_atto.value]]
     if instrument == Instruments.ATTO_POSITIONER:
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
     if not isinstance(devices, list) and devices:
