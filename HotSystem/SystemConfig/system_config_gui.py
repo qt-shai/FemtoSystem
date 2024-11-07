@@ -28,20 +28,42 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
     if instrument == Instruments.SMARACT_SCANNER:
         devices = [dev for dev in Smaract.smaractMCS2.get_available_devices() if "MCS2-00018624" in dev.serial_number]
     if instrument == Instruments.PICOMOTOR:
-         devices = Picomotor.newportPicomotor.get_available_devices()
+        devices = Picomotor.newportPicomotor.get_available_devices()
     if instrument == Instruments.ZELUX:
         devices = ZeluxCamera.Zelux.get_available_devices()
     if instrument == Instruments.ROHDE_SCHWARZ:
-        devices = [find_ethernet_device(ip, instrument) for ip in [InstrumentsAddress.Rhode_Schwarz_hot_system.value,InstrumentsAddress.Rhode_Schwarz_atto.value]]
+        devices = [
+            find_ethernet_device(ip, instrument)
+            for ip in [
+                InstrumentsAddress.Rhode_Schwarz_hot_system.value,
+                InstrumentsAddress.Rhode_Schwarz_atto.value,
+            ]
+        ]
         devices = [dev for dev in devices if dev]
         if len(devices) == 0:
             devices = None
+
     if instrument == Instruments.ATTO_POSITIONER:
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
     if not isinstance(devices, list) and devices:
         devices = [devices]
 
     return devices
+
+
+def generate_device_key(device):
+    """
+    Generate a unique key for a device based on its attributes.
+    """
+    key_parts = [device.instrument.value]
+    if device.serial_number and device.serial_number != 'N/A':
+        key_parts.append(f"SN:{device.serial_number}")
+    if device.ip_address and device.ip_address != 'N/A':
+        key_parts.append(f"IP:{device.ip_address}")
+    if device.mac_address and device.mac_address != 'N/A':
+        key_parts.append(f"MAC:{device.mac_address}")
+    return '_'.join(key_parts)
+
 
 def save_to_xml(system_type: SystemType, selected_devices_list: list):
     """
@@ -91,6 +113,7 @@ def save_to_xml(system_type: SystemType, selected_devices_list: list):
         dpg.set_value("ErrorText", f"Failed to save to XML: {e}")
         dpg.configure_item("ErrorPopup", show=True)
 
+
 def on_save(sender, app_data):
     """
     Handler for Save button click.
@@ -98,7 +121,7 @@ def on_save(sender, app_data):
     system_type = SystemType(dpg.get_value("system_combobox"))
     selected_devices_list = [
         device for device in devices_list
-        if selected_devices.get(device.device_key, False)
+        if selected_devices.get(generate_device_key(device), False)
     ]
 
     if not selected_devices_list:
@@ -108,18 +131,21 @@ def on_save(sender, app_data):
     # Save the configuration to XML
     save_to_xml(system_type, selected_devices_list)
 
+
 def toggle_device_selection(sender, app_data, user_data):
     """
     Toggle the selection state of a device by changing the background color of its associated child window.
     """
     device, window_id = user_data
-    selected_devices[device.device_key] = not selected_devices.get(device.device_key, False)  # Toggle selection
+    device_key = generate_device_key(device)
+    selected_devices[device_key] = not selected_devices.get(device_key, False)  # Toggle selection
 
     # Update the background color of the child window based on the selection state
-    if selected_devices[device.device_key]:
+    if selected_devices[device_key]:
         dpg.bind_item_theme(window_id, "selected_theme")
     else:
         dpg.bind_item_theme(window_id, "default_theme")
+
 
 def load_instrument_images():
     """
@@ -152,6 +178,7 @@ def load_instrument_images():
                     placeholder_data = [255, 255, 255, 255] * 50 * 50
                     dpg.add_static_texture(50, 50, placeholder_data, tag=texture_tag)
 
+
 def create_themes():
     """
     Create the themes for selected and default states with pastel colors.
@@ -183,6 +210,7 @@ def create_themes():
         with dpg.theme_component(dpg.mvText):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
+
 def run_system_config_gui():
     """
     Initialize the Dear PyGui interface.
@@ -200,19 +228,22 @@ def run_system_config_gui():
     # Create a set of device keys from the existing configuration for comparison
     configured_device_keys = set()
     instruments_with_na_identifiers = set()
+    configured_devices_dict = {}
     if system_config:
         for configured_device in system_config.devices:
-            for device in devices_list:
-                device.com_port = configured_device.com_port
+            configured_device_key = generate_device_key(configured_device)
+            configured_devices_dict[configured_device_key] = configured_device
             # Check if all identifiers are 'N/A' or None
-            if (configured_device.serial_number in [None, 'N/A'] and
-                configured_device.mac_address in [None, 'N/A'] and
-                configured_device.ip_address in [None, 'N/A']):
+            if (
+                configured_device.serial_number in [None, 'N/A']
+                and configured_device.mac_address in [None, 'N/A']
+                and configured_device.ip_address in [None, 'N/A']
+            ):
                 # Collect instrument types with devices with 'N/A' identifiers
                 instruments_with_na_identifiers.add(configured_device.instrument)
             else:
                 # Add device_key to configured_device_keys
-                configured_device_keys.add(configured_device.device_key)
+                configured_device_keys.add(configured_device_key)
 
     # Query available devices for each instrument type
     for instrument in Instruments:
@@ -221,12 +252,15 @@ def run_system_config_gui():
             for device in available_devices:
                 if device:
                     devices_list.append(device)
-                    selected_devices[device.device_key] = False  # Initialize selection state
+                    selected_devices[generate_device_key(device)] = False  # Initialize selection state
                     # Mark the device as selected if it exists in the system configuration
-                    if device.device_key in configured_device_keys:
-                        selected_devices[device.device_key] = True
+                    device_key = generate_device_key(device)
+                    if device_key in configured_device_keys:
+                        selected_devices[device_key] = True
+                        # Update com_port if available
+                        device.com_port = configured_devices_dict[device_key].com_port
                     elif device.instrument in instruments_with_na_identifiers:
-                        selected_devices[device.device_key] = True
+                        selected_devices[device_key] = True
         else:
             # Add a placeholder device
             placeholder_device = Device(
@@ -238,10 +272,10 @@ def run_system_config_gui():
             )
             placeholder_device.is_placeholder = True
             devices_list.append(placeholder_device)
-            selected_devices[placeholder_device.device_key] = False
+            selected_devices[generate_device_key(placeholder_device)] = False
             # Check if the instrument is in the set of instruments with 'N/A' identifiers
             if instrument in instruments_with_na_identifiers:
-                selected_devices[placeholder_device.device_key] = True
+                selected_devices[generate_device_key(placeholder_device)] = True
 
     num_devices = len(devices_list)
 
@@ -260,7 +294,7 @@ def run_system_config_gui():
         dpg.add_text("Select Instruments:")
 
         # Create the main table
-        with dpg.table(header_row=False, resizable=False, width=total_cell_width * matrix_size, height=120 * matrix_size +20):
+        with dpg.table(header_row=False, resizable=False, width=total_cell_width * matrix_size, height=120 * matrix_size + 20):
             for _ in range(matrix_size):
                 dpg.add_table_column(width=total_cell_width)
 
@@ -293,15 +327,11 @@ def run_system_config_gui():
                                         with dpg.group(horizontal=True):
                                             dpg.add_text(f"COM Port:")
                                             dpg.add_input_text(default_value=device.com_port or '',
-                                                               callback=update_device_com_port,  # Use the defined function
-                                                               user_data=device)  # Pass the device object
-
-                                    # Adjust the size of the child window based on content
-                                    # dpg.set_item_width(window_id, total_cell_width)
-                                    # dpg.set_item_height(window_id, 120)
+                                                               callback=update_device_com_port,
+                                                               user_data=device)
 
                             # Bind the theme based on selection
-                            if selected_devices.get(device.device_key, False):
+                            if selected_devices.get(generate_device_key(device), False):
                                 dpg.bind_item_theme(window_id, "selected_theme")
                             else:
                                 dpg.bind_item_theme(window_id, "default_theme")
@@ -324,6 +354,7 @@ def run_system_config_gui():
         dpg.add_text("", tag="ErrorText")
 
     dpg.create_viewport(title="System Configuration GUI", width=total_cell_width * matrix_size + 50, height=120 * matrix_size + 200)
+
 
 def update_device_com_port(sender, app_data, user_data):
     """
