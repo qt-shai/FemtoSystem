@@ -4,61 +4,41 @@
 # actually we need to split to OPX wrapper and OPX GUI          *
 # ***************************************************************
 import csv
-import pdb
-import traceback
-from datetime import datetime
 import os
+import shutil
+import subprocess
 import sys
 import threading
-import time
+import tkinter as tk
+import traceback
+import xml.etree.ElementTree as ET
+from datetime import datetime
 from enum import Enum
 from tkinter import filedialog
 from typing import Union, Optional
+
+import dearpygui.dearpygui as dpg
 import glfw
-import numpy as np
-import tkinter as tk
-
-from Common import save_figure
-
-from gevent.libev.corecext import callback
-from matplotlib import pyplot as plt
-from qm.qua import update_frequency, declare_stream, declare, program, for_, assign, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
-    save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
-from qualang_tools.results import fetching_tool
-from functools import partial
-from qualang_tools.units import unit
-from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
-from smaract import ctl
 import matplotlib
+from PIL import Image
+from matplotlib import pyplot as plt
+from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
+from qm.qua import update_frequency, declare_stream, declare, program, for_, assign, if_, IO1, IO2, time_tagging, \
+    measure, play, wait, align, else_, \
+    save, stream_processing, amp, Random, fixed, pause, infinite_loop_
+from qualang_tools.results import fetching_tool
+from qualang_tools.units import unit
 
+import SystemConfig as configs
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized
-import dearpygui.dearpygui as dpg
-from PIL import Image
-import subprocess
-import shutil
-import xml.etree.ElementTree as ET
-import math
-import SystemConfig as configs
 
 matplotlib.use('qtagg')
 
-from typing import List, Any
 import time
 import numpy as np
-from Utils.scan_utils import (
-    copy_files,
-    format_time,
-    read_in_position,
-    move_to_positions,
-    generate_scan_vectors,
-    generate_scan_indices,
-    fetch_measurement,
-    save_scan_data,
-    plot_scan,
-    format_elapsed_time
-)
+
 
 def create_logger(log_file_path: str):
     log_file = open(log_file_path, 'w')
@@ -73,7 +53,6 @@ class Experiment(Enum):
     NUCLEAR_RABI = 6
     NUCLEAR_POL_ESR = 7
     NUCLEAR_MR = 8
-    FAST_SCAN = 10
     SCAN = 11
     Nuclear_spin_lifetimeS0 = 12
     Nuclear_spin_lifetimeS1 = 13
@@ -143,7 +122,6 @@ class GUI_OPX():  # todo: support several device
         self.z_correction_threshold = 10000
         self.expected_pos = None
         self.smaract_ttl_duration = 0.001  # ms, updated from XML (loaded using 'self.update_from_xml()')
-        self.fast_scan_enabled = False
         self.lock = threading.Lock()
 
         # Coordinates + scan XYZ parameters
@@ -421,6 +399,12 @@ class GUI_OPX():  # todo: support several device
         dpg.set_value(item="inInt_t_mw2", value=sender.t_mw2)
         print("Set t_mw2 to: " + str(sender.t_mw2))
 
+    def Update_rf_pulse_time(sender, app_data, user_data):
+        sender.rf_pulse_time = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="inInt_rf_pulse_time", value=sender.rf_pulse_time)
+        print("Set rf_pulse_time to: " + str(sender.rf_pulse_time))
+
     def Update_tGetTrackingSignalEveryTime(sender, app_data, user_data):
         sender.tGetTrackingSignalEveryTime = (user_data)
         time.sleep(0.001)
@@ -660,9 +644,10 @@ class GUI_OPX():  # todo: support several device
                 dpg.add_text(default_value="t_mw2 [ns]", parent="Time_delay_Controls", tag="text_t_mw2", indent=-1)
                 dpg.add_input_int(label="", tag="inInt_t_mw2", indent=-1, parent="Time_delay_Controls", width=item_width, callback=self.UpdateT_mw2, default_value=self.t_mw2, min_value=0, max_value=50000, step=1)
 
+                dpg.add_text(default_value="rf_pulse_time [ns]", parent="Time_delay_Controls", tag="text_rf_pulse_time", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_rf_pulse_time", indent=-1, parent="Time_delay_Controls", width=item_width, callback=self.Update_rf_pulse_time, default_value=self.rf_pulse_time, min_value=0, max_value=50000, step=1)
 
-                dpg.add_text(default_value="rf_pulse_time [ns]", parent="Time_delay_Controls", tag="text_rf_pulse_time",
-                             indent=-1)
+                dpg.add_text(default_value="GetTrackingSignalEveryTime [ns]", parent="Time_delay_Controls", tag="text_GetTrackingSignalEveryTime", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_tGetTrackingSignalEveryTime", indent=-1, parent="Time_delay_Controls", format="%.3f",
                                      width=item_width, callback=self.Update_tGetTrackingSignalEveryTime,
                                      default_value=self.tGetTrackingSignalEveryTime, min_value=0.001, max_value=10, step=0.1)
@@ -722,7 +707,6 @@ class GUI_OPX():  # todo: support several device
                                  indent=-1, default_value=self.bEnableSimulate)
                 dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1, callback=self.Update_scan,
                                  default_value=self.bScanChkbox)
-                # dpg.add_checkbox(label="Scan XYZ Fast", tag="chkbox_scan_fast", parent="chkbox_group", indent=-1, callback=self.Update_scan_fast, default_value=self.fast_scan_enabled)
                 dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm,
                                  default_value=self.chkbox_close_all_qm)
 
@@ -853,14 +837,13 @@ class GUI_OPX():  # todo: support several device
                         dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
                     with dpg.group(horizontal=False):
-                        dpg.add_button(label="Updt from map", callback=self.update_from_map, width=160)
-                        dpg.add_button(label="scan all markers", callback=self.btnScanAllMarkers, width=160)
-                        dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=160)
+                        dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
+                        dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
+                        dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=130)
                         with dpg.group(horizontal=True):
                             dpg.add_button(label="plot", callback=self.plot_graph)
                             dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor", callback=self.toggle_use_picomotor,
                                              default_value=self.use_picomotor)
-                        dpg.add_button(label="fill Z", callback=self.fill_z)
 
                     with dpg.group(horizontal=False):
                         dpg.add_input_float(label="Step (um)", default_value=0.2, width=120, tag="step_um")
@@ -1391,12 +1374,6 @@ class GUI_OPX():  # todo: support several device
         print("Set bScan to: " + str(sender.bScanChkbox))
         sender.GUI_ScanControls()
 
-    def Update_scan_fast(sender, app_data, user_data):
-        sender.fast_scan_enabled = user_data
-        # time.sleep(0.001)
-        # dpg.set_value(item = "chkbox_scan_fast",value=sender.fast_scan_enabled)
-        print("Set fast scan to: " + str(sender.fast_scan_enabled))  # sender.GUI_ScanControls()
-
     def Update_close_all_qm(sender, app_data, user_data):
         sender.chkbox_close_all_qm = user_data
         time.sleep(0.001)
@@ -1531,9 +1508,6 @@ class GUI_OPX():  # todo: support several device
             self.Electron_lifetime_QUA_PGM()
         if self.exp == Experiment.Electron_Coherence:
             self.Electron_Coherence_QUA_PGM()
-        if self.exp == Experiment.FAST_SCAN: # triggered scan current arbitrarly crash
-            self.counter_array_QUA_PGM(num_bins_per_measurement=int(n_count),
-                                       num_measurement_per_array=int(num_measurement_per_array))
         if self.exp == Experiment.SCAN: # ~ 35 msec per measurement for on average for larage scans
             self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),triggerThreshold=self.ScanTrigger)
         if self.exp == Experiment.ODMR_Bfield:
@@ -1596,11 +1570,11 @@ class GUI_OPX():  # todo: support several device
 
     def ODMR_Bfield_QUA_PGM(self):  # CW_ODMR
 
-        # get values
+        # specific per experiment
+        # get experiment values from GUI
         items_val = self.GetItemsVal(items_tag=["inInt_process_time","inInt_TcounterPulsed","inInt_Tsettle","inInt_t_mw","inInt_edge_time"])
 
-        # time
-        # tMeasueProcess = self.time_in_multiples_cycle_time(items_val["inInt_process_time"]) #self.MeasProcessTime)
+        # Experiment time period parameters
         tLaser = self.time_in_multiples_cycle_time(items_val["inInt_TcounterPulsed"] +
                                                    items_val["inInt_Tsettle"] +
                                                    items_val["inInt_process_time"]) #self.TcounterPulsed+self.Tsettle+tMeasueProcess)
@@ -1610,15 +1584,12 @@ class GUI_OPX():  # todo: support several device
         tEdge = self.time_in_multiples_cycle_time(items_val["inInt_edge_time"])#self.Tedge)
         tBfield = self.time_in_multiples_cycle_time(tMW + 2*tEdge)
 
-        vec = self.GenVector(min=0 * self.u.MHz,max = self.mw_freq_scan_range * self.u.MHz ,delta=self.mw_df * self.u.MHz) # MW frequency scan vector
-        # f_min = 0 * self.u.MHz                              # [Hz], start of freq sweep
-        # f_max = self.mw_freq_scan_range * self.u.MHz        # [Hz] end of freq sweep
-        # df = self.mw_df * self.u.MHz                        # [Hz], freq step
-        # self.f_vec = np.arange(f_min, f_max + df/10, df)    # [Hz], frequencies vector
+        # Scan over MW frequency - gen its vector
+        vec = self.GenVector(min=0 * self.u.MHz,max = self.mw_freq_scan_range * self.u.MHz ,delta=self.mw_df * self.u.MHz)
+        array_length = len(vec)
         self.f_vec = vec
 
         # length and idx vector
-        array_length = len(self.f_vec)                      # frquencies vector size
         idx_vec_ini = np.arange(0, array_length, 1)         # indexes vector
 
         # tracking signal
@@ -4190,7 +4161,8 @@ class GUI_OPX():  # todo: support several device
                     save(total_counts, counts_st)
                     assign(total_counts, 0)
 
-                    # align()
+                    align()
+                    wait(pulsesTriggerDelay)
                     # wait(pulsesTriggerDelay, "SmaractTrigger")
                     # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
 
@@ -4203,42 +4175,6 @@ class GUI_OPX():  # todo: support several device
                 counts_st.buffer(num_measurement_per_array).save("counts_scanLine")
 
         self.qm, self.job = self.QUA_execute()
-
-    def counter_array_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1):
-        # Calculate values outside the FPGA to save FPGA compute time
-        laser_on_duration = int(self.Tcounter * self.u.ns // 4)
-        single_integration_time = int(self.Tcounter * self.u.ns)
-        smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
-
-        with program() as self.quaPGM:
-            times = declare(int, size=1000)  # num_measurement_per_array)
-            counts = declare(int)  # apd1
-            total_counts = declare(int, value=0)  # apd1
-            n = declare(int)  #
-            x_loop_counter = declare(int)
-            counts_st = declare_stream()
-
-            with infinite_loop_():
-                pause()
-                with for_(x_loop_counter, 0, x_loop_counter < num_measurement_per_array, x_loop_counter + 1):
-                    play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-                    wait_for_trigger("Laser")  # wait for smaract trigger
-                    align("Laser", "Detector_OPD", "SmaractTrigger")
-                    # wait(int(15 * self.u.ms //4))
-                    with for_(n, 0, n < num_bins_per_measurement, n + 1):
-                        play("Turn_ON", "Laser", duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
-                        assign(total_counts, total_counts + counts)  # align()
-                    save(total_counts, counts_st)
-                    assign(total_counts,
-                           0)  # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)  # align()  # wait(int(15 * self.u.ms //4), "SmaractTrigger")  # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-
-            with stream_processing():
-                counts_st.buffer(num_measurement_per_array).save("counts_fastscan")
-
-        # set,open and execute the program
-        self.qm = self.qmm.open_qm(self.quaCFG)
-        self.job = self.qm.execute(self.quaPGM)
 
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         # todo: use this function as general update graph for all experiments
@@ -4740,7 +4676,7 @@ class GUI_OPX():  # todo: support several device
             # todo: creat methode that handle OPX close job and instances
             self.stopScan = True
             self.StopFetch = True
-            if not self.exp == Experiment.FAST_SCAN and not self.exp == Experiment.SCAN:
+            if not self.exp == Experiment.SCAN:
                 if self.bEnableSignalIntensityCorrection:
                     if self.MAxSignalTh.is_alive():
                         self.MAxSignalTh.join()
@@ -4749,7 +4685,7 @@ class GUI_OPX():  # todo: support several device
                 dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
             self.GUI_ParametersControl(True)
-            if not self.exp == Experiment.FAST_SCAN and not self.exp == Experiment.SCAN:
+            if not self.exp == Experiment.SCAN:
                 if (self.fetchTh.is_alive()):
                     self.fetchTh.join()
             else:
@@ -4765,7 +4701,7 @@ class GUI_OPX():  # todo: support several device
                 if self.mwModule.RFstate:
                     self.mwModule.Turn_RF_OFF()
 
-            if self.exp not in [Experiment.COUNTER, Experiment.FAST_SCAN, Experiment.SCAN]:
+            if self.exp not in [Experiment.COUNTER, Experiment.SCAN]:
                 self.btnSave()
         except Exception as e:
             print(f"An error occurred in btnStop: {e}")
@@ -4817,10 +4753,6 @@ class GUI_OPX():  # todo: support several device
 
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))  # raise
-
-    def btnScanAllMarkers(self):
-        self.ScanTh = threading.Thread(target=self.scan_all_markers)
-        self.ScanTh.start()
 
     def btnStartScan(self):
         self.ScanTh = threading.Thread(target=self.StartScan)
@@ -5201,8 +5133,6 @@ class GUI_OPX():  # todo: support several device
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
 
-        # save_figure(fn + "_highres", self.Scan_matrix[int(Nz / 2), :, :])
-
         end_time = time.time()
         print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
@@ -5215,12 +5145,16 @@ class GUI_OPX():  # todo: support several device
     def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
         # Create object to be saved in excel
         self.scan_Out = []
-        for i in range(len(self.V_scan[2])):
-            for j in range(len(self.V_scan[1])):
-                for k in range(len(self.V_scan[0])):
-                    x = self.V_scan[0][k]
-                    y = self.V_scan[1][j]
-                    z = self.V_scan[2][i]
+        # probably unit issue
+        x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
+        y_vec = np.linspace(start_pos[1], start_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
+        z_vec = np.linspace(start_pos[2], start_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
+        for i in range(np.size(self.scan_intensities, 2)):
+            for j in range(np.size(self.scan_intensities, 1)):
+                for k in range(np.size(self.scan_intensities, 0)):
+                    x = x_vec[k]
+                    y = y_vec[j]
+                    z = z_vec[i]
                     I = self.scan_intensities[k, j, i]
                     self.scan_Out.append([x, y, z, I, x, y, z])
 
@@ -5347,7 +5281,6 @@ class GUI_OPX():  # todo: support several device
                     num_of_logged_points = len(self.pico.LoggedPoints)
                 else:
                     # If Pico does not exist, maintain prefix as mcs
-                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from MCS")
                     error_message = "Pico does not exist; defaulting to MCS."
                     print(error_message)
                     num_of_logged_points = len(self.positioner.LoggedPoints)

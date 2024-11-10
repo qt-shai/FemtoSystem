@@ -8,13 +8,12 @@
 **/.idea/
 *.svn-base
 *.pyc
-*.pyc
 map_config.txt
 OPX_params.xml
 HotSystem/SystemConfig/xml_configs/system_info.xml.femto_cobolt
 HotSystem/SystemConfig/xml_configs/system_info.xml.hotsystem
 fileName.png
+system_info.xml
 Sample_map.png
 saved_plot.png
-HotSystem/SystemConfig/xml_configs/system_info.xml
 HotSystem/SystemConfig/xml_configs/system_info.xml
