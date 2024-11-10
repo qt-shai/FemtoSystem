@@ -97,7 +97,8 @@ class ImGuiOverlay(Layer):
         super().__init__()
         self.system_config: Optional[SystemConfig] = load_system_config()
         self.system_type: Optional[SystemType] = self.system_config.system_type
-        if not self.system_type == SystemType.HOT_SYSTEM:
+        # TODO : fix for all systems !!
+        if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
             simulation = True
         self.exSeq = ExpSequenceGui()
         self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
@@ -642,9 +643,10 @@ class PyGuiOverlay(Layer):
             try:
 
                 if instrument == Instruments.ROHDE_SCHWARZ:
-                    self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
-                    dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
-                    y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
+                    pass
+                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
+                    # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
+                    # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
 
 
                 elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
