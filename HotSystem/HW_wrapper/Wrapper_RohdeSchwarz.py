@@ -1,8 +1,29 @@
 import inspect
 import sys
+from enum import Enum
 
 import pyvisa
 
+
+class ConnectorMode(Enum):
+    MKR1 = "MKR1"       # Marker 1
+    MKR2 = "MKR2"       # Marker 2
+    TRIGGER = "TRIGger" # Trigger
+    CIN = "CIN"         # Clock in
+    COUT = "COUT"       # Clock out
+    SIN = "SIN"         # Sync in
+    SOUT = "SOUT"       # Sync out
+    NEXT = "NEXT"       # Next trigger
+    LOW = "LOW"         # Low signal level
+    MLATENCY = "MLATency"  # Marker latency
+    MARRIVED = "MARRived"  # Marker arrived
+    HIGH = "HIGH"       # High signal level
+    SVALID = "SVALid"   # Signal valid
+    SNVALID = "SNValid" # Signal not valid
+    PVOUT = "PVOut"     # Pulse generator video out
+    PETRIGGER = "PETRigger" # Pulse generator external trigger
+    PEMSOURCE = "PEMSource" # External pulse modulator source
+    TOUT = "TOUT"       # Trigger out
 
 class RS_SGS100a():
     def __init__(self, dev_address = 'TCPIP0::192.168.0.0::inst0::INSTR', simulation: bool = False):  #todo replace with search for device IP and address
@@ -111,6 +132,17 @@ class RS_SGS100a():
             # todo: add error handling
             print(self.__class__.__name__+ "_" +inspect.currentframe().f_code.co_name + ":error setting PulseModulation OFF")
             pass
+
+    def set_connector_mode(self, channel: int, mode: ConnectorMode = ConnectorMode.PETRIGGER) -> None:
+        """
+        Set the operation mode of a specific user connector channel.
+
+        :param channel: The connector channel number to set (e.g., 1, 2, 3).
+        :param mode: The operation mode to set, as an instance of the ConnectorMode enum.
+        """
+        command = f":CONNector:USER{channel}:OMODe {mode.value}"
+        self.Command_write(command)
+
     def Get_PulseModulation_state(self): # GHz
         if not(self.device == None):
             success, PulseModulationState = self.Command_query('SOUR:PULM:STAT?') # RF on
