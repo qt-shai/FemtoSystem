@@ -642,10 +642,9 @@ class PyGuiOverlay(Layer):
             try:
 
                 if instrument == Instruments.ROHDE_SCHWARZ:
-                    pass
-                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
-                    # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
-                    # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
+                    self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
+                    dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
 
 
                 elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:

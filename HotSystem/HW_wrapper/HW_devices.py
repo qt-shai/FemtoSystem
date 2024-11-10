@@ -76,8 +76,11 @@ class HW_devices:
             instrument = device.instrument
             if instrument == Instruments.ROHDE_SCHWARZ:
                 # Initialize Rohde & Schwarz Microwave
-                self.microwave = RS_SGS100a(f'TCPIP0::{SystemConfig.microwave_ip}::inst0::INSTR',
+                self.microwave = RS_SGS100a(f'TCPIP0::{device.ip_address}::inst0::INSTR',
                                                       simulation=self.simulation)
+                self.microwave.Get_deviceID()
+                if "SGT" in self.microwave.ID:
+                    self.microwave.set_connector_mode(2)
 
             elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
                 # Initialize SmarAct Slip Stick Positioner

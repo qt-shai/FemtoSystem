@@ -1,6 +1,6 @@
 from .Attocube import AttoResult, AttoException, AttoJSONMethods, AttocubeDevice, AttoDry800
 from .Wrapper_ELC_power_supply import ALR3206T
-from .Wrapper_RohdeSchwarz import RS_SGS100a
+from .Wrapper_RohdeSchwarz import RS_SGS100a, ConnectorMode
 from .Wrapper_Zelux import Zelux
 from .highland_eom import HighlandT130
 from .abstract_motor import Motor
@@ -31,5 +31,6 @@ __all__ = [
     'StreamManager',
     'SirahMatisse',
     'Keysight33500B',
-    'AttoScannerWrapper'
+    'AttoScannerWrapper',
+    'ConnectorMode'
 ]
