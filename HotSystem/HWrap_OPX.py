@@ -398,12 +398,6 @@ class GUI_OPX():
         dpg.set_value(item="inInt_rf_pulse_time", value=sender.rf_pulse_time)
         print("Set rf_pulse_time to: " + str(sender.rf_pulse_time))
 
-    def Update_rf_pulse_time(sender, app_data, user_data):
-        sender.rf_pulse_time = (int(user_data))
-        time.sleep(0.001)
-        dpg.set_value(item="inInt_rf_pulse_time", value=sender.rf_pulse_time)
-        print("Set rf_pulse_time to: " + str(sender.rf_pulse_time))
-
     def Update_tGetTrackingSignalEveryTime(sender, app_data, user_data):
         sender.tGetTrackingSignalEveryTime = (user_data)
         time.sleep(0.001)
@@ -4704,6 +4698,18 @@ class GUI_OPX():
                 counts_st.buffer(num_measurement_per_array).save("counts_scanLine")
 
         self.qm, self.job = self.QUA_execute()
+
+
+
+
+
+
+
+
+
+
+
+
 
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         try:
