@@ -49,7 +49,6 @@ class Experimet(Enum):
     SCRIPT = 0
     RABI = 1
     ODMR_CW = 2
-    POPULATION_GATE_TOMOGRAPHY = 3
     COUNTER = 4
     PULSED_ODMR = 5
     NUCLEAR_RABI = 6
@@ -66,6 +65,8 @@ class Experimet(Enum):
     Electron_Coherence = 17
     ODMR_Bfield = 18
     Nuclear_Fast_Rot = 19
+    POPULATION_GATE_TOMOGRAPHY = 3
+    ENTANGLEMENT_GATE_TOMOGRAPHY = 9
 
 class queried_plane(Enum):
     XY = 0
@@ -4698,18 +4699,6 @@ class GUI_OPX():
                 counts_st.buffer(num_measurement_per_array).save("counts_scanLine")
 
         self.qm, self.job = self.QUA_execute()
-
-
-
-
-
-
-
-
-
-
-
-
 
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         try:
