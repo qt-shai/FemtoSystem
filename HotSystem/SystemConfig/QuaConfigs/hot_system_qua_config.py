@@ -154,4 +154,24 @@ class HotSystemQuaConfig(QUAConfigBase):
                 "time_of_flight": self.detection_delay_OPD,
                 "smearing": 0,
             },
+            "Detector2_OPD": {
+                "singleInput": {"port": ("con1", 1)},  # not used
+                "digitalInputs": {
+                    # "marker": {
+                    #     "port": ("con1", 3),
+                    #     "delay": self.detection_delay_OPD,
+                    #     "buffer": 0,
+                    # },
+                },
+                "digitalOutputs": {"out1": ("con1", 3)},  # 'digitalOutputs' here is actually 'digital input' of OPD
+                "outputs": {"out1": ("con1", 1)},
+                "operations": {
+                    "readout": "readout_pulse",
+                    "min_readout": "min_readout_pulse",
+                    "long_readout": "long_readout_pulse",
+                    "very_long_readout": "very_long_readout_pulse",
+                },
+                "time_of_flight": self.detection_delay_OPD,
+                "smearing": 0,
+            },
         }
