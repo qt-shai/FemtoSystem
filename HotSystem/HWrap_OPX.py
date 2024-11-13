@@ -4013,7 +4013,7 @@ class GUI_OPX():  # todo: support several device
                         measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
-
+                        # wait(20000//4)
                         # reference sequence
                         # don't play MW
                         play("Turn_ON", "Laser", duration=tLaser // 4)
