@@ -44,7 +44,7 @@ class AttoQuaConfig(QUAConfigBase):
                 "digital_outputs": {
                     4: {"shareable": True},  # trigger Laser (Cobolt)
                     5: {"shareable": True},  # trigger MW (Rohde Schwarz)
-                    # 8: {"shareable": True},  # amplitude EOM trigger
+                    10: {"shareable": True},  # Counter marker
                 },
                 "analog_inputs": {
                     1: {"offset": 0.00979, "gain_db": 0, "shareable": True}, # QM: why? because
@@ -142,11 +142,11 @@ class AttoQuaConfig(QUAConfigBase):
             "Detector_OPD": {
                 "singleInput": {"port": ("con1", 1)},  # not used
                 "digitalInputs": {
-                    # "marker": {
-                    #     "port": ("con1", 10),  # Digital output 10
-                    #     "delay": self.detection_delay_OPD,
-                    #     "buffer": 0,
-                    # },
+                    "marker": {
+                        "port": ("con1", 10),  # Digital output 10
+                        "delay": self.detection_delay_OPD,
+                        "buffer": 0,
+                    },
                 },
                 "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
                 "outputs": {"out1": ("con1", 1)},

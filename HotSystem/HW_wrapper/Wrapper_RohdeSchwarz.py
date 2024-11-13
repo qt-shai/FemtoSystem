@@ -133,7 +133,7 @@ class RS_SGS100a():
             print(self.__class__.__name__+ "_" +inspect.currentframe().f_code.co_name + ":error setting PulseModulation OFF")
             pass
 
-    def set_connector_mode(self, channel: int, mode: ConnectorMode = ConnectorMode.PETRIGGER) -> None:
+    def set_connector_mode(self, channel: int, mode: ConnectorMode = ConnectorMode.TRIGGER) -> None:
         """
         Set the operation mode of a specific user connector channel.
 
@@ -141,6 +141,55 @@ class RS_SGS100a():
         :param mode: The operation mode to set, as an instance of the ConnectorMode enum.
         """
         command = f":CONNector:USER{channel}:OMODe {mode.value}"
+        self.Command_write(command)
+
+    def set_iq_source_to_analog(self) -> None:
+        """
+        Set the input signal for the I/Q modulator to analog.
+
+        This function configures the I/Q modulator to use an analog input source.
+
+        :return: None
+        """
+        command = ":SOURce:IQ:SOURce ANALog"
+        self.Command_write(command)
+
+    def set_iq_modulation_state(self, state: bool) -> None:
+        """
+        Switch the I/Q modulation on or off.
+
+        This function enables or disables the I/Q modulation.
+
+        :param state: Boolean indicating the desired state. True for ON, False for OFF.
+        :return: None
+        """
+        command = f":SOURce:IQ:STATe {'ON' if state else 'OFF'}"
+        self.Command_write(command)
+
+
+    def set_bb_impairment_state(self, state: bool) -> None:
+        """
+        Activate or deactivate the impairment correction values for the digital baseband signal.
+
+        This function activates (ON) or deactivates (OFF) the three correction values: LEAKage, QUADrature, and IQRatio,
+        for the digital baseband signal prior to input into the I/Q modulator.
+
+        :param state: Boolean indicating the desired state. True for ON, False for OFF.
+        :return: None
+        """
+        command = f"BB:IMPairment:STATe {'ON' if state else 'OFF'}"
+        self.Command_write(command)
+
+    def set_iq_mod_to_wide(self, state: bool) -> None:
+        """
+        Set the I/Q modulator to wideband mode.
+
+        This function configures the I/Q modulator for optimized settings for wideband modulation signals.
+
+        :param state: Boolean indicating the desired state. True for ON, False for OFF.
+        :return: None
+        """
+        command = f":SOURce:IQ:WBSTate {'ON' if state else 'OFF'}"
         self.Command_write(command)
 
     def Get_PulseModulation_state(self): # GHz

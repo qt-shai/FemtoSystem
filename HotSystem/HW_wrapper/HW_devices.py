@@ -81,6 +81,10 @@ class HW_devices:
                 self.microwave.Get_deviceID()
                 if "SGT" in self.microwave.ID:
                     self.microwave.set_connector_mode(2)
+                    self.microwave.set_iq_modulation_state(True)
+                    self.microwave.set_iq_source_to_analog()
+                    self.microwave.set_iq_mod_to_wide(True)
+                    self.microwave.set_bb_impairment_state(False)
 
             elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
                 # Initialize SmarAct Slip Stick Positioner
