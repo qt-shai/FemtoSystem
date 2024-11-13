@@ -206,12 +206,7 @@ class GUI_OPX():
 
         # Graph parameters
         self.NumOfPoints = 800  # to include in counter Graph
-        self.X_vec = []
-        self.Y_vec = []
-        self.X_vec_ref = []
-        self.Y_vec_ref = []
-        self.Y_vec_ref2 = []
-        self.Y_resCalculated = []
+        self.reset_data_val()
 
         self.Xv = []
         self.Yv = []
@@ -529,7 +524,7 @@ class GUI_OPX():
         dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
         dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis", tag="series_counts_ref")
         dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref2, label="counts_ref2", parent="y_axis", tag="series_counts_ref2")
-        dpg.add_line_series(self.X_vec_ref, self.Y_resCalculated, label="resCalculated", parent="y_axis", tag="series_res_calcualted")
+        dpg.add_line_series(self.X_vec_ref,self.Y_resCalculated, label="resCalculated", parent="y_axis", tag="series_res_calcualted")
 
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
@@ -1468,7 +1463,18 @@ class GUI_OPX():
     
     # QUA
     # common
+    def reset_data_val(self):
+        self.X_vec = []
+        self.X_vec_ref = []
+        self.Y_vec = []
+        self.Y_vec_ref = []
+        self.Y_vec_ref2 = []
+        self.Y_resCalculated = []
+        self.iteration = 0
+        self.counter = -10
+
     def initQUA_gen(self, n_count=1, num_measurement_per_array=1):
+        self.reset_data_val()
         if self.exp == Experimet.COUNTER:
             self.counter_QUA_PGM(n_count=int(n_count))
         if self.exp == Experimet.ODMR_CW:
@@ -1707,6 +1713,7 @@ class GUI_OPX():
             self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
             self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
             self.tMW = self.t_mw
+            self.tWait = self.time_in_multiples_cycle_time(self.Twait*1e3) # [nsec]
             # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
             # fMW_res = 0 if fMW_res < 0 else fMW_res
             # self.fMW_res = 400 * self.u.MHz if fMW_res > 400 * self.u.MHz else fMW_res
@@ -4597,20 +4604,25 @@ class GUI_OPX():
         self.qm, self.job = self.QUA_execute()
 
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
-        # todo: use this function as general update graph for all experiments
-        dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal: .1f},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
-        dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-        dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
-        if self.exp == Experimet.Nuclear_Fast_Rot:
-            dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
-        if self.exp in [Experimet.POPULATION_GATE_TOMOGRAPHY,Experimet.ENTANGLEMENT_GATE_TOMOGRAPHY]:
-            dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
-            dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
-
-        dpg.set_item_label("y_axis", _yLabel)
-        dpg.set_item_label("x_axis", _xLabel)
-        dpg.fit_axis_data('x_axis')
-        dpg.fit_axis_data('y_axis')
+        try:
+            # todo: use this function as general update graph for all experiments
+            self.lock.acquire()
+            dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal: .1f},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
+            dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
+            dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+            if self.exp == Experimet.Nuclear_Fast_Rot:
+                dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
+            if self.exp in [Experimet.POPULATION_GATE_TOMOGRAPHY,Experimet.ENTANGLEMENT_GATE_TOMOGRAPHY]:
+                dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
+                dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
+            self.lock.release()
+            dpg.set_item_label("y_axis", _yLabel)
+            dpg.set_item_label("x_axis", _xLabel)
+            dpg.fit_axis_data('x_axis')
+            dpg.fit_axis_data('y_axis') 
+        
+        except Exception as e:
+            self.btnStop() 
     
     def FastScan_updateGraph(self):
         # Update the graph label with the current experiment name, iteration, and last Y value
@@ -4655,13 +4667,7 @@ class GUI_OPX():
         else:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
 
-        self.X_vec = []
-        self.Y_vec = []
-        self.Y_vec_ref = []
-        self.Y_vec_ref2 = []
-        self.resCalculated = []
-        self.iteration = 0
-        self.counter = -10
+        self.reset_data_val()
 
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
@@ -4746,22 +4752,16 @@ class GUI_OPX():
                 break
         
     def GlobalFetchData(self):
+        self.lock.acquire()
+
         if self.exp == Experimet.COUNTER:
-            self.lock.acquire()
             self.counter_Signal, self.iteration = self.results.fetch_all()
-            self.lock.release()
         elif self.exp in [Experimet.POPULATION_GATE_TOMOGRAPHY, Experimet.ENTANGLEMENT_GATE_TOMOGRAPHY]:
-            self.lock.acquire()
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
-            self.lock.release()
         elif self.exp == Experimet.Nuclear_Fast_Rot:
-            self.lock.acquire()
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
-            self.lock.release()
         else:
-            self.lock.acquire()
             self.signal, self.ref_signal, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
-            self.lock.release()
 
         if self.exp == Experimet.COUNTER:
             if len(self.X_vec) > self.NumOfPoints:
@@ -4865,6 +4865,9 @@ class GUI_OPX():
             self.Y_vec_ref2 = self.ref_signal2 / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_resCalculated = self.resCalculated /1e6
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+        
+        self.lock.release()
+
 
 
 
@@ -5216,6 +5219,7 @@ class GUI_OPX():
             # raw data
             RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
+
             self.saveToCSV(fileName + ".csv", RawData_to_save)
 
             # save data as image (using matplotlib)
@@ -5240,7 +5244,7 @@ class GUI_OPX():
                 # close figure
                 plt.close(fig)
 
-            dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
+                dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
 
 
         except Exception as ex:
@@ -5951,7 +5955,7 @@ class GUI_OPX():
             print("")
 
             # optional: fit to parabula
-            if True:
+            if False:
                 coefficients = np.polyfit(self.coordinate, self.track_X, 2)
                 a, b, c = coefficients
                 maxPos_parabula = int(-b / (2 * a))
