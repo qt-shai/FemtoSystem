@@ -19,9 +19,9 @@ import tkinter as tk
 
 from gevent.libev.corecext import callback
 from matplotlib import pyplot as plt
-from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
+from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
-from qualang_tools.results import fetching_tool
+from qualang_tools.results import progress_counter, fetching_tool
 from functools import partial
 from qualang_tools.units import unit
 from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
@@ -49,11 +49,14 @@ class Experimet(Enum):
     SCRIPT = 0
     RABI = 1
     ODMR_CW = 2
+    POPULATION_GATE_TOMOGRAPHY = 3
     COUNTER = 4
     PULSED_ODMR = 5
     NUCLEAR_RABI = 6
     NUCLEAR_POL_ESR = 7
     NUCLEAR_MR = 8
+    ENTANGLEMENT_GATE_TOMOGRAPHY = 9
+    G2 = 10
     SCAN = 11
     Nuclear_spin_lifetimeS0 = 12
     Nuclear_spin_lifetimeS1 = 13
@@ -63,8 +66,6 @@ class Experimet(Enum):
     Electron_Coherence = 17
     ODMR_Bfield = 18
     Nuclear_Fast_Rot = 19
-    POPULATION_GATE_TOMOGRAPHY = 3
-    ENTANGLEMENT_GATE_TOMOGRAPHY = 9
 
 class queried_plane(Enum):
     XY = 0
@@ -1586,7 +1587,23 @@ class GUI_OPX():
         wait(t_wait)
     def QUA_PGM(self):#, exp_params, QUA_exp_sequence):
         with program() as self.quaPGM:
-            # QUA program parameters
+            if self.exp == Experimet.G2:    
+                # QUA program parameters
+                self.counts_1 = declare(int)  # variable for the number of counts on SPCM1
+                self.counts_2 = declare(int)  # variable for the number of counts on SPCM2
+                self.times_1 = declare(int, size=self.expected_counts)  # array of count clicks on SPCM1
+                self.times_2 = declare(int, size=self.expected_counts)  # array of count clicks on SPCM2
+                self.g2 = declare(int, size=int(2*self.correlation_width))  # array for g2 to be saved
+                self.total_counts = declare(int)
+                # Streamables
+                self.g2_st = declare_stream()  # g2 stream
+                self.total_counts_st = declare_stream()  # total counts stream
+                # use m instead of p idx
+
+            # Variables for computation
+            p = declare(int)  # Some index to run over
+            n = declare(int)  # n: repeat index
+
             self.times = declare(int, size=100)
             self.times_ref = declare(int, size=100)
 
@@ -1633,6 +1650,10 @@ class GUI_OPX():
             self.counts_ref2_st = declare_stream()  # reference signal
             self.resCalculated_st = declare_stream()  # reference signal
             
+            if self.exp == Experimet.G2:
+                with infinite_loop_():
+                    play("Turn_ON", "Laser")
+
             with for_(self.n, 0, self.n < self.n_avg, self.n + 1): # AVG loop
                 # reset vectors
                 with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
@@ -1704,7 +1725,7 @@ class GUI_OPX():
             # sequence parameters
             self.tMeasureProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)
             self.tPump = self.time_in_multiples_cycle_time(self.Tpump)
-            self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
+            self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed)
             self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
             self.tMW = self.t_mw
             # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
@@ -1714,7 +1735,6 @@ class GUI_OPX():
             self.verify_insideQUA_FreqValues(self.fMW_res)
             self.tRF = self.rf_pulse_time
             self.Npump = self.n_nuc_pump
-
 
             # frequency scan vector
             self.f_vec = self.GenVector(min = 0 * self.u.MHz, max = self.mw_freq_scan_range * self.u.MHz, delta= self.mw_df * self.u.MHz, asInt=False)
@@ -1744,10 +1764,11 @@ class GUI_OPX():
             # play MW
             play("cw", "MW", duration=self.tMW // 4)
             # play Laser
-            align("MW", "Laser")
+            align()
+            # align("MW", "Laser")
             play("Turn_ON", "Laser", duration=(self.tLaser + self.tMeasureProcess) // 4)
             # play Laser
-            align("MW", "Detector_OPD")
+            # align("MW", "Detector_OPD")
             # measure signal 
             measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, self.tMeasure, self.counts_tmp))
             assign(self.counts[self.idx_vec_qua[self.idx]], self.counts[self.idx_vec_qua[self.idx]] + self.counts_tmp)
@@ -1932,7 +1953,7 @@ class GUI_OPX():
                 assign(self.resCalculated[self.i_idx],(self.counts[self.i_idx]-self.counts_ref2[self.i_idx])*1000000/(self.counts_ref2[self.i_idx]-self.counts_ref[self.i_idx]))
 
         if execute_qua:
-            self.Entanglement_gate_tomography_QUA_PGM(generate_params=True)
+            self.Entanglement_gate_tomography_QUA_PGM_QUA_PGM(generate_params=True)
             self.QUA_PGM()
     def Population_gate_tomography_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
         if generate_params:
@@ -1996,6 +2017,85 @@ class GUI_OPX():
         if execute_qua:
             self.Population_gate_tomography_QUA_PGM(generate_params=True)
             self.QUA_PGM()
+    def G2_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
+        if generate_params:
+            # dummy vectors to be aligned with QUA_PGM convention
+            self.array_length = 1 
+            self.idx_vec_ini = np.arange(0, self.array_length, 1)
+            self.f_vec = self.GenVector(min = 0 * self.u.MHz, max = self.mw_freq_scan_range * self.u.MHz, delta= self.mw_df * self.u.MHz, asInt=False)
+
+            # sequence parameters
+            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed) # [nsec]
+            self.correlation_width = 200*self.u.ns
+            self.expected_counts = 150
+
+
+            # *************
+            # length and idx vector
+            self.number_of_states = 4 # number of initial states |00>, |01>, |10>, |11>
+            self.number_of_measurement = 3 # number of intensities measurements
+            self.vectorLength = self.number_of_states*self.number_of_measurement  # total number of measurements
+            self.idx_vec_ini = np.arange(0, self.vectorLength, 1) # for visualization purpose
+
+            self.bEnableSignalIntensityCorrection = False
+            self.bEnableShuffle = False
+        
+        if Generate_QUA_sequance:
+            measure("readout", "Detector_OPD", None, time_tagging.analog(self.times_1, self.tMeasure, self.counts_1))
+            measure("readout", "Detector2_OPD", None, time_tagging.analog(self.times_2, self.tMeasure, self.counts_2))
+            align()
+            with if_((self.counts_1 > 0) & (self.counts_2 > 0)):
+                g2 = self.MZI_g2(self.g2, self.times_1, self.counts_1, self.times_2, self.counts_2, self.correlation_width)
+
+            with for_(self.m, 0, self.m < self.g2.length(), self.m + 1):
+                save(g2[self.m], self.g2_st)
+                assign(g2[self.m], 0)
+            assign(self.total_counts, self.counts_1+self.counts_2+self.total_counts)
+            save(self.total_counts, self.total_counts_st)
+            save(self.n, self.n_st)
+
+            with stream_processing():
+                self.g2_st.buffer(self.correlation_width*2).average().save("g2")
+                self.total_counts_st.save("total_counts")
+                self.n_st.save("iteration")
+
+        if execute_qua:
+            self.G2_QUA_PGM(generate_params=True)
+            self.QUA_PGM()
+    def MZI_g2(g2, times_1, counts_1, times_2, counts_2, correlation_width): # from Daniel (QM)
+        """
+        Calculate the second order correlation of click times between two counting channels
+
+        :param g2: (QUA array of type int) - g2 measurement from the previous iteration.
+        The size must be greater than correlation width.
+        :param times_1: (QUA array of type int) - Click times in nanoseconds from channel 1
+        :param counts_1: (QUA int) - Number of total clicks at channel 1
+        :param times_2: (QUA array of type int) - Click times in nanoseconds from channel 2
+        :param counts_2: (QUA int) - Number of total clicks at channel 2
+        :param correlation_width: (int) - Relevant correlation window to analyze data
+        :return: (QUA array of type int) - Updated g2
+        """
+        j = declare(int)
+        k = declare(int)
+        diff = declare(int)
+        diff_ind = declare(int)
+        lower_index_tracker = declare(int)
+        # set the lower index tracker for each dataset
+        assign(lower_index_tracker, 0)
+        with for_(k, 0, k < counts_1, k + 1):
+            with for_(j, lower_index_tracker, j < counts_2, j + 1):
+                assign(diff, times_2[j]-times_1[k])
+                # if correlation is outside the relevant window move to the next photon
+                with if_(diff > correlation_width):
+                    assign(j, counts_2+1)
+                with elif_((diff <= correlation_width) & (diff >= -correlation_width)):
+                    assign(diff_ind, diff + correlation_width)
+                    assign(g2[diff_ind], g2[diff_ind] + 1)
+                # Track and evolve the lower bound forward every time a photon falls behind the lower bound
+                with elif_(diff < -correlation_width):
+                    assign(lower_index_tracker, lower_index_tracker+1)
+        return g2
+
 
     def ODMR_Bfield_QUA_PGM(self):  # CW_ODMR
         
