@@ -4760,6 +4760,9 @@ class GUI_OPX():
         # fetch right parameters
         if self.exp == Experimet.COUNTER:
             self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
+        elif self.exp == Experimet.G2:
+            # self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
+            pass
         elif self.exp in [Experimet.POPULATION_GATE_TOMOGRAPHY, Experimet.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
         elif self.exp == Experimet.Nuclear_Fast_Rot:
@@ -4842,6 +4845,8 @@ class GUI_OPX():
             if self.exp == Experimet.ENTANGLEMENT_GATE_TOMOGRAPHY:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="index")
+            if self.exp == Experimet.G2:
+                pass
             
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
             if not(self.exp == Experimet.COUNTER) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
@@ -4966,9 +4971,22 @@ class GUI_OPX():
             self.Y_resCalculated = self.resCalculated /1e6
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
         
+        if self.exp == Experimet.G2:
+            pass
+        
         self.lock.release()
 
+    def btnStartG2(self):
+        self.exp = Experimet.G2
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
+        self.mwModule.Turn_RF_OFF()
+
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
+
+        if not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)
+    
 
 
     def StartFetch(self, _target):
