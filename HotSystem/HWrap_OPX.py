@@ -745,6 +745,8 @@ class GUI_OPX():
                                callback=self.btnStartPopulateGateTomography, indent=-1, width=_width)
                 dpg.add_button(label="Start Entanglement state tomography", parent="Buttons_Controls", tag="btnOPX_EntanglementStateTomography",
                                callback=self.btnStartStateTomography, indent=-1, width=_width)
+                dpg.add_button(label="Start G2", parent="Buttons_Controls", tag="btnOPX_G2",
+                               callback=self.btnStartG2, indent=-1, width=_width)
 
                 # save exp data
                 dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
@@ -1512,6 +1514,9 @@ class GUI_OPX():
             self.ODMR_Bfield_QUA_PGM()
         if self.exp == Experimet.Nuclear_Fast_Rot:
             self.NuclearFastRotation_QUA_PGM()
+        if self.exp == Experimet.G2:
+            self.G2_QUA_PGM(execute_qua=True)
+
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
         if QuaCFG == None:
             QuaCFG = self.quaCFG
@@ -1593,6 +1598,9 @@ class GUI_OPX():
         wait(t_wait)
     def QUA_PGM(self):#, exp_params, QUA_exp_sequence):
         with program() as self.quaPGM:
+            self.n = declare(int)             # iteration variable
+            self.n_st = declare_stream()      # stream iteration number
+            
             if self.exp == Experimet.G2:    
                 # QUA program parameters
                 self.counts_1 = declare(int)  # variable for the number of counts on SPCM1
@@ -1604,120 +1612,125 @@ class GUI_OPX():
                 # Streamables
                 self.g2_st = declare_stream()  # g2 stream
                 self.total_counts_st = declare_stream()  # total counts stream
-                # use m instead of p idx
-
-            # Variables for computation
-            p = declare(int)  # Some index to run over
-            n = declare(int)  # n: repeat index
-
-            self.times = declare(int, size=100)
-            self.times_ref = declare(int, size=100)
-
-            self.f = declare(int)         # frequency variable which we change during scan - here f is according to calibration function
-            self.t = declare(int)         # [cycles] time variable which we change during scan
-            self.p = declare(fixed)       # [unit less] proportional amp factor which we change during scan
-
-            self.n = declare(int)             # iteration variable
-            self.n_st = declare_stream()      # stream iteration number
-            self.m = declare(int)             # number of pumping iterations
-            self.i_idx = declare(int)         # iteration variable
-            self.j_idx = declare(int)         # iteration variable
-            self.k_idx = declare(int)         # iteration variable
-
-            self.site_state = declare(int)  # site preperation state
-            self.m_state = declare(int)     # measure state
-
-            self.counts_tmp = declare(int)                    # temporary variable for number of counts
-            self.counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
-            self.counts_ref2_tmp = declare(int)               # 2nd temporary variable for number of counts reference
-            
-            self.runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
-            self.track_idx = declare(int, value=0)              # iteration variable
-            self.tracking_signal_tmp = declare(int)             # tracking temporary variable
-            self.tracking_signal = declare(int, value=0)        # tracking variable
-            self.tracking_signal_st = declare_stream()          # tracking strean variable
-            self.sequenceState = declare(int,value=0)           # IO1 variable
-
-            self.counts = declare(int, size=self.vectorLength)     # experiment signal (vector)
-            self.counts_ref = declare(int, size=self.vectorLength) # reference signal (vector)
-            self.counts_ref2 = declare(int, size=self.vectorLength) # reference signal (vector)
-            self.resCalculated = declare(int, size=self.vectorLength) # normalized values vector
-
-            # Shuffle parameters
-            # self.val_vec_qua = declare(fixed, value=self.p_vec_ini)    # volts QUA vector
-            # self.f_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
-            self.val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # volts QUA vector
-            self.idx_vec_qua = declare(int, value=self.idx_vec_ini)                               # indexes QUA vector
-            self.idx = declare(int)                                                          # index variable to sweep over all indexes
-
-            # stream parameters
-            self.counts_st = declare_stream()      # experiment signal
-            self.counts_ref_st = declare_stream()  # reference signal
-            self.counts_ref2_st = declare_stream()  # reference signal
-            self.resCalculated_st = declare_stream()  # reference signal
-            
-            if self.exp == Experimet.G2:
-                with infinite_loop_():
-                    play("Turn_ON", "Laser")
-
-            with for_(self.n, 0, self.n < self.n_avg, self.n + 1): # AVG loop
-                # reset vectors
-                with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
-                    assign(self.counts_ref2[self.idx], 0)  # shuffle - assign new val from randon index
-                    assign(self.counts_ref[self.idx], 0)  # shuffle - assign new val from randon index
-                    assign(self.counts[self.idx], 0)  # shuffle - assign new val from randon index
-                    assign(self.resCalculated[self.idx], 0)  # shuffle - assign new val from randon index
                 
-                # shuffle index
-                with if_(self.bEnableShuffle):
-                    self.QUA_shuffle(self.idx_vec_qua, self.array_length)  # shuffle - idx_vec_qua vector is after shuffle
+                # Variables for computation
+                self.p = declare(int)  # Some index to run over
+                with infinite_loop_():
+                    play('laser_ON', 'AOM')
 
-                # sequence
-                with for_(self.idx, 0, self.idx < self.array_length, self.idx + 1): # loop over scan vector
-                    assign(self.sequenceState, IO1)
-                    with if_(self.sequenceState == 0):
-                        self.execute_QUA()
+                with for_(self.n, 0, self.n < self.n_avg, self.n + 1): # AVG loop
+                    self.execute_QUA()
 
-                    with else_():
-                        assign(self.tracking_signal, 0)
-                        with for_(self.idx, 0, self.idx < self.tTrackingIntegrationCycles, self.idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, self.time_in_multiples_cycle_time(self.Tcounter), self.tracking_signal_tmp))
-                            assign(self.tracking_signal,self.tracking_signal+self.tracking_signal_tmp)
-                        align()
+                with stream_processing():
+                    self.g2_st.buffer(self.correlation_width*2).average().save("g2")
+                    self.total_counts_st.save("total_counts")
+                    self.n_st.save("iteration")
 
-                # tracking signal
-                with if_(self.runTracking):
-                    assign(self.track_idx,self.track_idx + 1) # step up tracking counter
-                    with if_(self.track_idx > self.trackingNumRepeatition-1):
-                        assign(self.tracking_signal, 0)  # shuffle - assign new val from randon index
-                        # reference sequence
-                        with for_(self.idx, 0, self.idx < self.tTrackingIntegrationCycles, self.idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, self.time_in_multiples_cycle_time(self.Tcounter), self.tracking_signal_tmp))
-                            assign(self.tracking_signal,self.tracking_signal+self.tracking_signal_tmp)
-                        assign(self.track_idx,0)
+            else:
+                self.times = declare(int, size=100)
+                self.times_ref = declare(int, size=100)
+
+                self.f = declare(int)         # frequency variable which we change during scan - here f is according to calibration function
+                self.t = declare(int)         # [cycles] time variable which we change during scan
+                self.p = declare(fixed)       # [unit less] proportional amp factor which we change during scan
+
+                
+                self.m = declare(int)             # number of pumping iterations
+                self.i_idx = declare(int)         # iteration variable
+                self.j_idx = declare(int)         # iteration variable
+                self.k_idx = declare(int)         # iteration variable
+
+                self.site_state = declare(int)  # site preperation state
+                self.m_state = declare(int)     # measure state
+
+                self.counts_tmp = declare(int)                    # temporary variable for number of counts
+                self.counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
+                self.counts_ref2_tmp = declare(int)               # 2nd temporary variable for number of counts reference
+                
+                self.runTracking = declare(bool,value=self.bEnableSignalIntensityCorrection)
+                self.track_idx = declare(int, value=0)              # iteration variable
+                self.tracking_signal_tmp = declare(int)             # tracking temporary variable
+                self.tracking_signal = declare(int, value=0)        # tracking variable
+                self.tracking_signal_st = declare_stream()          # tracking strean variable
+                self.sequenceState = declare(int,value=0)           # IO1 variable
+
+                self.counts = declare(int, size=self.vectorLength)     # experiment signal (vector)
+                self.counts_ref = declare(int, size=self.vectorLength) # reference signal (vector)
+                self.counts_ref2 = declare(int, size=self.vectorLength) # reference signal (vector)
+                self.resCalculated = declare(int, size=self.vectorLength) # normalized values vector
+
+                # Shuffle parameters
+                # self.val_vec_qua = declare(fixed, value=self.p_vec_ini)    # volts QUA vector
+                # self.f_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
+                self.val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # volts QUA vector
+                self.idx_vec_qua = declare(int, value=self.idx_vec_ini)                               # indexes QUA vector
+                self.idx = declare(int)                                                          # index variable to sweep over all indexes
+
+                # stream parameters
+                self.counts_st = declare_stream()      # experiment signal
+                self.counts_ref_st = declare_stream()  # reference signal
+                self.counts_ref2_st = declare_stream()  # reference signal
+                self.resCalculated_st = declare_stream()  # reference signal
+                
+                with for_(self.n, 0, self.n < self.n_avg, self.n + 1): # AVG loop
+                    # reset vectors
+                    with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
+                        assign(self.counts_ref2[self.idx], 0)  # shuffle - assign new val from randon index
+                        assign(self.counts_ref[self.idx], 0)  # shuffle - assign new val from randon index
+                        assign(self.counts[self.idx], 0)  # shuffle - assign new val from randon index
+                        assign(self.resCalculated[self.idx], 0)  # shuffle - assign new val from randon index
                     
-                # stream
-                with if_(self.sequenceState == 0):
-                    with for_(self.idx, 0, self.idx < self.vectorLength,self.idx + 1):  # in shuffle all elements need to be saved later to send to the stream
-                        save(self.counts[self.idx], self.counts_st)
-                        save(self.counts_ref[self.idx], self.counts_ref_st)
-                        save(self.counts_ref2[self.idx], self.counts_ref2_st)
-                        save(self.resCalculated[self.idx], self.resCalculated_st)
+                    # shuffle index
+                    with if_(self.bEnableShuffle):
+                        self.QUA_shuffle(self.idx_vec_qua, self.array_length)  # shuffle - idx_vec_qua vector is after shuffle
 
-                save(self.n, self.n_st)  # save number of iteration inside for_loop
-                save(self.tracking_signal, self.tracking_signal_st)  # save number of iteration inside for_loop
+                    # sequence
+                    with for_(self.idx, 0, self.idx < self.array_length, self.idx + 1): # loop over scan vector
+                        assign(self.sequenceState, IO1)
+                        with if_(self.sequenceState == 0):
+                            self.execute_QUA()
 
-            with stream_processing():
-                self.counts_st.buffer(self.vectorLength).average().save("counts")
-                self.counts_ref_st.buffer(self.vectorLength).average().save("counts_ref")
-                self.counts_ref2_st.buffer(self.vectorLength).average().save("counts_ref2")
-                self.resCalculated_st.buffer(self.vectorLength).average().save("resCalculated")
-                self.n_st.save("iteration")
-                self.tracking_signal_st.save("tracking_ref")
+                        with else_():
+                            assign(self.tracking_signal, 0)
+                            with for_(self.idx, 0, self.idx < self.tTrackingIntegrationCycles, self.idx + 1):
+                                play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                                measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, self.time_in_multiples_cycle_time(self.Tcounter), self.tracking_signal_tmp))
+                                assign(self.tracking_signal,self.tracking_signal+self.tracking_signal_tmp)
+                            align()
 
+                    # tracking signal
+                    with if_(self.runTracking):
+                        assign(self.track_idx,self.track_idx + 1) # step up tracking counter
+                        with if_(self.track_idx > self.trackingNumRepeatition-1):
+                            assign(self.tracking_signal, 0)  # shuffle - assign new val from randon index
+                            # reference sequence
+                            with for_(self.idx, 0, self.idx < self.tTrackingIntegrationCycles, self.idx + 1):
+                                play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                                measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, self.time_in_multiples_cycle_time(self.Tcounter), self.tracking_signal_tmp))
+                                assign(self.tracking_signal,self.tracking_signal+self.tracking_signal_tmp)
+                            assign(self.track_idx,0)
+                        
+                    # stream
+                    with if_(self.sequenceState == 0):
+                        with for_(self.idx, 0, self.idx < self.vectorLength,self.idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                            save(self.counts[self.idx], self.counts_st)
+                            save(self.counts_ref[self.idx], self.counts_ref_st)
+                            save(self.counts_ref2[self.idx], self.counts_ref2_st)
+                            save(self.resCalculated[self.idx], self.resCalculated_st)
+
+                    save(self.n, self.n_st)  # save number of iteration inside for_loop
+                    save(self.tracking_signal, self.tracking_signal_st)  # save number of iteration inside for_loop
+
+                with stream_processing():
+                    self.counts_st.buffer(self.vectorLength).average().save("counts")
+                    self.counts_ref_st.buffer(self.vectorLength).average().save("counts_ref")
+                    self.counts_ref2_st.buffer(self.vectorLength).average().save("counts_ref2")
+                    self.resCalculated_st.buffer(self.vectorLength).average().save("resCalculated")
+                    self.n_st.save("iteration")
+                    self.tracking_signal_st.save("tracking_ref")
+            
         self.qm, self.job = self.QUA_execute()
+
     def execute_QUA(self):
         if self.exp == Experimet.NUCLEAR_POL_ESR:
             self.Nuclear_Pol_ESR_QUA_PGM(Generate_QUA_sequance = True)
@@ -1725,6 +1738,8 @@ class GUI_OPX():
             self.Population_gate_tomography_QUA_PGM(Generate_QUA_sequance = True)
         if self.exp == Experimet.ENTANGLEMENT_GATE_TOMOGRAPHY:
             self.Entanglement_gate_tomography_QUA_PGM(Generate_QUA_sequance = True)
+        if self.exp == Experimet.G2:
+            self.G2_QUA_PGM(Generate_QUA_sequance = True)
     
     def Nuclear_Pol_ESR_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):  # NUCLEAR_POL_ESR
         if generate_params:
@@ -2036,14 +2051,6 @@ class GUI_OPX():
             self.correlation_width = 200*self.u.ns
             self.expected_counts = 150
 
-
-            # *************
-            # length and idx vector
-            self.number_of_states = 4 # number of initial states |00>, |01>, |10>, |11>
-            self.number_of_measurement = 3 # number of intensities measurements
-            self.vectorLength = self.number_of_states*self.number_of_measurement  # total number of measurements
-            self.idx_vec_ini = np.arange(0, self.vectorLength, 1) # for visualization purpose
-
             self.bEnableSignalIntensityCorrection = False
             self.bEnableShuffle = False
         
@@ -2052,23 +2059,22 @@ class GUI_OPX():
             measure("readout", "Detector2_OPD", None, time_tagging.analog(self.times_2, self.tMeasure, self.counts_2))
             align()
             with if_((self.counts_1 > 0) & (self.counts_2 > 0)):
-                g2 = self.MZI_g2(self.g2, self.times_1, self.counts_1, self.times_2, self.counts_2, self.correlation_width)
+                self.g2 = self.MZI_g2(g2 = self.g2, times_1=self.times_1, counts_1=self.counts_1, times_2=self.times_2, counts_2=self.counts_2, correlation_width=self.correlation_width)
 
             with for_(self.m, 0, self.m < self.g2.length(), self.m + 1):
-                save(g2[self.m], self.g2_st)
-                assign(g2[self.m], 0)
+                save(self.g2[self.m], self.g2_st)
+                assign(self.g2[self.m], 0) # reset
+                
             assign(self.total_counts, self.counts_1+self.counts_2+self.total_counts)
             save(self.total_counts, self.total_counts_st)
             save(self.n, self.n_st)
 
-            with stream_processing():
-                self.g2_st.buffer(self.correlation_width*2).average().save("g2")
-                self.total_counts_st.save("total_counts")
-                self.n_st.save("iteration")
+            
 
         if execute_qua:
             self.G2_QUA_PGM(generate_params=True)
             self.QUA_PGM()
+
     def MZI_g2(g2, times_1, counts_1, times_2, counts_2, correlation_width): # from Daniel (QM)
         """
         Calculate the second order correlation of click times between two counting channels
@@ -2089,6 +2095,7 @@ class GUI_OPX():
         lower_index_tracker = declare(int)
         # set the lower index tracker for each dataset
         assign(lower_index_tracker, 0)
+
         with for_(k, 0, k < counts_1, k + 1):
             with for_(j, lower_index_tracker, j < counts_2, j + 1):
                 assign(diff, times_2[j]-times_1[k])
@@ -2097,11 +2104,11 @@ class GUI_OPX():
                     assign(j, counts_2+1)
                 with elif_((diff <= correlation_width) & (diff >= -correlation_width)):
                     assign(diff_ind, diff + correlation_width)
-                    assign(g2[diff_ind], g2[diff_ind] + 1)
+                    assign(self.g2[diff_ind], self.g2[diff_ind] + 1)
                 # Track and evolve the lower bound forward every time a photon falls behind the lower bound
                 with elif_(diff < -correlation_width):
                     assign(lower_index_tracker, lower_index_tracker+1)
-        return g2
+        return self.g2
 
 
     def ODMR_Bfield_QUA_PGM(self):  # CW_ODMR
@@ -4624,7 +4631,9 @@ class GUI_OPX():
             self.times = declare(int, size=1000)
             self.times_ref = declare(int, size=1000)
             self.counts = declare(int)  # apd1
+            self.counts_ref = declare(int)  # apd2
             self.total_counts = declare(int, value=0)  # apd1
+            self.total_counts2 = declare(int, value=0)  # apd1
             self.n = declare(int)  #
             self.counts_st = declare_stream()
             self.counts_ref_st = declare_stream()  # stream for counts
@@ -4633,19 +4642,22 @@ class GUI_OPX():
             with infinite_loop_():
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
                     play("Turn_ON", "Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
-                    # measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.us), self.counts))
                     measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
+                    measure("readout", "Detector2_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
+                    assign(self.total_counts2, self.total_counts2 + self.counts)  # assign is equal in qua language  # align()
 
                 save(self.total_counts, self.counts_st)
-                # save(self.total_counts, self.counts_ref_st) # only to keep on convention
+                save(self.total_counts2, self.counts_ref_st) # only to keep on convention
                 assign(self.total_counts, 0)
+                assign(self.total_counts2, 0)
                 save(self.n, self.n_st)  # save number of iteration inside for_loop
 
             with stream_processing():
                 self.counts_st.with_timestamps().save("counts")
-                self.counts_st.with_timestamps().save("counts_reg")
+                self.counts_ref_st.with_timestamps().save("counts_ref")
+                # self.counts_st.with_timestamps().save("counts_reg")
                 self.n_st.save("iteration")
 
         self.qm, self.job = self.QUA_execute()
@@ -4759,7 +4771,7 @@ class GUI_OPX():
 
         # fetch right parameters
         if self.exp == Experimet.COUNTER:
-            self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration"], mode="live")
         elif self.exp == Experimet.G2:
             # self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
             pass
@@ -4781,12 +4793,17 @@ class GUI_OPX():
         while self.results.is_processing():
             self.GlobalFetchData()
 
+            dpg.set_item_label("series_counts", "counts")
+            dpg.set_item_label("series_counts_ref", "counts_ref")
+            
             if self.exp == Experimet.COUNTER:
                 dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, lastVal = {round(self.Y_vec[-1], 0)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                dpg.set_value("series_counts_ref", [[], []])
+                dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
                 dpg.set_value("series_counts_ref2", [[], []])
                 dpg.set_value("series_res_calcualted", [[], []])
+                dpg.set_item_label("series_counts", "det_1")
+                dpg.set_item_label("series_counts_ref", "det_2")
                 dpg.set_item_label("y_axis", "I [kCounts/sec]")
                 dpg.set_item_label("x_axis", "time [sec]")
                 dpg.fit_axis_data('x_axis')
@@ -4860,7 +4877,7 @@ class GUI_OPX():
         self.lock.acquire()
 
         if self.exp == Experimet.COUNTER:
-            self.counter_Signal, self.iteration = self.results.fetch_all()
+            self.counter_Signal, self.ref_signal, self.iteration = self.results.fetch_all()
         elif self.exp in [Experimet.POPULATION_GATE_TOMOGRAPHY, Experimet.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experimet.Nuclear_Fast_Rot:
@@ -4871,9 +4888,11 @@ class GUI_OPX():
         if self.exp == Experimet.COUNTER:
             if len(self.X_vec) > self.NumOfPoints:
                 self.Y_vec = self.Y_vec[-self.NumOfPoints:]  # get last NumOfPoint elements from end
+                self.Y_vec_ref = self.Y_vec_ref[-self.NumOfPoints:]  # get last NumOfPoint elements from end
                 self.X_vec = self.X_vec[-self.NumOfPoints:]
 
             self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
+            self.Y_vec_ref.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
             self.X_vec.append(self.counter_Signal[1] / self.u.s)  # Convert timestamps to seconds
 
         if self.exp == Experimet.ODMR_CW:  # freq

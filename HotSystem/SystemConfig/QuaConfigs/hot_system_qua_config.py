@@ -12,9 +12,9 @@ class HotSystemQuaConfig(QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
-                    1: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},
-                    2: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},
-                    3: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},
+                    1: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},
+                    2: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},
+                    3: {"offset": 0.0, "delay": self.rf_delay, "shareable": False},
                 },
                 "digital_outputs": {
                     1: {"shareable": True},
@@ -129,11 +129,11 @@ class HotSystemQuaConfig(QUAConfigBase):
             "Detector_OPD": {
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
-                    "marker": {
-                        "port": ("con1", 3),
-                        "delay": self.detection_delay_OPD,
-                        "buffer": 0,
-                    },
+                    # "marker": {
+                    #     "port": ("con1", 3),
+                    #     "delay": self.detection_delay_OPD,
+                    #     "buffer": 0,
+                    # },
                 },
                 "digitalOutputs": {"out1": ("con1", 1)},
                 "outputs": {"out1": ("con1", 1)},
