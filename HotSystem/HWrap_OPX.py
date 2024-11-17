@@ -1721,6 +1721,7 @@ class GUI_OPX():
                     self.tracking_signal_st.save("tracking_ref")
             
         self.qm, self.job = self.QUA_execute()
+
     def execute_QUA(self):
         if self.exp == Experimet.NUCLEAR_POL_ESR:
             self.Nuclear_Pol_ESR_QUA_PGM(Generate_QUA_sequance = True)
@@ -2060,6 +2061,7 @@ class GUI_OPX():
         if execute_qua:
             self.G2_QUA_PGM(generate_params=True)
             self.QUA_PGM()
+
     def MZI_g2(g2, times_1, counts_1, times_2, counts_2, correlation_width): # from Daniel (QM)
         """
         Calculate the second order correlation of click times between two counting channels
@@ -2089,7 +2091,7 @@ class GUI_OPX():
                     assign(j, counts_2+1)
                 with elif_((diff <= correlation_width) & (diff >= -correlation_width)):
                     assign(diff_ind, diff + correlation_width)
-                    assign(g2[diff_ind], g2[diff_ind] + 1)
+                    assign(self.g2[diff_ind], self.g2[diff_ind] + 1)
                 # Track and evolve the lower bound forward every time a photon falls behind the lower bound
                 with elif_(diff < -correlation_width):
                     assign(lower_index_tracker, lower_index_tracker+1)
