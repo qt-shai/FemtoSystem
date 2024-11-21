@@ -110,12 +110,12 @@ class GUI_smaract():
                         dpg.add_button(label="Load", callback=self.load_points)
                         dpg.bind_item_theme(dpg.last_item(), yellow_theme)
 
-                with dpg.group(horizontal=False, tag="_column 7_", width=child_width):
+                with dpg.group(horizontal=False, tag="_column 7_", width=child_width+100):
                     dpg.add_text("Move Abs. (um)")
                     for ch in range(self.dev.no_of_channels):
                         with dpg.group(horizontal=True):
                             dpg.add_input_float(label="", default_value=0, tag=f"{self.prefix}_ch" + str(ch) + "_ABS", indent=-1,
-                                                format='%.4f', width=150, step=1, step_fast=10) #
+                                                format='%.4f', width=250, step=1, step_fast=10) #
                     dpg.add_button(label="Save", callback=self.save_log_points)
                     dpg.bind_item_theme(dpg.last_item(), yellow_theme)
                             

@@ -12,21 +12,25 @@ class HotSystemQuaConfig(QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
-                    1: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},
-                    2: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},
-                    3: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},
+                    1: {"offset": 0.0, "delay": self.mw_delay, "shareable": True}, # MW I, for unknonw reason need to be in all system
+                    2: {"offset": 0.0, "delay": self.mw_delay, "shareable": False}, # MW Q
+                    3: {"offset": 0.0, "delay": self.rf_delay, "shareable": False}, # RF
                 },
                 "digital_outputs": {
-                    1: {"shareable": True},
-                    2: {"shareable": True},
-                    3: {"shareable": True},
-                    4: {"shareable": True},
+                    1: {"shareable": True}, # laser 520nm
+                    2: {"shareable": True}, # trigger MW
                 },
                 "analog_inputs": {
-                    1: {"offset": 0.00979, "gain_db": 0, "shareable": True},
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # for unknonw reason need to be in all system
                 },
                 "digital_inputs": {
                     1: {
+                        "polarity": "RISING",
+                        "deadtime": 4,
+                        "threshold": self.signal_threshold_OPD,
+                        "shareable": True,
+                    },
+                    3: {
                         "polarity": "RISING",
                         "deadtime": 4,
                         "threshold": self.signal_threshold_OPD,
@@ -39,7 +43,7 @@ class HotSystemQuaConfig(QUAConfigBase):
     def get_elements(self) -> Dict[str, Any]:
         return {
             "RF": {
-                "singleInput": {"port": ("con1", 3)},
+                "singleInput": {"port": ("con1", 3)}, # analog out
                 "intermediate_frequency": self.rf_frequency,
                 "operations": {
                     "const": "const_pulse_single",
@@ -47,15 +51,15 @@ class HotSystemQuaConfig(QUAConfigBase):
             },
             "MW": {
                 "mixInputs": {
-                    "I": ("con1", 1),
-                    "Q": ("con1", 2),
+                    "I": ("con1", 1), # analog out
+                    "Q": ("con1", 2), # analog out
                     "lo_frequency": self.NV_LO_freq,
                     "mixer": "mixer_NV",
                 },
                 "intermediate_frequency": self.NV_IF_freq,
-                "digitalInputs": {
+                "digitalInputs": { # 'digitalInputs' is actually 'digital_outputs'. MW switch (ON/OFF)
                     "marker": {
-                        "port": ("con1", 2),
+                        "port": ("con1", 2), # digital out
                         "delay": self.switch_delay,
                         "buffer": self.switch_buffer,
                     },
@@ -74,22 +78,10 @@ class HotSystemQuaConfig(QUAConfigBase):
                 },
             },
             "Laser": {
-                "digitalInputs": {
+                "digitalInputs": { # actually outputs
                     "marker": {
-                        "port": ("con1", 1),
+                        "port": ("con1", 1), # digital out
                         "delay": self.laser_delay,
-                        "buffer": 0,
-                    },
-                },
-                "operations": {
-                    "Turn_ON": "laser_ON",
-                },
-            },
-            "SmaractTrigger": {
-                "digitalInputs": {
-                    "marker": {
-                        "port": ("con1", 4),
-                        "delay": 0,
                         "buffer": 0,
                     },
                 },
@@ -100,7 +92,7 @@ class HotSystemQuaConfig(QUAConfigBase):
             "MW_switch": {
                 "digitalInputs": {
                     "marker": {
-                        "port": ("con1", 2),
+                        "port": ("con1", 2), # digital out
                         "delay": self.switch_delay,
                         "buffer": self.switch_buffer,
                     },
@@ -110,19 +102,19 @@ class HotSystemQuaConfig(QUAConfigBase):
                 },
             },
             "Detector": {
-                "singleInput": {"port": ("con1", 1)},
+                "singleInput": {"port": ("con1", 1)}, # unknown why needed?
                 "digitalInputs": {
-                    "marker": {
-                        "port": ("con1", 3),
-                        "delay": self.detection_delay,
-                        "buffer": 0,
-                    },
+                    # "marker": {
+                    #     "port": ("con1", 3),
+                    #     "delay": self.detection_delay,
+                    #     "buffer": 0,
+                    # },
                 },
                 "operations": {
                     "readout": "readout_pulse",
                     "long_readout": "long_readout_pulse",
                 },
-                "outputs": {"out1": ("con1", 1)},
+                "outputs": {"out1": ("con1", 1)}, # analoge in
                 "outputPulseParameters": {
                     "signalThreshold": self.signal_threshold,
                     "signalPolarity": "Descending",
@@ -133,16 +125,41 @@ class HotSystemQuaConfig(QUAConfigBase):
                 "smearing": 0,
             },
             "Detector_OPD": {
-                "singleInput": {"port": ("con1", 1)},
+                "singleInput": {"port": ("con1", 1)}, # unknown why needed?
                 "digitalInputs": {
-                    "marker": {
-                        "port": ("con1", 3),
-                        "delay": self.detection_delay_OPD,
-                        "buffer": 0,
-                    },
                 },
-                "digitalOutputs": {"out1": ("con1", 1)},
-                "outputs": {"out1": ("con1", 1)},
+                "digitalOutputs": {"out1": ("con1", 1)}, # 'digital input' of OPD
+                "outputs": {"out1": ("con1", 1)}, # unknown why needed?
+                "operations": {
+                    "readout": "readout_pulse",
+                    "min_readout": "min_readout_pulse",
+                    "long_readout": "long_readout_pulse",
+                    "very_long_readout": "very_long_readout_pulse",
+                },
+                "time_of_flight": self.detection_delay_OPD,
+                "smearing": 0,
+            },
+            "Detector2_OPD": {
+                "singleInput": {"port": ("con1", 1)},  # unknown why needed?
+                "digitalInputs": {
+                },
+                "digitalOutputs": {"out1": ("con1", 3)},  # 'digital input' of OPD
+                "outputs": {"out1": ("con1", 1)}, # unknown why needed?
+                "operations": {
+                    "readout": "readout_pulse",
+                    "min_readout": "min_readout_pulse",
+                    "long_readout": "long_readout_pulse",
+                    "very_long_readout": "very_long_readout_pulse",
+                },
+                "time_of_flight": self.detection_delay_OPD,
+                "smearing": 0,
+            },
+            "Detector2_OPD": {
+                "singleInput": {"port": ("con1", 1)},  # unknown why needed?
+                "digitalInputs": {
+                },
+                "digitalOutputs": {"out1": ("con1", 3)},  # 'digital input' of OPD
+                "outputs": {"out1": ("con1", 1)}, # unknown why needed?
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",

@@ -56,7 +56,7 @@ class FemtoQuaConfig(configs.QUAConfigBase):
                 'digitalOutputs': {  # 'digitalOutputs' here is actually 'digital input' of OPD
                     'out1': ('con1', 2)
                 },
-                "outputs": {"out1": ("con1", 2)},
+                "outputs": {"out1": ("con1", 2)}, # why we need this?
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
