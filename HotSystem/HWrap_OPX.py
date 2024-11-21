@@ -4627,10 +4627,10 @@ class GUI_OPX():
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
                     play("Turn_ON", "Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
                     measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
-                    measure("readout", "Detector2_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    measure("readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
-                    assign(self.total_counts2, self.total_counts2 + self.counts)  # assign is equal in qua language  # align()
+                    assign(self.total_counts2, self.total_counts2 + self.counts_ref)  # assign is equal in qua language  # align()
 
                 save(self.total_counts, self.counts_st)
                 save(self.total_counts2, self.counts_ref_st) # only to keep on convention
@@ -4876,7 +4876,7 @@ class GUI_OPX():
                 self.X_vec = self.X_vec[-self.NumOfPoints:]
 
             self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
-            self.Y_vec_ref.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
+            self.Y_vec_ref.append(self.ref_signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
             self.X_vec.append(self.counter_Signal[1] / self.u.s)  # Convert timestamps to seconds
 
         if self.exp == Experimet.ODMR_CW:  # freq

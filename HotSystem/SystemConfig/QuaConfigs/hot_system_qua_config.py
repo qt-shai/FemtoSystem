@@ -12,30 +12,21 @@ class HotSystemQuaConfig(QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
-                    1: {"offset": 0.0, "delay": self.mw_delay, "shareable": True}, # MW I, for unknonw reason need to be in all system
+                    1: {"offset": 0.0, "delay": self.mw_delay, "shareable": False}, # MW I, for unknonw reason need to be in all system
                     2: {"offset": 0.0, "delay": self.mw_delay, "shareable": False}, # MW Q
                     3: {"offset": 0.0, "delay": self.rf_delay, "shareable": False}, # RF
                 },
                 "digital_outputs": {
-                    1: {"shareable": True}, # laser 520nm
-                    2: {"shareable": True}, # trigger MW
+                    # 1: {"shareable": False}, # laser 520nm
+                    2: {"shareable": False}, # trigger MW
+                    3: {"shareable": False}, # laser 520nm
                 },
                 "analog_inputs": {
-                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # for unknonw reason need to be in all system
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": True}, # for unknonw reason need to be in all system
                 },
                 "digital_inputs": {
-                    1: {
-                        "polarity": "RISING",
-                        "deadtime": 4,
-                        "threshold": self.signal_threshold_OPD,
-                        "shareable": True,
-                    },
-                    3: {
-                        "polarity": "RISING",
-                        "deadtime": 4,
-                        "threshold": self.signal_threshold_OPD,
-                        "shareable": True,
-                    },
+                    1: {"polarity": "RISING", "deadtime": 4, "threshold": self.signal_threshold_OPD, "shareable": False,},
+                    3: {"polarity": "RISING", "deadtime": 4, "threshold": self.signal_threshold_OPD, "shareable": False,},
                 },
             }
         }
@@ -80,7 +71,7 @@ class HotSystemQuaConfig(QUAConfigBase):
             "Laser": {
                 "digitalInputs": { # actually outputs
                     "marker": {
-                        "port": ("con1", 1), # digital out
+                        "port": ("con1", 3), # digital out
                         "delay": self.laser_delay,
                         "buffer": 0,
                     },
@@ -129,21 +120,6 @@ class HotSystemQuaConfig(QUAConfigBase):
                 "digitalInputs": {
                 },
                 "digitalOutputs": {"out1": ("con1", 1)}, # 'digital input' of OPD
-                "outputs": {"out1": ("con1", 1)}, # unknown why needed?
-                "operations": {
-                    "readout": "readout_pulse",
-                    "min_readout": "min_readout_pulse",
-                    "long_readout": "long_readout_pulse",
-                    "very_long_readout": "very_long_readout_pulse",
-                },
-                "time_of_flight": self.detection_delay_OPD,
-                "smearing": 0,
-            },
-            "Detector2_OPD": {
-                "singleInput": {"port": ("con1", 1)},  # unknown why needed?
-                "digitalInputs": {
-                },
-                "digitalOutputs": {"out1": ("con1", 3)},  # 'digital input' of OPD
                 "outputs": {"out1": ("con1", 1)}, # unknown why needed?
                 "operations": {
                     "readout": "readout_pulse",
