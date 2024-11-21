@@ -1451,9 +1451,6 @@ class GUI_OPX():
         print("Set b_Zcorrection to: " + str(sender.b_Zcorrection))
         print(sender.ZCalibrationData)
 
-
-
-
     # gets values from gui using items tag
     def GetItemsVal(self,items_tag=[]):
         items_val = {}
@@ -1730,7 +1727,6 @@ class GUI_OPX():
                     self.tracking_signal_st.save("tracking_ref")
             
         self.qm, self.job = self.QUA_execute()
-
     def execute_QUA(self):
         if self.exp == Experimet.NUCLEAR_POL_ESR:
             self.Nuclear_Pol_ESR_QUA_PGM(Generate_QUA_sequance = True)
@@ -1740,7 +1736,6 @@ class GUI_OPX():
             self.Entanglement_gate_tomography_QUA_PGM(Generate_QUA_sequance = True)
         if self.exp == Experimet.G2:
             self.G2_QUA_PGM(Generate_QUA_sequance = True)
-    
     def Nuclear_Pol_ESR_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):  # NUCLEAR_POL_ESR
         if generate_params:
             # sequence parameters
@@ -1886,7 +1881,6 @@ class GUI_OPX():
         # Measure ref
         measure("readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, tMeasure, self.counts_tmp))
         assign(self.counts[idx], self.counts[idx] + self.counts_tmp)
-
     def QUA_ref0(self,idx,tPump,tMeasure,tWait):
         # pump
         align()
@@ -1897,7 +1891,6 @@ class GUI_OPX():
         play("Turn_ON", "Laser", duration=tMeasure // 4)
         measure("readout", "Detector_OPD", None,time_tagging.digital(self.times_ref, tMeasure, self.counts_ref_tmp))
         assign(self.counts_ref[idx], self.counts_ref[idx] + self.counts_ref_tmp)
-
     def QUA_ref1(self,idx,tPump,tMeasure,tWait,t_mw,f_mw,p_mw):
         # pump
         align()
@@ -1912,7 +1905,6 @@ class GUI_OPX():
         play("Turn_ON", "Laser", duration=tMeasure // 4)
         measure("readout", "Detector_OPD", None,time_tagging.digital(self.times_ref, tMeasure, self.counts_ref2_tmp))
         assign(self.counts_ref2[idx], self.counts_ref2[idx] + self.counts_ref2_tmp)
-
     def Entanglement_gate_tomography_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
         if generate_params:
             # todo update parameters if needed for this sequence
@@ -2065,7 +2057,7 @@ class GUI_OPX():
                 save(self.g2[self.m], self.g2_st)
                 assign(self.g2[self.m], 0) # reset
                 
-            assign(self.total_counts, self.counts_1+self.counts_2+self.total_counts)
+            assign(self.total_counts, self.counts_1+self.counts_2+self.total_counts) # only for varification
             save(self.total_counts, self.total_counts_st)
             save(self.n, self.n_st)
 
@@ -2074,7 +2066,6 @@ class GUI_OPX():
         if execute_qua:
             self.G2_QUA_PGM(generate_params=True)
             self.QUA_PGM()
-
     def MZI_g2(g2, times_1, counts_1, times_2, counts_2, correlation_width): # from Daniel (QM)
         """
         Calculate the second order correlation of click times between two counting channels
@@ -2104,12 +2095,11 @@ class GUI_OPX():
                     assign(j, counts_2+1)
                 with elif_((diff <= correlation_width) & (diff >= -correlation_width)):
                     assign(diff_ind, diff + correlation_width)
-                    assign(self.g2[diff_ind], self.g2[diff_ind] + 1)
+                    assign(g2[diff_ind], g2[diff_ind] + 1)
                 # Track and evolve the lower bound forward every time a photon falls behind the lower bound
                 with elif_(diff < -correlation_width):
                     assign(lower_index_tracker, lower_index_tracker+1)
-        return self.g2
-
+        return g2
 
     def ODMR_Bfield_QUA_PGM(self):  # CW_ODMR
         
