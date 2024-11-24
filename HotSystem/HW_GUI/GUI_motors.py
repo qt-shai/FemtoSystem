@@ -5,16 +5,17 @@ from SystemConfig import Instruments, load_instrument_images
 
 
 class GUIMotor:
-    def __init__(self, motor: Motor, instrument:Instruments, simulation: bool = False) -> None:
+    def __init__(self, motor: Motor, instrument: Instruments, simulation: bool = False) -> None:
         """
         Generalized GUI class for motor control.
 
-        :param motor: The type of motor to control (e.g., "pico_motor", "smaract_motor, atto_motor").
+        :param motor: The motor instance to control.
+        :param instrument: The instrument associated with the motor.
         :param simulation: Flag to indicate if the simulation mode is enabled.
         """
-        self.is_collapsed:bool = False
+        self.is_collapsed: bool = False
         load_instrument_images()
-        self.dev = motor  # Dynamically assign the motor device based on the motor_type
+        self.dev = motor  # The motor device instance
         self.simulation = simulation
         self.unique_id = self._get_unique_id_from_device()  # Automatically infer the unique identifier from the device
         self.instrument = instrument
@@ -22,7 +23,8 @@ class GUIMotor:
 
         child_width = 100
         self.window_tag = f"MotorWin_{self.unique_id}"
-        with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
+        self.window_label = f"{self.instrument.value}" + "(simulation)" if simulation else f"({motor.serial_number})"
+        with dpg.window(tag=self.window_tag, label=f"{self.window_label}",
                         no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
@@ -33,10 +35,13 @@ class GUIMotor:
                 self.create_absolute_position_controls(child_width)
                 self.create_home_controls(child_width)
                 self.create_status_display(child_width)
-                # self.toggle_gui_collapse()
 
         if not simulation:
             self.connect()
+
+        # Subscribe to motor position updates
+        self.dev.add_position_observer(self.on_position_update)
+        self.dev.start_position_updates()
 
     def _get_unique_id_from_device(self) -> str:
         """
@@ -127,14 +132,14 @@ class GUIMotor:
         with dpg.group(horizontal=False, tag=f"column_8_{self.unique_id}", width=width):
             dpg.add_text("Status")
             for ch in self.dev.channels:
-                dpg.add_combo(["idle",""], tag=f"MotorStatus{ch}_{self.unique_id}")
+                dpg.add_combo(["idle", ""], tag=f"MotorStatus{ch}_{self.unique_id}")
 
     def toggle_gui_collapse(self):
         if self.is_collapsed:
             print(f"Expanding {self.instrument.value} window")
-            for column in range(1,9):
+            for column in range(1, 9):
                 dpg.show_item(f"column_{column}_{self.unique_id}")
-            dpg.set_item_width(self.window_tag,1800)
+            dpg.set_item_width(self.window_tag, 1800)
             dpg.set_item_height(self.window_tag, 270)
         else:
             print(f"Collapsing {self.instrument.value} window")
@@ -163,11 +168,11 @@ class GUIMotor:
         self.dev.move_relative(ch, step)
 
     def btn_move_negative_fine(self, sender, app_data, ch):
-        step = int(-dpg.get_value(f"ch{ch}_fine_{self.unique_id}") * self.dev.StepsIn1mm/1e6)
+        step = int(-dpg.get_value(f"ch{ch}_fine_{self.unique_id}") * self.dev.StepsIn1mm / 1e6)
         self.dev.move_relative(ch, step)
 
     def btn_move_positive_fine(self, sender, app_data, ch):
-        step = int(dpg.get_value(f"ch{ch}_fine_{self.unique_id}") * self.dev.StepsIn1mm/1e6)
+        step = int(dpg.get_value(f"ch{ch}_fine_{self.unique_id}") * self.dev.StepsIn1mm / 1e6)
         self.dev.move_relative(ch, step)
 
     def btn_set_zero(self, sender, app_data, ch):
@@ -178,3 +183,14 @@ class GUIMotor:
         print("Connecting")
         if self.dev.is_connected:
             dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} connected")
+
+    def on_position_update(self, channel: int, position: float) -> None:
+        """
+        Callback method that is called when the motor's position is updated.
+
+        :param channel: The channel number.
+        :param position: The new position.
+        """
+        # Update the GUI element displaying the position
+        position_text = f"Ch{channel}: {position:.2f} {self.dev.get_position_unit(channel)}"
+        dpg.set_value(f"MotorCh{channel}_{self.unique_id}", position_text)

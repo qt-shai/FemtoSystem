@@ -1,8 +1,8 @@
 import time
-from typing import List, Optional
+from typing import List, Optional, Dict
 from HW_wrapper.abstract_motor import Motor
-
 from ..Attocube import AttocubeDevice, AttoJSONMethods
+
 
 class AttoDry800(Motor):
     """
@@ -10,7 +10,8 @@ class AttoDry800(Motor):
     Implements the Motor interface for compatibility with GUIMotor.
     """
 
-    def __init__(self, address: str, serial_number: Optional[str] = None, name: str = "AttoDry800", simulation: bool = False):
+    def __init__(self, address: str, serial_number: Optional[str] = None, name: str = "AttoDry800",
+                 simulation: bool = False, polling_rate: float = 10.0):
         """
         Initialize the AttoDry800 cryostat.
 
@@ -18,15 +19,15 @@ class AttoDry800(Motor):
         :param serial_number: The serial number of the cryostat.
         :param name: The name of the cryostat device.
         :param simulation: Boolean flag to indicate if in simulation mode.
+        :param polling_rate: The rate at which the motor's position is polled (in Hz).
         """
-        super().__init__(serial_number=serial_number, name=name)
-        self.simulation = simulation
+        super().__init__(serial_number=serial_number, name=name, polling_rate=polling_rate, simulation=simulation)
         self.address = address
         self.no_of_channels: int = 3  # Assuming 3 axes for movement
         self.channels: List[int] = [0, 1, 2]  # Logical channels for X, Y, Z axes
         self.StepsIn1mm: int = 1000000  # Steps in 1mm (assuming 1 step = 1 nm)
-        self._axes_positions: List[float] = [0.0, 0.0, 0.0]  # Positions in nanometers
-        self._axes_pos_units: List[str] = ["nm", "nm", "nm"]
+        self._axes_positions: Dict[int, float] = {ch: 0.0 for ch in self.channels}  # Positions in nanometers
+        self._axes_pos_units: Dict[int, str] = {ch: "nm" for ch in self.channels}
         self._connected: bool = False
         self.device = AttocubeDevice(address, simulation=simulation)
 
@@ -35,6 +36,7 @@ class AttoDry800(Motor):
         if self.simulation:
             self._simulate_action("connect to the cryostat")
             self._connected = True
+            self.start_position_updates()
         else:
             try:
                 self.device.connect()
@@ -44,9 +46,11 @@ class AttoDry800(Motor):
                 print(f"Error connecting to the device: {e}")
                 self._connected = False
                 raise e
+        self.start_position_updates()
 
     def disconnect(self) -> None:
         """Disconnect from the cryostat."""
+        self.stop_position_updates()
         if self.simulation:
             self._simulate_action("disconnect from the cryostat")
             self._connected = False
@@ -59,7 +63,6 @@ class AttoDry800(Motor):
                 print(f"Error disconnecting from the device: {e}")
                 raise e
 
-    @property
     def is_connected(self) -> bool:
         """Check if the cryostat is connected."""
         return self._connected
@@ -78,7 +81,7 @@ class AttoDry800(Motor):
         self._check_and_enable_output(channel)
         self._perform_request(AttoJSONMethods.MOVE_TO_REFERENCE.value, [channel])
         self.wait_for_axes_to_stop([channel])
-        self.GetPosition()
+        self.update_positions()
 
     def MoveABSOLUTE(self, channel: int, position: int) -> None:
         """
@@ -90,7 +93,7 @@ class AttoDry800(Motor):
         self._check_and_enable_output(channel)
         self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, position])
         self.wait_for_axes_to_stop([channel])
-        self.GetPosition()
+        self.update_positions()
 
     def move_relative(self, channel: int, steps: int) -> None:
         """
@@ -167,22 +170,6 @@ class AttoDry800(Motor):
         """
         pass
 
-    def GetPosition(self) -> None:
-        """Update internal positions for all axes."""
-        for channel in self.channels:
-            position = self.get_position(channel)
-            self._axes_positions[channel] = position
-
-    @property
-    def AxesPositions(self) -> List[float]:
-        """List of current axis positions in nanometers."""
-        return self._axes_positions
-
-    @property
-    def AxesPosUnits(self) -> List[str]:
-        """List of position units for each axis."""
-        return self._axes_pos_units
-
     # Private helper methods
     def _simulate_action(self, action: str) -> None:
         """
@@ -244,7 +231,7 @@ class AttoDry800(Motor):
         else:
             return -1.0
 
-    def get_moving_status(self) -> dict:
+    def get_moving_status(self) -> Dict[int, bool]:
         """
         Read the moving status of all axes.
 
@@ -252,7 +239,6 @@ class AttoDry800(Motor):
         """
         response = self._perform_request(AttoJSONMethods.GET_STATUS_MOVING_ALL_AXES.value, [])
         if response:
-            # Assuming response[1] is a list of booleans indicating moving status for each axis
             return {axis: response[axis] for axis in self.channels}
         else:
             return {}
@@ -312,4 +298,3 @@ class AttoDry800(Motor):
             return response[1]
         else:
             return "Error"
-

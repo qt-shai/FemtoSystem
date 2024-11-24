@@ -1,10 +1,12 @@
 from typing import Dict, Any
-import SystemConfig.QuaConfigs as configs 
+import SystemConfig.QuaConfigs as configs
+from SystemConfig import SystemType
 
 
 class FemtoQuaConfig(configs.QUAConfigBase):
     def __init__(self) -> None:
         super().__init__()
+        self.system_name = SystemType.FEMTO.value
 
     def get_controllers(self) -> Dict[str, Any]:
         return {

@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from SystemConfig import SystemType
 from SystemConfig.QuaConfigs import QUAConfigBase
 
 
@@ -22,6 +23,7 @@ class AttoQuaConfig(QUAConfigBase):
         self.scannerX_delay = 0
         self.scannerY_delay = 0
         self.phaseEOM_delay = 0
+        self.system_name:str = SystemType.ATTO.value
 
     def get_controllers(self) -> Dict[str, Any]:
         """
