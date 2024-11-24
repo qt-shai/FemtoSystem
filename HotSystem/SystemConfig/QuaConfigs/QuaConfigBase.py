@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from qualang_tools.units import unit
+
 
 
 class QUAConfigBase(ABC):
     def __init__(self):
         # connect     
+        self.system_name: Optional[str] = None
         self.u = unit()
         
         # Frequencies
@@ -197,7 +199,7 @@ class QUAConfigBase(ABC):
         return {
             "version": self.get_version(),
             "controllers": self.get_controllers(),
-            "elements": self.get_elements(),
+            "elements": {f"{key}_{self.system_name}" : value for key,value in self.get_elements()},
             "pulses": self.get_pulses(),
             "waveforms": self.get_waveforms(),
             "digital_waveforms": self.get_digital_waveforms(),

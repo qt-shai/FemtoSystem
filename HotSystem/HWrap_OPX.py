@@ -87,6 +87,7 @@ class GUI_OPX():  # todo: support several device
         self.plt_x = None
         self.window_tag = "OPX Window"
         self.HW = hw_devices.HW_devices(simulation)
+        self.system_name = self.HW.config.system_type.value
         self.mwModule = self.HW.microwave
         self.positioner = self.HW.positioner
         self.pico = self.HW.picomotor
@@ -523,8 +524,8 @@ class GUI_OPX():  # todo: support several device
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False,
                           parent="graphXY")  # REQUIRED: create x and y axes
-        dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
-        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis", tag="series_counts_ref")
+        dpg.add_line_series(self.X_vec, self.Y_vec, label=f"counts", parent="y_axis", tag="series_counts")
+        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label=f"counts_ref", parent="y_axis", tag="series_counts_ref")
         dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref2, label="counts_ref2", parent="y_axis", tag="series_counts_ref2")
 
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
@@ -1632,7 +1633,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to zero - DC pulse
-            update_frequency("RF", 0 * self.u.MHz)
+            update_frequency(f"RF", 0 * self.u.MHz)
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -1651,31 +1652,31 @@ class GUI_OPX():  # todo: support several device
                     with if_(sequenceState == 0):
                         # set new MW frequency
                         assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
-                        update_frequency("MW", f)  # update frequency
+                        update_frequency(f"MW", f)  # update frequency
 
                         # Signal
-                        wait(tEdge//4,"MW")
-                        play("cw", "MW", duration=tMW // 4)  # play microwave pulse
-                        # wait(300//4,"RF")
-                        play("const" * amp(p), "RF",duration=tBfield // 4)
+                        wait(tEdge//4,f"MW")
+                        play("cw", f"MW", duration=tMW // 4)  # play microwave pulse
+                        # wait(300//4,f"RF")
+                        play("const" * amp(p), f"RF",duration=tBfield // 4)
 
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW",f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
+                        align(f"MW",f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # reference sequence
                         # don't play MW
-                        wait(tEdge//4,"MW")
-                        play("cw", "MW", duration=tMW // 4)  # play microwave pulse
-                        # play("const" * amp(p), "RF",duration=tBfield // 4)
+                        wait(tEdge//4,f"MW")
+                        play("cw", f"MW", duration=tMW // 4)  # play microwave pulse
+                        # play("const" * amp(p), f"RF",duration=tBfield // 4)
 
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW",f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
+                        align(f"MW",f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                         align()
@@ -1683,8 +1684,8 @@ class GUI_OPX():  # todo: support several device
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal,tracking_signal+tracking_signal_tmp)
                         align()
 
@@ -1695,8 +1696,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal,tracking_signal+tracking_signal_tmp)
                         assign(track_idx,0)
 
@@ -1710,10 +1711,10 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                counts_st.buffer(len(self.f_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
     def NuclearFastRotation_QUA_PGM(self):
@@ -1840,34 +1841,34 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
+                            play("cw"*amp(self.mw_P_amp), f"MW", duration=tMW//4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
-                            play("const" * amp(pRF), "RF",duration=tRF // 4)
+                            align(f"MW",f"RF")
+                            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
+                            play("const" * amp(pRF), f"RF",duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align(f"RF",f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump//4)
                         align()
 
-                        wait(tEdge//4,"MW")
-                        update_frequency("MW", f)
-                        play("cw"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)  # play microwave pulse
-                        # wait(20//4,"RF") # manual calibration
-                        update_frequency("RF", 0 * self.u.MHz) # set RF frequency to resonance
-                        play("const" * amp(p), "RF",duration=tBfield // 4)
+                        wait(tEdge//4,f"MW")
+                        update_frequency(f"MW", f)
+                        play("cw"*amp(self.mw_P_amp2), f"MW", duration=tMW2 // 4)  # play microwave pulse
+                        # wait(20//4,f"RF") # manual calibration
+                        update_frequency(f"RF", 0 * self.u.MHz) # set RF frequency to resonance
+                        play("const" * amp(p), f"RF",duration=tBfield // 4)
 
                         align()
                         wait(tWait//4)
-                        update_frequency("MW", fMW_res1)
-                        play("cw"*amp(self.mw_P_amp), "MW", duration=tMW // 4)  # play microwave pulse
+                        update_frequency(f"MW", fMW_res1)
+                        play("cw"*amp(self.mw_P_amp), f"MW", duration=tMW // 4)  # play microwave pulse
 
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW",f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
+                        align(f"MW",f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -1875,34 +1876,34 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
+                            play("cw"*amp(self.mw_P_amp), f"MW", duration=tMW//4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
-                            play("const" * amp(pRF), "RF",duration=tRF // 4)
+                            align(f"MW",f"RF")
+                            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
+                            play("const" * amp(pRF), f"RF",duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align(f"RF",f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump//4)
                         align()
 
-                        wait((tEdge+tMW2+tWait)//4,"MW")
-                        # update_frequency("MW", fMW_res2)
-                        # play("cw"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)  # play microwave pulse
-                        # wait(300//4,"RF") # manual calibration
-                        # update_frequency("RF", 0 * self.u.MHz) # set RF frequency to resonance
-                        # play("const" * amp(p), "RF",duration=tBfield // 4)
+                        wait((tEdge+tMW2+tWait)//4,f"MW")
+                        # update_frequency(f"MW", fMW_res2)
+                        # play("cw"*amp(self.mw_P_amp2), f"MW", duration=tMW2 // 4)  # play microwave pulse
+                        # wait(300//4,f"RF") # manual calibration
+                        # update_frequency(f"RF", 0 * self.u.MHz) # set RF frequency to resonance
+                        # play("const" * amp(p), f"RF",duration=tBfield // 4)
 
                         # align()
                         # wait(tWait)
-                        update_frequency("MW", fMW_res1)
-                        play("cw"*amp(self.mw_P_amp), "MW", duration=tMW // 4)  # play microwave pulse
+                        update_frequency(f"MW", fMW_res1)
+                        play("cw"*amp(self.mw_P_amp), f"MW", duration=tMW // 4)  # play microwave pulse
 
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW",f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
+                        align(f"MW",f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                         align()
@@ -1911,34 +1912,34 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
+                            play("cw"*amp(self.mw_P_amp), f"MW", duration=tMW//4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW","RF")
-                            update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
-                            play("const" * amp(pRF), "RF",duration=tRF // 4)
+                            align(f"MW",f"RF")
+                            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
+                            play("const" * amp(pRF), f"RF",duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF","Laser")
-                            play("Turn_ON", "Laser", duration=tPump//4)
+                            align(f"RF",f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump//4)
                         align()
 
-                        wait((tEdge+tMW2+tWait)//4,"MW")
-                        # update_frequency("MW", fMW_res2)
-                        # play("cw"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)  # play microwave pulse
-                        # wait(300//4,"RF") # manual calibration
-                        # update_frequency("RF", 0 * self.u.MHz) # set RF frequency to resonance
-                        # play("const" * amp(p), "RF",duration=tBfield // 4)
+                        wait((tEdge+tMW2+tWait)//4,f"MW")
+                        # update_frequency(f"MW", fMW_res2)
+                        # play("cw"*amp(self.mw_P_amp2), f"MW", duration=tMW2 // 4)  # play microwave pulse
+                        # wait(300//4,f"RF") # manual calibration
+                        # update_frequency(f"RF", 0 * self.u.MHz) # set RF frequency to resonance
+                        # play("const" * amp(p), f"RF",duration=tBfield // 4)
 
                         # align()
                         # wait(tWait//4)
-                        update_frequency("MW", fMW_res2)
-                        play("cw"*amp(self.mw_P_amp), "MW", duration=tMW // 4)  # play microwave pulse
+                        update_frequency(f"MW", fMW_res2)
+                        play("cw"*amp(self.mw_P_amp), f"MW", duration=tMW // 4)  # play microwave pulse
 
-                        align("MW","Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        align("MW","Detector_OPD")
-                        measure("readout", "Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref2_tmp))
+                        align(f"MW",f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
+                        align(f"MW",f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None,time_tagging.digital(times_ref, tMeasure, counts_ref2_tmp))
                         assign(counts_ref2[idx_vec_qua[idx]], counts_ref2[idx_vec_qua[idx]] + counts_ref2_tmp)
 
                         align()
@@ -1946,8 +1947,8 @@ class GUI_OPX():  # todo: support several device
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal,tracking_signal+tracking_signal_tmp)
                         align()
 
@@ -1958,8 +1959,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None, time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal,tracking_signal+tracking_signal_tmp)
                         assign(track_idx,0)
 
@@ -1974,11 +1975,11 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                counts_st.buffer(len(self.f_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
+                counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
                 counts_ref2_st.buffer(len(self.f_vec)).average().save("counts_ref2")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
     def Electron_lifetime_QUA_PGM(self): #T1
@@ -2063,7 +2064,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
-            update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
+            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz)
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -2085,26 +2086,26 @@ class GUI_OPX():  # todo: support several device
                         # signal
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         wait(t)
                         align()
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -2116,8 +2117,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -2132,12 +2133,12 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                # counts_st.buffer(len(self.f_vec)).average().save("counts")
-                # counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                counts_st.buffer(len(self.t_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.t_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                # counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                # counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                counts_st.buffer(len(self.t_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.t_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -2224,7 +2225,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
-            update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
+            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz)
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -2248,32 +2249,32 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
 
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tSettle) // 4)
+                        play("Turn_ON", f"Laser", duration=(tSettle) // 4)
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res1)
+                        update_frequency(f"MW", fMW_res1)
                         # play MW
-                        align("Laser", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"Laser", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -2281,39 +2282,39 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
 
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tSettle) // 4)
+                        play("Turn_ON", f"Laser", duration=(tSettle) // 4)
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        align("Laser", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"Laser", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -2325,8 +2326,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -2341,12 +2342,12 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                # counts_st.buffer(len(self.f_vec)).average().save("counts")
-                # counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                counts_st.buffer(len(self.t_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.t_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                # counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                # counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                counts_st.buffer(len(self.t_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.t_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -2433,7 +2434,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
-            update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
+            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz)
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -2457,37 +2458,37 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
 
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
 
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tSettle) // 4)
+                        play("Turn_ON", f"Laser", duration=(tSettle) // 4)
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res1)
+                        update_frequency(f"MW", fMW_res1)
                         # play MW
-                        align("Laser", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"Laser", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -2495,43 +2496,43 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
 
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=(tSettle) // 4)
+                        play("Turn_ON", f"Laser", duration=(tSettle) // 4)
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        align("Laser", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"Laser", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -2543,8 +2544,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -2559,12 +2560,12 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                # counts_st.buffer(len(self.f_vec)).average().save("counts")
-                # counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                counts_st.buffer(len(self.t_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.t_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                # counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                # counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                counts_st.buffer(len(self.t_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.t_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -2651,7 +2652,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
-            update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
+            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz)
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -2675,43 +2676,43 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
 
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play RF pi/2
-                        align("MW", "RF")
-                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
+                        align(f"MW", f"RF")
+                        play("const" * amp(p), f"RF", duration=(tRF / 2) // 4)
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play RF pi/2
-                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
+                        play("const" * amp(p), f"RF", duration=(tRF / 2) // 4)
                         # play Laser
-                        align("RF", "Laser")
-                        play("Turn_ON", "Laser", duration=tSettle // 4)
+                        align(f"RF", f"Laser")
+                        play("Turn_ON", f"Laser", duration=tSettle // 4)
 
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        align("Laser", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"Laser", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -2719,42 +2720,42 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # do not play RF
                         wait(t + tRF // 4)
                         # play Laser
-                        play("Turn_ON", "Laser", duration=tSettle // 4)
+                        play("Turn_ON", f"Laser", duration=tSettle // 4)
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        align("Laser", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"Laser", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -2766,8 +2767,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -2782,12 +2783,12 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                # counts_st.buffer(len(self.f_vec)).average().save("counts")
-                # counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                counts_st.buffer(len(self.t_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.t_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                # counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                # counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                counts_st.buffer(len(self.t_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.t_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
     def Electron_Coherence_QUA_PGM(self): # Also CPMG when N>0
@@ -2887,7 +2888,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
-            # update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
+            # update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz)
             # p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -2912,9 +2913,9 @@ class GUI_OPX():  # todo: support several device
                             assign(t, tWait / (2 * Ncpmg) - (tMW / 2) // 4)
 
                             # signal
-                        update_frequency("MW", 0)  # const I&Q
+                        update_frequency(f"MW", 0)  # const I&Q
                         # play MW (I=1,Q=0) @ Pi/2
-                        play("xPulse", "MW", duration=(tMW / 2) // 4)  # xPulse I = 0.5V, Q = zero
+                        play("xPulse", f"MW", duration=(tMW / 2) // 4)  # xPulse I = 0.5V, Q = zero
                         # wait t unit
                         with if_(Ncpmg == 0):
                             wait(tWait)
@@ -2923,21 +2924,21 @@ class GUI_OPX():  # todo: support several device
                         with for_(m, 0, m < Ncpmg, m + 1):
                             wait(t)
                             # play MW
-                            update_frequency("MW", 0)
-                            play("xPulse", "MW", duration=tMW // 4)  # yPulse I = zero, Q = 0.5V
+                            update_frequency(f"MW", 0)
+                            play("xPulse", f"MW", duration=tMW // 4)  # yPulse I = zero, Q = 0.5V
                             # wait t unit
                             wait(t)
                         # align()
 
                         # play MW (I=1,Q=0) @ Pi/2
-                        play("xPulse", "MW", duration=(tMW / 2) // 4)
+                        play("xPulse", f"MW", duration=(tMW / 2) // 4)
 
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -2945,16 +2946,16 @@ class GUI_OPX():  # todo: support several device
                         # wait Tmw + Twait
                         wait(tWait + tMW // 4)
                         # play laser
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -2966,8 +2967,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -2982,12 +2983,12 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                # counts_st.buffer(len(self.f_vec)).average().save("counts")
-                # counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                counts_st.buffer(len(self.t_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.t_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                # counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                # counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                counts_st.buffer(len(self.t_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.t_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
     def Hahn_QUA_PGM(self):
@@ -3072,7 +3073,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
-            update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
+            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz)
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -3096,42 +3097,42 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play RF pi/2
-                        align("MW", "RF")
-                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
+                        align(f"MW", f"RF")
+                        play("const" * amp(p), f"RF", duration=(tRF / 2) // 4)
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play RF pi
-                        play("const" * amp(p), "RF", duration=tRF // 4)
+                        play("const" * amp(p), f"RF", duration=tRF // 4)
                         # Twait, note: t is already in cycles!
                         wait(t)
                         # play RF pi/2
-                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
+                        play("const" * amp(p), f"RF", duration=(tRF / 2) // 4)
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        align("RF", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"RF", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -3139,39 +3140,39 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res1)
+                            update_frequency(f"MW", fMW_res1)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to pump
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # do not play RF
                         wait(2 * t + (2 * tRF) // 4)
                         # set MW frequency to resonance
-                        update_frequency("MW", fMW_res2)
+                        update_frequency(f"MW", fMW_res2)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -3183,8 +3184,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -3199,12 +3200,12 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                # counts_st.buffer(len(self.f_vec)).average().save("counts")
-                # counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                counts_st.buffer(len(self.t_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.t_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                # counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                # counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                counts_st.buffer(len(self.t_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.t_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -3272,7 +3273,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # set RF frequency to resonance
-            update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
+            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz)
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -3295,43 +3296,43 @@ class GUI_OPX():  # todo: support several device
                         # polarize (@fMW_res @ fRF_res)
                         with for_(m, 0, m < Npump, m + 1):
                             # set MW frequency to resonance
-                            update_frequency("MW", fMW_res)
+                            update_frequency(f"MW", fMW_res)
                             # play MW
-                            play("cw", "MW", duration=tMW // 4)
+                            play("cw", f"MW", duration=tMW // 4)
                             # play RF (@resonance freq & pulsed time)
-                            align("MW", "RF")
-                            play("const" * amp(p), "RF", duration=tRF // 4)
+                            align(f"MW", f"RF")
+                            play("const" * amp(p), f"RF", duration=tRF // 4)
                             # turn on laser to polarize
-                            align("RF", "Laser")
-                            play("Turn_ON", "Laser", duration=tPump // 4)
+                            align(f"RF", f"Laser")
+                            play("Turn_ON", f"Laser", duration=tPump // 4)
                         align()
 
                         # update MW frequency
-                        update_frequency("MW", f)
+                        update_frequency(f"MW", f)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play Laser
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # play Laser
-                        align("MW", "Detector_OPD")
+                        align(f"MW", f"Detector_OPD")
                         # measure signal 
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # reference
                         wait(tMW // 4)  # don't Play MW
                         # Play laser
-                        play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
+                        play("Turn_ON", f"Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -3343,8 +3344,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -3359,10 +3360,10 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                counts_st.buffer(len(self.f_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -3441,46 +3442,46 @@ class GUI_OPX():  # todo: support several device
                     with if_(sequenceState == 0):
                         # set RF freq
                         assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
-                        update_frequency("RF", f)
+                        update_frequency(f"RF", f)
 
                         # Signal
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play RF after MW
-                        align("MW", "RF")
-                        play("const" * amp(p), "RF", duration=tRF // 4)  # t already devide by four when creating the time vector
+                        align(f"MW", f"RF")
+                        play("const" * amp(p), f"RF", duration=tRF // 4)  # t already devide by four when creating the time vector
                         # play MW after RF
-                        align("RF", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"RF", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # reference
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # Don't play RF after MW just wait
                         wait(tRF // 4)
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -3492,8 +3493,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -3507,10 +3508,10 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                counts_st.buffer(len(self.f_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -3573,7 +3574,7 @@ class GUI_OPX():  # todo: support several device
             counts_ref_st = declare_stream()  # reference signal
 
             # Set RF frequency to resonance
-            update_frequency("RF", self.rf_resonance_freq * self.u.MHz)  # updates RF frerquency
+            update_frequency(f"RF", self.rf_resonance_freq * self.u.MHz)  # updates RF frerquency
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
             with for_(n, 0, n < self.n_avg, n + 1):
@@ -3595,42 +3596,42 @@ class GUI_OPX():  # todo: support several device
 
                         # Signal
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play RF after MW
-                        align("MW", "RF")
-                        play("const" * amp(p), "RF", duration=t)  # t already devide by four when creating the time vector
+                        align(f"MW", f"RF")
+                        play("const" * amp(p), f"RF", duration=t)  # t already devide by four when creating the time vector
                         # play MW after RF
-                        align("RF", "MW")
-                        play("cw", "MW", duration=tMW // 4)
+                        align(f"RF", f"MW")
+                        play("cw", f"MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # reference
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # Don't play RF after MW just wait
                         wait(t)  # t already devide by four
                         # play MW
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -3642,8 +3643,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -3658,10 +3659,10 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)
 
             with stream_processing():
-                counts_st.buffer(len(self.t_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.t_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                counts_st.buffer(len(self.t_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.t_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -3737,32 +3738,32 @@ class GUI_OPX():  # todo: support several device
                     with if_(sequenceState == 0):
                         # assign new frequency val from randon index
                         assign(f, val_vec_qua[idx_vec_qua[idx]])
-                        update_frequency("MW", f)
+                        update_frequency(f"MW", f)
 
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW // 4)
+                        play("cw", f"MW", duration=tMW // 4)
                         # play laser after MW
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # don't play MW for time t
                         wait(tMW // 4)
                         # play laser after MW
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
                         # play measure after MW
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         # align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -3774,8 +3775,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -3790,10 +3791,10 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                counts_st.buffer(len(self.f_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -3872,31 +3873,31 @@ class GUI_OPX():  # todo: support several device
                         assign(t, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
 
                         # play MW for time t
-                        play("cw", "MW", duration=t)
+                        play("cw", f"MW", duration=t)
                         # play laser after MW
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # don't play MW for time t
                         wait(t)
                         # play laser after MW
-                        align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        align(f"MW", f"Laser")
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
                         # play measure after MW
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        align(f"MW", f"Detector_OPD")
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -3908,8 +3909,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -3924,10 +3925,10 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                counts_st.buffer(len(self.t_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.t_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                counts_st.buffer(len(self.t_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.t_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -4004,28 +4005,28 @@ class GUI_OPX():  # todo: support several device
                     with if_(sequenceState == 0):
                         # set new MW frequency
                         assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
-                        update_frequency("MW", f)  # update frequency
+                        update_frequency(f"MW", f)  # update frequency
 
                         # Signal
-                        play("cw", "MW", duration=tMW // 4)  # play microwave pulse
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        wait(tSettle // 4, "Detector_OPD")
-                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        play("cw", f"MW", duration=tMW // 4)  # play microwave pulse
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
+                        wait(tSettle // 4, f"Detector_OPD")
+                        measure("min_readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
                         # wait(20000//4)
                         # reference sequence
                         # don't play MW
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        wait(tSettle // 4, "Detector_OPD")
-                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        play("Turn_ON", f"Laser", duration=tLaser // 4)
+                        wait(tSettle // 4, f"Detector_OPD")
+                        measure("min_readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=tLaser // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, tracking_signal_tmp))
+                            play("Turn_ON", f"Laser", duration=tLaser // 4)
+                            measure("min_readout", f"Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
@@ -4036,8 +4037,8 @@ class GUI_OPX():  # todo: support several device
                         assign(tracking_signal, 0)  # shuffle - assign new val from randon index
                         # reference sequence
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
-                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                            measure("min_readout", "Detector_OPD", None,
+                            play("Turn_ON", f"Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", f"Detector_OPD", None,
                                     time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -4052,10 +4053,10 @@ class GUI_OPX():  # todo: support several device
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                counts_st.buffer(len(self.f_vec)).average().save("counts")
-                counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
-                n_st.save("iteration")
-                tracking_signal_st.save("tracking_ref")
+                counts_st.buffer(len(self.f_vec)).average().save(f"counts")
+                counts_ref_st.buffer(len(self.f_vec)).average().save(f"counts_ref")
+                n_st.save(f"iteration")
+                tracking_signal_st.save(f"tracking_ref")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -4080,8 +4081,8 @@ class GUI_OPX():  # todo: support several device
             with infinite_loop_():
                 assign(total_counts_tracking, 0)
                 with for_(n, 0, n < n_count, n + 1):  # number of averages / total integation time
-                    play("Turn_ON", "Laser", duration=tMeasure // 4)
-                    measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure), counts_tracking)
+                    play("Turn_ON", f"Laser", duration=tMeasure // 4)
+                    measure("min_readout", f"Detector_OPD", None, time_tagging.digital(times, tMeasure), counts_tracking)
                     assign(total_counts_tracking, total_counts_tracking + counts_tracking)
 
                 save(total_counts_tracking, counts_tracking_st)
@@ -4104,9 +4105,9 @@ class GUI_OPX():  # todo: support several device
 
             with infinite_loop_():
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
-                    play("Turn_ON", "Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
-                    # measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.us), self.counts))
-                    measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
+                    play("Turn_ON", f"Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
+                    # measure("readout", f"Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.us), self.counts))
+                    measure("readout", f"Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
 
@@ -4116,9 +4117,9 @@ class GUI_OPX():  # todo: support several device
                 save(self.n, self.n_st)  # save number of iteration inside for_loop
 
             with stream_processing():
-                self.counts_st.with_timestamps().save("counts")
+                self.counts_st.with_timestamps().save(f"counts")
                 self.counts_st.with_timestamps().save("counts_reg")
-                self.n_st.save("iteration")
+                self.n_st.save(f"iteration")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -4145,7 +4146,7 @@ class GUI_OPX():  # todo: support several device
             assign(IO2, 0)
 
             with infinite_loop_():
-                # wait_for_trigger("Laser") # wait for smaract trigger
+                # wait_for_trigger(f"Laser") # wait for smaract trigger
                 assign(sequenceState, IO2)
                 with if_((sequenceState + 1 > triggerTh) & (sequenceState - 1 < triggerTh)):
                     assign(IO2, 0)
@@ -4154,8 +4155,8 @@ class GUI_OPX():  # todo: support several device
                     align()
                     # pause()
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
-                        play("Turn_ON", "Laser", duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
+                        play("Turn_ON", f"Laser", duration=laser_on_duration)
+                        measure("readout", f"Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
                         assign(total_counts, total_counts + counts)
 
                     save(total_counts, counts_st)
@@ -4224,11 +4225,11 @@ class GUI_OPX():  # todo: support several device
 
         # fetch right parameters
         if self.exp == Experiment.COUNTER:
-            self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
+            self.results = fetching_tool(self.job, data_list=[f"counts", f"iteration"], mode="live")
         elif self.exp == Experiment.Nuclear_Fast_Rot:
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
+            self.results = fetching_tool(self.job, data_list=[f"counts", f"counts_ref", "counts_ref2", f"iteration",f"tracking_ref"], mode="live")
         else:
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
+            self.results = fetching_tool(self.job, data_list=[f"counts", f"counts_ref", f"iteration", f"tracking_ref"], mode="live")
 
         self.X_vec = []
         self.Y_vec = []
@@ -5601,7 +5602,7 @@ class GUI_OPX():  # todo: support several device
                 if (list_elem.tag not in ["scan_Out","X_vec", "Y_vec", "Z_vec","X_vec_ref","Y_vec_ref","Z_vec_ref","V_scan","expected_pos","t_vec",
                                               "startLoc","endLoc","Xv","Yv","Zv","viewport_width","viewport_height","window_scale_factor",
                                               "timeStamp","counter","maintain_aspect_ratio","scan_intensities","initial_scan_Location","V_scan",
-                                              "absPosunits","Scan_intensity","Scan_matrix","image_path","f_vec","signal","ref_signal","tracking_ref","t_vec","t_vec_ini"]
+                                              "absPosunits","Scan_intensity","Scan_matrix","image_path","f_vec","signal","ref_signal",f"tracking_ref","t_vec","t_vec_ini"]
                         ):
                     for item in value:
                         item_elem = ET.SubElement(list_elem, "item")

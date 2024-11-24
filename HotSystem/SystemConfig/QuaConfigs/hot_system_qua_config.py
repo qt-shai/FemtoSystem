@@ -1,10 +1,12 @@
 from typing import Dict, Any
 from SystemConfig.QuaConfigs import QUAConfigBase
+from SystemConfig import SystemType
 
 
 class HotSystemQuaConfig(QUAConfigBase):
     def __init__(self) -> None:
         super().__init__()
+        self.system_name = SystemType.HOT_SYSTEM.value
 
     def get_controllers(self) -> Dict[str, Any]:
         return {
