@@ -29,56 +29,57 @@ subplot(2,2,3);
 % B = B(:)
 % C = reshape(B,5,3)'
 
-% Ix_ = round(reshape(T{:,1},[Nx,Ny,Nz])/1e7)*10;
-% Iy_ = round(reshape(T{:,2},[Nx,Ny,Nz])/1e7)*10;
-% Iz_ = round(reshape(T{:,3},[Nx,Ny,Nz])/1e7)*10;
+Ix_ = round(reshape(T{:,1},[Nx,Ny,Nz])/1e7)*10;
+Iy_ = round(reshape(T{:,2},[Nx,Ny,Nz])/1e7)*10;
+Iz_ = round(reshape(T{:,3},[Nx,Ny,Nz])/1e7)*10;
 
 % plot results
-% for i = 1:Nz
-%     idx_z = i;
-%     I = I_(:,:,idx_z)';
-%     Ix = Ix_(:,:,idx_z)';
-%     Iy = Iy_(:,:,idx_z)';
-% 
-%     X = Ix';
-%     X = X(:);
-%     Y = Iy';
-%     Y = Y(:);
-%     Z = I';
-%     Z = Z(:);
-% 
-%     subplot_handles = gobjects(2, 2); 
-%     figure(i)
-% 
-%     % subplot_handles(1,1) = subplot(3,3,1)
-%     % plot3(X./1e3,Y./1e3,Z./1e3)
-%     % set(subplot_handles(1,1), 'YDir', 'normal');
-%     % grid on
-%     % xlabel(subplot_handles(1, 1), 'X [um]')
-%     % ylabel(subplot_handles(1, 1), 'Y [um]')
-%     % 
-%     % subplot_handles(1,2) = subplot(3,3,[4:5,8:9])
-%     subplot_handles(1,2) = subplot(1,1,1);
-%     imagesc(X_./1e3,Y_./1e3,I);
-%     xtickformat(subplot_handles(1,2),'%.3f')
-%     ytickformat(subplot_handles(1,2),'%.3f')
-%     set(subplot_handles(1,2), 'YDir', 'normal');
-%     axis equal
-% 
-%     maxI = max(I_(:))
-%     if (max(I_(:))==0)
-%         maxI = 25
-%     end
-% 
-%     caxis(subplot_handles(1,2),[0, maxI]);
-%     colorbar
-%     title(subplot_handles(1,2),['z = ' num2str(Z_(i))])
-%     xlabel(subplot_handles(1, 2), 'X [um]')
-%     ylabel(subplot_handles(1, 2), 'Y [um]')
-% 
-% end
+for i = 1:Nz
+    idx_z = i;
+    I = I_(:,:,idx_z)';
+    Ix = Ix_(:,:,idx_z)';
+    Iy = Iy_(:,:,idx_z)';
 
-% end
+    X = Ix';
+    X = X(:);
+    Y = Iy';
+    Y = Y(:);
+    Z = I';
+    Z = Z(:);
+
+    subplot_handles = gobjects(2, 2); 
+    figure(i)
+
+    % subplot_handles(1,1) = subplot(3,3,1)
+    % plot3(X./1e3,Y./1e3,Z./1e3)
+    % set(subplot_handles(1,1), 'YDir', 'normal');
+    % grid on
+    % xlabel(subplot_handles(1, 1), 'X [um]')
+    % ylabel(subplot_handles(1, 1), 'Y [um]')
+    % 
+    % subplot_handles(1,2) = subplot(3,3,[4:5,8:9])
+    subplot_handles(1,2) = subplot(1,1,1);
+    imagesc(X_./1e6,Y_./1e6,I);
+    xtickformat(subplot_handles(1,2),'%.0f')
+    ytickformat(subplot_handles(1,2),'%.0f')
+    set(subplot_handles(1,2), 'YDir', 'normal');
+    axis equal
+
+    maxI = max(I_(:))
+    if (max(I_(:))==0)
+        maxI = 25
+    end
+    
+    colorbar
+    title(subplot_handles(1,2),['z = ' num2str(Z_(i))])
+    xlabel(subplot_handles(1, 2), 'X [um]')
+    ylabel(subplot_handles(1, 2), 'Y [um]')
+
+    clim([0 500])
+
+end
+
+end
 
 function [v_, N] = GetAxisParameters(in)
     % v = round(in/1e3)*1e3;

@@ -56,9 +56,9 @@ class SystemConfig:
 
     microwave_ip: str = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     atto_positioner_ip: str = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
-    opx_ip = '192.168.101.56'
+    opx_ip = '192.168.101.61'
     opx_port = 80
-    opx_cluster = 'Cluster_1'
+    opx_cluster = 'Cluster_2'
 
     def __init__(self, system_type: SystemType, devices: List[Device]):
         """

@@ -36,8 +36,8 @@ class QUAConfigBase(ABC):
         self.switch_len = 100  # in ns
 
         # Readout parameters
-        self.signal_threshold = -400  # in ADC units
-        self.signal_threshold_OPD = 0.1  # in voltage
+        self.signal_threshold = -400  # in ADC units 
+        self.signal_threshold_OPD = 1 # in voltage (with 20dB attenuation it was 0.1)
 
         # Delays
         self.detection_delay = 112  # ns
