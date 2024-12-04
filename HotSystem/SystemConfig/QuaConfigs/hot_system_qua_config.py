@@ -26,7 +26,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                 },
                 "digital_inputs": {
                     1: {"polarity": "RISING", "deadtime": 4, "threshold": self.signal_threshold_OPD, "shareable": False,},
-                    3: {"polarity": "RISING", "deadtime": 4, "threshold": self.signal_threshold_OPD, "shareable": False,},
+                    2: {"polarity": "RISING", "deadtime": 4, "threshold": self.signal_threshold_OPD, "shareable": False,},
                 },
             }
         }
@@ -134,7 +134,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                 "singleInput": {"port": ("con1", 1)},  # unknown why needed?
                 "digitalInputs": {
                 },
-                "digitalOutputs": {"out1": ("con1", 3)},  # 'digital input' of OPD
+                "digitalOutputs": {"out1": ("con1", 2)},  # 'digital input' of OPD
                 "outputs": {"out1": ("con1", 1)}, # unknown why needed?
                 "operations": {
                     "readout": "readout_pulse",
