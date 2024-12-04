@@ -1,40 +1,20 @@
 <SystemInfo>
     <System>
-        <Identifier>HotSystem</Identifier>
+        <Identifier>Femto</Identifier>
+        <SimulationMode>False</SimulationMode>
         <Devices>
             <Device>
-                <Instrument>rohde_schwarz</Instrument>
-                <IPAddress>N/A</IPAddress>
+                <Instrument>smaract_slip</Instrument>
+                <IPAddress>192.168.101.60</IPAddress>
                 <MACAddress>N/A</MACAddress>
-                <SerialNumber>N/A</SerialNumber>
-                <COMPort>N/A</COMPort>
-            </Device>
-            <Device>
-                <Instrument>smaract_scanner</Instrument>
-                <IPAddress>192.168.101.59</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>MCS2-00018624</SerialNumber>
-                <COMPort>N/A</COMPort>
-            </Device>
-            <Device>
-                <Instrument>cobolt</Instrument>
-                <IPAddress>N/A</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>N/A</SerialNumber>
-                <COMPort>3</COMPort>
-            </Device>
-            <Device>
-                <Instrument>picomotor</Instrument>
-                <IPAddress>8742 101373</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>8742 101373</SerialNumber>
+                <SerialNumber>MCS2-00017055</SerialNumber>
                 <COMPort>N/A</COMPort>
             </Device>
             <Device>
                 <Instrument>zelux</Instrument>
                 <IPAddress>N/A</IPAddress>
                 <MACAddress>N/A</MACAddress>
-                <SerialNumber>22962</SerialNumber>
+                <SerialNumber>22961</SerialNumber>
                 <COMPort>N/A</COMPort>
             </Device>
             <Device>
