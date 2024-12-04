@@ -6108,7 +6108,11 @@ class GUI_OPX():
                 dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from MCS")
                 num_of_logged_points = len(self.positioner.LoggedPoints)
             elif current_label == "Logged from MCS":
-                dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from Pico")
+                # pdb.set_trace()  # Insert a manual breakpoint
+                if self.use_picomotor:
+                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from Pico")
+                else:
+                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from MCS")
                 return
             elif current_label == "Get Log from Pico":
                 if hasattr(self, 'pico'):
