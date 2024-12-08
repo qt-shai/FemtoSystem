@@ -112,8 +112,11 @@ class Motor(ABC):
         The loop that runs in a separate thread to update the positions.
         """
         while not self._stop_event.is_set():
-            self.update_positions()
-            time.sleep(1 / self._polling_rate)
+            try:
+                self.update_positions()
+                time.sleep(1 / self._polling_rate)
+            except TimeoutError:
+                print(f"Timeout error in {self} position update loop.")
 
     def update_positions(self) -> None:
         """

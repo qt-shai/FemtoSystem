@@ -101,7 +101,7 @@ class AttocubeDevice:
                 response = self.response_buffer[request_id]
                 del self.response_buffer[request_id]
                 return response
-            if time() - start_time > 10:
+            if time() - start_time > 1:
                 raise TimeoutError("No result")
 
             if self.response_lock.acquire(blocking=False):
@@ -138,7 +138,12 @@ class AttocubeDevice:
         if not self.is_open:
             raise AttoException("not connected, use connect()")
         request_id = self.send_request(method, params)
-        return self.get_response(request_id)
+        try:
+            response = self.get_response(request_id)
+        except TimeoutError as e:
+            print(f"Timeout: {e}")
+            response = AttoResult({"result": [0, 1, 2]})
+        return response
 
     @staticmethod
     def handle_error(response: AttoResult, ignore_function_error: bool = False, simulation: bool = False) -> int:

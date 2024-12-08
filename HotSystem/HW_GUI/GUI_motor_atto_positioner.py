@@ -25,7 +25,7 @@ class GUIMotorAttoPositioner(GUIMotor):
 
     def create_velocity_control(self):
         """Add controls for velocity adjustment."""
-        with dpg.group(horizontal=False, tag=f"velocity_control_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"velocity_control_{self.unique_id}", width=350):
             dpg.add_text("Velocity Control (Hz)")
             for ch in self.dev.channels:
                 dpg.add_input_float(
@@ -43,7 +43,7 @@ class GUIMotorAttoPositioner(GUIMotor):
 
     def create_single_step_controls(self):
         """Add controls for single-step movement."""
-        with dpg.group(horizontal=False, tag=f"single_step_controls_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"single_step_controls_{self.unique_id}", width=350):
             dpg.add_text("Single Step Movement")
             for ch in self.dev.channels:
                 with dpg.group(horizontal=True):
@@ -60,7 +60,7 @@ class GUIMotorAttoPositioner(GUIMotor):
 
     def create_fix_voltage_controls(self):
         """Add controls for fixed voltage."""
-        with dpg.group(horizontal=False, tag=f"fix_voltage_controls_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"fix_voltage_controls_{self.unique_id}", width=350):
             dpg.add_text("Fixed DC Voltage (mV)")
             for ch in self.dev.channels:
                 dpg.add_input_int(

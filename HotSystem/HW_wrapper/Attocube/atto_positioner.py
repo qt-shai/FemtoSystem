@@ -11,7 +11,7 @@ class AttoDry800(Motor):
     """
 
     def __init__(self, address: str, serial_number: Optional[str] = None, name: str = "AttoDry800",
-                 simulation: bool = False, polling_rate: float = 10.0):
+                 simulation: bool = False, polling_rate: float = 2.0):
         """
         Initialize the AttoDry800 cryostat.
 
@@ -81,7 +81,6 @@ class AttoDry800(Motor):
         self._check_and_enable_output(channel)
         self._perform_request(AttoJSONMethods.MOVE_TO_REFERENCE.value, [channel])
         self.wait_for_axes_to_stop([channel])
-        self.update_positions()
 
     def MoveABSOLUTE(self, channel: int, position: int) -> None:
         """
@@ -93,7 +92,6 @@ class AttoDry800(Motor):
         self._check_and_enable_output(channel)
         self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, position])
         self.wait_for_axes_to_stop([channel])
-        self.update_positions()
 
     def move_relative(self, channel: int, steps: int) -> None:
         """
@@ -156,7 +154,6 @@ class AttoDry800(Motor):
         self._check_and_enable_output(axis)
         self._perform_request(AttoJSONMethods.MOVE_SINGLE_STEP.value, [axis, backward])
         print(f"Moved one step {'backward' if backward else 'forward'} on axis {axis}.")
-        self.update_positions()
 
     def set_actuator_voltage(self, axis: int, voltage_mv: int) -> None:
         """
@@ -212,15 +209,18 @@ class AttoDry800(Motor):
         else:
             return "Unknown"
 
-    def get_current_position(self, channel: int) -> float:
+    def get_current_position(self, channel: int) -> float|None:
         """
         Get the current position of a specific channel in nanometers.
 
         :param channel: The channel number.
         :return: Current position in nanometers.
         """
-        position = self.get_position(channel)
-        self._axes_positions[channel] = position
+        if self.is_connected():
+            position = self.get_position(channel)
+            self._axes_positions[channel] = position
+        else:
+            return None
         return position
 
     def get_position_unit(self, channel: int) -> str:
