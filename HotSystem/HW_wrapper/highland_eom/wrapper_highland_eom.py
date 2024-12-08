@@ -31,7 +31,8 @@ class HighlandT130(SerialDevice):
     Class to manage communication with the Highland T130 EOM driver via USB.
     """
 
-    def __init__(self, address: str, baudrate: int = 115200, timeout: int = 1000, simulation: bool = False):
+    def __init__(self, address: str, baudrate: int = 115200, timeout: int = 1000, simulation: bool = False,
+                 serial_number: str = None, name: str = None):
         """
         Initialize the Highland T130 EOM driver.
 
@@ -39,10 +40,16 @@ class HighlandT130(SerialDevice):
         :param baudrate: The baud rate for the serial communication.
         :param timeout: Timeout for serial communication in ms.
         :param simulation: If True, operate in simulation mode.
+        :param serial_number: The serial number of the motor device.
+        :param name: The name of the motor device.
+
         """
         self.simulation: bool = simulation
         super().__init__(address, baudrate, timeout, simulation)  # Initialize the base class
+        self.connect()
         self.terminator: str = '' #'\r\n'
+        self.serial_number: str = serial_number  # Optional serial number
+        self.name: str = name  # Optional device name
 
     def _simulate_action(self, action: str, verbose: bool) -> None:
         """
@@ -120,9 +127,9 @@ class HighlandT130(SerialDevice):
         :param width_value: The width to set (in nanoseconds).
         :param verbose: If True, print detailed output.
         """
-        if not 1.0 <= width_value <= 1000.0:  # Example range; adjust according to the manual.
-            print("Width must be between 1.0 and 1000.0 nanoseconds.")
-            raise ValueError("Width must be between 1.0 and 100.0 nanoseconds.")
+        if not 0.25 <= width_value <= 300.0:
+            print("Width must be between 0.25 and 300.0 nanoseconds.")
+            raise ValueError("Width must be between 0.25 and 300.0 nanoseconds.")
         self._perform_request(T130USBCommands.WIDTH, f"{width_value}ns", verbose)
 
     def set_amplitude(self, amplitude_value: float, verbose: bool = False) -> None:

@@ -1,5 +1,6 @@
 import dearpygui.dearpygui as dpg
-from AttoDry800 import AttoDry800
+from HW_wrapper import AttoDry800
+
 
 class AttoDry800GUI:
     def __init__(self, address: str):

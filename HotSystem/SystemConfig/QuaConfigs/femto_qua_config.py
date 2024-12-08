@@ -1,5 +1,6 @@
 from typing import Dict, Any
-import SystemConfig.QuaConfigs as configs 
+import SystemConfig.QuaConfigs as configs
+from SystemConfig import SystemType
 
 
 class FemtoQuaConfig(configs.QUAConfigBase):
@@ -9,6 +10,7 @@ class FemtoQuaConfig(configs.QUAConfigBase):
         self.signal_threshold = -500  # in ADC units with 20dB attenuation we measured 0.2V on the oscilloscope
         self.signal_threshold_2 = -350  # in ADC units with 20dB attenuation we measured 0.2V on the oscilloscope
         self.signal_threshold_OPD = 1 # in voltage (with 20dB attenuation it was 0.1)
+        self.system_name = SystemType.FEMTO.value
 
     def get_controllers(self) -> Dict[str, Any]:
         return {
@@ -19,9 +21,9 @@ class FemtoQuaConfig(configs.QUAConfigBase):
                     7: {"offset": 0.0, "delay": self.rf_delay, "shareable": False},  # only for detector
                 },
                 "digital_outputs": {
-                    3: {"shareable": False},  # Marker 
-                    4: {"shareable": False},  # Marker 2 
-                    6: {"shareable": False},  # Smaract TTL 
+                    3: {"shareable": False},  # Marker
+                    4: {"shareable": False},  # Marker 2
+                    6: {"shareable": False},  # Smaract TTL
                     7: {"shareable": False},  # Laser 520nm cobolt
                     9: {"shareable": False},  # red laser
                     10: {"shareable": False},  # pharos trigger
@@ -122,7 +124,7 @@ class FemtoQuaConfig(configs.QUAConfigBase):
             #     },
             #     "time_of_flight": self.detection_delay_OPD,
             #     "smearing": 0,
-            # }, 
+            # },
             
             "SmaractTrigger": {  # Send trigger to Smaract to go to next point in motion stream
                 "digitalInputs": {  # for the OPX it is digital outputs

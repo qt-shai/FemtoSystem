@@ -5,7 +5,6 @@ from threading import Lock
 from time import time, sleep
 from ..Attocube import AttoException, AttoResult
 
-
 class AttocubeDevice:
     TCP_PORT = 9090
     is_open = False
@@ -102,7 +101,7 @@ class AttocubeDevice:
                 response = self.response_buffer[request_id]
                 del self.response_buffer[request_id]
                 return response
-            if time() - start_time > 10:
+            if time() - start_time > 1:
                 raise TimeoutError("No result")
 
             if self.response_lock.acquire(blocking=False):
@@ -113,6 +112,13 @@ class AttocubeDevice:
                         return AttoResult(parsed)
                     else:
                         self.response_buffer[parsed["id"]] = AttoResult(parsed)
+                except OSError as e:
+                    if "timed out" in str(e):
+                        print(f"OSError: {e}")
+                        self.close()
+                        self.connect()
+                    else:
+                        raise e
                 finally:
                     self.response_lock.release()
             else:
@@ -132,7 +138,12 @@ class AttocubeDevice:
         if not self.is_open:
             raise AttoException("not connected, use connect()")
         request_id = self.send_request(method, params)
-        return self.get_response(request_id)
+        try:
+            response = self.get_response(request_id)
+        except TimeoutError as e:
+            print(f"Timeout: {e}")
+            response = AttoResult({"result": [0, 1, 2]})
+        return response
 
     @staticmethod
     def handle_error(response: AttoResult, ignore_function_error: bool = False, simulation: bool = False) -> int:

@@ -59,7 +59,7 @@ class TestAttoDry800(unittest.TestCase):
             # Test in simulation mode
             initial_position = self.device_sim.get_position(channel, verbose=True)
             target_position = int(initial_position)  # Target position in nm or µ°
-            self.device_sim.move_absolute(channel, target_position, verbose=True)
+            self.device_sim.MoveABSOLUTE(channel, target_position)
             final_position = self.device_sim.get_position(channel, verbose=True)
             self.assertAlmostEqual(final_position, target_position, delta=self.position_tolerance,
                                    msg=f"Simulation mode: Expected position {target_position} within "
@@ -69,7 +69,7 @@ class TestAttoDry800(unittest.TestCase):
             self.device_real.connect()
             initial_position = self.device_real.get_position(channel, verbose=True)
             target_position = int(initial_position + 10000)  # Target position in nm or µ°
-            self.device_real.move_absolute(channel, target_position, verbose=True)
+            self.device_real.MoveABSOLUTE(channel, target_position)
             self.device_real.wait_for_axes_to_stop(channel, verbose=True)
             final_position = self.device_real.get_position(channel, verbose=True)
             self.assertAlmostEqual(final_position, target_position, delta=self.position_tolerance,

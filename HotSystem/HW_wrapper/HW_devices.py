@@ -2,9 +2,10 @@
 from typing import Optional
 import threading
 
-from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor
+from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
+    SirahMatisse, Keysight33500B, AttoScannerWrapper
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
-from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, Device
+from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 
 
 class HW_devices:
@@ -21,16 +22,22 @@ class HW_devices:
 
         :param simulation: A boolean flag indicating if the simulation mode is enabled.
         """
+
         if not getattr(self, 'initialized', False):
             self.simulation = simulation
             self.elc_power_supply: Optional[ALR3206T] = None
             self.highland_eom_driver: Optional[HighlandT130]  = None
             self.microwave: Optional[RS_SGS100a] = None
-            self.positioner: Optional[smaractMCS2] = None
+            self.positioner: Optional[smaractMCS2|AttoScannerWrapper] = None
             self.camera: Optional[Zelux] = None
             self.atto_positioner: Optional[AttoDry800] = None
             self.picomotor:Optional[newportPicomotor] = None
             self.cobolt:Optional[CoboltLaser] = None
+            self.matisse_device: Optional[SirahMatisse] = None
+            self.atto_scanner: Optional[AttoScannerWrapper] = None
+            self.keysight_awg_device: Optional[Keysight33500B] = None
+
+
 
     def __new__(cls, simulation:bool = False) -> 'HW_devices':
         """
@@ -69,8 +76,15 @@ class HW_devices:
             instrument = device.instrument
             if instrument == Instruments.ROHDE_SCHWARZ:
                 # Initialize Rohde & Schwarz Microwave
-                self.microwave = RS_SGS100a(f'TCPIP0::{SystemConfig.microwave_ip}::inst0::INSTR',
+                self.microwave = RS_SGS100a(f'TCPIP0::{device.ip_address}::inst0::INSTR',
                                                       simulation=self.simulation)
+                self.microwave.Get_deviceID()
+                if "SGT" in self.microwave.ID:
+                    self.microwave.set_connector_mode(2)
+                    self.microwave.set_iq_modulation_state(True)
+                    self.microwave.set_iq_source_to_analog()
+                    self.microwave.set_iq_mod_to_wide(True)
+                    self.microwave.set_bb_impairment_state(False)
 
             elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
                 # Initialize SmarAct Slip Stick Positioner
@@ -93,10 +107,15 @@ class HW_devices:
                                                   simulation=self.simulation)
 
             elif instrument == Instruments.ATTO_SCANNER:
-                pass
+                self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=self.simulation)  # Replace with actual address
+                self.atto_scanner = AttoScannerWrapper(awg = self.keysight_awg_device,
+                                                       max_travel_x=40.0, max_travel_y=40.0,
+                                                       name="atto_scanner",
+                                                       )
+                self.positioner = self.atto_scanner
 
             elif instrument == Instruments.MATTISE:
-                pass
+                self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=self.simulation)
 
             elif instrument == Instruments.HIGHLAND:
                 # Initialize Highland Electronics Device

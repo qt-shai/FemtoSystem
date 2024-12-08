@@ -14,9 +14,13 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_highland_eom import GUIHighlandT130
+from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
+from HW_GUI.GUI_mattise import GUIMatisse
+from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
-from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments, \
-    create_system_config_selector, load_instrument_images
+from HW_wrapper import AttoScannerWrapper
+from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Window import Window_singleton
 import threading
 import glfw
@@ -94,7 +98,8 @@ class ImGuiOverlay(Layer):
         super().__init__()
         self.system_config: Optional[SystemConfig] = load_system_config()
         self.system_type: Optional[SystemType] = self.system_config.system_type
-        if not self.system_type == SystemType.HOT_SYSTEM:
+        # TODO : fix for all systems !!
+        if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
             simulation = True
         self.exSeq = ExpSequenceGui()
         self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
@@ -366,6 +371,7 @@ class Application_singletone:
 
 class PyGuiOverlay(Layer):
 
+
     CURRENT_KEY: Optional[KeyboardKeys]
 
     m_Time = 0.0
@@ -375,6 +381,9 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.atto_scanner_gui: Optional[GUIMotor] = None
+        self.keysight_gui: Optional[GUIKeysight33500B] = None
+        self.mattise_gui: Optional[GUIMatisse] = None
         self.mwGUI = None
         self.system_type: Optional[SystemType] = None
         self.system_config: Optional[SystemConfig] = None
@@ -383,6 +392,8 @@ class PyGuiOverlay(Layer):
         self.smaract_thread = None
         self.smaractGUI = None
         self.atto_positioner_gui:Optional[GUIMotor] = None
+        self.highland_gui: Optional[GUIHighlandT130] = None
+        self.lsr = None
         self.opx = None
         self.cam = None
         self.simulation = simulation
@@ -606,8 +617,11 @@ class PyGuiOverlay(Layer):
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
         self.setup_instruments()
 
-    def  setup_instruments(self):
-
+    def setup_instruments(self) -> None:
+        """
+        Set up instruments and dynamically arrange their GUIs based on the system configuration.
+        Each new GUI is placed below the previously loaded one.
+        """
         self.system_config = load_system_config()
 
         if not self.system_config:
@@ -617,41 +631,107 @@ class PyGuiOverlay(Layer):
         if not self.system_config:
             raise Exception("No system config")
 
+        # Initialize y_offset to start placing GUIs vertically
+        y_offset = 30
+        vertical_spacing = 20  # Spacing between GUIs
+
         """Load specific instruments based on the system configuration."""
         self.simulation = any(device.instrument == Instruments.SIMULATION for device in self.system_config.devices)
 
         for device in self.system_config.devices:
             instrument = device.instrument
-            if instrument == Instruments.ROHDE_SCHWARZ:
-                self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
-            elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
-                self.smaractGUI = gui_Smaract.GUI_smaract(simulation=self.simulation, serial_number=device.serial_number)
-                if not self.simulation:
-                    self.smaract_thread = threading.Thread(target=self.render_smaract)
-                    self.smaract_thread.start()
-            elif instrument == Instruments.COBOLT:
-                self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation, com_port = device.com_port)
-                if not self.simulation:
-                    self.cobolt_thread = threading.Thread(target=self.render_cobolt)
-                    self.cobolt_thread.start()
-            elif instrument == Instruments.PICOMOTOR:
-                self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=self.simulation)
-                if not self.simulation:
-                    self.picomotor_thread = threading.Thread(target=self.render_picomotor)
-                    self.picomotor_thread.start()
-            elif instrument == Instruments.ZELUX:
-                self.cam = gui_Zelux.ZeluxGUI()
-                if len(self.cam.cam.available_cameras)>0:
-                    self.cam.Controls()
-            elif instrument == Instruments.OPX:
-                self.opx = GUI_OPX(self.simulation)
-                self.opx.controls()
-            elif instrument == Instruments.ATTO_POSITIONER:
-                self.atto_positioner_gui = GUIMotor(motor=hw_devices.HW_devices(simulation=self.simulation).atto_positioner,
-                                                    instrument=Instruments.ATTO_POSITIONER,
-                                                    simulation=self.simulation)
 
-        create_system_config_selector()
+            try:
+
+                if instrument == Instruments.ROHDE_SCHWARZ:
+                    pass
+                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
+                    # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
+                    # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
+
+
+                elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
+                    self.smaractGUI = gui_Smaract.GUI_smaract(simulation=self.simulation,
+                                                              serial_number=device.serial_number)
+                    dpg.set_item_pos(self.smaractGUI.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.smaractGUI.window_tag) + vertical_spacing
+
+                    if not self.simulation:
+                        self.smaract_thread = threading.Thread(target=self.render_smaract)
+                        self.smaract_thread.start()
+
+                elif instrument == Instruments.COBOLT:
+                    self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation, com_port = device.com_port)
+                    dpg.set_item_pos(self.coboltGUI.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.coboltGUI.window_tag) + vertical_spacing
+                    if not self.simulation:
+                        self.cobolt_thread = threading.Thread(target=self.render_cobolt)
+                        self.cobolt_thread.start()
+
+                elif instrument == Instruments.PICOMOTOR:
+                    self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=self.simulation)
+                    dpg.set_item_pos(self.picomotorGUI.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.picomotorGUI.window_tag) + vertical_spacing
+
+                    if not self.simulation:
+                        self.picomotor_thread = threading.Thread(target=self.render_picomotor)
+                        self.picomotor_thread.start()
+
+                elif instrument == Instruments.ZELUX:
+                    self.cam = gui_Zelux.ZeluxGUI()
+                    if len(self.cam.cam.available_cameras) > 0:
+                        self.cam.Controls()
+                        dpg.set_item_pos(self.cam.window_tag, [self.Monitor_width-dpg.get_item_width(self.cam.window_tag)-vertical_spacing, vertical_spacing])
+
+                elif instrument == Instruments.OPX:
+                    self.opx = GUI_OPX(self.simulation)
+                    self.opx.controls()
+                    dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.ATTO_POSITIONER:
+                    self.atto_positioner_gui = GUIMotorAttoPositioner(
+                        motor=hw_devices.HW_devices(simulation=self.simulation).atto_positioner,
+                        instrument=Instruments.ATTO_POSITIONER,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.atto_positioner_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.atto_positioner_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.HIGHLAND:
+                    self.highland_gui = GUIHighlandT130(
+                        device=hw_devices.HW_devices(simulation=self.simulation).highland_eom_driver,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.highland_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.highland_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.MATTISE:
+                    self.mattise_gui = GUIMatisse(
+                        device=hw_devices.HW_devices(simulation=self.simulation).matisse_device,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.KEYSIGHT_AWG:
+                    self.keysight_gui = GUIKeysight33500B(
+                        device= hw_devices.HW_devices(simulation=self.simulation).keysight_awg_device,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.keysight_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.keysight_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.ATTO_SCANNER:
+                    self.atto_scanner_gui = GUIMotor(
+                        motor= hw_devices.HW_devices(simulation=self.simulation).atto_scanner,
+                        instrument=Instruments.ATTO_SCANNER,
+                        simulation=self.simulation
+                    )
+                    dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
+            except Exception as e:
+                print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle

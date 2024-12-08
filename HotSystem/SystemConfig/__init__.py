@@ -1,8 +1,8 @@
 from .system_config import (SystemConfig, SystemType, Instruments, load_system_from_xml, load_system_config, Device,
-                            find_ethernet_device)
-from .system_config_gui import save_to_xml, run_system_config_gui, load_instrument_images, create_system_config_selector
+                            find_ethernet_device, InstrumentsAddress)
+from .system_config_gui import save_to_xml, run_system_config_gui, load_instrument_images
 
-from .QuaConfigs import QUAConfigBase, HotSystemQuaConfig, FemtoQuaConfig, QuaConfigSelector
+from .QuaConfigs import QUAConfigBase, HotSystemQuaConfig, FemtoQuaConfig, AttoQuaConfig, QuaConfigSelector
 
 __all__ = ["SystemConfig",
            "SystemType",
@@ -14,9 +14,10 @@ __all__ = ["SystemConfig",
            "Device",
            "find_ethernet_device",
            "load_instrument_images",
-           "create_system_config_selector",
            "QUAConfigBase",
            "HotSystemQuaConfig",
            "FemtoQuaConfig",
-           "QuaConfigSelector"
+           "QuaConfigSelector",
+           "InstrumentsAddress",
+           "AttoQuaConfig"
            ]

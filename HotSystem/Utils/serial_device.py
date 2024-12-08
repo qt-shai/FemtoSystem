@@ -1,123 +1,187 @@
 from typing import Optional
-
 import pyvisa
 
 
 class SerialDevice:
     """
-    Base class to manage serial communication for any serial device using pyvisa, with support for simulation.
+    Base class to manage communication with devices over serial or TCP/IP using pyvisa, with support for simulation.
     """
 
     def __init__(self, address: str, baudrate: int = 9600, timeout: int = 1000, simulation: bool = False) -> None:
         """
-        Initialize the serial device.
+        Initialize the device.
 
-        :param address: The COM port or USB address (e.g., 'ASRL3::INSTR') of the device.
-        :param baudrate: The baud rate for the serial communication.
-        :param timeout: Timeout for serial communication in ms.
+        :param address: The address (e.g., 'ASRL3::INSTR' for serial or 'TCPIP::K-33522B-03690.local::5025::SOCKET' for TCP/IP).
+        :param baudrate: The baud rate for serial communication (ignored for TCP/IP).
+        :param timeout: Timeout for communication in ms.
         :param simulation: If True, operate in simulation mode.
         """
+        self.write_terminator: str = "\r\n"
+        self.read_terminator: str = "\r\n"
         self.address: str = address
         self.baudrate: int = baudrate
         self.timeout: int = timeout
         self.simulation: bool = simulation
         self.rm: Optional[pyvisa.ResourceManager] = None
-        self.device: Optional[pyvisa.resources.SerialInstrument] = None
+        self._connection: Optional[pyvisa.resources.MessageBasedResource] = None
 
-        if not self.simulation:
-            self.rm = pyvisa.ResourceManager()
-            self._initialize_serial_connection()
-        else:
-            print(f"Simulated device initialized on {self.address}.")
-
-    def _initialize_serial_connection(self) -> None:
+    @property
+    def is_connected(self) -> bool:
         """
-        Initialize the serial connection to the device.
+        Check if the device is connected.
+
+        :return: True if the device is connected, False otherwise.
+        """
+        if self.simulation:
+            return True
+
+        if self._connection is not None:
+            try:
+                self._connection.query('*IDN?')
+                return True
+            except pyvisa.VisaIOError:
+                return False
+        return False
+
+    def connect(self) -> None:
+        """
+        Establish a connection to the device.
+
+        :raises Exception: If the connection fails.
+        """
+        if self.simulation:
+            print(f"Simulated device initialized on {self.address}.")
+            return
+
+        if self.is_connected:
+            print("Device is already connected.")
+            return
+
+        try:
+            if self.rm is None:
+                self.rm = pyvisa.ResourceManager()
+                print("Resource Manager initialized.")
+
+            if self._connection is None:
+                self._initialize_connection()
+                print("Connection initialized.")
+            else:
+                print("Connection already initialized.")
+
+            print(f"Connected to device at {self.address}.")
+        except Exception as e:
+            print(f"Failed to connect to device: {e}")
+            raise
+
+    def _initialize_connection(self) -> None:
+        """
+        Initialize the connection to the device (serial or TCP/IP).
+
+        :raises Exception: If the connection cannot be established.
         """
         try:
-            self.device = self.rm.open_resource(self.address, open_timeout=self.timeout)
-            self.device.baud_rate = self.baudrate
-            self.device.timeout = self.timeout
-            self.device.read_termination = '\r\n'  # Default terminator, can be changed by child class
-            print(f"Serial connection established on {self.address}.")
-        except pyvisa.VisaIOError as e:
-            print(f"Failed to establish serial connection on {self.address}: {e}")
-            self.device = None
+            if 'TCPIP' in self.address:
+                self._connection = self.rm.open_resource(
+                    self.address,
+                    timeout=self.timeout,
+                    read_termination=self.read_terminator,
+                    write_termination=self.write_terminator
+                )
+                print(f"TCP/IP connection opened on {self.address}.")
+            else:
+                self._connection = self.rm.open_resource(
+                    self.address,
+                    baud_rate=self.baudrate,
+                    timeout=self.timeout,
+                    read_termination=self.read_terminator,
+                    write_termination=self.write_terminator
+                )
+                print(f"Serial connection opened on {self.address}.")
+        except Exception as e:
+            print(f"Error initializing connection: {e}")
+            self._connection = None
+            raise
 
-    def _simulate_response(self, command: str) -> str:
+    def disconnect(self) -> None:
         """
-        Generate a simulated response for a given command.
+        Close the connection to the device and release resources.
+        """
+        if self._connection:
+            try:
+                self._connection.close()
+                print("Connection closed.")
+            except Exception as e:
+                print(f"Error closing connection: {e}")
+        else:
+            print("Connection was not open.")
 
-        :param command: The command for which a simulated response is needed.
-        :return: A simulated response string.
-        """
-        # Customize simulated responses based on the command
-        simulated_responses = {
-            "IDENT": "Simulated HighlandT130 EOM Driver",
-            "STATUS": "Simulated Status: All systems nominal",
-            "TEMP": "Simulated Temperature: 25.0 C"
-        }
-        return simulated_responses.get(command.split()[0], "Simulated Response: OK")
+        if self.rm:
+            try:
+                self.rm.close()
+                print("Resource Manager closed.")
+            except Exception as e:
+                print(f"Error closing Resource Manager: {e}")
 
-    def _send_command(self, command: str, verbose: bool = False) -> str:
+        self._connection = None
+        self.rm = None
+
+    def _send_command(self, command: str, get_response: bool = False, verbose: bool = False) -> Optional[str]:
         """
-        Send a command to the serial device and receive the response.
+        Send a command to the device. Optionally, retrieve the response.
 
         :param command: The command to send.
+        :param get_response: If True, retrieve the response after sending the command.
+        :param verbose: If True, print detailed output.
+        :return: The response from the device if `get_response` is True; otherwise, None.
+        """
+        if self.simulation:
+            simulated_response = f"Simulated Response for {self.address}: OK"
+            if verbose:
+                print(f"Simulated sending: {command}")
+                if get_response:
+                    print(f"Simulated received: {simulated_response}")
+            return simulated_response if get_response else None
+
+        if self._connection:
+            try:
+                self._connection.write(command)
+                if verbose:
+                    print(f"Sent: {command}")
+                # Call _get_response if get_response is True
+                return self._get_response(verbose) if get_response else None
+            except pyvisa.VisaIOError as e:
+                print(f"Error sending command '{command}': {e}")
+                return None
+        else:
+            print("Device not connected.")
+            return None
+
+    def _get_response(self, verbose: bool = False) -> str:
+        """
+        Retrieve a response from the device.
+
         :param verbose: If True, print detailed output.
         :return: The response from the device.
         """
-        if self.simulation:
-            response = self._simulate_response(command)
+        try:
+            response: str = self._connection.read().strip()
+            # Check for termination character
+            if not response.endswith(self.read_terminator.strip()):
+                response = response.rstrip()  # Strip trailing characters if termination character is missing
+                print("Warning: Response does not end with termination character.")
             if verbose:
-                print(f"Simulated sending: {command}")
-                print(f"Simulated received: {response}")
+                print(f"Received: {response}")
             return response
-
-        if self.device:
-            try:
-                self.device.write(command)
-                if verbose:
-                    print(f"Sent: {command}")
-                response: str = self.device.read().strip()
-                if verbose:
-                    print(f"Received: {response}")
-                return response
-            except pyvisa.VisaIOError as e:
-                print(f"Error sending command '{command}': {e}")
-                return ""
-        else:
-            print("Device not connected.")
+        except pyvisa.VisaIOError as e:
+            print(f"Error reading response: {e}")
             return ""
 
-    def close_connection(self) -> None:
-        """
-        Close the serial connection to the device.
-        """
-        if self.device:
-            self.device.close()
-            print("Serial connection closed.")
-
-    def __del__(self) -> None:
-        """
-        Destructor to ensure resources are released when the object is destroyed.
-        """
-        self.close_connection()
-
     def __enter__(self) -> 'SerialDevice':
-        """
-        Enter method for context management.
-        """
+        """ Enter method for context management. """
         return self
 
     def __exit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[object]) -> None:
-        """
-        Exit method for context management.
-
-        :param exc_type: The type of exception.
-        :param exc_val: The exception instance.
-        :param exc_tb: The traceback object.
-        """
-        self.close_connection()
+        """ Exit method for context management. """
+        self.disconnect()
         if exc_type:
             print(f"Exception occurred: {exc_type}, {exc_val}")
