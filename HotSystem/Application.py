@@ -17,6 +17,7 @@ from HW_GUI import GUI_Zelux as gui_Zelux
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
 from HW_GUI.GUI_mattise import GUIMatisse
+from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
 from HW_wrapper import AttoScannerWrapper
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
@@ -689,7 +690,7 @@ class PyGuiOverlay(Layer):
                     y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.ATTO_POSITIONER:
-                    self.atto_positioner_gui = GUIMotor(
+                    self.atto_positioner_gui = GUIMotorAttoPositioner(
                         motor=hw_devices.HW_devices(simulation=self.simulation).atto_positioner,
                         instrument=Instruments.ATTO_POSITIONER,
                         simulation=self.simulation

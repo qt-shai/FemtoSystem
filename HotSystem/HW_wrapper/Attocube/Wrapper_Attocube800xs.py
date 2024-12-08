@@ -5,7 +5,6 @@ from threading import Lock
 from time import time, sleep
 from ..Attocube import AttoException, AttoResult
 
-
 class AttocubeDevice:
     TCP_PORT = 9090
     is_open = False
@@ -113,6 +112,13 @@ class AttocubeDevice:
                         return AttoResult(parsed)
                     else:
                         self.response_buffer[parsed["id"]] = AttoResult(parsed)
+                except OSError as e:
+                    if "timed out" in str(e):
+                        print(f"OSError: {e}")
+                        self.close()
+                        self.connect()
+                    else:
+                        raise e
                 finally:
                     self.response_lock.release()
             else:

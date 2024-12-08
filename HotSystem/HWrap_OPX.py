@@ -4,41 +4,43 @@
 # actually we need to split to OPX wrapper and OPX GUI          *
 # ***************************************************************
 import csv
+import pdb
+import traceback
+from datetime import datetime
 import os
-import shutil
-import subprocess
 import sys
 import threading
-import tkinter as tk
-import traceback
-import xml.etree.ElementTree as ET
-from datetime import datetime
+import time
 from enum import Enum
 from tkinter import filedialog
 from typing import Union, Optional
-
-import dearpygui.dearpygui as dpg
 import glfw
-import matplotlib
-from PIL import Image
-from matplotlib import pyplot as plt
-from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
-from qm.qua import update_frequency, declare_stream, declare, program, for_, assign, if_, IO1, IO2, time_tagging, \
-    measure, play, wait, align, else_, \
-    save, stream_processing, amp, Random, fixed, pause, infinite_loop_
-from qualang_tools.results import fetching_tool
-from qualang_tools.units import unit
+import numpy as np
+import tkinter as tk
 
-import SystemConfig as configs
+from gevent.libev.corecext import callback
+from matplotlib import pyplot as plt
+from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
+    save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
+from qualang_tools.results import progress_counter, fetching_tool
+from functools import partial
+from qualang_tools.units import unit
+from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
+from smaract import ctl
+import matplotlib
+
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized
+import dearpygui.dearpygui as dpg
+from PIL import Image
+import subprocess
+import shutil
+import xml.etree.ElementTree as ET
+import math
+import SystemConfig as configs
 
 matplotlib.use('qtagg')
-
-import time
-import numpy as np
-
 
 def create_logger(log_file_path: str):
     log_file = open(log_file_path, 'w')
@@ -524,8 +526,8 @@ class GUI_OPX():
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False,
                           parent="graphXY")  # REQUIRED: create x and y axes
-        dpg.add_line_series(self.X_vec, self.Y_vec, label=f"counts", parent="y_axis", tag="series_counts")
-        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label=f"counts_ref", parent="y_axis", tag="series_counts_ref")
+        dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
+        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis", tag="series_counts_ref")
         dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref2, label="counts_ref2", parent="y_axis", tag="series_counts_ref2")
         dpg.add_line_series(self.X_vec_ref,self.Y_resCalculated, label="resCalculated", parent="y_axis", tag="series_res_calcualted")
 
@@ -2381,7 +2383,7 @@ class GUI_OPX():
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)  
+                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
                             # play RF (@resonance freq & pulsed time)
                             align("MW","RF")
                             update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
@@ -2416,7 +2418,7 @@ class GUI_OPX():
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)  
+                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
                             # play RF (@resonance freq & pulsed time)
                             align("MW","RF")
                             update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
@@ -2452,7 +2454,7 @@ class GUI_OPX():
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)  
+                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
                             # play RF (@resonance freq & pulsed time)
                             align("MW","RF")
                             update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
@@ -4718,12 +4720,12 @@ class GUI_OPX():
             dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal: .1f},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
             dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
             dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
-        if self.exp == Experiment.Nuclear_Fast_Rot:
+            if self.exp == Experiment.Nuclear_Fast_Rot:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
-            if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
-                dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
-                dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
-            self.lock.release()
+                if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
+                    dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
+                    dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
+                self.lock.release()
             dpg.set_item_label("y_axis", _yLabel)
             dpg.set_item_label("x_axis", _xLabel)
             dpg.fit_axis_data('x_axis')
@@ -6233,7 +6235,7 @@ class GUI_OPX():
                 if (list_elem.tag not in ["scan_Out","X_vec", "Y_vec", "Z_vec","X_vec_ref","Y_vec_ref","Z_vec_ref","V_scan","expected_pos","t_vec",
                                               "startLoc","endLoc","Xv","Yv","Zv","viewport_width","viewport_height","window_scale_factor",
                                               "timeStamp","counter","maintain_aspect_ratio","scan_intensities","initial_scan_Location","V_scan",
-                                              "absPosunits","Scan_intensity","Scan_matrix","image_path","f_vec","signal","ref_signal","tracking_ref","t_vec","t_vec_ini"] 
+                                              "absPosunits","Scan_intensity","Scan_matrix","image_path","f_vec","signal","ref_signal","tracking_ref","t_vec","t_vec_ini"]
                         ):
                     for item in value:
                         item_elem = ET.SubElement(list_elem, "item")

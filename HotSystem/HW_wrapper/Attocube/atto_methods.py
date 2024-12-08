@@ -62,6 +62,9 @@ class AttoJSONMethods(Enum):
     MOVE_RELATIVE = "com.attocube.amc.move.moveRelative"
     MOVE_TO_REFERENCE = "com.attocube.amc.move.moveReference"
     STOP_MOVEMENT = "com.attocube.amc.move.stopMovement"
+    # MOVE_N_STEPS = "com.attocube.amc.move.performNSteps"
+    MOVE_SINGLE_STEP = "com.attocube.amc.move.setSingleStep"
+    MOVE_N_STEP = "com.attocube.amc.move.setNSteps"
 
     # Access and System Methods
     GET_LOCK_STATUS = "getLockStatus"

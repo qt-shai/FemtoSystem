@@ -116,6 +116,89 @@ class AttoDry800(Motor):
         self._axes_positions[channel] = 0.0
         print(f"Channel {channel} position set to zero.")
 
+    def set_control_fix_output_voltage(self, axis: int, amplitude_mv: int) -> None:
+        """
+        Set a fixed DC voltage for a specific axis.
+
+        :param axis: The axis number (0, 1, or 2).
+        :param amplitude_mv: The DC voltage to set in millivolts. (up to 60000 mV).
+        """
+        if axis not in self.channels:
+            raise ValueError(f"Invalid axis {axis}. Valid axes are {self.channels}.")
+        if not (0<=amplitude_mv<=60000):
+            raise ValueError(f"Invalid amplitude. Must be between 0 and 60000. Received {amplitude_mv}")
+
+        self._perform_request(AttoJSONMethods.SET_CONTROL_FIX_OUTPUT_VOLTAGE.value, [axis, amplitude_mv])
+        print(f"Set axis {axis} to a fixed voltage of {amplitude_mv} mV.")
+
+    def get_control_fix_output_voltage(self, axis: int) -> float:
+        """
+        Get the fixed DC voltage of a specific axis.
+
+        :param axis: The axis number (0, 1, or 2).
+        :return: The fixed DC voltage in mV.
+        """
+        response = self._perform_request(AttoJSONMethods.GET_CONTROL_FIX_OUTPUT_VOLTAGE.value, [axis])
+        if response:
+            return response[1]  # Assuming the position is the second item in the response
+        else:
+            return -1.0
+
+    def move_one_step(self, axis: int, backward: bool = False) -> None:
+        """
+        Move one step on a specific axis in the specified direction.
+
+        :param axis: The axis number (0, 1, or 2).
+        :param backward: True to move backward, False to move forward.
+        """
+        if axis not in self.channels:
+            raise ValueError(f"Invalid axis {axis}. Valid axes are {self.channels}.")
+        self._check_and_enable_output(axis)
+        self._perform_request(AttoJSONMethods.MOVE_SINGLE_STEP.value, [axis, backward])
+        print(f"Moved one step {'backward' if backward else 'forward'} on axis {axis}.")
+        self.update_positions()
+
+    def set_actuator_voltage(self, axis: int, voltage_mv: int) -> None:
+        """
+        Set the actuator voltage for a specific axis.
+
+        :param axis: The axis number (0, 1, or 2).
+        :param voltage_mv: The actuator voltage to set in millivolts (up to 60000 mV).
+        """
+        if axis not in self.channels:
+            raise ValueError(f"Invalid axis {axis}. Valid axes are {self.channels}.")
+        if not (0 <= voltage_mv <= 60000):
+            raise ValueError(f"Voltage must be between 0 and 60000 mV. Received: {voltage_mv}.")
+        self._perform_request(AttoJSONMethods.SET_CONTROL_AMPLITUDE.value, [axis, voltage_mv])
+        print(f"Set actuator voltage for axis {axis} to {voltage_mv} mV.")
+
+    def get_actuator_voltage(self, axis: int) -> float:
+        """
+        Get the actuator voltage of a specific axis.
+
+        :param axis: The axis number (0, 1, or 2).
+        :return: The actuator voltage in mV.
+        """
+        response = self._perform_request(AttoJSONMethods.GET_CONTROL_AMPLITUDE.value, [axis])
+        if response:
+            return response[1]  # Assuming the position is the second item in the response
+        else:
+            return -1.0
+
+    def set_control_frequency(self, axis: int, frequency_mhz: int) -> None:
+        """
+        Set the actuator frequency for a specific axis.
+
+        :param axis: The axis number (0, 1, or 2).
+        :param frequency_mhz: The actuator frequency to set in millHertz (up to 5000000 mHz).
+        """
+        if axis not in self.channels:
+            raise ValueError(f"Invalid axis {axis}. Valid axes are {self.channels}.")
+        if not (0 <= frequency_mhz <= 5000000):
+            raise ValueError(f"Voltage must be between 0 and 5000000 mHz. Received: {frequency_mhz}.")
+        self._perform_request(AttoJSONMethods.SET_CONTROL_FREQUENCY.value, [axis, frequency_mhz])
+        print(f"Set actuator voltage for axis {axis} to {frequency_mhz} mV.")
+
     def get_status(self, channel: int) -> str:
         """
         Get the status of a specific channel.
@@ -191,7 +274,7 @@ class AttoDry800(Motor):
         """
         if self.simulation:
             self._simulate_action(f"{method} with params {params}")
-            return
+            return 0
         try:
             response = self.device.request(method, params)
             self.device.handle_error(response, self.simulation)
@@ -242,6 +325,19 @@ class AttoDry800(Motor):
             return {axis: response[axis] for axis in self.channels}
         else:
             return {}
+
+    def get_control_frequency(self, axis: int) -> float:
+        """
+        Get the control frequency of a specific axis.
+
+        :param axis: The axis number (0, 1, or 2).
+        :return: The control frequency in mHz.
+        """
+        response = self._perform_request(AttoJSONMethods.GET_CONTROL_FREQUENCY.value, [axis])
+        if response:
+            return response[1]  # Assuming the position is the second item in the response
+        else:
+            return -1.0
 
     def wait_for_axes_to_stop(self, axes: List[int], max_wait_time: float = 10.0) -> None:
         """
