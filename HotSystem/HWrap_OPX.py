@@ -4,45 +4,41 @@
 # actually we need to split to OPX wrapper and OPX GUI          *
 # ***************************************************************
 import csv
-import pdb
-import traceback
-from datetime import datetime
 import os
+import shutil
+import subprocess
 import sys
 import threading
-import time
+import tkinter as tk
+import traceback
+import xml.etree.ElementTree as ET
+from datetime import datetime
 from enum import Enum
 from tkinter import filedialog
 from typing import Union, Optional
+
+import dearpygui.dearpygui as dpg
 import glfw
-import numpy as np
-import tkinter as tk
-
-from Common import save_figure
-
-from gevent.libev.corecext import callback
-from matplotlib import pyplot as plt
-from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
-    save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
-from qualang_tools.results import progress_counter, fetching_tool
-from functools import partial
-from qualang_tools.units import unit
-from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
-from smaract import ctl
 import matplotlib
+from PIL import Image
+from matplotlib import pyplot as plt
+from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
+from qm.qua import update_frequency, declare_stream, declare, program, for_, assign, if_, IO1, IO2, time_tagging, \
+    measure, play, wait, align, else_, \
+    save, stream_processing, amp, Random, fixed, pause, infinite_loop_
+from qualang_tools.results import fetching_tool
+from qualang_tools.units import unit
 
+import SystemConfig as configs
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized
-import dearpygui.dearpygui as dpg
-from PIL import Image
-import subprocess
-import shutil
-import xml.etree.ElementTree as ET
-import math
-import SystemConfig as configs
 
 matplotlib.use('qtagg')
+
+import time
+import numpy as np
+
 
 def create_logger(log_file_path: str):
     log_file = open(log_file_path, 'w')
@@ -528,8 +524,8 @@ class GUI_OPX():
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False,
                           parent="graphXY")  # REQUIRED: create x and y axes
-        dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
-        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis", tag="series_counts_ref")
+        dpg.add_line_series(self.X_vec, self.Y_vec, label=f"counts", parent="y_axis", tag="series_counts")
+        dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label=f"counts_ref", parent="y_axis", tag="series_counts_ref")
         dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref2, label="counts_ref2", parent="y_axis", tag="series_counts_ref2")
         dpg.add_line_series(self.X_vec_ref,self.Y_resCalculated, label="resCalculated", parent="y_axis", tag="series_res_calcualted")
 
@@ -850,14 +846,13 @@ class GUI_OPX():
                         dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
                     with dpg.group(horizontal=False):
-                        dpg.add_button(label="Updt from map", callback=self.update_from_map, width=160)
-                        dpg.add_button(label="scan all markers", callback=self.btnScanAllMarkers, width=160)
-                        dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=160)
+                        dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
+                        dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
+                        dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=130)
                         with dpg.group(horizontal=True):
                             dpg.add_button(label="plot", callback=self.plot_graph)
                             dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor", callback=self.toggle_use_picomotor,
                                              default_value=self.use_picomotor)
-                        dpg.add_button(label="fill Z", callback=self.fill_z)
 
                     _width = 200
                     with dpg.group(horizontal=False):
@@ -875,23 +870,6 @@ class GUI_OPX():
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
-
-    def fill_z(self):
-        # Calculate Z value (if needed, otherwise set to 0)
-        x = dpg.get_value("mcs_ch0_ABS")
-        y = dpg.get_value("mcs_ch1_ABS")
-
-        point_on_plane = self.get_device_position(self.positioner)
-
-        Z0 = calculate_z_series(self.map.ZCalibrationData, np.array(point_on_plane[0]), point_on_plane[1])
-        Z1 = calculate_z_series(self.map.ZCalibrationData, np.array(x*1e6), int(y*1e6))
-        z = (point_on_plane[2] - Z0 + Z1)/1e6
-
-        dpg.set_value("mcs_ch2_ABS", z)
-
-        points = np.array(point_on_plane)/1e6
-        print(points)
-        print(z)
 
     def btn_z_calibrate(self):
         self.ScanTh = threading.Thread(target=self.z_calibrate)
@@ -943,12 +921,6 @@ class GUI_OPX():
         dpg.set_value(item="checkbox_use_picomotor", value=self.use_picomotor)
         self.map.toggle_use_picomotor(app_data = app_data, user_data = user_data)
         print("Set use_picomotor to: " + str(self.use_picomotor))
-
-    def toggle_limit(self, app_data, user_data):
-        self.limit = user_data
-        time.sleep(0.001)
-        dpg.set_value(item="checkbox_limit", value=self.limit)
-        print("Limit is " + str(self.limit))
 
     def plot_graph(self):
         # Check if plt_x and plt_y are not None
@@ -2409,7 +2381,7 @@ class GUI_OPX():
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
+                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)  
                             # play RF (@resonance freq & pulsed time)
                             align("MW","RF")
                             update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
@@ -2444,7 +2416,7 @@ class GUI_OPX():
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
+                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)  
                             # play RF (@resonance freq & pulsed time)
                             align("MW","RF")
                             update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
@@ -2480,7 +2452,7 @@ class GUI_OPX():
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
                             #play MW
-                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)
+                            play("cw"*amp(self.mw_P_amp), "MW", duration=tMW//4)  
                             # play RF (@resonance freq & pulsed time)
                             align("MW","RF")
                             update_frequency("RF", self.rf_resonance_freq * self.u.MHz) # set RF frequency to resonance
@@ -6261,7 +6233,7 @@ class GUI_OPX():
                 if (list_elem.tag not in ["scan_Out","X_vec", "Y_vec", "Z_vec","X_vec_ref","Y_vec_ref","Z_vec_ref","V_scan","expected_pos","t_vec",
                                               "startLoc","endLoc","Xv","Yv","Zv","viewport_width","viewport_height","window_scale_factor",
                                               "timeStamp","counter","maintain_aspect_ratio","scan_intensities","initial_scan_Location","V_scan",
-                                              "absPosunits","Scan_intensity","Scan_matrix","image_path","f_vec","signal","ref_signal","tracking_ref","t_vec","t_vec_ini"]
+                                              "absPosunits","Scan_intensity","Scan_matrix","image_path","f_vec","signal","ref_signal","tracking_ref","t_vec","t_vec_ini"] 
                         ):
                     for item in value:
                         item_elem = ET.SubElement(list_elem, "item")

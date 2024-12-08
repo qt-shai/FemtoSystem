@@ -35,35 +35,30 @@ class AttoQuaConfig(QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
-                    1: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},  # QM: why? because
-                    4: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW I
-                    5: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW Q
-                    6: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},  # RF
-                    7: {"offset": 0.0, "delay": self.scannerX_delay, "shareable": True},              # Atto scanner X
-                    8: {"offset": 0.0, "delay": self.scannerY_delay, "shareable": True},              # Atto scanner Y
-                    9: {"offset": 0.0, "delay": self.phaseEOM_delay, "shareable": True},              # Phase EOM
+                    4: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},  # MW I
+                    5: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},  # MW Q
+                    6: {"offset": 0.0, "delay": self.rf_delay, "shareable": False},  # RF
+                    9: {"offset": 0.0, "delay": self.phaseEOM_delay, "shareable": False},              # Phase EOM
                 },
                 "digital_outputs": {
-                    4: {"shareable": True},  # trigger Laser (Cobolt)
-                    5: {"shareable": True},  # trigger MW (Rohde Schwarz)
-                    10: {"shareable": True},  # Counter marker
+                    4: {"shareable": False},  # trigger Laser (Cobolt)
+                    5: {"shareable": False},  # trigger MW (Rohde Schwarz)
                 },
                 "analog_inputs": {
-                    1: {"offset": 0.00979, "gain_db": 0, "shareable": True}, # QM: why? because
-                    2: {"offset": 0.00979, 'gain_db': 0, "shareable": True}, # QM: why? because
+                    2: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # QM: why? because
                 },
                 "digital_inputs": { # counter 1
                     4: {
                         "polarity": "RISING",
                         "deadtime": 4,
                         "threshold": self.signal_threshold_OPD,
-                        "shareable": True,
+                        "shareable": False,
                     },
                     5: { # counter 2
                         "polarity": "RISING",
                         "deadtime": 4,
                         "threshold": self.signal_threshold_OPD,
-                        "shareable": True,
+                        "shareable": False,
                     },
 
                 },
@@ -142,16 +137,16 @@ class AttoQuaConfig(QUAConfigBase):
             #     "operations": {"ON": "switch_ON"},
             # },
             "Detector_OPD": {
-                "singleInput": {"port": ("con1", 1)},  # not used
+                "singleInput": {"port": ("con1", 4)},  # analoge outputs, not used
                 "digitalInputs": {
-                    "marker": {
-                        "port": ("con1", 10),  # Digital output 10
-                        "delay": self.detection_delay_OPD,
-                        "buffer": 0,
-                    },
+                    # "marker": {
+                    #     "port": ("con1", 10),  # Digital output 10
+                    #     "delay": self.detection_delay_OPD,
+                    #     "buffer": 0,
+                    # },
                 },
                 "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
-                "outputs": {"out1": ("con1", 1)},
+                "outputs": {"out1": ("con1", 2)},
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
@@ -162,7 +157,7 @@ class AttoQuaConfig(QUAConfigBase):
                 "smearing": 0,
             },
             "Detector2_OPD": {
-                "singleInput": {"port": ("con1", 1)},  # not used
+                "singleInput": {"port": ("con1", 4)},  # not used
                 "digitalInputs": {
                     # "marker": {
                     #     "port": ("con1", 10),  # Digital output 10
@@ -171,7 +166,7 @@ class AttoQuaConfig(QUAConfigBase):
                     # },
                 },
                 "digitalOutputs": {"out1": ("con1", 5)},  # 'digitalOutputs' here is actually 'digital input' of OPD
-                "outputs": {"out1": ("con1", 1)},
+                "outputs": {"out1": ("con1", 2)},
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
@@ -182,14 +177,14 @@ class AttoQuaConfig(QUAConfigBase):
                 "smearing": 0,
             },
             # Atto scanner control elements
-            "atto_scanner_x": {
-                "singleInput": {"port": ("con1", 7)},  # actually analog output 7
-                "operations": {"set_voltage": "atto_set_voltage_pulse"},
-            },
-            "atto_scanner_y": {
-                "singleInput": {"port": ("con1", 8)},  # actually analog output 8
-                "operations": {"set_voltage": "atto_set_voltage_pulse"},
-            },
+            # "atto_scanner_x": {
+            #     "singleInput": {"port": ("con1", 7)},  # actually analog output 7
+            #     "operations": {"set_voltage": "atto_set_voltage_pulse"},
+            # },
+            # "atto_scanner_y": {
+            #     "singleInput": {"port": ("con1", 8)},  # actually analog output 8
+            #     "operations": {"set_voltage": "atto_set_voltage_pulse"},
+            # },
         }
         return elements
 
@@ -206,30 +201,3 @@ class AttoQuaConfig(QUAConfigBase):
             "waveforms": {"single": "zero_wf"},
         }
         return pulses
-
-    def get_waveforms(self) -> Dict[str, Any]:
-        """
-        Returns the waveforms configuration for the Atto system.
-
-        :return: Dictionary containing waveform configurations.
-        """
-        waveforms = super().get_waveforms()
-        # No new waveforms needed; use existing zero_wf
-        return waveforms
-
-    def get_config(self) -> Dict[str, Any]:
-        """
-        Returns the full configuration dictionary for the Atto system.
-
-        :return: Dictionary containing the full configuration.
-        """
-        config = {
-            "version": self.get_version(),
-            "controllers": self.get_controllers(),
-            "elements": self.get_elements(),
-            "pulses": self.get_pulses(),
-            "waveforms": self.get_waveforms(),
-            "digital_waveforms": self.get_digital_waveforms(),
-            "mixers": self.get_mixers(),
-        }
-        return config

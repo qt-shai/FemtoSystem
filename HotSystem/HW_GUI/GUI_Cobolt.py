@@ -48,8 +48,8 @@ class GUI_Cobolt():  # todo1: support several devices
         green_theme = themes.color_theme([0, 55, 0, 255], (255, 255, 255))
 
         # Define the layout of the GUI
-        Child_Width=180
-        with dpg.window(tag=self.window_tag, label="Cobolt Laser, disconnected", no_title_bar=False, height=440, width=1600,collapsed=True):
+        Child_Width = 150
+        with dpg.window(tag=self.window_tag, label="Cobolt Laser, disconnected", no_title_bar=False, height=440, width=1600, collapsed=True):
             with dpg.group(tag="Indicators", horizontal=True):
                 # Column 1: Connection settings and mode selection
                 with dpg.group(horizontal=False, tag="column 1", width=Child_Width):
