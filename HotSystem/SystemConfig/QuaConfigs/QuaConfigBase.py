@@ -199,7 +199,7 @@ class QUAConfigBase(ABC):
         return {
             "version": self.get_version(),
             "controllers": self.get_controllers(),
-            "elements": {f"{key}_{self.system_name}" : value for key,value in self.get_elements()},
+            "elements": self.get_elements(),
             "pulses": self.get_pulses(),
             "waveforms": self.get_waveforms(),
             "digital_waveforms": self.get_digital_waveforms(),

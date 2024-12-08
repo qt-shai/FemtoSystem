@@ -1989,12 +1989,12 @@ class GUI_OPX():  # todo: support several device
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
-        fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
-        self.verify_insideQUA_FreqValues(fMW_res)
-        fMW_res1 = fMW_res
-        fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz
-        self.verify_insideQUA_FreqValues(fMW_2nd_res)
-        fMW_res2 = fMW_2nd_res
+        # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
+        # self.verify_insideQUA_FreqValues(fMW_res)
+        # # fMW_res1 = fMW_res
+        # fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz
+        # self.verify_insideQUA_FreqValues(fMW_2nd_res)
+        # fMW_res2 = fMW_2nd_res
 
         tRF = self.rf_pulse_time
         Npump = self.n_nuc_pump
