@@ -4,7 +4,7 @@
         <Devices>
             <Device>
                 <Instrument>rohde_schwarz</Instrument>
-                <IPAddress>N/A</IPAddress>
+                <IPAddress>192.168.101.57</IPAddress>
                 <MACAddress>N/A</MACAddress>
                 <SerialNumber>N/A</SerialNumber>
                 <COMPort>N/A</COMPort>

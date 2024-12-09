@@ -1600,7 +1600,7 @@ class GUI_OPX():
         if t_wait>4:
             wait(t_wait)
     def QUA_PGM(self):#, exp_params, QUA_exp_sequence):
-        if self.exp == Experimet.G2:
+        if self.exp == Experiment.G2:
                 self.g2_raw_QUA()
         else:
             with program() as self.quaPGM:
@@ -4970,7 +4970,7 @@ class GUI_OPX():
             if self.exp == Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY:
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="index")
-            if self.exp == Experimet.G2:
+            if self.exp == Experiment.G2:
                 dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, Totalounts = {round(self.g2_totalCounts, 0)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
                 dpg.set_value("series_counts_ref", [[], []])
@@ -5005,7 +5005,7 @@ class GUI_OPX():
 
         if self.exp == Experiment.COUNTER:
             self.counter_Signal, self.ref_signal = self.results.fetch_all()
-        elif self.exp == Experimet.G2:
+        elif self.exp == Experiment.G2:
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
