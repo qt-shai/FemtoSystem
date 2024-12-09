@@ -31,6 +31,7 @@ import matplotlib
 
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
+from SystemConfig import SystemType
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized
 import dearpygui.dearpygui as dpg
 from PIL import Image
@@ -39,7 +40,7 @@ import shutil
 import xml.etree.ElementTree as ET
 import math
 import SystemConfig as configs
-
+from Utils import OptimizerMethod,find_max_signal
 matplotlib.use('qtagg')
 
 def create_logger(log_file_path: str):
@@ -6107,11 +6108,11 @@ class GUI_OPX():
             print("")
 
             # optional: fit to parabula
-            if False:
-                coefficients = np.polyfit(self.coordinate, self.track_X, 2)
-                a, b, c = coefficients
-                maxPos_parabula = int(-b / (2 * a))
-                print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula}")
+            # if False:
+            #     coefficients = np.polyfit(self.coordinate, self.track_X, 2)
+            #     a, b, c = coefficients
+            #     maxPos_parabula = int(-b / (2 * a))
+            #     print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula}")
 
             # find max signal
             maxPos = self.coordinate[self.track_X.index(max(self.track_X))]
@@ -6133,13 +6134,40 @@ class GUI_OPX():
         self.qm.set_io1_value(0)
         time.sleep(0.1)
 
+    def FindMaxSignal2(self):
+        # Initial guess: 30000 mV for all axes
+        initial_guess = (30000.0, 30000.0, 30000.0)
+
+        # Bounds: [0, 60000] mV for all axes
+        bounds = ((0.0, 60000.0), (0.0, 60000.0), (0.0, 60000.0))
+
+        # Now we call our generalized FindMaxSignal function with these parameters
+
+        x_opt, y_opt, z_opt, intensity = find_max_signal(
+            move_abs_fn= self.positioner.set_control_fix_output_voltage,
+            read_in_pos_fn= lambda ch: (time.sleep(50e-3), True)[1],
+            get_positions_fn=lambda: [self.positioner.get_control_fix_output_voltage(ch) for ch in range(3)],
+            fetch_data_fn=self.GlobalFetchData,
+            get_signal_fn=lambda: self.tracking_ref,
+            bounds=bounds,
+            method=OptimizerMethod.CMA_ES,
+            initial_guess=initial_guess,
+            max_iter=30
+        )
+
+        print(
+            f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV, z={z_opt:.2f} mV with intensity={intensity:.4f}")
+
     def SearchPeakIntensity(self):
         if self.bEnableSignalIntensityCorrection:
             if (self.refSignal == 0) and (not (self.MAxSignalTh.is_alive())):
                 self.refSignal = self.tracking_ref  # round(sum(self.Y_Last_ref) / len(self.Y_Last_ref))
             elif (self.refSignal * self.TrackingThreshold > self.tracking_ref) and (not (self.MAxSignalTh.is_alive())):
                 self.qm.set_io1_value(1)  # shift to reference only
-                self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
+                if self.system_name == SystemType.ATTO.value:
+                    self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal2)
+                else:
+                    self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
                 self.MAxSignalTh.start()
             elif (not (self.MAxSignalTh.is_alive())):
                 self.refSignal = self.refSignal if self.refSignal > self.tracking_ref else self.tracking_ref
