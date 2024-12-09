@@ -1516,7 +1516,7 @@ class GUI_OPX():
         if self.exp == Experiment.Nuclear_Fast_Rot:
             self.NuclearFastRotation_QUA_PGM()
         if self.exp == Experiment.G2:
-            self.G2_QUA_PGM()
+            self.g2_raw_QUA()
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
         if QuaCFG == None:
@@ -4837,11 +4837,12 @@ class GUI_OPX():
                 if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
                     dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
                     dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
-                self.lock.release()
             dpg.set_item_label("y_axis", _yLabel)
             dpg.set_item_label("x_axis", _xLabel)
             dpg.fit_axis_data('x_axis')
             dpg.fit_axis_data('y_axis')
+            self.lock.release()
+            
 
         except Exception as e:
             self.btnStop()
