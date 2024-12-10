@@ -125,7 +125,6 @@ class AttoDry800(Motor):
             raise ValueError(f"Invalid axis {axis}. Valid axes are {self.channels}.")
         if not (0<=amplitude_mv<=60000):
             raise ValueError(f"Invalid amplitude. Must be between 0 and 60000. Received {amplitude_mv}")
-
         self._perform_request(AttoJSONMethods.SET_CONTROL_FIX_OUTPUT_VOLTAGE.value, [axis, amplitude_mv])
         print(f"Set axis {axis} to a fixed voltage of {amplitude_mv} mV.")
 
@@ -283,7 +282,10 @@ class AttoDry800(Motor):
             return response
         except Exception as e:
             print(f"Error performing request {method} with params {params}: {e}")
-            raise e
+            self.disconnect()
+            time.sleep(0.1)
+            self.connect()
+            self._perform_request(method, params, verbose)
 
     def _check_and_enable_output(self, channel: int) -> None:
         """
