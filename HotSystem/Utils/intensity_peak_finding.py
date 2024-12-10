@@ -24,7 +24,7 @@ def directional_climbing_optimize(
     get_signal_fn: Callable[[], float],
     get_positions_fn: Callable[[], Tuple[float, float, float]],
     bounds: Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]],
-    step_size: float = 1000.0,
+    step_size: float = 500.0,
     improvement_threshold: float = 1.10,
     max_axis_attempts: int = 3,
     run_stats: bool = False,
@@ -212,6 +212,9 @@ def directional_climbing_optimize(
         for dx in [-local_step_factor,0,local_step_factor]:
             for dy in [-local_step_factor,0,local_step_factor]:
                 for dz in [-local_step_factor,0,local_step_factor]:
+                    # Skip cases where more than one of dx, dy, dz are nonzero
+                    if (dx != 0) + (dy != 0) + (dz != 0) > 1:
+                        continue
                     x_test = x0 + dx*step_size
                     y_test = y0 + dy*step_size
                     z_test = z0 + dz*step_size
@@ -266,7 +269,7 @@ def directional_climbing_optimize(
         sig_best = global_best_sig
 
     # Perform local verification
-    x_best, y_best, z_best, sig_best = local_verify((x_best,y_best,z_best))
+    # x_best, y_best, z_best, sig_best = local_verify((x_best,y_best,z_best))
 
     # Try a refinement step by reducing step_size if needed
     # If we see room for improvement, do a finer local scan with smaller steps
@@ -287,6 +290,7 @@ def directional_climbing_optimize(
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         ax.plot(x_history, y_history, intensity_history, '-o', ms=2)
+        ax.plot(x_history[0], y_history[0], intensity_history[0], '*', ms=5)
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Intensity')
