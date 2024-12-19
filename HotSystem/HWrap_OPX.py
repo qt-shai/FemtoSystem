@@ -13,7 +13,7 @@ import threading
 import time
 from enum import Enum
 from tkinter import filedialog
-from typing import Union, Optional
+from typing import Union, Optional, Callable
 import glfw
 import numpy as np
 import tkinter as tk
@@ -31,7 +31,7 @@ import matplotlib
 
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
-from SystemConfig import SystemType
+from SystemConfig import SystemType, Instruments
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized
 import dearpygui.dearpygui as dpg
 from PIL import Image
@@ -83,6 +83,7 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.tracking_function: Callable = None
         self.limit = None
         self.verbose:bool = False
         self.window_tag = "OPX Window"
@@ -107,6 +108,10 @@ class GUI_OPX():
         if (self.HW.config.system_type == configs.SystemType.ATTO):
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
+            if Instruments.ATTO_SCANNER in [x.instrument for x in self.HW.config.devices]:
+                self.tracking_function = self.FindMaxSignal_atto_positioner_and_scanner
+            else:
+                self.tracking_function = self.FindMaxSignal_atto_positioner
 
 
         # At the end of the init - all values are overwritten from XML!
@@ -6265,13 +6270,71 @@ class GUI_OPX():
         self.qm.set_io1_value(0)
         time.sleep(0.1)
 
-    def FindMaxSignal2(self):
-        # Initial guess: 0 mV for all axes
+    def FindMaxSignal_atto_positioner_and_scanner(self):
+        """
+        Find the peak intensity by optimizing offset voltages:
+        - X and Y axes are controlled by the atto_scanner.
+        - Z axis is controlled by the atto_positioner.
+        """
         print('Start looking for peak intensity using FindMaxSignal2')
-        initial_guess = (0.0, 0.0, 0.0)
+
+        # Move and read functions for mixed axes control
+        def move_axes(channel: int, position: float):
+            """
+            Set offset voltage for the corresponding axis.
+            """
+            if channel in [0, 1]:  # X and Y axes: atto_scanner
+                self.HW.atto_scanner.set_offset_voltage(channel, position)
+            elif channel == 2:  # Z axis: atto_positioner
+                self.HW.atto_positioner.set_control_fix_output_voltage(2, int(position))
+
+        def get_positions():
+            """
+            Get current positions for all three axes.
+            """
+            x = self.HW.atto_scanner.get_offset_voltage(0)  # X axis
+            y = self.HW.atto_scanner.get_offset_voltage(1)  # Y axis
+            z = self.HW.atto_positioner.get_control_fix_output_voltage(2)  # Z axis
+            return x, y, z
+
+        # Initial guess: current position for all axes
+        initial_guess = get_positions()
 
         # Bounds: [0, 40000] mV for all axes
-        bounds = ((0.0, 40000.0), (0.0, 40000.0), (0.0, 40000.0))
+        bounds = ((self.HW.atto_scanner.offset_voltage_min,self.HW.atto_scanner.offset_voltage_max),
+                  (self.HW.atto_scanner.offset_voltage_min, self.HW.atto_scanner.offset_voltage_max),
+                  (self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max))
+
+        # Call the generalized find_max_signal function
+        x_opt, y_opt, z_opt, intensity = find_max_signal(
+            move_abs_fn=move_axes,
+            read_in_pos_fn=lambda ch: (time.sleep(30e-3), True)[1],  # Ensure move has settled
+            get_positions_fn=get_positions,
+            fetch_data_fn=self.GlobalFetchData,  # Function to fetch new data
+            get_signal_fn=lambda: -self.counter_Signal[0] if self.exp == Experiment.COUNTER else -self.tracking_ref,
+            # Signal to maximize
+            bounds=bounds,
+            method=OptimizerMethod.ADAM,
+            initial_guess=initial_guess,
+            max_iter=30,
+            use_coarse_scan=True
+        )
+
+        # Reset the output state or finalize settings
+        self.qm.set_io1_value(0)
+
+        print(
+            f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV, z={z_opt:.2f} mV with intensity={intensity:.4f}"
+        )
+
+    def FindMaxSignal_atto_positioner(self):
+
+        print('Start looking for peak intensity using FindMaxSignal2')
+        initial_guess = [self.HW.atto_positioner.get_control_fix_output_voltage(ch) for ch in self.HW.atto_positioner.channels]
+
+        bounds = ((self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max),
+                  (self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max),
+                  (self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max))
 
         # Now we call our generalized FindMaxSignal function with these parameters
 
@@ -6296,7 +6359,7 @@ class GUI_OPX():
         print('Start looking for peak intensity')
         if self.bEnableSignalIntensityCorrection:
             if self.system_name == SystemType.ATTO.value:
-                self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal2)
+                self.MAxSignalTh = threading.Thread(target=self.tracking_function)
             else:
                 self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
             self.MAxSignalTh.start()
@@ -6308,7 +6371,7 @@ class GUI_OPX():
             elif (self.refSignal * self.TrackingThreshold > self.tracking_ref) and (not (self.MAxSignalTh.is_alive())):
                 self.qm.set_io1_value(1)  # shift to reference only
                 if self.system_name == SystemType.ATTO.value:
-                    self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal2)
+                    self.MAxSignalTh = threading.Thread(target=self.tracking_function)
                 else:
                     self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
                 self.MAxSignalTh.start()

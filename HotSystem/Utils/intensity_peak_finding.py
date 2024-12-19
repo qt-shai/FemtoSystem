@@ -476,7 +476,7 @@ def adam_optimize(neg_intensity: Callable[[np.ndarray], float],
 
 
 def find_max_signal(
-    move_abs_fn: Callable[[int, float], None],
+    move_abs_fn: Callable[[int, float], None] | Callable[[int, int], None],
     read_in_pos_fn: Callable[[int], bool],
     get_positions_fn: Callable[[], Tuple[float,float,float]],
     fetch_data_fn: Callable[[], None],

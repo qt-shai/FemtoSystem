@@ -8,6 +8,9 @@ import pandas as pd
 from typing import Tuple, Union, List, Optional
 from matplotlib import pyplot as plt
 import os
+from tkinter import Tk
+from tkinter.filedialog import askopenfilename
+
 
 def load_scan_plane_calibration_data(file_path: str) -> np.ndarray:
     """
@@ -351,4 +354,12 @@ def fast_rgb_convert(array2d):
     result_array_ = result_array_.reshape(-1)
     return result_array_
 
+def select_csv_file() -> str:
+    """
+    Open a file dialog to select a CSV file.
 
+    :return: Path to the selected CSV file.
+    """
+    Tk().withdraw()
+    file_path = askopenfilename(filetypes=[("CSV files", "*.csv")])
+    return file_path

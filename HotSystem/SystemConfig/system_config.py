@@ -40,9 +40,10 @@ class InstrumentsAddress(Enum):
     Rhode_Schwarz_hot_system = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     Rhode_Schwarz_atto = "192.168.101.50"
     atto_positioner = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
-    opx_ip = '192.168.101.61'
+    atto_scanner = "192.168.101.60"
+    opx_ip = '192.168.101.56'
     opx_port = 80
-    opx_cluster = 'Cluster_2'
+    opx_cluster = 'Cluster_1'
 
 class Device:
     """
@@ -68,9 +69,9 @@ class SystemConfig:
     atto_positioner_ip: str = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
     # atto_scanner_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
     keysight_awg_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
-    opx_ip = '192.168.101.61'
+    opx_ip = '192.168.101.56'
     opx_port = 80
-    opx_cluster = 'Cluster_2'
+    opx_cluster = 'Cluster_1'
 
     def __init__(self, system_type: SystemType, devices: List[Device]):
         """
