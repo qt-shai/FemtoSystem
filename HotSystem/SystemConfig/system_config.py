@@ -39,6 +39,7 @@ class InstrumentsAddress(Enum):
     Rhode_Schwarz_hot_system = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     Rhode_Schwarz_atto = "192.168.101.50"
     atto_positioner = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
+    atto_scanner = "192.168.101.60"
     opx_ip = '192.168.101.56'
     opx_port = 80
     opx_cluster = 'Cluster_1'

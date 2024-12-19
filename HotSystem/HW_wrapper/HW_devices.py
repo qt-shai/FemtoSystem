@@ -4,6 +4,7 @@ import threading
 
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
     SirahMatisse, Keysight33500B, AttoScannerWrapper
+from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 
@@ -28,13 +29,13 @@ class HW_devices:
             self.elc_power_supply: Optional[ALR3206T] = None
             self.highland_eom_driver: Optional[HighlandT130]  = None
             self.microwave: Optional[RS_SGS100a] = None
-            self.positioner: Optional[smaractMCS2|AttoScannerWrapper] = None
+            self.positioner: Optional[smaractMCS2|AttoScannerWrapper|AttoDry800] = None
             self.camera: Optional[Zelux] = None
             self.atto_positioner: Optional[AttoDry800] = None
             self.picomotor:Optional[newportPicomotor] = None
             self.cobolt:Optional[CoboltLaser] = None
             self.matisse_device: Optional[SirahMatisse] = None
-            self.atto_scanner: Optional[AttoScannerWrapper] = None
+            self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
 
 
@@ -107,12 +108,12 @@ class HW_devices:
                                                   simulation=self.simulation)
 
             elif instrument == Instruments.ATTO_SCANNER:
-                self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=self.simulation)  # Replace with actual address
-                self.atto_scanner = AttoScannerWrapper(awg = self.keysight_awg_device,
-                                                       max_travel_x=40.0, max_travel_y=40.0,
-                                                       name="atto_scanner",
+                # self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=self.simulation)  # Replace with actual address
+                self.atto_scanner = Anc300Wrapper(conn= InstrumentsAddress.atto_scanner.value,
+                                                  simulation=self.simulation,
+                                                  serial_number=None,
+                                                  name = "atto_scanner",
                                                        )
-                self.positioner = self.atto_scanner
 
             elif instrument == Instruments.MATTISE:
                 self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=self.simulation)
@@ -138,5 +139,4 @@ class HW_devices:
                 # Handle unknown instrument case
                 print(f"Unknown instrument: {instrument}")
 
-        self.initialized = True  # Mark the instance as initialized
-
+        self.initialized = True  # Mark the instance as init

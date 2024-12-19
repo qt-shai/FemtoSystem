@@ -58,7 +58,7 @@ class Motor(ABC):
         """
         self._observers.remove(observer)
 
-    def get_position(self, channel: int) -> float:
+    def get_position(self, channel: int) -> Optional[float]:
         """
         Get the current position of a specific channel.
 
@@ -124,21 +124,10 @@ class Motor(ABC):
         """
         for channel in self.channels:
             if not self.simulation:
-                new_position = self.get_current_position(channel)
+                new_position = self.get_position(channel)
             else:
                 new_position = int(np.random.rand(1)*self.StepsIn1mm)
-            self._set_position(channel, new_position)
-
-    @abstractmethod
-    def get_current_position(self, channel: int) -> float:
-        """
-        Get the current position of a specific channel.
-        This method must be implemented by subclasses.
-
-        :param channel: The channel number.
-        :return: The current position.
-        """
-        pass
+            self._axes_positions[channel] = new_position
 
     @abstractmethod
     def connect(self) -> None:
@@ -230,3 +219,12 @@ class Motor(ABC):
     def AxesPosUnits(self) -> Dict[int, str]:
         """List of position units for each axis."""
         return self._axes_pos_units
+
+    def verify_channel(self, channel: int, verbose:bool = False) -> None:
+        if channel not in self.channels:
+            if verbose:
+                print(f"channel {channel} is not supported. Expected values are {self.channels}")
+        raise ValueError(f"channel {channel} is not supported. Expected values are {self.channels}")
+
+
+

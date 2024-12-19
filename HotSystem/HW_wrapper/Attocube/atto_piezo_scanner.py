@@ -124,6 +124,15 @@ class AttoScannerWrapper(Motor):
         else:
             raise ValueError(f"Invalid channel: {channel}.")
 
+    def get_position(self, channel: int) -> Optional[float]:
+        awg_channel = self._map_channel_to_awg_channel(channel)
+        if awg_channel is not None:
+            voltage = self.awg.get_current_voltage(awg_channel)
+            position = self._voltage_to_position(voltage, channel)
+            return position
+        else:
+            raise ValueError(f"Invalid channel: {channel}.")
+
     def set_zero_position(self, channel: int) -> None:
         """
         Set the current position of a specific channel to zero (resets the position to home).
@@ -160,21 +169,6 @@ class AttoScannerWrapper(Motor):
             self.awg.set_waveform_type("TRIANGLE", awg_channel)
             # Additional configuration can be done here
         print("AttoScanner initialized before scan.")
-
-    def get_current_position(self, channel: int) -> float:
-        """
-        Get the current position of the specified axis in microns.
-
-        :param channel: Logical channel (0 for X-axis, 1 for Y-axis).
-        :return: Current position in microns.
-        """
-        awg_channel = self._map_channel_to_awg_channel(channel)
-        if awg_channel is not None:
-            voltage = self.awg.get_current_voltage(awg_channel)
-            position = self._voltage_to_position(voltage, channel)
-            return position
-        else:
-            raise ValueError(f"Invalid channel: {channel}.")
 
     def update_positions(self) -> None:
         """

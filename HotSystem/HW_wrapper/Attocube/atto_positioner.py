@@ -30,13 +30,13 @@ class AttoDry800(Motor):
         self._axes_pos_units: Dict[int, str] = {ch: "nm" for ch in self.channels}
         self._connected: bool = False
         self.device = AttocubeDevice(address, simulation=simulation)
+        self.fix_output_voltage_min = 0
+        self.fix_output_voltage_max = 60000
 
     def connect(self) -> None:
-        """Connect to the cryostat."""
         if self.simulation:
-            self._simulate_action("connect to the cryostat")
+            self._simulate_action("connect to the atto positioner")
             self._connected = True
-            self.start_position_updates()
         else:
             try:
                 self.device.connect()
@@ -208,20 +208,6 @@ class AttoDry800(Motor):
         else:
             return "Unknown"
 
-    def get_current_position(self, channel: int) -> float|None:
-        """
-        Get the current position of a specific channel in nanometers.
-
-        :param channel: The channel number.
-        :return: Current position in nanometers.
-        """
-        if self.is_connected():
-            position = self.get_position(channel)
-            self._axes_positions[channel] = position
-        else:
-            return None
-        return position
-
     def get_position_unit(self, channel: int) -> str:
         """
         Get the position unit of the specified channel.
@@ -303,7 +289,7 @@ class AttoDry800(Motor):
         if response_move and not response_move[1]:
             self._perform_request(AttoJSONMethods.SET_CONTROL_MOVE.value, [channel, True])
 
-    def get_position(self, axis: int) -> float:
+    def get_position(self, axis: int) -> Optional[float]:
         """
         Get the current position of a specific axis.
 
@@ -314,7 +300,7 @@ class AttoDry800(Motor):
         if response:
             return response[1]  # Assuming the position is the second item in the response
         else:
-            return -1.0
+            return None
 
     def get_moving_status(self) -> Dict[int, bool]:
         """
