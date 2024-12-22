@@ -108,7 +108,7 @@ class GUI_OPX():
         if (self.HW.config.system_type == configs.SystemType.ATTO):
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
-            if Instruments.ATTO_SCANNER in [x.instrument for x in self.HW.config.devices]:
+            if self.HW.atto_scanner:
                 self.tracking_function = self.FindMaxSignal_atto_positioner_and_scanner
             else:
                 self.tracking_function = self.FindMaxSignal_atto_positioner
@@ -4512,6 +4512,8 @@ class GUI_OPX():
             counts_ref_st = declare_stream()  # reference signal
             # CheckIndexes_st = declare_stream()                      # stream iteration number - due to qua bug/issue
 
+            pad_wait_time = declare(int, value = 0)
+
             with for_(n, 0, n < self.n_avg, n + 1):
                 # reset
                 with for_(idx, 0, idx < array_length, idx + 1):
@@ -5008,7 +5010,11 @@ class GUI_OPX():
 
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
             if not(self.exp == Experiment.COUNTER) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
-                self.btnSave(folder= "d:/temp/")
+                folder = "d:/temp/"
+                if not os.path.exists(folder):
+                    folder = "c:/temp/"
+                self.btnSave(folder=folder)
+
                 lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
 
             if self.StopFetch:
@@ -5481,10 +5487,11 @@ class GUI_OPX():
             print(f"An error occurred in btnStop: {e}")
 
     def btnSave(self, folder=None):  # save data
+        print("Saving data...")
         try:
             # file name
             # timeStamp = self.getCurrentTimeStamp()  # get current time stamp
-            if folder == None:
+            if folder is None:
                 folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + self.exp.name + '/'
             else:
                 folder_path = folder + self.exp.name + '/'
@@ -5494,15 +5501,17 @@ class GUI_OPX():
 
             # parameters + note        
             self.writeParametersToXML(fileName + ".xml")
+            print(f'XML file saved to {fileName}.xml')
 
             # raw data
             RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
 
             self.saveToCSV(fileName + ".csv", RawData_to_save)
+            print(f"CSV file saved to {fileName}.csv")
 
             # save data as image (using matplotlib)
-            if folder == None:
+            if folder is None:
                 width = 1920  # Set the width of the image
                 height = 1080  # Set the height of the image
                 # Create a blank figure with the specified width and height, Convert width and height to inches
@@ -5519,7 +5528,7 @@ class GUI_OPX():
 
                 # Save the figure as a PNG file
                 plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
-
+                print(f"Figure saved to {fileName}.png")
                 # close figure
                 plt.close(fig)
 
@@ -5528,6 +5537,7 @@ class GUI_OPX():
 
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))  # raise
+            print(f"Error while saving data: {ex}")
 
     def btnStartScan(self):
         self.ScanTh = threading.Thread(target=self.StartScan)
@@ -6330,7 +6340,7 @@ class GUI_OPX():
     def FindMaxSignal_atto_positioner(self):
 
         print('Start looking for peak intensity using FindMaxSignal2')
-        initial_guess = [self.HW.atto_positioner.get_control_fix_output_voltage(ch) for ch in self.HW.atto_positioner.channels]
+        initial_position = [self.HW.atto_positioner.get_control_fix_output_voltage(ch) for ch in self.HW.atto_positioner.channels]
 
         bounds = ((self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max),
                   (self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max),
@@ -6343,14 +6353,22 @@ class GUI_OPX():
             read_in_pos_fn= lambda ch: (time.sleep(30e-3), True)[1],
             get_positions_fn=lambda: [self.HW.atto_positioner.get_control_fix_output_voltage(ch) for ch in self.HW.atto_positioner.channels],
             fetch_data_fn=self.GlobalFetchData,
-            get_signal_fn=lambda: -self.counter_Signal[0] if self.exp == Experiment.COUNTER else -self.tracking_ref,
+            get_signal_fn=lambda: self.counter_Signal[0] if self.exp == Experiment.COUNTER else self.tracking_ref,
             bounds=bounds,
-            method=OptimizerMethod.ADAM,
-            initial_guess=None,
+            method=OptimizerMethod.DIRECTIONAL,
+            initial_guess=initial_position,
             max_iter=30,
             use_coarse_scan= True
         )
+
+        time.sleep(0.1)
+        self.GlobalFetchData()
+
+        self.refSignal = self.counter_Signal[0] if self.exp == Experiment.COUNTER else self.tracking_ref
+        print(f"new ref Signal = {self.refSignal}")
+
         self.qm.set_io1_value(0)
+        time.sleep(0.1)
 
         print(
             f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV, z={z_opt:.2f} mV with intensity={intensity:.4f}")
