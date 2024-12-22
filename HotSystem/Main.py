@@ -17,5 +17,5 @@ def main(simulation:bool = False):
 
 
 if __name__ == "__main__":
-    simulation: bool = True
+    simulation: bool = False
     main(simulation)

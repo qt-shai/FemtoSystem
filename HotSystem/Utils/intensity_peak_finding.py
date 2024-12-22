@@ -25,7 +25,7 @@ def directional_climbing_optimize(
     get_positions_fn: Callable[[], Tuple[float, float, float]],
     bounds: Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]],
     step_size: float = 500.0,
-    improvement_threshold: float = 1.10,
+    improvement_threshold: float = 1.02,
     max_axis_attempts: int = 3,
     run_stats: bool = False,
     verbose: bool = False,
@@ -78,7 +78,7 @@ def directional_climbing_optimize(
         move_abs_fn(1, y)
         move_abs_fn(2, z)
         while not (read_in_pos_fn(0) and read_in_pos_fn(1) and read_in_pos_fn(2)):
-            pass
+            time.sleep(5e-3)
         fetch_data_fn()
         sig = get_signal_fn()
         record_measure(x, y, sig)
@@ -520,7 +520,7 @@ def find_max_signal(
         improvement_threshold: float = 1.10
         max_axis_attempts:int = 3
         run_stats:bool = False
-        verbose:bool  = False
+        verbose:bool  = True
         to_plot:bool  = False
         x_best, y_best, z_best, sig_best, measure_count = directional_climbing_optimize(move_abs_fn,
                                                                                         read_in_pos_fn,

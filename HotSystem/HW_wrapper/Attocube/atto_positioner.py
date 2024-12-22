@@ -114,13 +114,14 @@ class AttoDry800(Motor):
         self._axes_positions[channel] = 0.0
         print(f"Channel {channel} position set to zero.")
 
-    def set_control_fix_output_voltage(self, axis: int, amplitude_mv: int) -> None:
+    def set_control_fix_output_voltage(self, axis: int, amplitude_mv: float) -> None:
         """
         Set a fixed DC voltage for a specific axis.
 
         :param axis: The axis number (0, 1, or 2).
         :param amplitude_mv: The DC voltage to set in millivolts. (up to 60000 mV).
         """
+        amplitude_mv = int(amplitude_mv)
         if axis not in self.channels:
             raise ValueError(f"Invalid axis {axis}. Valid axes are {self.channels}.")
         if not (0<=amplitude_mv<=60000):

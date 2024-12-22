@@ -224,7 +224,4 @@ class Motor(ABC):
         if channel not in self.channels:
             if verbose:
                 print(f"channel {channel} is not supported. Expected values are {self.channels}")
-        raise ValueError(f"channel {channel} is not supported. Expected values are {self.channels}")
-
-
-
+            raise ValueError(f"channel {channel} is not supported. Expected values are {self.channels}")
