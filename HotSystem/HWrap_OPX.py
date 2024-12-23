@@ -1724,6 +1724,7 @@ class GUI_OPX():
             self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed)
             self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
             self.tMW = self.t_mw
+            self.tMW2 = self.t_mw2
             self.tWait = self.time_in_multiples_cycle_time(self.Twait*1e3) # [nsec]
             # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
             # fMW_res = 0 if fMW_res < 0 else fMW_res
@@ -1732,7 +1733,7 @@ class GUI_OPX():
             self.verify_insideQUA_FreqValues(self.fMW_res)
             self.tRF = self.rf_pulse_time
             self.Npump = self.n_nuc_pump
-
+            
             # frequency scan vector
             self.f_vec = self.GenVector(min = 0 * self.u.MHz, max = self.mw_freq_scan_range * self.u.MHz, delta= self.mw_df * self.u.MHz, asInt=False)
 
@@ -1753,13 +1754,13 @@ class GUI_OPX():
             # signal
             # polarize (@fMW_res @ fRF_res)
             with for_(self.m, 0, self.m < self.Npump, self.m + 1):
-                self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=1.0, p_rf = self.rf_proportional_pwr, t_wait=0)#self.tWait)
+                self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=0)#self.tWait)
             align()
 
             # update MW frequency
             update_frequency("MW", self.f)
             # play MW
-            play("cw", "MW", duration=self.tMW // 4)
+            play("xPulse"*amp(self.mw_P_amp2), "MW", duration=self.tMW2 // 4)
             # play Laser
             align()
             # align("MW", "Laser")
@@ -1772,7 +1773,7 @@ class GUI_OPX():
             align()
 
             # reference
-            wait(self.tMW // 4)  # don't Play MW
+            wait(self.tMW2 // 4)  # don't Play MW
             # Play laser
             play("Turn_ON", "Laser", duration=(self.tLaser + self.tMeasureProcess) // 4)
             # Measure ref
@@ -2024,8 +2025,8 @@ class GUI_OPX():
             self.f_rf = self.rf_resonance_freq
 
             # length and idx vector
-            self.first_state = 4 # serial number of first initial state
-            self.last_state = 4 # serial number of last initial state
+            self.first_state = 0 # serial number of first initial state
+            self.last_state = 0 # serial number of last initial state
             self.number_of_states = 1 # number of initial states
             self.number_of_measurement = 15 # number of measurements
             self.vectorLength = self.number_of_states*self.number_of_measurement  # total number of measurements
@@ -2047,9 +2048,9 @@ class GUI_OPX():
                     # prepare state
                     self.QUA_prepare_state(site_state=self.site_state)
                     # C-NOT
-                    align()
-                    update_frequency("MW", self.fMW_2nd_res)
-                    play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
+                    #align()
+                    #update_frequency("MW", self.fMW_2nd_res)
+                    #play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
                     # measure
                     self.QUA_measure(m_state=self.j_idx+1,idx=self.i_idx,tMeasure=self.tMeasure,t_rf=self.tRF,t_mw=self.tMW,p_rf = self.rf_proportional_pwr)
                     # reference
@@ -4318,7 +4319,7 @@ class GUI_OPX():
         # time
         tMeasueProcess = self.MeasProcessTime
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
-        tMW = self.t_mw
+        tMW2 = self.t_mw2
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
 
         # MW frequency scan vector
@@ -4332,7 +4333,7 @@ class GUI_OPX():
         idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = (tMW + tLaser) * 2 * array_length
+        tSequencePeriod = (tMW2 + tLaser) * 2 * array_length
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
@@ -4389,7 +4390,7 @@ class GUI_OPX():
                         update_frequency("MW", f)
 
                         # play MW for time Tmw
-                        play("cw", "MW", duration=tMW // 4)
+                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)
                         # play laser after MW
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
@@ -4400,7 +4401,7 @@ class GUI_OPX():
                         align()
 
                         # don't play MW for time t
-                        wait(tMW // 4)
+                        wait(tMW2 // 4)
                         # play laser after MW
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
@@ -4496,6 +4497,7 @@ class GUI_OPX():
             val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
             idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
             idx = declare(int)  # index variable to sweep over all indexes
+            t_pad = declare(int)
 
             # stream parameters
             counts_st = declare_stream()  # experiment signal
@@ -4518,7 +4520,9 @@ class GUI_OPX():
                     with if_(sequenceState == 0):
                         # set new random TmW
                         assign(t, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
-
+                        assign(t_pad,int(self.t_vec_ini[-1])-t+5)
+                        
+                        wait(t_pad) # pad zeros to make the total time between perp and meas constant
                         # play MW for time t
                         update_frequency("MW", 0)
                         play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
@@ -4527,18 +4531,19 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("min_readout_pulse", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
+                        
                         align()
-
-                        # don't play MW for time t
-                        wait(t)
+                        # don't play MW for the maximal mw pulsae duration 
+                        wait(int(self.t_vec_ini[-1])+5)
                         # play laser after MW
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        wait(12,"Detector_OPD")
+                        measure("min_readout_pulse", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
@@ -4834,9 +4839,9 @@ class GUI_OPX():
             dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
             if self.exp == Experiment.Nuclear_Fast_Rot:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
-                if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
-                    dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
-                    dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
+            if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
+                dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
+                dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
             dpg.set_item_label("y_axis", _yLabel)
             dpg.set_item_label("x_axis", _xLabel)
             dpg.fit_axis_data('x_axis')
