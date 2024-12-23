@@ -1,3 +1,5 @@
+#pip install -U pip setuptools wheel
+#pip install setuptools==65
 
 NumPy
 pyserial
@@ -48,3 +50,5 @@ pythonnet
 #pytest
 #pyperclip
 pylablib
+
+# git+https://github.com/cobolt-lasers/pycobolt.git

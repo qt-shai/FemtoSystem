@@ -7,7 +7,6 @@ from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, Hig
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 
-
 class HW_devices:
     """
     Singleton class for managing hardware devices, with optional simulation mode.
@@ -92,7 +91,7 @@ class HW_devices:
 
             elif instrument == Instruments.COBOLT:
                 cobolt_config: Device = [x for x in self.config.devices if x.instrument is Instruments.COBOLT][0]
-                self.cobolt = Cobolt06MLD(com_port=cobolt_config.com_port,simulation=self.simulation)
+                self.cobolt = CoboltLaser(port=cobolt_config.com_port,simulation=self.simulation)
 
             elif instrument == Instruments.PICOMOTOR:
                 self.picomotor = newportPicomotor(self.simulation)

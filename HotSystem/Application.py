@@ -418,12 +418,12 @@ class PyGuiOverlay(Layer):
 
     def render_cobolt(self):
         while self.KeepThreadRunning:
-            time.sleep(1)
+            time.sleep(0.15)
             try:
-                if self.coboltGUI.laser.isConnected:
-                    Laser_state=self.coboltGUI.laser.get_state() #111
+                if self.coboltGUI.laser.is_connected():
+                    Laser_state=self.coboltGUI.laser.get_state()  
                     dpg.set_value("Laser State","State:  "+Laser_state)
-                    Laser_mode=self.coboltGUI.laser.get_mode()
+                    Laser_mode=self.coboltGUI.laser.get_mode() 
                     dpg.set_value("Laser Mode","Mode: "+Laser_mode)
 
                     if self.coboltGUI.laser.is_on():
@@ -433,27 +433,24 @@ class PyGuiOverlay(Layer):
                         dpg.set_value("Laser ON OFF","The Laser is OFF")
                         dpg.set_value("Turn_ON_OFF",False)
 
-                    Laser_power=str(round(self.coboltGUI.laser.get_power()*10)/10)
-                    Laser_current=str(self.coboltGUI.laser.get_current())
-                    Laser_mod_power=str(round(self.coboltGUI.laser.get_modulation_power()*10)/10)
-                    Base_temp=self.coboltGUI.laser.get_Base_temperature()
-                    TEC_temp=self.coboltGUI.laser.get_TEC_temperature()
+                    self.coboltGUI.laser.get_power()
+                    Laser_power=str(round(self.coboltGUI.laser.actual_power*1000)/1000)
+                    Laser_current=str(self.coboltGUI.laser.actual_current)
+                    Laser_mod_power=str(round(self.coboltGUI.laser.modulation_power_setpoint*1000)/1000)
 
-                    dpg.set_value("Laser Power","Power "+Laser_power+" mW")
-                    dpg.set_value("Laser Current","Current "+Laser_current+" mA")
-                    dpg.set_value("Laser Mod Power","Mod. Power "+Laser_mod_power+" mW")
-                    dpg.set_value("Laser TEC","TEC "+TEC_temp+" C")
-                    dpg.set_value("Laser Base","Base Plate "+Base_temp+" C")
+                    dpg.set_value("Laser Power","Actual power "+Laser_power+" mW")
+                    dpg.set_value("Laser Current","Actual current "+Laser_current+" mA")
+                    dpg.set_value("Laser Mod Power","Mod. Power setpoint "+Laser_mod_power+" mW")
                     am,dm = self.coboltGUI.laser.get_modulation_state()
                     dpg.set_value("Analog_Modulation_cbx",am=='1')
                     dpg.set_value("Digital_Modulation_cbx",dm=='1')
 
-                    if Laser_mode=="1 - Constant Power":
-                        dpg.set_item_label("LaserWin","Laser Cobolt: Power "+Laser_power+" mW, TEC "+TEC_temp+" C, Base "+Base_temp+" C")
-                    elif Laser_mode=="0 - Constant Current":
-                        dpg.set_item_label("LaserWin","Laser Cobolt: Current "+Laser_current+" mA, TEC "+TEC_temp+" C, Base "+Base_temp+" C")
-                    elif Laser_mode=="2 - Modulation Mode":
-                        dpg.set_item_label("LaserWin","Laser Cobolt: Mod. Power "+Laser_mod_power+" mA, TEC "+TEC_temp+" C, Base "+Base_temp+" C")
+                    if Laser_mode in ["1 - Constant Power","ConstantPower"]:
+                        dpg.set_item_label("LaserWin","Cobolt (const pwr mode): actual power "+Laser_power+" mW")
+                    elif Laser_mode in ["0 - Constant Current","ConstantCurrent"]:
+                        dpg.set_item_label("LaserWin","Cobolt (const current mode): actual Current "+Laser_current+" mA")
+                    elif Laser_mode in ["2 - Modulation Mode","PowerModulation"]:
+                        dpg.set_item_label("LaserWin","Cobolt (mod. pwr mode): actual power "+Laser_power+" mW")
             except Exception as e:
                 print(f"Cobolt render error: {e}")
 

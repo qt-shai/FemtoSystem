@@ -24,9 +24,6 @@ class GUI_Cobolt():  # todo1: support several devices
             "Modulation_power_input"
         ]
 
-        # Maximum current and power parameters
-        self.Max_current = 227  # mA
-        self.Max_power = 85  # mW
 
         # Get the list of available serial ports
         self.ports = serial.tools.list_ports.comports()
@@ -48,8 +45,8 @@ class GUI_Cobolt():  # todo1: support several devices
         green_theme = themes.color_theme([0, 55, 0, 255], (255, 255, 255))
 
         # Define the layout of the GUI
-        Child_Width = 150
-        with dpg.window(tag=self.window_tag, label="Cobolt Laser, disconnected", no_title_bar=False, height=440, width=1600, collapsed=True):
+        Child_Width = 200
+        with dpg.window(tag=self.window_tag, label="Cobolt Laser, disconnected, "+ self.laser.serialnumber, no_title_bar=False, height=440, width=1600, collapsed=True):
             with dpg.group(tag="Indicators", horizontal=True):
                 # Column 1: Connection settings and mode selection
                 with dpg.group(horizontal=False, tag="column 1", width=Child_Width):
@@ -64,15 +61,14 @@ class GUI_Cobolt():  # todo1: support several devices
                     dpg.add_combo(items=["Constant current", "Constant power", "Digital Modulation", "Analog Modulation"], tag="Laser Mode combo",
                                   callback=self.btnUpdateMode, width=150)
                 dpg.bind_item_theme(dpg.last_item(), green_theme)
+                
                 # Column 2: Laser information display
                 with dpg.group(horizontal=False, tag="column 2", width=Child_Width):
                     # with dpg.child_window(border = True):
                     dpg.add_text("Laser Information", color=(255, 255, 0))
                     dpg.add_text(default_value="Power ---", tag="Laser Power")
-                    dpg.add_text(default_value="Mod. power ---", tag="Laser Mod Power")
                     dpg.add_text(default_value="Current ---", tag="Laser Current")
-                    dpg.add_text(default_value="TEC temp. ---", tag="Laser TEC")
-                    dpg.add_text(default_value="Base Plate temp. ---", tag="Laser Base")
+                    dpg.add_text(default_value="Mod. power ---", tag="Laser Mod Power")
                     dpg.add_text(default_value="Mode: ---", tag="Laser Mode")
                     dpg.add_text(default_value="State: ---", tag="Laser State")
 
@@ -82,12 +78,12 @@ class GUI_Cobolt():  # todo1: support several devices
                     dpg.add_text("Settings", color=(255, 255, 0))
                     with dpg.group(tag="controls"):
                         dpg.add_input_float(label="Set power(mW)", default_value=0, callback=self.inputPower, tag="power_input",
-                                            format='%.1f',
+                                            format='%.3f',
                                             width=30)
                         dpg.add_input_float(label="Set current(mA)", default_value=0, callback=self.inputCurrent, tag="current_input",
-                                            format='%.1f', width=30)
+                                            format='%.3f', width=30)
                         dpg.add_input_float(label="Set Mod. P(mW)", default_value=0, callback=self.inputModulationPower,
-                                            tag="Modulation_power_input", format='%.1f', width=30)
+                                            tag="Modulation_power_input", format='%.3f', width=30)
 
                 # Column 4: Modulation settings
                 # with dpg.child_window(border = True):
@@ -122,8 +118,8 @@ class GUI_Cobolt():  # todo1: support several devices
 
     def inputPower(self, app_data, user_data):
         try:
-            if user_data > self.Max_power:
-                user_data = self.Max_power
+            if user_data > self.laser.max_power:
+                user_data = self.laser.max_power
             elif user_data < 0:
                 user_data = 0
             self.laser.set_power(user_data)
@@ -135,8 +131,8 @@ class GUI_Cobolt():  # todo1: support several devices
     # Handles input current change        
     def inputCurrent(self, app_data, user_data):
         try:
-            if user_data > self.Max_current:
-                user_data = self.Max_current
+            if user_data > self.laser.max_current:
+                user_data = self.self.laser.max_current
             elif user_data < 0:
                 user_data = 0
             self.laser.set_current(user_data * 1e3)  # for cobolt 06 or 08 it expect Amps - we send mAmps
@@ -149,8 +145,8 @@ class GUI_Cobolt():  # todo1: support several devices
     def inputModulationPower(self, app_data, user_data):
         try:
             # Ensure the modulation power is within the valid range
-            if user_data > self.Max_power:
-                user_data = self.Max_power
+            if user_data > self.laser.max_power:
+                user_data = self.laser.max_power
             elif user_data < 0:
                 user_data = 0
             # Set the modulation power on the laser
@@ -194,7 +190,7 @@ class GUI_Cobolt():  # todo1: support several devices
                 # Attempt to connect to the laser
 
                 dpg.set_value("Laser Port", "Connected to " + str(self.laser.address.port))
-                self.isConnected = self.laser.isConnected  # True
+                self.isConnected = self.laser.is_connected()  # True
                 # Enable control items since the laser is connected
                 for item in self.items_list:
                     dpg.enable_item(item)
@@ -208,24 +204,17 @@ class GUI_Cobolt():  # todo1: support several devices
         try:
             if user_data == "Constant current":
                 print("Switching to constant current")
-                self.laser.analog_modulation(0)
-                self.laser.digital_modulation(0)
                 self.laser.constant_current()
             elif user_data == "Constant power":
                 print("Switching to constant power")
-                self.laser.analog_modulation(0)
-                self.laser.digital_modulation(0)
                 self.laser.constant_power()
             elif user_data == "Digital Modulation":
                 print("Switching to constant power")
-                self.laser.modulation_mode()
-                self.laser.analog_modulation(0)
-                self.laser.digital_modulation(1)
+                self.laser.digital_power_modulation()
+                
             elif user_data == "Analog Modulation":
                 print("Switching to constant power")
-                self.laser.modulation_mode()
-                self.laser.digital_modulation(0)
-                self.laser.analog_modulation(1)
+                self.laser.analog_power_modulation()
         except AttributeError:
             print("Laser object does not support the selected mode")
         except Exception as e:

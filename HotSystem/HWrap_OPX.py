@@ -194,7 +194,7 @@ class GUI_OPX():
         self.Tpump = 500  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
         self.TcounterPulsed = 500  # [nsec]
-        self.total_integration_time = 5  # [msec]
+        self.total_integration_time = 5.0  # [msec]
         self.Tsettle = 2000 # [nsec]
         self.t_mw = 289  # [nsec] # from rabi experiment
         self.t_mw2 = 164  # [nsec] # from rabi experiment
@@ -264,9 +264,9 @@ class GUI_OPX():
         return int(val)
 
     def UpdateCounterIntegrationTime(sender, app_data, user_data):
-        sender.total_integration_time = int(user_data)
+        sender.total_integration_time = user_data
         time.sleep(0.001)
-        dpg.set_value(item="inInt_total_integration_time", value=sender.total_integration_time)
+        dpg.set_value(item="inDbl_total_integration_time", value=sender.total_integration_time)
         print("Set total_integration_time to: " + str(sender.total_integration_time) + "usec")
 
     def UpdateWaitTime(sender, app_data, user_data):
@@ -567,7 +567,7 @@ class GUI_OPX():
                         dpg.add_input_int(label="", tag="inInt_Tsettle", width=item_width, callback=self.UpdateTsettle, default_value=self.Tsettle,
                                           min_value=1, max_value=60000000, step=1)
                         dpg.add_text(default_value="total integration time [msec]", tag="text_total_integration_time")
-                        dpg.add_input_int(label="", tag="inInt_total_integration_time", width=item_width, callback=self.UpdateCounterIntegrationTime, default_value=self.total_integration_time, min_value=1, max_value=1000, step=1)
+                        dpg.add_input_double(label="", tag="inDbl_total_integration_time", width=item_width, callback=self.UpdateCounterIntegrationTime, default_value=self.total_integration_time, min_value=1, max_value=1000, step=1)
                         dpg.add_text(default_value="Twait [usec]", tag="text_wait_time")
                         dpg.add_input_double(label="", tag="inDbl_wait_time", width=item_width, callback=self.UpdateWaitTime, default_value=self.Twait, min_value=0.001, max_value=10000000000, step=0.001,format="%.5f")
                         dpg.add_text(default_value="Tedge [nsec]", tag="text_edge_time")

@@ -4,6 +4,8 @@ from serial import SerialException
 import time
 import sys
 import logging
+import threading
+
 
 from Utils import SerialDevice
 
@@ -12,16 +14,18 @@ logger = logging.getLogger(__name__)
 class CoboltLaser:
     """Creates a laser object using either COM-port or serial number to connect to laser. \n Will automatically return proper subclass, if applicable"""
 
-    def __init__(self, com_port=None, serialnumber=None, baudrate=115200, simulation : bool = False):
+    def __init__(self, port=None, serialnumber=None, baudrate=115200, simulation : bool = False):
+        self.lock = threading.Lock()
         self.simulation = simulation
         self.serialnumber = serialnumber
-        self.port = com_port
+        self.port = port
         self.modelnumber = None
         self.baudrate = baudrate
         self.address = None
         self.isConnected=False
         if not self.simulation:
             self.connect()
+            self.modulation_power_setpoint = 0.0
 
     def __del__(self):
         self.disconnect()
@@ -113,8 +117,12 @@ class CoboltLaser:
                         or "-93-" in self.modelnumber[0:4]
                     ):
                         self.__class__ = Cobolt06DPL
+                    elif "1100" in self.modelnumber:
+                        self.__class__ = Cobolt06MLD12V
+                        self.__init__()
                     else:
                         self.__class__ = Cobolt06MLD
+                        self.__init__()
         except:
             pass
 
@@ -202,7 +210,7 @@ class CoboltLaser:
         }
         state = self.send_cmd("gom?")
         return states.get(state, state)
-
+    
     def constant_current(self, current=None):
         """Enter constant current mode, current in mA"""
         if current != None:
@@ -224,7 +232,8 @@ class CoboltLaser:
 
     def get_current(self):
         """Get laser current in mA"""
-        return float(self.send_cmd(f"i?"))
+        self.actual_current = float(self.send_cmd(f"i?"))
+        return self.actual_current
 
     def get_current_setpoint(self):
         """Get laser current setpoint in mA"""
@@ -245,12 +254,15 @@ class CoboltLaser:
         return self.send_cmd(f"p {float(power)/1000}")
 
     def get_power(self):
+        self.get_current()
         """Get laser power in mW"""
-        return float(self.send_cmd(f"pa?")) * 1000
+        self.actual_power = float(self.send_cmd(f"pa?")) * 1000
+        return self.actual_power
 
     def get_power_setpoint(self):
         """Get laser power setpoint in mW"""
-        return float(self.send_cmd(f"p?")) * 1000
+        self.constant_power_setpoint = float(self.send_cmd(f"p?")) * 1000
+        return self.constant_power_setpoint
 
     def get_ophours(self):
         """Get laser operational hours"""
@@ -279,10 +291,12 @@ class CoboltLaser:
         time_start = time.perf_counter()
         message += "\r"
         try:
+            self.lock.acquire()
             utf8_msg = message.encode()
             self.address.write(utf8_msg)
             logger.debug(f"sent laser [{self}] message [{utf8_msg}]")
         except Exception as e:
+            self.lock.release()
             raise RuntimeError("Error: write failed") from e
 
         time_stamp = 0
@@ -292,6 +306,7 @@ class CoboltLaser:
                 received_string = self.address.readline().decode()
                 time_stamp = self._timeDiff_(time_start)
             except:
+                self.lock.release()
                 time_stamp = self._timeDiff_(time_start)
                 continue
 
@@ -304,8 +319,10 @@ class CoboltLaser:
                 logger.debug(
                     f"received from laser [{self}] message [{received_string}]"
                 )
+                self.lock.release()
                 return received_string.splitlines()[0]
 
+        self.lock.release()
         raise RuntimeError("Syntax Error: No response")
 
     def __enter__(self):
@@ -315,12 +332,43 @@ class CoboltLaser:
         self.turn_off()
         self.disconnect()
 
+    def analog_power_modulation(self):
+        pass
+
+    def digital_power_modulation(self):
+        pass
+
+    def on_off_modulation(self, enable):
+        pass
+
 class Cobolt06MLD(CoboltLaser):
     """For lasers of type 06-MLD"""
 
-    def __init__(self, simulation : bool = False, com_port=None,serialnumber=None):
-        super().__init__(simulation=simulation, com_port=com_port,serialnumber=serialnumber)
+    def __init__(self, simulation : bool = False, port=None,serialnumber=None):
+        # super().__init__(simulation=simulation, port=port,serialnumber=serialnumber)
+        self.max_current = 227  # mA
+        self.max_power = 85  # mW
         self.simulation = simulation
+
+    def constant_current(self, current=None):
+        self.analog_modulation(0)
+        self.digital_modulation(0)
+        return super().constant_current(current)
+    
+    def constant_power(self, power=None):
+        self.analog_modulation(0)
+        self.digital_modulation(0)
+        return super().constant_power(power)
+    
+    def digital_power_modulation(self):
+        self.modulation_mode()
+        self.analog_modulation(0)
+        self.digital_modulation(1)
+    
+    def analog_power_modulation(self):
+        self.modulation_mode()
+        self.digital_modulation(0)
+        self.analog_modulation(1)
 
     def modulation_mode(self, power=None):
         """Enter modulation mode.
@@ -359,9 +407,14 @@ class Cobolt06MLD(CoboltLaser):
         logger.info(f"Setting modulation power = {power} mW")
         return self.send_cmd(f"slmp {power}")
 
+    def get_power(self):
+        super().get_power()
+        self.get_modulation_power()
+
     def get_modulation_power(self):
         """Get the modulation power setpoint in mW"""
-        return float(self.send_cmd("glmp?"))
+        self.modulation_power_setpoint = float(self.send_cmd("glmp?"))
+        return self.modulation_power_setpoint
 
     def set_analog_impedance(self, arg):
         """Set the impedance of the analog modulation.
@@ -428,6 +481,239 @@ class Cobolt06DPL(CoboltLaser):
         """Get the setpoint of the modulation TEC in °C"""
         return float(self.send_cmd("gtec4t?"))
 
+class Cobolt06MLD12V(CoboltLaser):
+    def __init__(self, port=None, serialnumber=None, TEC_idx = [1]):
+        # super().__init__(port, serialnumber)
+        self.TEC_idx = TEC_idx
+        self.TEC_enabled = []
+        self.TEC_setPoint = []
+        self.TEC_temperature = []
+        self.get_laser_info()
+
+    # compatible with MLD06
+    def get_mode(self):
+        return self.get_run_mode()
+
+    def get_modulation_state(self):
+        """Get the laser modulation settings as [analog, digital]"""
+        dm = self.send_cmd("gdmes?")
+        am = self.send_cmd("games?")
+        return [am, dm]
+    
+    def set_modulation_power(self, power):
+        self.digital_power_modulation()
+        self.set_power(power)
+        
+    def get_modulation_power(self):
+        self.get_power(self)
+        return self.modulation_power_setpoint
+    
+    def set_analog_impedance(self, arg):
+        pass
+    def get_analog_impedance(self):
+        pass
+
+    # system commands:
+    def get_laser_info(self):
+        self.identifier = self.send_cmd('*IDN?')
+        self.modelnumber = self.send_cmd('SYSTem:MODel:NUMber?')
+        self.serialnumber = self.send_cmd('SYSTem:SERial:NUMber?')
+        self.operation_hours = self.send_cmd('LASer:HOURs?')
+        self.aytustart_state = self.send_cmd('AUTOstart:ENAbled?') # 0: disable, 1: enable
+        self.key_state = self.send_cmd('KEYswitch:ENAbled?') # 0: disable, 1: enable
+        self.key_position = self.send_cmd('KEYswitch?') # 0: off, 1: on
+        self.remote_state = self.send_cmd('REMote:ENAbled?') # set/return 0: disable, 1: enable
+        self.remove_voltage = self.send_cmd('REMote?') # 0: No input signal. 1: 5V is present
+        self.interlock_state = self.send_cmd('INTerlock?') # 0: open, 1:closed
+        for i in range(len(self.TEC_idx)):
+            self.TEC_enabled.append(self.send_cmd(f'TEC{self.TEC_idx[i]}:ENAbled?')) # 0: disable, 1: enable
+            self.TEC_setPoint.append(self.send_cmd(f'TEC{self.TEC_idx[i]}:TEMPerature:SETPoint?')) # float [C]
+            self.TEC_temperature.append(self.send_cmd(f'TEC{self.TEC_idx[i]}:TEMPerature?')) # float [C]
+        self.get_start_state()
+        self.ANALOG_impedance = self.send_cmd('SYSTem:INPut:ANAlog:IMPedance?') # set/return system impedance for analog input high: 1k ohm, low: 50 ohm
+        self.ANALOG_range = self.send_cmd('SYSTem:INPut:ANAlog:VOLTage:RANGe:MAX?') # set/return 0: 0 to 1V, 5: 0 to 5V
+        self.ANALOG_applied_volatge = self.send_cmd('SYSTem:INPut:ANAlog:VOLTage:READing?')
+        self.fault_string = self.send_cmd('FAULt?')
+        self.fault_state = self.send_cmd('FAULt:STATe?') # 0: no fault, 1: fault present
+    def get_start_state(self):
+        self.start_sequence_state = self.send_cmd('STATe?')
+    def set_clear_fault(self):
+        self.send_cmd('FAULt:CLEar') # clear faults and restart laser
+    def get_TEC_temperature(self):
+        self.TEC_temperature = []
+        for i in range(len(self.TEC_idx)):
+            self.TEC_temperature.append(self.send_cmd(f'TEC{self.TEC_idx[i]}:TEMPerature?')) # float [C]
+
+    # Emission control and laser status
+    def restart(self):
+        '''
+        Restarts the autostart program, through waiting for TECs,
+        warmup and to the completed state.
+        '''
+        self.send_cmd('AUTOstart:RESTart') # clear faults and restart laser
+    def abort(self):
+        '''
+        Aborts the autostart sequence. Stops all function including
+        laser drive current and temperature controls.
+        '''
+        self.send_cmd('AUTOstart:ABORt')
+    def start(self):
+        '''
+        Starts the autostart sequence and results in laser emission
+        once the ‘Laser ON’ state is reached, regardless of the
+        autostart enabled state.
+        '''
+        self.send_cmd('STARt')
+    def stop(self):
+        '''
+        Stops the laser emission and will set the laser in the ‘Standby’
+        state
+        '''
+        self.send_cmd('STOP')
+    def pause(self, val = 'none'):
+        '''
+        Pause and resume emission without changing the state or
+        operating mode of the laser, no external signal required.
+        0 : Resume emission
+        1 : Pause emission
+        '''
+        if val == 'none':
+            return self.send_cmd('LASer:PAUSed?')
+        else:
+            self.send_cmd(f'LASer:PAUSed {str(val)}')
+    def pause_emission(self, val = 'none'):
+        '''
+        Pause and resume emission without changing the state or
+        operating mode of the laser, no external signal required.
+        0 : Resume emission
+        1 : Pause emission
+        '''
+        self.pause(val=1)
+    def resume_emission(self):
+        '''
+        Pause and resume emission without changing the state or
+        operating mode of the laser, no external signal required.
+        0 : Resume emission
+        1 : Pause emission
+        '''
+        self.pause(val=0)
+    def set_get_run_mode(self,val='none'):
+        '''
+        Sets / returns the run mode for the laser.
+        options:
+        'ConstantCurrent'
+        'ConstantPower'
+        'PowerModulation'
+        'CurrentModulation'
+        '''
+        if val=='none':
+            return self.send_cmd('LASer:RUNMode?')
+        else:
+            self.send_cmd(f'LASer:RUNMode {val}')
+    def digital_power_modulation(self):
+        self.set_get_run_mode(val='PowerModulation')
+        self.set_digitalTrig_modulation(1)
+        self.set_analogTrig_modulation(0)
+    def analog_power_modulation(self):
+        self.set_get_run_mode(val='PowerModulation')
+        self.set_digitalTrig_modulation(0)
+        self.set_analogTrig_modulation(1)
+
+    def set_current_modulation_mode(self):
+        self.set_get_run_mode(val='CurrentModulation')
+    def constant_power(self):
+        self.set_get_run_mode(val='ConstantPower')
+    def constant_current(self):
+        self.set_get_run_mode(val='ConstantCurrent')
+    def get_run_mode(self):
+        return self.set_get_run_mode()
+    
+    def get_max_current(self):
+        '''
+        Returns the factory set maximum current setpoint allowed for
+        the laser.
+        '''
+        self.max_current = float(self.send_cmd('LASer:CURRent:SETPoint:MAX?'))
+    
+    def get_max_power(self):
+        '''
+        Returns the factory set maximum power setpoint allowed for
+        the laser.
+        '''        
+        self.max_power = float(self.send_cmd('LASer:POWer:SETPoint:MAX?'))
+    
+    def get_power(self):
+        '''
+        Returns the actual laser power. For MLDs this value is
+        calibrated to a look up table of corresponding current settings,
+        and for DPLs it is calibrated to the measured photodiode
+        voltage in constant power mode.
+        '''
+        self.actual_power = float(self.send_cmd('LASer:POWer?'))
+
+        '''
+        Returns the measured current delivered to the laser diode.
+        '''
+        self.actual_current = float(self.send_cmd('LASer:CURRent?'))
+
+        self.get_max_current()
+        self.get_max_power()
+
+        '''
+        Returns the factory set nominal laser power.
+        '''
+        self.power_nominal_setpoint = float(self.send_cmd('LASer:POWer:SETPoint:NOMInal?'))
+
+        # reads power setpoints
+        self.constant_power_setpoint = float(self.send_cmd(f'LASer:ConstantPower:POWer:SETPoint?'))
+        self.modulation_power_setpoint = float(self.send_cmd(f'LASer:PowerModulation:POWer:SETPoint?'))
+        self.constant_current_setpoint = float(self.send_cmd(f'LASer:ConstantCurrent:CURRent:SETPoint?'))
+        self.modulation_current_setpoint = float(self.send_cmd(f'LASer:CurrentModulation:CURRent:HIGH:SETPoint?'))
+    # Constant power mode
+    def set_power(self, val):
+        '''
+        Sets / Returns the constant current mode set point. The input
+        range is limited at the factory.
+        '''
+        self.send_cmd(f'LASer:ConstantPower:POWer:SETPoint {val}')
+        self.send_cmd(f'LASer:PowerModulation:POWer:SETPoint {val}')
+    # Constant current mode
+    def set_current(self, val):
+        '''
+        Sets / Returns the desired constant current mode set point.
+        The input range is limited at the factory to prevent damage to
+        the laser and/or limit the power for laser safety reasons.
+        '''
+        self.send_cmd(f'LASer:ConstantCurrent:CURRent:SETPoint {val}')
+        self.send_cmd(f'LASer:CurrentModulation:CURRent:HIGH:SETPoint {val}')
+    def set_digitalTrig_modulation(self,val):
+        '''
+        Sets the digital power modulation enabled state. If
+        enabled, the laser will require a high signal on the appropriate
+        input to emit
+        '''
+        self.send_cmd(f'LASer:PowerModulation:DIGital:ENAbled {val}')
+        '''
+        Sets the digital power modulation enabled state. If
+        enabled, the laser will require a high signal on the appropriate
+        input to emit
+        '''
+        self.send_cmd(f'LASer:CurrentModulation:DIGital:ENAbled {val}')
+
+    def set_analogTrig_modulation(self, val):
+        '''
+        Sets the analog power modulation enabled state. If
+        enabled, the laser will require a high signal on the appropriate
+        input to emit
+        '''
+        self.send_cmd(f'LASer:PowerModulation:ANAlog:ENAbled {val}')
+
+        '''
+        Sets the analog power modulation enabled state. If
+        enabled, the laser will require a high signal on the appropriate
+        input to emit
+        '''
+        self.send_cmd(f'LASer:CurrentModulation:ANAlog:ENAbled {val}')
 
 def list_lasers():
     """Return a list of laser objects for all cobolt lasers connected to the computer"""
