@@ -110,10 +110,7 @@ class HW_devices:
             elif instrument == Instruments.ATTO_SCANNER:
                 # self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=self.simulation)  # Replace with actual address
                 self.atto_scanner = Anc300Wrapper(conn= InstrumentsAddress.atto_scanner.value,
-                                                  simulation=self.simulation,
-                                                  serial_number=None,
-                                                  name = "atto_scanner",
-                                                       )
+                                                  simulation=self.simulation)
 
             elif instrument == Instruments.MATTISE:
                 self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=self.simulation)

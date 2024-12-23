@@ -10,11 +10,11 @@ import time
 
 class ANC300Modes(Enum):
     GND = "gnd"  # Ground
-    STP = "stp"  # Step
-    CAP = "cap"  # Measure capacitance, then ground
+    # STP = "stp"  # Step
+    # CAP = "cap"  # Measure capacitance, then ground
     OFFSET = "off"  # Offset only, no stepping
-    STP_PLUS = "stp+"  # Offset with added stepping waveform
-    STP_MINUS = "stp-"  # Offset with subtracted stepping
+    # STP_PLUS = "stp+"  # Offset with added stepping waveform
+    # STP_MINUS = "stp-"  # Offset with subtracted stepping
 
 class Anc300Wrapper(Motor):
     """
