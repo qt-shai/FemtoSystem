@@ -13,7 +13,7 @@ import threading
 import time
 from enum import Enum
 from tkinter import filedialog
-from typing import Union, Optional, Callable
+from typing import Union, Optional, Callable, List
 import glfw
 import numpy as np
 import tkinter as tk
@@ -83,6 +83,8 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.initial_scan_Location: List[float] = []
+        self.iteration: int = 0
         self.tracking_function: Callable = None
         self.limit = None
         self.verbose:bool = False
@@ -5929,6 +5931,375 @@ class GUI_OPX():
         if not (self.stopScan):
             self.btnStop()
 
+    def StartScanGeneral(
+            self,
+            move_abs_fn,
+            read_in_pos_fn,
+            get_positions_fn,
+            device_reset_fn,
+            x_vec=None,
+            y_vec=None,
+            z_vec=None
+    ):
+        """
+        A fully generalized scan function that supports 1D, 2D, or 3D scans
+        in any combination of X, Y, Z axes. It preserves all functionality
+        from the original StartScan3D code (file copying, QUA program invocation,
+        data saving, motion logic, etc.).
+
+        :param move_abs_fn: Function to move an axis to an absolute position.
+            Signature: move_abs_fn(axis_index: int, position: float) -> None
+        :param read_in_pos_fn: Function to ensure motion has settled.
+            Signature: read_in_pos_fn(axis_index: int) -> bool
+        :param get_positions_fn: Function to read the current axis positions.
+            Signature: get_positions_fn() -> List[float]
+        :param device_reset_fn: Function to reset the hardware to its initial state.
+            Signature: device_reset_fn() -> None
+        :param x_vec: List of X positions (pm, volts, or any consistent unit).
+                     If None or empty, X axis is skipped.
+        :param y_vec: List of Y positions (same unit rules as x_vec).
+        :param z_vec: List of Z positions (same unit rules).
+
+        # --------------------------------------------------------------------------
+        # Example Usage
+        # --------------------------------------------------------------------------
+
+        Example of calling StartScanGeneral with the original code's values:
+
+        move_abs_fn     = lambda ch, pos: self.positioner.MoveABSOLUTE(ch, pos)
+        read_in_pos_fn  = lambda ch: self.readInpos(ch)
+        get_positions_fn= lambda: [pos for pos in self.positioner.AxesPositions]
+        fetch_data_fn   = self.GlobalFetchData
+
+        # Suppose we want a 2D scan in X and Y, ignoring Z:
+        x_vec = np.linspace(-10000, 10000, 21)  # example 21 points in X
+        y_vec = np.linspace(-5000, 5000, 11)   # example 11 points in Y
+        z_vec = []                              # no scanning in Z
+
+        def device_reset_fn():
+            # Example of special device resets (original code checks for smaractMCS2, etc.)
+            self.positioner.set_in_position_delay(0, delay=0)
+            self.positioner.DisablePositionTrigger(0)
+            self.positioner.SetVelocity(0, 0)
+            self.positioner.setIOmoduleEnable(dev=0)
+            self.positioner.set_Channel_Constant_Mode_State(channel=0)
+
+        self.StartScanGeneral(
+            move_abs_fn=move_abs_fn,
+            read_in_pos_fn=read_in_pos_fn,
+            get_positions_fn=get_positions_fn,
+            fetch_data_fn=fetch_data_fn,
+            device_reset_fn,
+            x_vec=x_vec,
+            y_vec=y_vec,
+            z_vec=z_vec
+        )
+
+        This preserves all original file copying, QUA program calls,
+        S-shaped scanning, data saving, Z-correction, and stop conditions.
+
+        """
+
+        # ----------------------------------------------------------------------
+        # Dimension Setup
+        # ----------------------------------------------------------------------
+        x_vec = x_vec if x_vec else []
+        y_vec = y_vec if y_vec else []
+        z_vec = z_vec if z_vec else []
+
+        Nx, Ny, Nz = len(x_vec) or 1, len(y_vec) or 1, len(z_vec) or 1
+        dim = sum(bool(v) for v in [x_vec, y_vec, z_vec])
+        print(f"Starting {dim}D scan: Nx={Nx}, Ny={Ny}, Nz={Nz}")
+
+        # ----------------------------------------------------------------------
+        # Initial Setup (Files, GUI, QUA, etc.)
+        # ----------------------------------------------------------------------
+        start_time = time.time()
+        print(f"start_time: {self.format_time(start_time)}")
+
+        self.exp = Experiment.SCAN
+        self.GUI_ParametersControl(isStart=False)
+        self.to_xml()  # Save last params to XML
+        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")
+
+        # Copy relevant config & image files, if they exist
+        try:
+            file_mappings = [
+                {
+                    "src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
+                    "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
+                    "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"
+                },
+                {
+                    "src": 'C:/WC/HotSystem/map_config.txt',
+                    "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
+                    "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"
+                }
+            ]
+            for file_map in file_mappings:
+                for dest in [file_map["dest_local"], file_map["dest_remote"]]:
+                    if os.path.exists(file_map["src"]):
+                        shutil.copy(file_map["src"], dest)
+                        print(f"File moved to {dest}")
+                    else:
+                        print(f"Source file {file_map['src']} does not exist.")
+        except Exception as e:
+            print(f"Error occurred: {e}")
+
+        self.stopScan = False
+        self.scan_Out = []
+        self.scan_intensities = []
+
+        device_reset_fn()
+        # Example of special device resets (original code checks for smaractMCS2, etc.)
+        # if self.positioner is smaractMCS2:
+        #     self.positioner.set_in_position_delay(0, delay=0)
+        #     self.positioner.DisablePositionTrigger(0)
+        #     self.positioner.SetVelocity(0, 0)
+        #     self.positioner.setIOmoduleEnable(dev=0)
+        #     self.positioner.set_Channel_Constant_Mode_State(channel=0)
+
+        # Disable the “Start Scan” button in the GUI
+        dpg.disable_item("btnOPX_StartScan")
+
+        # Prepare internal references
+        self.X_vec, self.Y_vec, self.Z_vec = [], [], []
+        self.Y_vec_ref = []
+        self.iteration = 0
+
+        # For original code continuity, store these as internal references
+        self.Xv, self.Yv, self.Zv = x_vec, y_vec, z_vec
+        self.V_scan = []
+        self.initial_scan_Location = []
+
+        # Acquire initial positions (for reference)
+        # This can be done via get_positions_fn() or from the device directly.
+        for ax in range(3):
+            read_in_pos_fn(ax)  # Ensure in position
+        current_positions = get_positions_fn()
+        self.initial_scan_Location = list(current_positions)
+
+        # Build scanning arrays for each axis (like original “V_scan” concept)
+        def build_scan(axis_idx, axis_positions):
+            """
+            Axis index: 0 -> X, 1 -> Y, 2 -> Z
+            axis_positions: list of positions to scan
+            """
+            if not axis_positions:
+                # If no scanning on this axis, just keep the current pos
+                return [self.initial_scan_Location[axis_idx]]
+            else:
+                return axis_positions
+
+        # Build and store for each axis
+        self.V_scan = [
+            build_scan(0, x_vec),
+            build_scan(1, y_vec),
+            build_scan(2, z_vec)
+        ]
+        Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
+
+        # Initialize the 3D array for intensities
+        self.scan_intensities = np.zeros((Nx, Ny, Nz), dtype=float)
+
+        # For user reference
+        self.scan_data = self.scan_intensities
+        self.idx_scan = [0, 0, 0]
+
+        # Start and End for Plot
+        self.startLoc = [
+            self.V_scan[0][0] if Nx > 1 else self.initial_scan_Location[0],
+            self.V_scan[1][0] if Ny > 1 else self.initial_scan_Location[1],
+            self.V_scan[2][0] if Nz > 1 else self.initial_scan_Location[2]
+        ]
+        self.endLoc = [
+            self.V_scan[0][-1] if Nx > 1 else self.initial_scan_Location[0],
+            self.V_scan[1][-1] if Ny > 1 else self.initial_scan_Location[1],
+            self.V_scan[2][-1] if Nz > 1 else self.initial_scan_Location[2]
+        ]
+
+        # Quick 2D plot init (original code)
+        self.Plot_Scan(
+            Nx=Nx,
+            Ny=Ny,
+            array_2d=self.scan_intensities[:, :, 0],
+            startLoc=[x / 1e6 for x in self.startLoc],
+            endLoc=[y / 1e6 for y in self.endLoc],
+        )
+
+        # QUA program init (example)
+        self.initQUA_gen(
+            n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+            num_measurement_per_array=Nx
+        )
+        res_handles = self.job.result_handles
+        self.counts_handle = res_handles.get("counts_scanLine")
+        self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
+
+        # Example: offset for X start
+        if Nx > 1:
+            x_channel = 0
+            scanPx_Start = self.V_scan[x_channel][0] - (self.dL_scan[x_channel] * 1e3 if self.dL_scan[x_channel] else 0)
+            move_abs_fn(x_channel, scanPx_Start)
+            time.sleep(0.005)
+            read_in_pos_fn(x_channel)
+
+        # S-scan direction
+        self.dir = 1
+
+        # File naming
+        self.scanFN = self.create_scan_file_name(local=True)
+
+        # Initialize measurement counters
+        previousMeas_idx = 0
+        meas_idx = 0
+
+        # Z-calibration offset
+        z_correction_previous = 0
+        z_calibration_offset = 0
+        if self.b_Zcorrection and (self.ZCalibrationData is not None):
+            # at the origin
+            z_correction_origin = calculate_z_series(
+                self.ZCalibrationData,
+                np.array([self.initial_scan_Location[0]]),
+                self.initial_scan_Location[1]
+            )[0]
+            z_calibration_offset = int(z_correction_origin)
+
+        # ----------------------------------------------------------------------
+        # Main Scanning Loops
+        # ----------------------------------------------------------------------
+        for iz in range(Nz):
+            if self.stopScan:
+                break
+            if Nz > 1:
+                # Move Z axis
+                move_abs_fn(2, self.V_scan[2][iz])
+                read_in_pos_fn(2)
+
+            iy = 0
+            while iy < Ny:
+                if self.stopScan:
+                    break
+                if Ny > 1:
+                    # Move Y axis
+                    move_abs_fn(1, self.V_scan[1][iy])
+                    read_in_pos_fn(1)
+
+                # Flip direction for S-shape scanning
+                self.dir *= -1
+
+                # For each X
+                line_start_time = time.time()
+                for ix in range(Nx):
+                    if self.stopScan:
+                        break
+
+                    # Z correction
+                    new_z_pos = self.V_scan[2][iz] if Nz > 1 else self.initial_scan_Location[2]
+                    if self.b_Zcorrection and (self.ZCalibrationData is not None):
+                        z_correction_new = calculate_z_series(
+                            self.ZCalibrationData,
+                            np.array([int(self.V_scan[0][ix])]),
+                            int(self.V_scan[1][iy]) if Ny > 1 else self.initial_scan_Location[1]
+                        )[0] - z_calibration_offset
+
+                        if abs(z_correction_new - z_correction_previous) > self.z_correction_threshold:
+                            new_z_pos = new_z_pos + int(z_correction_new)
+                            z_correction_previous = z_correction_new
+                            move_abs_fn(2, new_z_pos)
+                            read_in_pos_fn(2)
+                        else:
+                            new_z_pos = new_z_pos + z_correction_previous
+
+                    # Move X
+                    move_abs_fn(0, self.V_scan[0][ix])
+                    read_in_pos_fn(0)
+
+                    # Trigger measurement
+                    self.qm.set_io2_value(self.ScanTrigger)
+                    time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement
+
+                    # If QUA is streaming data
+                    # no-op; we'll fetch after the line
+
+                # End of X loop
+
+                # Now fetch from QUA
+                if self.counts_handle.is_processing():
+                    print('Waiting for QUA counts...')
+                    self.counts_handle.wait_for_values(1)
+                    self.meas_idx_handle.wait_for_values(1)
+                    time.sleep(0.1)
+
+                    meas_idx = self.meas_idx_handle.fetch_all()
+                    print(f"meas_idx = {meas_idx}")
+                    counts = self.counts_handle.fetch_all()
+                    print(f"counts.size = {counts.size}")
+
+                    self.qmm.clear_all_job_results()
+                    if counts.size == Nx:
+                        # Fill the slice
+                        self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
+                        self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+                    else:
+                        print("Warning: counts size mismatch, partial line or measurement error.")
+
+                if (meas_idx - previousMeas_idx) % (Nx if Nx > 1 else 1) == 0:
+                    iy += 1
+                    # Save partial data
+                    self.prepare_scan_data(
+                        max_position_x_scan=self.endLoc[0],
+                        min_position_x_scan=self.startLoc[0],
+                        start_pos=self.initial_scan_Location
+                    )
+                    self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN, to_append=True)
+                else:
+                    print(
+                        "****** Error: ******\nNumber of measurements is not consistent with expected.\nRepeating line...")
+
+                previousMeas_idx = meas_idx
+
+                # Move back X if needed for next line
+                if Nx > 1:
+                    move_abs_fn(0, scanPx_Start)
+                    read_in_pos_fn(0)
+
+                # Time calculations
+                line_end_time = time.time()
+                delta_line = line_end_time - line_start_time
+                elapsed_total = line_end_time - start_time
+                lines_left = (Nz - iz) * (Ny - iy)
+                estimated_time_left = delta_line * lines_left - delta_line
+                estimated_time_left = max(0, estimated_time_left)
+                dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
+
+            # End while iy < Ny
+        # End for iz in range(Nz)
+
+        # ----------------------------------------------------------------------
+        # Return to Original Position
+        # ----------------------------------------------------------------------
+        for ax in range(3):
+            if (ax < len(self.V_scan)) and (len(self.V_scan[ax]) > 0):
+                # Move to initial
+                move_abs_fn(ax, self.initial_scan_Location[ax])
+                read_in_pos_fn(ax)
+
+        # Final save
+        fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
+        self.writeParametersToXML(fn + ".xml")
+
+        end_time = time.time()
+        print(f"end_time: {end_time}")
+        print(f"number of points = {Nx * Ny * Nz}")
+        print(f"Elapsed time: {end_time - start_time} seconds")
+
+        if not self.stopScan:
+            self.btnStop()
+
+        return self.scan_intensities
+
     def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
         # Create object to be saved in excel
         self.scan_Out = []
@@ -6174,7 +6545,7 @@ class GUI_OPX():
         if local:
             folder_path = "C:/temp/TempScanData/"
         else:
-            folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/scan/'
+            folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}'
         if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
             os.makedirs(folder_path)
         fileName = os.path.join(folder_path, timeStamp + "scan_" + self.expNotes)
