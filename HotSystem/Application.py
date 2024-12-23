@@ -761,13 +761,15 @@ class PyGuiOverlay(Layer):
                     y_offset += dpg.get_item_height(self.keysight_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.ATTO_SCANNER:
+                    hw_devices.HW_devices(simulation=self.simulation).atto_scanner.connect()
                     self.atto_scanner_gui = GUIAttoScanner(
                         motor= hw_devices.HW_devices(simulation=self.simulation).atto_scanner,
                         instrument=Instruments.ATTO_SCANNER,
                         simulation=self.simulation
                     )
-                    dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, y_offset])
+                    dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
+
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 

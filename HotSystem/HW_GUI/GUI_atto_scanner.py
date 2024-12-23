@@ -26,13 +26,13 @@ class GUIAttoScanner(GUIMotor):
         """
         Add offset voltage controls to the GUI.
         """
-        with dpg.group(horizontal=False, tag = f"offset_voltage_controls_{self.unique_id}", width = 350):
+        with dpg.group(horizontal=False, tag = f"offset_voltage_controls_{self.unique_id}", width = 150):
             dpg.add_text("Offset Voltage (V)")
             for ch in self.dev.channels:
                 with dpg.group(horizontal=True):
                     dpg.add_input_float(label="", default_value=0.0, tag=f"ch{ch}_offset_{self.unique_id}", width=60)
-                    dpg.add_button(label="Set", callback=self.btn_set_offset, user_data=ch)
-                    dpg.add_button(label="Get", callback=self.btn_get_offset, user_data=ch)
+                    dpg.add_button(label="Set", callback=self.btn_set_offset, user_data=ch, width=60)
+                    dpg.add_button(label="Get", callback=self.btn_get_offset, user_data=ch, width=60)
 
     def btn_set_offset(self, sender, app_data, ch: int) -> None:
         """
@@ -81,7 +81,7 @@ class GUIAttoScanner(GUIMotor):
         """
         Add mode controls to the GUI.
         """
-        with dpg.group(horizontal=False, tag=f"mode_controls_{self.unique_id}", width=350):
+        with dpg.group(horizontal=False, tag=f"mode_controls_{self.unique_id}", width=150):
             dpg.add_text("Channel Modes")
             for ch in self.dev.channels:
                 with dpg.group(horizontal=True):
@@ -89,6 +89,7 @@ class GUIAttoScanner(GUIMotor):
                         items=[mode.value for mode in ANC300Modes],
                         default_value=ANC300Modes.GND.value,
                         tag=f"ch{ch}_mode_{self.unique_id}",
+                        width=150,
                     )
-                    dpg.add_button(label="Set", callback=self.btn_set_mode, user_data=ch)
-                    dpg.add_button(label="Get", callback=self.btn_get_mode, user_data=ch)
+                    dpg.add_button(label="Set", callback=self.btn_set_mode, user_data=ch, width=60)
+                    dpg.add_button(label="Get", callback=self.btn_get_mode, user_data=ch, width=60)
