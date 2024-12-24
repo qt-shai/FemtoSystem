@@ -9,6 +9,7 @@ from pyglet.gl import GL_VERSION, glClearColor, glClear, GL_COLOR_BUFFER_BIT
 from Common import Common_Counter_Singletone, KeyboardKeys
 from EventDispatcher import EventDispatcher
 from ExpSequenceGui import ExpSequenceGui
+from HW_GUI import GUI_CLD1011LP as gui_CLD1011LP
 from HW_GUI import GUI_Cobolt as gui_Cobolt
 from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
@@ -400,6 +401,7 @@ class PyGuiOverlay(Layer):
         self.error = None
         self.picomotor_thread = None
         self.cobolt_thread = None
+        self.CLD1011LP_thread = None
         self.GetScreenSize()
         self.CURRENT_KEY = None
 
@@ -408,13 +410,42 @@ class PyGuiOverlay(Layer):
         dpg.run_callbacks(jobs)
         dpg.render_dearpygui_frame()
 
-        # self.render_Cobolt()
-        # self.render_Picomotor()
-        # self.render_Smaract()
-
         if hasattr(self, 'cam') and hasattr(self.cam, 'cam'):
             if len(self.cam.cam.available_cameras) > 0 and self.cam.cam.constantGrabbing:
                 self.cam.UpdateImage()
+
+    def render_CLD1011LP(self):
+        while self.KeepThreadRunning:
+            time.sleep(0.5)
+            try:
+                self.CLD1011LP_gui.laser.get_info()
+                if self.CLD1011LP_gui.laser.lasing_state in ['Laser is ON']:
+                    dpg.set_item_label(item="btn_turn_on_off_laser",label="Turn laser off")
+                else:
+                    dpg.set_item_label(item="btn_turn_on_off_laser",label="Turn laser on")
+
+                if self.CLD1011LP_gui.laser.tec_state in ['TEC is ON']:
+                    dpg.set_item_label(item="btn_turn_on_off_tec",label="Turn TEC off")
+                else:
+                    dpg.set_item_label(item="btn_turn_on_off_tec",label="Turn TEC on")
+
+                if self.CLD1011LP_gui.laser.modulation_mod in ['enabled']:
+                    dpg.set_item_label(item="btn_turn_on_off_modulation",label="disable modulation")
+                else:
+                    dpg.set_item_label(item="btn_turn_on_off_modulation",label="enable modulation")
+                
+                if self.CLD1011LP_gui.laser.mode in ['POW']:
+                    dpg.set_item_label(item="btn_switch_mode",label="set current mode")
+                else:
+                    dpg.set_item_label(item="btn_switch_mode",label="set power mode")
+                
+                dpg.set_value(value=f"Current " + self.CLD1011LP_gui.laser.actual_current+ " A", item="Laser Current")
+                dpg.set_value(value=f"Temperature " + self.CLD1011LP_gui.laser.actual_temp+ " degC", item="Laser Temp")
+                dpg.set_value(value=f"Modulation " + self.CLD1011LP_gui.laser.modulation_mod, item="Laser Modulation")
+                dpg.set_value(value=f"Mode " + self.CLD1011LP_gui.laser.mode, item="Laser Mode")
+                
+            except Exception as e:
+                print(f"CLD1011LP render error: {e}")
 
     def render_cobolt(self):
         while self.KeepThreadRunning:
@@ -656,6 +687,14 @@ class PyGuiOverlay(Layer):
                     if not self.simulation:
                         self.smaract_thread = threading.Thread(target=self.render_smaract)
                         self.smaract_thread.start()
+                
+                elif instrument == Instruments.CLD1011LP:
+                    self.CLD1011LP_gui = gui_CLD1011LP.GUI_CLD1011LP(self.simulation)
+                    dpg.set_item_pos(self.CLD1011LP_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.CLD1011LP_gui.window_tag) + vertical_spacing
+                    if not self.simulation:
+                        self.CLD1011LP_thread = threading.Thread(target=self.render_CLD1011LP)
+                        self.CLD1011LP_thread.start()
 
                 elif instrument == Instruments.COBOLT:
                     self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation, com_port = device.com_port)
