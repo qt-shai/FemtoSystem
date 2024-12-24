@@ -32,7 +32,7 @@ import matplotlib
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from SystemConfig import SystemType, Instruments
-from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized
+from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors
 import dearpygui.dearpygui as dpg
 from PIL import Image
 import subprocess
@@ -83,6 +83,7 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.scan_default_sleep_time: float = 20e-3
         self.initial_scan_Location: List[float] = []
         self.iteration: int = 0
         self.tracking_function: Callable = None
@@ -108,11 +109,14 @@ class GUI_OPX():
             self.ScanTrigger = 1
             self.TrackingTrigger = 1
         if (self.HW.config.system_type == configs.SystemType.ATTO):
+            print("Setting up parameters for the atto system")
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
             if self.HW.atto_scanner:
+                print("Setting up tracking function with atto scanner + positioner")
                 self.tracking_function = self.FindMaxSignal_atto_positioner_and_scanner
             else:
+                print("Setting up tracking function with atto positioner")
                 self.tracking_function = self.FindMaxSignal_atto_positioner
 
 
@@ -5552,7 +5556,68 @@ class GUI_OPX():
     def StartScan(self):
         if self.positioner:
             self.positioner.KeyboardEnabled = False  # TODO: Update the check box in the gui!!
-        self.StartScan3D()
+        if self.HW.atto_scanner:
+
+            # Move and read functions for mixed axes control
+            def move_axes(channel: int, position: float):
+                """
+                Set offset voltage for the corresponding axis.
+                """
+                print(f"Moving channel {channel} to position {position}")
+                if channel in [0, 1]:  # X and Y axes: atto_scanner
+                    self.HW.atto_scanner.set_offset_voltage(self.HW.atto_scanner.channels[channel], position)
+                elif channel == 2:  # Z axis: atto_positioner
+                    self.HW.atto_positioner.set_control_fix_output_voltage(self.HW.atto_positioner.channels[channel],
+                                                                           int(position))
+
+            def get_positions():
+                """
+                Get current positions for all three axes.
+                """
+                x = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[0])  # X axis
+                y = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[1])  # Y axis
+                z = self.HW.atto_positioner.get_control_fix_output_voltage(2)  # Z axis
+                return x, y, z
+
+            self.HW.atto_scanner.stop_position_updates()
+            self.HW.atto_positioner.stop_position_updates()
+
+            self.initial_scan_Location = list(get_positions())
+            print(f"Initial scan location: {self.initial_scan_Location}")
+            scan_lengths = [self.L_scan[ch] * int(self.b_Scan[ch])*1e-3 for ch in range(3)]
+            scan_steps = [self.dL_scan[ch] *1e-3 for ch in range(3)]
+
+            # Extract bounds for axis 0 and 1 from the atto_scanner
+            scanner_min = self.HW.atto_scanner.offset_voltage_min
+            scanner_max = self.HW.atto_scanner.offset_voltage_max
+
+            # Extract bounds for axis 2 from the atto_positioner
+            positioner_min = self.HW.atto_positioner.fix_output_voltage_min
+            positioner_max = self.HW.atto_positioner.fix_output_voltage_max
+
+            # Create lower and upper bounds
+            lower_bounds = [scanner_min, scanner_min, positioner_min]
+            upper_bounds = [scanner_max, scanner_max, positioner_max]
+
+            x_vec, y_vec, z_vec = create_scan_vectors(self.initial_scan_Location,
+                                                      scan_lengths,scan_steps,
+                                                      (lower_bounds,upper_bounds))
+            print(f"x_vec: {x_vec}")
+            print(f"y_vec: {y_vec}")
+            print(f"z_vec: {z_vec}")
+            self.StartScanGeneral(
+                move_abs_fn=move_axes,
+                read_in_pos_fn=lambda ch: (time.sleep(self.scan_default_sleep_time), True)[1],
+                get_positions_fn=get_positions,
+                device_reset_fn = None,
+                x_vec=x_vec,
+                y_vec=y_vec,
+                z_vec=z_vec
+            )
+            self.HW.atto_scanner.start_position_updates()
+            self.HW.atto_positioner.start_position_updates()
+        else:
+            self.StartScan3D()
         if self.positioner:
             self.positioner.KeyboardEnabled = True  # TODO: Update the check box in the gui!!
 
@@ -6050,7 +6115,8 @@ class GUI_OPX():
         self.scan_Out = []
         self.scan_intensities = []
 
-        device_reset_fn()
+        if device_reset_fn:
+            device_reset_fn()
         # Example of special device resets (original code checks for smaractMCS2, etc.)
         # if self.positioner is smaractMCS2:
         #     self.positioner.set_in_position_delay(0, delay=0)
@@ -6139,7 +6205,7 @@ class GUI_OPX():
         # Example: offset for X start
         if Nx > 1:
             x_channel = 0
-            scanPx_Start = self.V_scan[x_channel][0] - (self.dL_scan[x_channel] * 1e3 if self.dL_scan[x_channel] else 0)
+            scanPx_Start = self.V_scan[x_channel][0] # - (self.dL_scan[x_channel] if self.dL_scan[x_channel] else 0)
             move_abs_fn(x_channel, scanPx_Start)
             time.sleep(0.005)
             read_in_pos_fn(x_channel)
@@ -6413,6 +6479,8 @@ class GUI_OPX():
         return x_fixed, y_fixed, z_fixed, allPoints_fixed, pattern_length
 
     def btnGetLoggedPoints(self):
+        if self.HW.atto_scanner:
+            return
         current_label = dpg.get_item_label("btnOPX_GetLoggedPoint")
         prefix = "mcs"
         num_of_logged_points = 0
@@ -6660,7 +6728,7 @@ class GUI_OPX():
         - X and Y axes are controlled by the atto_scanner.
         - Z axis is controlled by the atto_positioner.
         """
-        print('Start looking for peak intensity using FindMaxSignal2')
+        print('Start looking for peak intensity using atto_positioner_and_scanner')
 
         # Move and read functions for mixed axes control
         def move_axes(channel: int, position: float):
@@ -6668,26 +6736,24 @@ class GUI_OPX():
             Set offset voltage for the corresponding axis.
             """
             if channel in [0, 1]:  # X and Y axes: atto_scanner
-                self.HW.atto_scanner.set_offset_voltage(channel, position)
+                self.HW.atto_scanner.set_offset_voltage(self.HW.atto_scanner.channels[channel], position)
             elif channel == 2:  # Z axis: atto_positioner
-                self.HW.atto_positioner.set_control_fix_output_voltage(2, int(position))
+                self.HW.atto_positioner.set_control_fix_output_voltage(self.HW.atto_positioner.channels[channel], int(position))
 
         def get_positions():
             """
             Get current positions for all three axes.
             """
-            x = self.HW.atto_scanner.get_offset_voltage(0)  # X axis
-            y = self.HW.atto_scanner.get_offset_voltage(1)  # Y axis
+            x = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[0])  # X axis
+            y = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[1])  # Y axis
             z = self.HW.atto_positioner.get_control_fix_output_voltage(2)  # Z axis
             return x, y, z
 
-        # Initial guess: current position for all axes
-        initial_guess = get_positions()
+        # Example scan radii for each axis
+        tracking_scan_radius = [2.5, 2.5, 10000]
 
-        # Bounds: [0, 40000] mV for all axes
-        bounds = ((self.HW.atto_scanner.offset_voltage_min,self.HW.atto_scanner.offset_voltage_max),
-                  (self.HW.atto_scanner.offset_voltage_min, self.HW.atto_scanner.offset_voltage_max),
-                  (self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max))
+        initial_guess = get_positions()
+        bounds = self.calculate_tracking_bounds(initial_guess, tracking_scan_radius)
 
         # Call the generalized find_max_signal function
         x_opt, y_opt, z_opt, intensity = find_max_signal(
@@ -6695,10 +6761,10 @@ class GUI_OPX():
             read_in_pos_fn=lambda ch: (time.sleep(30e-3), True)[1],  # Ensure move has settled
             get_positions_fn=get_positions,
             fetch_data_fn=self.GlobalFetchData,  # Function to fetch new data
-            get_signal_fn=lambda: -self.counter_Signal[0] if self.exp == Experiment.COUNTER else -self.tracking_ref,
+            get_signal_fn=lambda: self.counter_Signal[0] if self.exp == Experiment.COUNTER else self.tracking_ref,
             # Signal to maximize
             bounds=bounds,
-            method=OptimizerMethod.ADAM,
+            method=OptimizerMethod.DIRECTIONAL,
             initial_guess=initial_guess,
             max_iter=30,
             use_coarse_scan=True
@@ -6711,9 +6777,34 @@ class GUI_OPX():
             f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV, z={z_opt:.2f} mV with intensity={intensity:.4f}"
         )
 
+    def calculate_tracking_bounds(self, initial_guess, scan_radius):
+        x_guess, y_guess, z_guess = initial_guess
+        # Clip around each axis with respective scan radii
+        x_bounds = (
+            np.clip(x_guess - scan_radius[0], self.HW.atto_scanner.offset_voltage_min,
+                    self.HW.atto_scanner.offset_voltage_max),
+            np.clip(x_guess + scan_radius[0], self.HW.atto_scanner.offset_voltage_min,
+                    self.HW.atto_scanner.offset_voltage_max),
+        )
+        y_bounds = (
+            np.clip(y_guess - scan_radius[1], self.HW.atto_scanner.offset_voltage_min,
+                    self.HW.atto_scanner.offset_voltage_max),
+            np.clip(y_guess + scan_radius[1], self.HW.atto_scanner.offset_voltage_min,
+                    self.HW.atto_scanner.offset_voltage_max),
+        )
+        z_bounds = (
+            np.clip(z_guess - scan_radius[2], self.HW.atto_positioner.fix_output_voltage_min,
+                    self.HW.atto_positioner.fix_output_voltage_max),
+            np.clip(z_guess + scan_radius[2], self.HW.atto_positioner.fix_output_voltage_min,
+                    self.HW.atto_positioner.fix_output_voltage_max),
+        )
+        bounds = (x_bounds, y_bounds, z_bounds)
+        print(f"Bounds are : {bounds}")
+        return bounds
+
     def FindMaxSignal_atto_positioner(self):
 
-        print('Start looking for peak intensity using FindMaxSignal2')
+        print('Start looking for peak intensity using atto_positioner')
         initial_position = [self.HW.atto_positioner.get_control_fix_output_voltage(ch) for ch in self.HW.atto_positioner.channels]
 
         bounds = ((self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max),
@@ -6750,7 +6841,10 @@ class GUI_OPX():
     def MoveToPeakIntensity(self):
         print('Start looking for peak intensity')
         if self.bEnableSignalIntensityCorrection:
-            if self.system_name == SystemType.ATTO.value:
+            print(f"self.HW.atto_scanner is {self.HW.atto_scanner}")
+            print(f"self.HW.atto_positioner is {self.HW.atto_positioner}")
+            if self.HW.atto_scanner or self.HW.atto_positioner:
+                print("Working in Atto system")
                 self.MAxSignalTh = threading.Thread(target=self.tracking_function)
             else:
                 self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
