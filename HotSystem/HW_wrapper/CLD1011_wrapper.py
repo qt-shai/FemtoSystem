@@ -93,29 +93,3 @@ class ThorlabsCLD1011LP:
     def close(self):
         """Close the connection to the laser driver"""
         self.device.close()
-
-# Usage Example
-if __name__ == '__main__':
-    # Replace with your actual resource name (VISA string)
-    # resource_name = 'USB0::0x1313::0x80C8::M00352057::INSTR'
-
-    # Create an instance of the driver
-    driver = ThorlabsCLD1011LP()#resource_name)
-    
-    # Get device info
-    print("Device Info:", driver.get_device_info())
-
-    driver.get_key_state()
-
-    # Set current to 100 mA (0.1 A)
-    driver.set_current(0.050)
-
-    # Enable laser
-    driver.enable_laser()
-    time.sleep(5)  # Laser on for 5 seconds
-
-    # Disable laser
-    driver.disable_laser()
-
-    # Close the connection
-    driver.close()
