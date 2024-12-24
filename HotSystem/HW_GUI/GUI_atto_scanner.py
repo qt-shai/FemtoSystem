@@ -52,8 +52,11 @@ class GUIAttoScanner(GUIMotor):
 
         :param ch: The channel number.
         """
-        voltage = self.dev.get_offset_voltage(ch)
-        dpg.set_value(f"ch{ch}_offset_{self.unique_id}", voltage)
+        try:
+            voltage = self.dev.get_offset_voltage(ch)
+            dpg.set_value(f"ch{ch}_offset_{self.unique_id}", voltage)
+        except Exception as e:
+            print(f"Error: {e}")
 
     def btn_set_mode(self, sender, app_data, ch: int) -> None:
         """
@@ -74,8 +77,11 @@ class GUIAttoScanner(GUIMotor):
 
         :param ch: The channel number.
         """
-        mode = self.dev.get_mode(ch)
-        dpg.set_value(f"ch{ch}_mode_{self.unique_id}", mode.value)
+        try:
+            mode = self.dev.get_mode(ch)
+            dpg.set_value(f"ch{ch}_mode_{self.unique_id}", mode.value)
+        except Exception as e:
+            print(f"Error in btn_get_mode click: {e}")
 
     def _add_mode_controls(self) -> None:
         """

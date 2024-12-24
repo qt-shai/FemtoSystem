@@ -24,7 +24,7 @@ def directional_climbing_optimize(
     get_signal_fn: Callable[[], float],
     get_positions_fn: Callable[[], Tuple[float, float, float]],
     bounds: Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]],
-    step_size: float = 500.0,
+    step_size: list[float],
     improvement_threshold: float = 1.02,
     max_axis_attempts: int = 3,
     run_stats: bool = False,
@@ -90,8 +90,9 @@ def directional_climbing_optimize(
         best_sig = move_and_measure(x0, y0, z0)
         best_pos = (x0, y0, z0)
         for i in range(1, steps + 1):
-            x_test = x0 + axis_vec[0]*i*step_size
-            y_test = y0 + axis_vec[1]*i*step_size
+            print(step_size[0])
+            x_test = x0 + axis_vec[0]*i*step_size[0]
+            y_test = y0 + axis_vec[1]*i*step_size[1]
             sig = move_and_measure(x_test, y_test, z0)
             if sig > best_sig:
                 best_sig = sig
@@ -123,8 +124,8 @@ def directional_climbing_optimize(
         steps_taken = 0
         max_steps = 5  # limit how far we go in this direction
         while improved and steps_taken < max_steps:
-            new_x = x + dx*step_size
-            new_y = y + dy*step_size
+            new_x = x + dx*step_size[0]
+            new_y = y + dy*step_size[1]
             new_sig = move_and_measure(new_x, new_y, z)
             steps_taken += 1
             if new_sig > current_sig:
@@ -153,7 +154,7 @@ def directional_climbing_optimize(
             best_sig = base_sig
             # Positive direction
             for i in range(1, max_axis_attempts+1):
-                z_test = z0 + i*step_size
+                z_test = z0 + i*step_size[2]
                 sig = move_and_measure(x0, y0, z_test)
                 if sig > best_sig:
                     best_sig = sig
@@ -162,7 +163,7 @@ def directional_climbing_optimize(
                     break
             # Negative direction
             for i in range(1, max_axis_attempts+1):
-                z_test = z0 - i*step_size
+                z_test = z0 - i*step_size[2]
                 sig = move_and_measure(x0, y0, z_test)
                 if sig > best_sig:
                     best_sig = sig
@@ -186,8 +187,8 @@ def directional_climbing_optimize(
                 cur_x, cur_y, cur_z = x0, y0, z0
                 cur_sig = base_sig
                 for _ in range(max_axis_attempts):
-                    new_x = cur_x + d[0]*step_size
-                    new_y = cur_y + d[1]*step_size
+                    new_x = cur_x + d[0]*step_size[0]
+                    new_y = cur_y + d[1]*step_size[1]
                     new_sig = move_and_measure(new_x, new_y, cur_z)
                     if new_sig > cur_sig:
                         cur_x, cur_y, cur_z = new_x, new_y, cur_z
@@ -215,9 +216,9 @@ def directional_climbing_optimize(
                     # Skip cases where more than one of dx, dy, dz are nonzero
                     if (dx != 0) + (dy != 0) + (dz != 0) > 1:
                         continue
-                    x_test = x0 + dx*step_size
-                    y_test = y0 + dy*step_size
-                    z_test = z0 + dz*step_size
+                    x_test = x0 + dx*step_size[0]
+                    y_test = y0 + dy*step_size[1]
+                    z_test = z0 + dz*step_size[2]
                     sig = move_and_measure(x_test, y_test, z_test)
                     if sig > best_sig:
                         best_sig = sig
@@ -247,8 +248,8 @@ def directional_climbing_optimize(
         x_best, y_best, z_best, sig_best = axis_climb((x_best, y_best, z_best), 2)
     else:
         # Got a decent XY direction
-        dx = (x_best - start_pos[0])/(3*step_size) if x_best != start_pos[0] else 0
-        dy = (y_best - start_pos[1])/(3*step_size) if y_best != start_pos[1] else 0
+        dx = (x_best - start_pos[0])/(3*step_size[0]) if x_best != start_pos[0] else 0
+        dy = (y_best - start_pos[1])/(3*step_size[1]) if y_best != start_pos[1] else 0
         x_best, y_best, z_best, sig_best = follow_direction((x_best,y_best,z_best), dx, dy)
         if sig_best < global_best_sig * improvement_threshold:
             if verbose: print("Direction approach insufficient. Reverting to global best and trying axes separately.")
@@ -273,7 +274,7 @@ def directional_climbing_optimize(
 
     # Try a refinement step by reducing step_size if needed
     # If we see room for improvement, do a finer local scan with smaller steps
-    refined_step = step_size/2
+    refined_step = [step/2 for step in step_size]
     if refined_step >= 100 and (sig_best < global_best_sig * improvement_threshold):
         if verbose: print("Attempting refinement with smaller step size...")
         old_step_size = step_size
@@ -516,7 +517,7 @@ def find_max_signal(
             return initial_guess[0], initial_guess[1], initial_guess[2], 1000
 
     if method == OptimizerMethod.DIRECTIONAL:
-        step_size: float = 1000.0
+        step_size: float = np.abs(bounds[0][1] - bounds[0][0])/10
         improvement_threshold: float = 1.10
         max_axis_attempts:int = 3
         run_stats:bool = False

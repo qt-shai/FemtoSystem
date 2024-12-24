@@ -4,6 +4,7 @@ from .Common import (load_scan_plane_calibration_data, save_scan_plane_calibrati
                      intensity_to_rgb_heatmap_normalized, calculate_z_series, open_file_dialog,
                      get_available_xml_files, get_square_matrix_size, remove_overlap_from_string)
 from .intensity_peak_finding import OptimizerMethod, find_max_signal
+from .scan_utils import create_scan_vectors
 
 __all__ = [
     "SerialDevice",
@@ -20,5 +21,6 @@ __all__ = [
     "get_square_matrix_size",
     "remove_overlap_from_string",
     "OptimizerMethod",
-    "find_max_signal"
+    "find_max_signal",
+    "create_scan_vectors"
 ]

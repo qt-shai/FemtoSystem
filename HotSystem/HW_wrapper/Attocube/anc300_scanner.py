@@ -38,12 +38,12 @@ class Anc300Wrapper(Motor):
         self.no_of_channels: int = 2  # Adjust based on actual device configuration
         self.channels: List[int] = [1, 2]  # Logical channels: 1, 2 for X, Y axes
         self.StepsIn1mm: int = int(1e12)  # Steps in 1 mm (assuming 1 step = 1 pm)
-        self._axes_positions: List[float] = [0.0] * self.no_of_channels  # Positions in picometers
-        self._axes_pos_units: List[str] = ["pm"] * self.no_of_channels
+        self._axes_positions: dict[int,float] = {ch: 0.0 for ch in self.channels}# Positions in picometers
+        self._axes_pos_units: dict[int,str] = {ch: "pm" for ch in self.channels}
         self._connected: bool = False
         self.device:Optional[Attocube.ANC300] = None  # Will be initialized in connect()
         self.offset_voltage_min = 0 # Volts
-        self.offset_voltage_max = 150 # Volts
+        self.offset_voltage_max = 59 # Volts
 
     def connect(self) -> None:
         """Connect to the ANC300 device."""
@@ -196,9 +196,15 @@ class Anc300Wrapper(Motor):
         else:
             if voltage > 59:
                 raise ValueError(f"Voltage {voltage} exceeds the maximum allowed limit of 59V.")
+            if voltage <0:
+                raise ValueError(f"Voltage {voltage} exceeds the minimum allowed limit of 0V.")
+
             if channel not in self.channels:
                 raise ValueError(f"Channel {channel} does not exist.")
-            self.device.set_offset(channel, voltage)
+            try:
+                self.device.set_offset(channel, voltage)
+            except Exception:
+                print(f"Failed to set offset voltage for channel {channel}.")
 
     def get_offset_voltage(self, channel: int) -> float:
         """
@@ -211,7 +217,11 @@ class Anc300Wrapper(Motor):
         if self.simulation:
             return 0.0
 
-        return self.device.get_offset(channel)
+        try:
+            return self.device.get_offset(channel)
+        except Exception:
+            print(f"Failed to get offset voltage for channel {channel}.")
+            return -1.0
 
     def get_position(self, channel: int) -> float:
         """

@@ -255,3 +255,47 @@ def format_elapsed_time(elapsed_time: float) -> str:
     hours, rem = divmod(elapsed_time, 3600)
     minutes, seconds = divmod(rem, 60)
     return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
+
+from typing import List, Tuple
+
+def create_scan_vectors(initial_scan_location: List[float], l_scan: List[float], step_sizes: List[float],
+                        bounds: Tuple[List[float], List[float]]) -> Tuple[List[float], List[float], List[float]]:
+    """
+    Create x, y, and z vectors for a scan based on initial location, scan dimensions, step sizes, and bounds.
+
+    :param initial_scan_location: Initial scan location as a list [x, y, z].
+    :param l_scan: Scan dimensions (half-lengths) as a list [Lx, Ly, Lz].
+    :param step_sizes: Step sizes for each dimension as a list [step_x, step_y, step_z].
+    :param bounds: Tuple of two lists [lower_bounds, upper_bounds] defining the clipping bounds for each axis.
+    :return: Tuple containing x, y, and z vectors for the scan.
+    """
+    if not (len(initial_scan_location) == len(l_scan) == len(step_sizes) == len(bounds[0]) == len(bounds[1]) == 3):
+        raise ValueError("All input lists must have a length of 3.")
+
+    def calculate_vector(center: float, half_length: float, step_size: float, lower_bound: float, upper_bound: float) -> List[float]:
+        """
+        Calculate a vector for a single axis.
+
+        :param center: Center coordinate for the axis.
+        :param half_length: Half-length of the scan region for the axis.
+        :param step_size: Step size for the axis.
+        :param lower_bound: Lower bound for the axis.
+        :param upper_bound: Upper bound for the axis.
+        :return: A list representing the vector for the axis, clipped within bounds.
+        """
+        if step_size <= 0:
+            raise ValueError("Step size must be positive.")
+
+        if half_length <= 0:
+            return [max(lower_bound, min(center, upper_bound))]  # Single point if no scan length
+
+        num_points = max(int((2 * half_length) / step_size) + 1, 2)  # At least 2 points if scanning
+        vector = [np.clip(v,lower_bound, upper_bound) for v in np.linspace(center - half_length, center + half_length, num_points)]
+        return vector
+
+    # Generate scan vectors for each dimension
+    x_vec = calculate_vector(initial_scan_location[0], l_scan[0], step_sizes[0], bounds[0][0], bounds[1][0])
+    y_vec = calculate_vector(initial_scan_location[1], l_scan[1], step_sizes[1], bounds[0][1], bounds[1][1])
+    z_vec = calculate_vector(initial_scan_location[2], l_scan[2], step_sizes[2], bounds[0][2], bounds[1][2])
+
+    return x_vec, y_vec, z_vec
