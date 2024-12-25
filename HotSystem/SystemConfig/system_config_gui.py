@@ -158,6 +158,7 @@ def save_to_xml(system_type: SystemType, selected_devices_list: list):
             mac_element.text = device.mac_address or 'N/A'
             sn_element = ET.SubElement(device_element, "SerialNumber")
             sn_element.text = device.serial_number or 'N/A'
+            # Save COM Port information
             com_port_element = ET.SubElement(device_element, "COMPort")
             com_port_element.text = device.com_port or 'N/A'
             simulation_element = ET.SubElement(device_element, "Simulation")
@@ -246,6 +247,7 @@ def load_instrument_images():
                     # Create a placeholder texture (a white square)
                     placeholder_data = [255, 255, 255, 255] * 50 * 50
                     dpg.add_static_texture(50, 50, placeholder_data, tag=texture_tag)
+
 
 def create_themes():
     """

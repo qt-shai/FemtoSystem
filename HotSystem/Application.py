@@ -442,17 +442,17 @@ class PyGuiOverlay(Layer):
                     dpg.set_item_label(item="cld1011lp btn_turn_on_off_modulation",label="disable modulation")
                 else:
                     dpg.set_item_label(item="cld1011lp btn_turn_on_off_modulation",label="enable modulation")
-                
+
                 if self.CLD1011LP_gui.laser.mode in ['POW']:
                     dpg.set_item_label(item="btn_switch_mode",label="set current mode")
                 else:
                     dpg.set_item_label(item="cld1011lp btn_switch_mode",label="set power mode")
-                
+
                 dpg.set_value(value=f"Current " + self.CLD1011LP_gui.laser.actual_current+ " A", item="cld1011lp Laser Current")
                 dpg.set_value(value=f"Temperature " + self.CLD1011LP_gui.laser.actual_temp+ " degC", item="cld1011lp Laser Temp")
                 dpg.set_value(value=f"Modulation " + self.CLD1011LP_gui.laser.modulation_mod, item="cld1011lp Laser Modulation")
                 dpg.set_value(value=f"Mode " + self.CLD1011LP_gui.laser.mode, item="cld1011lp Laser Mode")
-                
+
             except Exception as e:
                 print(f"CLD1011LP render error: {e}")
 
@@ -461,9 +461,9 @@ class PyGuiOverlay(Layer):
             time.sleep(0.15)
             try:
                 if self.coboltGUI.laser.is_connected():
-                    Laser_state=self.coboltGUI.laser.get_state()  
+                    Laser_state=self.coboltGUI.laser.get_state()
                     dpg.set_value("Laser State","State:  "+Laser_state)
-                    Laser_mode=self.coboltGUI.laser.get_mode() 
+                    Laser_mode=self.coboltGUI.laser.get_mode()
                     dpg.set_value("Laser Mode","Mode: "+Laser_mode)
 
                     if self.coboltGUI.laser.is_on():
@@ -649,7 +649,7 @@ class PyGuiOverlay(Layer):
         dpg.setup_dearpygui()
         dpg.show_viewport()
         pass
-    def on_attach(self):
+    def on_attach(self,simulation):
 
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
         self.setup_instruments()

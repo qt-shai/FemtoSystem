@@ -34,7 +34,7 @@ class GUISIM960:
 
         # Create a main window for the device
         with dpg.window(tag=self.win_tag, label=self.win_label,
-                        no_title_bar=False, height=400, width=900, pos=[100, 100], collapsed=False):
+                        no_title_bar=False, height=400, width=1300, pos=[100, 100], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_device_image()
                 self.create_pid_controls()
@@ -66,7 +66,7 @@ class GUISIM960:
         """
         with dpg.group(horizontal=False, tag=f"column_img_{self.unique_id}"):
             dpg.add_button(
-                label="SIM960\nImage",
+                label="SIM960",
                 width=80, height=80,
                 callback=self.toggle_gui_collapse
             )
@@ -78,40 +78,58 @@ class GUISIM960:
         with dpg.group(horizontal=False, tag=f"pid_controls_{self.unique_id}", width=250):
             dpg.add_text("PID Gains")
             # Proportional
-            dpg.add_input_float(
-                label="P Gain", default_value=self.dev.get_proportional_gain(),
-                callback=self.cb_set_proportional_gain,
-                tag=f"p_gain_{self.unique_id}",
-                format="%.4f", step=0.1, step_fast=1.0
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_input_float(
+                    label="P Gain", default_value=self.dev.get_proportional_gain(),
+                    callback=self.cb_set_proportional_gain,
+                    tag=f"p_gain_{self.unique_id}",
+                    format="%.4f", step=0.1, step_fast=1.0
+                )
+                dpg.add_checkbox(
+                    label="", default_value=True,
+                    callback=self.cb_enable_p, tag=f"enable_p_{self.unique_id}"
+                )
             # Integral
-            dpg.add_input_float(
-                label="I Gain", default_value=self.dev.get_integral_gain(),
-                callback=self.cb_set_integral_gain,
-                tag=f"i_gain_{self.unique_id}",
-                format="%.6f", step=0.1, step_fast=1.0
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_input_float(
+                    label="I Gain", default_value=self.dev.get_integral_gain(),
+                    callback=self.cb_set_integral_gain,
+                    tag=f"i_gain_{self.unique_id}",
+                    format="%.6f", step=0.1, step_fast=1.0
+                )
+                dpg.add_checkbox(
+                    label="", default_value=False,
+                    callback=self.cb_enable_i, tag=f"enable_i_{self.unique_id}"
+                )
             # Derivative
-            dpg.add_input_float(
-                label="D Gain", default_value=self.dev.get_derivative_gain(),
-                callback=self.cb_set_derivative_gain,
-                tag=f"d_gain_{self.unique_id}",
-                format="%.6f", step=0.1, step_fast=1.0
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_input_float(
+                    label="D Gain", default_value=self.dev.get_derivative_gain(),
+                    callback=self.cb_set_derivative_gain,
+                    tag=f"d_gain_{self.unique_id}",
+                    format="%.6f", step=0.1, step_fast=1.0
+                )
+                dpg.add_checkbox(
+                    label="", default_value=False,
+                    callback=self.cb_enable_d, tag=f"enable_d_{self.unique_id}"
+                )
 
-            # Buttons to enable or disable each action
-            dpg.add_checkbox(
-                label="Enable P", default_value=True,
-                callback=self.cb_enable_p, tag=f"enable_p_{self.unique_id}"
-            )
-            dpg.add_checkbox(
-                label="Enable I", default_value=False,
-                callback=self.cb_enable_i, tag=f"enable_i_{self.unique_id}"
-            )
-            dpg.add_checkbox(
-                label="Enable D", default_value=False,
-                callback=self.cb_enable_d, tag=f"enable_d_{self.unique_id}"
-            )
+            # # --- The new combo to select an auto-tune method ---
+            with dpg.group(horizontal=False):
+                dpg.add_text("Auto-Tune Method:")
+                dpg.add_combo(
+                    label="Method",
+                    items=["ZIEGLER_NICHOLS", "COHEN_COON", "TYREUS_LUYBEN", "OTHER"],  # or any you want
+                    default_value="ZIEGLER_NICHOLS",
+                    tag=f"auto_tune_method_{self.unique_id}",
+                    width=150
+                )
+                # --- Button to run auto-tuning ---
+                dpg.add_button(
+                    label="Auto-Tune PID",
+                    callback=self.cb_run_auto_tune,
+                    user_data=None  # We can pass self here if needed
+                )
 
             # A button to reset the device
             dpg.add_button(label="Reset Device", callback=self.cb_reset_device)
@@ -251,7 +269,7 @@ class GUISIM960:
             # Expand
             for section in ("pid_controls", "manual_controls", "monitor_controls"):
                 dpg.show_item(f"{section}_{self.unique_id}")
-            dpg.set_item_width(self.win_tag, 900)
+            dpg.set_item_width(self.win_tag, 1300)
             dpg.set_item_height(self.win_tag, 400)
         else:
             # Collapse
@@ -260,6 +278,61 @@ class GUISIM960:
             dpg.set_item_width(self.win_tag, 150)
             dpg.set_item_height(self.win_tag, 150)
         self.is_collapsed = not self.is_collapsed
+
+    def cb_run_auto_tune(self, sender, app_data, user_data):
+        """
+        Callback to run auto-tuning of the PID gains.
+        """
+        # 1) Get which method the user selected in the combo.
+        method_str = dpg.get_value(f"auto_tune_method_{self.unique_id}")
+
+        # 2) Map the string to your AutoTuneMethod enum.
+        #    Adjust as needed depending on your actual enum / code.
+        #    If your enum is something like:
+        #       class AutoTuneMethod(Enum):
+        #           ZIEGLER_NICHOLS = 1
+        #           COHEN_COON = 2
+        #           TYREUS_LUYBEN = 3
+        #           OTHER = 4
+        #    then you can do:
+
+        method_map = {
+            "ZIEGLER_NICHOLS": AutoTuneMethod.ZIEGLER_NICHOLS,
+            "COHEN_COON": AutoTuneMethod.COHEN_COON,
+            "TYREUS_LUYBEN": AutoTuneMethod.TYREUS_LUYBEN,
+            "OTHER": AutoTuneMethod.OTHER
+        }
+        selected_method = method_map.get(method_str, AutoTuneMethod.ZIEGLER_NICHOLS)
+
+        try:
+            # 3) Call auto_tune_pid with your desired parameters.
+            #    For example:
+            p_new, i_new, d_new = self.dev.auto_tune_pid(method=selected_method,
+                                                         tune_time=300.0,
+                                                         max_gain=200.0,
+                                                         gain_step=0.2,
+                                                         stable_cycles_required=3,
+                                                         amplitude_threshold=0.001,
+                                                         measure_count=5,
+                                                         measure_delay=1.0)
+
+            # 4) Update the device’s gains internally (optional).
+            self.dev.set_proportional_gain(p_new)
+            self.dev.set_integral_gain(i_new)
+            self.dev.set_derivative_gain(d_new)
+
+            # 5) Update the GUI so the user sees the new P, I, D.
+            dpg.set_value(f"p_gain_{self.unique_id}", p_new)
+            dpg.set_value(f"i_gain_{self.unique_id}", i_new)
+            dpg.set_value(f"d_gain_{self.unique_id}", d_new)
+
+            # Optionally, display a success message or popup
+            print(f"Auto-tune complete: P={p_new}, I={i_new}, D={d_new}")
+
+        except Exception as e:
+            # If auto-tune fails (e.g., no stable oscillations found),
+            # you might show an error popup or log the exception.
+            print(f"Auto-tune failed: {e}")
 
     def show(self):
         """
