@@ -119,7 +119,8 @@ class HW_devices:
 
             elif instrument == Instruments.HIGHLAND:
                 # Initialize Highland Electronics Device
-                self.highland_eom_driver = HighlandT130(address="ASRL5::INSTR", simulation=self.simulation)
+                highland_config: Device = [x for x in self.config.devices if x.instrument is Instruments.HIGHLAND][0]
+                self.highland_eom_driver = HighlandT130(address=highland_config.com_port, simulation=self.simulation)
 
             elif instrument == Instruments.SMARACT_SCANNER:
                 # Initialize SmarAct Scanner
