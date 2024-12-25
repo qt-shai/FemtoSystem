@@ -45,7 +45,7 @@ class HighlandT130(SerialDevice):
 
         """
         self.simulation: bool = simulation
-        super().__init__(address, baudrate, timeout, simulation)  # Initialize the base class
+        super().__init__(f"ASRL{address}::INSTR", baudrate, timeout, simulation)  # Initialize the base class
         self.connect()
         self.terminator: str = '' #'\r\n'
         self.serial_number: str = serial_number  # Optional serial number

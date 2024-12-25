@@ -1,6 +1,8 @@
 '''
 Entry point to our SW
 '''
+import os
+
 from Application import Application_singletone,PyGuiOverlay,ImGuiOverlay
 # todo:
 # handle error for each device and for entire SW
@@ -17,5 +19,6 @@ def main(simulation:bool = False):
 
 
 if __name__ == "__main__":
-    simulation: bool = False
+    print(f"running from {os.getcwd()}")
+    simulation: bool = True
     main(simulation)
