@@ -30,6 +30,7 @@ class Instruments(Enum):
     ELC_POWER_SUPPLY = "elc_power_supply"
     SIMULATION = "simulation"
     KEYSIGHT_AWG = "keysight_awg"
+    SIM960 = "sim960"
     CLD1011LP = "CLD1011LP"
 
 class InstrumentsAddress(Enum):
@@ -44,6 +45,7 @@ class InstrumentsAddress(Enum):
     opx_ip = '192.168.101.56'
     opx_port = 80
     opx_cluster = 'Cluster_1'
+    SRS_MAINFRAME = 'COM4'
 
 class Device:
     """
