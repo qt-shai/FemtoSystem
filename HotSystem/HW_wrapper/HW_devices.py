@@ -138,8 +138,11 @@ class HW_devices:
             elif instrument == Instruments.SIM960:
                 # Initialize SRS SIM960 PID controller
                 sim900_config: Device = [x for x in self.config.devices if x.instrument is Instruments.SIM960][0]
+                mainframe = SRSsim900(f"ASRL{sim900_config.com_port}::INSTR", simulation=self.simulation)
+                mainframe.connect()
+                mainframe.initialize()
                 self.SRS_PID = SRSsim960(
-                    mainframe=SRSsim900(f"ASRL{sim900_config.com_port}::INSTR", simulation=self.simulation),
+                    mainframe=mainframe,
                     slot=3 # TODO: Select correct slot
                 )
 

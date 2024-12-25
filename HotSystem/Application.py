@@ -20,7 +20,10 @@ from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
 from HW_GUI.GUI_mattise import GUIMatisse
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
+from HW_GUI.GUI_sim960PID import GUISIM960
 from HW_wrapper import AttoScannerWrapper
+from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
+from HW_wrapper import SRSsim960
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Window import Window_singleton
 import threading
@@ -684,7 +687,7 @@ class PyGuiOverlay(Layer):
                         dpg.set_item_pos(self.cam.window_tag, [self.Monitor_width-dpg.get_item_width(self.cam.window_tag)-vertical_spacing, vertical_spacing])
 
                 elif instrument == Instruments.OPX:
-                    self.opx = GUI_OPX(self.simulation)
+                    self.opx = GUI_OPX(device.simulation)
                     self.opx.controls()
                     dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
@@ -731,6 +734,14 @@ class PyGuiOverlay(Layer):
                     )
                     dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.SIM960:
+
+                    self.srs_pid_gui = GUISIM960(
+                        sim960=hw_devices.HW_devices(simulation=self.simulation).SRS_PID,
+                        simulation=device.simulation
+                    )
+
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
