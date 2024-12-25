@@ -413,7 +413,7 @@ class PyGuiOverlay(Layer):
         if hasattr(self, 'cam') and hasattr(self.cam, 'cam'):
             if len(self.cam.cam.available_cameras) > 0 and self.cam.cam.constantGrabbing:
                 self.cam.UpdateImage()
-            else:
+            elif  len(self.cam.cam.available_cameras) == 0:
                 self.cam = 'none'
 
     def render_CLD1011LP(self):
