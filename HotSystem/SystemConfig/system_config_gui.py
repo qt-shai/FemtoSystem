@@ -269,6 +269,7 @@ def run_system_config_gui():
                 configured_device.serial_number in [None, 'N/A']
                 and configured_device.mac_address in [None, 'N/A']
                 and configured_device.ip_address in [None, 'N/A']
+                and configured_device.com_port in [None, 'N/A']
             ):
                 # Collect instrument types with devices with 'N/A' identifiers
                 instruments_with_na_identifiers.add(configured_device.instrument)
