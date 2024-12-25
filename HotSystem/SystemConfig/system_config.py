@@ -30,6 +30,7 @@ class Instruments(Enum):
     ELC_POWER_SUPPLY = "elc_power_supply"
     SIMULATION = "simulation"
     KEYSIGHT_AWG = "keysight_awg"
+    CLD1011LP = "CLD1011LP"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"
@@ -39,9 +40,9 @@ class InstrumentsAddress(Enum):
     Rhode_Schwarz_hot_system = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     Rhode_Schwarz_atto = "192.168.101.50"
     atto_positioner = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
-    opx_ip = '192.168.101.56'
+    opx_ip = '192.168.101.61'
     opx_port = 80
-    opx_cluster = 'Cluster_1'
+    opx_cluster = 'Cluster_2'
 
 class Device:
     """
@@ -67,9 +68,9 @@ class SystemConfig:
     atto_positioner_ip: str = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
     # atto_scanner_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
     keysight_awg_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
-    opx_ip = '192.168.101.56'
+    opx_ip = '192.168.101.61'
     opx_port = 80
-    opx_cluster = 'Cluster_1'
+    opx_cluster = 'Cluster_2'
 
     def __init__(self, system_type: SystemType, devices: List[Device]):
         """

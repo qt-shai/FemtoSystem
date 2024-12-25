@@ -26,28 +26,26 @@ class GUI_CLD1011LP():  # todo1: support several devices
         dpg.add_window(tag=self.window_tag, label=""+ self.laser.info, no_title_bar=False, height=440, width=1600, collapsed=True)
         
         # groups
-        dpg.add_group(tag="Laser_sections", horizontal=True, parent=self.window_tag)
-        dpg.add_group(tag="control", horizontal=False, parent="Laser_sections")
-        dpg.add_group(tag="info", horizontal=False, parent="Laser_sections")
-        dpg.add_group(tag="parameters", horizontal=False, parent="Laser_sections")
+        dpg.add_group(tag="cld1011lp Laser_sections", horizontal=True, parent=self.window_tag)
+        dpg.add_group(tag="cld1011lp control", horizontal=False, parent="cld1011lp Laser_sections")
+        dpg.add_group(tag="cld1011lp info", horizontal=False, parent="cld1011lp Laser_sections")
+        dpg.add_group(tag="cld1011lp parameters", horizontal=False, parent="cld1011lp Laser_sections")
         
-        
-
         # btns
-        dpg.add_button(parent="control",tag="btn_turn_on_off_laser",label="laser on",callback=self.turn_on_off_laser)
-        dpg.add_button(parent="control",tag="btn_turn_on_off_tec",label="tec on",callback=self.turn_on_off_tec)
-        dpg.add_button(parent="control",tag="btn_turn_on_off_modulation",label="Enable Modulation",callback=self.set_modulation_ena_dis)
-        dpg.add_button(parent="control",tag="btn_switch_mode",label="set power mode",callback=self.switch_to_pwr_cur_mode)
+        dpg.add_button(parent="cld1011lp control",tag="cld1011lp btn_turn_on_off_laser",label="laser on",callback=self.turn_on_off_laser)
+        dpg.add_button(parent="cld1011lp control",tag="cld1011lp btn_turn_on_off_tec",label="tec on",callback=self.turn_on_off_tec)
+        dpg.add_button(parent="cld1011lp control",tag="cld1011lp btn_turn_on_off_modulation",label="Enable Modulation",callback=self.set_modulation_ena_dis)
+        dpg.add_button(parent="cld1011lp control",tag="cld1011lp btn_switch_mode",label="set power mode",callback=self.switch_to_pwr_cur_mode)
         # btn turn on/off laser and tec
         
-        dpg.add_text(parent="info",default_value="Laser Information", color=(255, 255, 0))
-        dpg.add_text(parent="info",default_value="Current ---", tag="Laser Current")
-        dpg.add_text(parent="info",default_value="Temperature ---", tag="Laser Temp")
-        dpg.add_text(parent="info",default_value="Modulation ---", tag="Laser Modulation")
-        dpg.add_text(parent="info",default_value="Mode ---", tag="Laser Mode")
+        dpg.add_text(parent="cld1011lp info",default_value="Laser Information", color=(255, 255, 0))
+        dpg.add_text(parent="cld1011lp info",default_value="Current ---", tag="cld1011lp Laser Current")
+        dpg.add_text(parent="cld1011lp info",default_value="Temperature ---", tag="cld1011lp Laser Temp")
+        dpg.add_text(parent="cld1011lp info",default_value="Modulation ---", tag="cld1011lp Laser Modulation")
+        dpg.add_text(parent="cld1011lp info",default_value="Mode ---", tag="cld1011lp Laser Mode")
 
-        dpg.add_text(parent="parameters",default_value="Laser parameters", color=(255, 255, 0))
-        dpg.add_input_float(parent="parameters", label="Set current(mA)", default_value=0, callback=self.set_current, tag="current_input", format='%.3f', width=200,min_value=0,max_value=250)
+        dpg.add_text(parent="cld1011lp parameters",default_value="Laser parameters", color=(255, 255, 0))
+        dpg.add_input_float(parent="cld1011lp parameters", label="Set current(mA)", default_value=0, callback=self.set_current, tag="cld1011lp current_input", format='%.3f', width=200,min_value=0,max_value=250)
 
     def set_current(self, app_data, user_data):
         if 0<user_data <250:

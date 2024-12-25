@@ -413,6 +413,8 @@ class PyGuiOverlay(Layer):
         if hasattr(self, 'cam') and hasattr(self.cam, 'cam'):
             if len(self.cam.cam.available_cameras) > 0 and self.cam.cam.constantGrabbing:
                 self.cam.UpdateImage()
+            else:
+                self.cam = 'none'
 
     def render_CLD1011LP(self):
         while self.KeepThreadRunning:
@@ -420,29 +422,29 @@ class PyGuiOverlay(Layer):
             try:
                 self.CLD1011LP_gui.laser.get_info()
                 if self.CLD1011LP_gui.laser.lasing_state in ['Laser is ON']:
-                    dpg.set_item_label(item="btn_turn_on_off_laser",label="Turn laser off")
+                    dpg.set_item_label(item="cld1011lp btn_turn_on_off_laser",label="Turn laser off")
                 else:
-                    dpg.set_item_label(item="btn_turn_on_off_laser",label="Turn laser on")
+                    dpg.set_item_label(item="cld1011lp btn_turn_on_off_laser",label="Turn laser on")
 
                 if self.CLD1011LP_gui.laser.tec_state in ['TEC is ON']:
-                    dpg.set_item_label(item="btn_turn_on_off_tec",label="Turn TEC off")
+                    dpg.set_item_label(item="cld1011lp btn_turn_on_off_tec",label="Turn TEC off")
                 else:
-                    dpg.set_item_label(item="btn_turn_on_off_tec",label="Turn TEC on")
+                    dpg.set_item_label(item="cld1011lp btn_turn_on_off_tec",label="Turn TEC on")
 
                 if self.CLD1011LP_gui.laser.modulation_mod in ['enabled']:
-                    dpg.set_item_label(item="btn_turn_on_off_modulation",label="disable modulation")
+                    dpg.set_item_label(item="cld1011lp btn_turn_on_off_modulation",label="disable modulation")
                 else:
-                    dpg.set_item_label(item="btn_turn_on_off_modulation",label="enable modulation")
+                    dpg.set_item_label(item="cld1011lp btn_turn_on_off_modulation",label="enable modulation")
                 
                 if self.CLD1011LP_gui.laser.mode in ['POW']:
                     dpg.set_item_label(item="btn_switch_mode",label="set current mode")
                 else:
-                    dpg.set_item_label(item="btn_switch_mode",label="set power mode")
+                    dpg.set_item_label(item="cld1011lp btn_switch_mode",label="set power mode")
                 
-                dpg.set_value(value=f"Current " + self.CLD1011LP_gui.laser.actual_current+ " A", item="Laser Current")
-                dpg.set_value(value=f"Temperature " + self.CLD1011LP_gui.laser.actual_temp+ " degC", item="Laser Temp")
-                dpg.set_value(value=f"Modulation " + self.CLD1011LP_gui.laser.modulation_mod, item="Laser Modulation")
-                dpg.set_value(value=f"Mode " + self.CLD1011LP_gui.laser.mode, item="Laser Mode")
+                dpg.set_value(value=f"Current " + self.CLD1011LP_gui.laser.actual_current+ " A", item="cld1011lp Laser Current")
+                dpg.set_value(value=f"Temperature " + self.CLD1011LP_gui.laser.actual_temp+ " degC", item="cld1011lp Laser Temp")
+                dpg.set_value(value=f"Modulation " + self.CLD1011LP_gui.laser.modulation_mod, item="cld1011lp Laser Modulation")
+                dpg.set_value(value=f"Mode " + self.CLD1011LP_gui.laser.mode, item="cld1011lp Laser Mode")
                 
             except Exception as e:
                 print(f"CLD1011LP render error: {e}")

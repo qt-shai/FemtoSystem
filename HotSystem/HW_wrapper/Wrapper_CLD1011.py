@@ -12,7 +12,7 @@ class ThorlabsCLD1011LP:
         """
         self.rm = pyvisa.ResourceManager()
         avDevices = self.rm.list_resources()
-        self.device = self.rm.open_resource(avDevices[0])
+        self.device = self.rm.open_resource('USB0::0x1313::0x804F::M01080605::INSTR')
         self.device.timeout = 5000  # Set timeout to 5 seconds
         self.endC = '\n'
         self.lock = threading.Lock()
