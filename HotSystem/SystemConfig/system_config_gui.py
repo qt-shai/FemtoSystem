@@ -9,6 +9,7 @@ import dearpygui.dearpygui as dpg
 import HW_wrapper.Wrapper_Smaract as Smaract
 import HW_wrapper.Wrapper_Picomotor as Picomotor
 import HW_wrapper.Wrapper_Zelux as ZeluxCamera
+import HW_wrapper.SRS_PID.wrapper_sim960_pid as wrapper_sim960_pid
 from SystemConfig import SystemConfig, find_ethernet_device, InstrumentsAddress
 from SystemConfig import SystemType, Instruments, Device, load_system_from_xml
 
@@ -20,18 +21,28 @@ selected_devices = {}
 def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
     """
     Simulate available devices for each instrument type.
-    Returns a list of Device instances.
+    Returns a list of Device instances, or None if none found.
     """
+
     devices = None
+
     if instrument == Instruments.SMARACT_SLIP:
-        devices = [dev for dev in Smaract.smaractMCS2.get_available_devices() if "MCS2-00017055" in dev.serial_number]
-    if instrument == Instruments.SMARACT_SCANNER:
-        devices = [dev for dev in Smaract.smaractMCS2.get_available_devices() if "MCS2-00018624" in dev.serial_number]
-    if instrument == Instruments.PICOMOTOR:
+        devices = [
+            dev
+            for dev in Smaract.smaractMCS2.get_available_devices()
+            if "MCS2-00017055" in dev.serial_number
+        ]
+    elif instrument == Instruments.SMARACT_SCANNER:
+        devices = [
+            dev
+            for dev in Smaract.smaractMCS2.get_available_devices()
+            if "MCS2-00018624" in dev.serial_number
+        ]
+    elif instrument == Instruments.PICOMOTOR:
         devices = Picomotor.newportPicomotor.get_available_devices()
-    if instrument == Instruments.ZELUX:
+    elif instrument == Instruments.ZELUX:
         devices = ZeluxCamera.Zelux.get_available_devices()
-    if instrument == Instruments.ROHDE_SCHWARZ:
+    elif instrument == Instruments.ROHDE_SCHWARZ:
         devices = [
             find_ethernet_device(ip, instrument)
             for ip in [
@@ -42,12 +53,32 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
         devices = [dev for dev in devices if dev]
         if len(devices) == 0:
             devices = None
-
-    if instrument == Instruments.ATTO_POSITIONER:
+    elif instrument == Instruments.ATTO_POSITIONER:
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
+        if not isinstance(devices, list) and devices:
+            devices = [devices]
+    elif instrument == Instruments.SIM960:
+        # NEW LOGIC FOR SIM960
+        # Attempt to detect or retrieve a list of SIM960 devices
+        # sim960_list = SRSsim960.get_available_devices()  # or custom detection logic
+        # The 'Device' class in your system expects instrument, ip, mac, sn, com_port...
+        # So you must map sim960 object => Device
+        # Example:
+        sim960_list = [Device(Instruments.SIM960,'N/A','N/A','N/A','N/A')]
+        devices = []
+        for sim_dev in sim960_list:
+            new_device = Device(
+                instrument=Instruments.SIM960,
+                ip_address=sim_dev.ip_address or 'N/A',
+                mac_address=sim_dev.mac_address or 'N/A',
+                serial_number=sim_dev.serial_number or 'N/A',
+                com_port=sim_dev.com_port or 'N/A',
+            )
+            devices.append(new_device)
+
+    # Return as a list or None
     if not isinstance(devices, list) and devices:
         devices = [devices]
-
     return devices
 
 
