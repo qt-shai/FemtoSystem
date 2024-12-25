@@ -32,7 +32,7 @@ import matplotlib
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from SystemConfig import SystemType, Instruments
-from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors
+from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV
 import dearpygui.dearpygui as dpg
 from PIL import Image
 import subprocess
@@ -6378,22 +6378,6 @@ class GUI_OPX():
                     I = self.scan_intensities[k, j, i]
                     self.scan_Out.append([x, y, z, I, x, y, z])
 
-    def OpenDialog(self, filetypes=None):  # move to common
-        if filetypes is None:
-            filetypes = [("All Files", "*.*")]
-        root = tk.Tk()  # Create the root window
-        root.withdraw()  # Hide the main window
-        file_path = filedialog.askopenfilename(filetypes=filetypes)  # Open a file dialog
-
-        if file_path:  # Check if a file was selected
-            print(f"Selected file: {file_path}")  # add to logger
-        else:
-            print("No file selected")  # add to logger
-
-        root.destroy()  # Close the main window if your application has finished using it
-
-        return file_path
-
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
 
@@ -6554,7 +6538,7 @@ class GUI_OPX():
         # Open the dialog with a filter for .csv files and all file types
         fn = self.OpenDialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
         if fn:  # Check if a file is selected
-            data = self.loadFromCSV(fn)
+            data = loadFromCSV(fn)
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)
 
@@ -6926,15 +6910,6 @@ class GUI_OPX():
             print(f"Changed save location to {self.scanFN}")
 
         print("Data has been saved to", file_name)
-
-    def loadFromCSV(self, file_name):
-        data = []
-        with open(file_name, 'r', newline='') as file:
-            reader = csv.reader(file)
-            for row in reader:
-                data.append(row)
-        del data[0]
-        return data
 
     def writeParametersToXML(self, fileName):
         self.to_xml(fileName)

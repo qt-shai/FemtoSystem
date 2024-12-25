@@ -326,7 +326,7 @@ def open_dialog():  # move to common
 
     return file_path
 
-def load_from_csv(file_name):
+def loadFromCSV(file_name):
     data = []
     with open(file_name, 'r', newline='') as file:
         reader = csv.reader(file)

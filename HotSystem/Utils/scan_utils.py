@@ -1,9 +1,13 @@
 import os
 import shutil
 import time
-import numpy as np
-from typing import List, Tuple, Callable, Any
 from itertools import product
+from typing import Callable, Any
+from typing import List, Tuple
+
+import numpy as np
+import plotly.graph_objects as go
+
 
 def copy_files(
     create_scan_file_name_func: Callable[[bool], str],
@@ -256,7 +260,73 @@ def format_elapsed_time(elapsed_time: float) -> str:
     minutes, seconds = divmod(rem, 60)
     return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
 
-from typing import List, Tuple
+def save_scan_stack_visualization(volume_data: np.ndarray, output_file: str) -> None:
+    """
+    Visualize 4D data (3D spatial data with intensity as the 4th dimension) in an interactive 3D scatter plot
+    and save it to an HTML file.
+
+    :param volume_data: 4D numpy array (shape: [z, y, x, intensity]) representing the 3D scan with intensities.
+    :param output_file: Path to save the interactive HTML file.
+    :raises ValueError: If output_file is not a string.
+    :raises FileNotFoundError: If the directory in output_file does not exist.
+    :raises PermissionError: If the program lacks permission to write to the specified location.
+    :return: None
+    """
+    if not isinstance(output_file, str):
+        raise ValueError("The output_file parameter must be a string representing the file path.")
+
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        raise FileNotFoundError(f"The directory '{output_dir}' does not exist.")
+
+    try:
+        # Extract dimensions
+        z_size, y_size, x_size, _ = volume_data.shape
+        z_coords, y_coords, x_coords = np.mgrid[0:z_size, 0:y_size, 0:x_size]
+        intensities = volume_data[:, :, :, 0].flatten()
+
+        fig = go.Figure(
+            data=go.Scatter3d(
+                x=x_coords.flatten(),
+                y=y_coords.flatten(),
+                z=z_coords.flatten(),
+                mode='markers',
+                marker=dict(
+                    size=5,
+                    color=intensities,  # Intensity as the color dimension
+                    colorscale='Viridis',  # Choose a colorscale
+                    colorbar=dict(title='Intensity'),
+                    opacity=0.8
+                )
+            )
+        )
+
+        fig.update_layout(
+            title="3D Scatter Plot with Intensity",
+            scene=dict(
+                xaxis_title="X",
+                yaxis_title="Y",
+                zaxis_title="Z"
+            )
+        )
+
+        fig.write_html(output_file)
+        print(f"Visualization saved to {output_file}")
+
+    except PermissionError:
+        raise PermissionError(f"Permission denied. Cannot write to '{output_file}'.")
+
+# # Example Usage
+# if __name__ == "__main__":
+#     # Generate random 4D data (50x50x10 with random intensity values)
+#     volume_data = np.random.rand(10, 50, 50, 1) * 100  # Intensity values scaled to 0-100
+#
+#     # Output file path
+#     output_file = "random_3d_visualization.html"
+#
+#     # Visualize and save
+#     save_microscope_stack_visualization(volume_data, output_file)
+
 
 def create_scan_vectors(initial_scan_location: List[float], l_scan: List[float], step_sizes: List[float],
                         bounds: Tuple[List[float], List[float]]) -> Tuple[List[float], List[float], List[float]]:

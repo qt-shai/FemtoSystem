@@ -5,6 +5,8 @@ import threading
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
     SirahMatisse, Keysight33500B, AttoScannerWrapper
 from HW_wrapper.Attocube import Anc300Wrapper
+from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
+from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 
@@ -37,7 +39,7 @@ class HW_devices:
             self.matisse_device: Optional[SirahMatisse] = None
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
-
+            self.SRS_PID: Optional[SRSsim960] = None
 
 
     def __new__(cls, simulation:bool = False) -> 'HW_devices':
@@ -131,6 +133,14 @@ class HW_devices:
             elif instrument == Instruments.ELC_POWER_SUPPLY:
                 # Initialize ELC Power Supply
                 self.elc_power_supply = ALR3206T(simulation=self.simulation)
+
+            elif instrument == Instruments.SIM960:
+                # Initialize SRS SIM960 PID controller
+                sim900_config: Device = [x for x in self.config.devices if x.instrument is Instruments.SIM960][0]
+                self.SRS_PID = SRSsim960(
+                    mainframe=SRSsim900(f"ASRL{sim900_config.com_port}::INSTR", simulation=self.simulation),
+                    slot=3 # TODO: Select correct slot
+                )
 
             else:
                 # Handle unknown instrument case
