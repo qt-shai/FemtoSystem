@@ -363,3 +363,74 @@ def select_csv_file() -> str:
     Tk().withdraw()
     file_path = askopenfilename(filetypes=[("CSV files", "*.csv")])
     return file_path
+
+
+import serial
+from serial.tools import list_ports
+
+
+def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?\r\n"):
+    """
+    Scans all available COM ports, attempts to query each device for an IDN,
+    and returns a dictionary of {port: IDN response} for ports that respond successfully.
+
+    Parameters
+    ----------
+    baudrate : int
+        The baud rate for the serial communication. Default is 9600.
+    timeout : float
+        The read/write timeout (in seconds). Default is 1 second.
+    query_command : str
+        The SCPI or other command to send to the device to request its identity.
+        By default, '*IDN?' with CR-LF newline is used.
+
+    Returns
+    -------
+    dict
+        A dictionary where keys are the port names (e.g., 'COM3', '/dev/ttyUSB0')
+        and values are the device IDN strings, or an error message if something went wrong.
+    """
+    # Dictionary to store results: {port: <idn_or_error>}
+    results = {}
+
+    # List all possible serial ports
+    available_ports = list_ports.comports()
+
+    if not available_ports:
+        # If no COM ports are found, return an empty dictionary or handle as needed
+        return results
+
+    # Iterate over each detected port
+    for port_info in available_ports:
+        port_name = port_info.device
+
+        # Initialize the result with a default message in case something fails
+        results[port_name] = "No response or error occurred"
+
+        try:
+            with serial.Serial(port=port_name, baudrate=baudrate, timeout=timeout) as ser:
+                # Clear buffers before use
+                ser.reset_input_buffer()
+                ser.reset_output_buffer()
+
+                # Send the query command
+                ser.write(query_command.encode("utf-8"))
+
+                # Read the response (try reading one line or up to a certain size)
+                response = ser.readline().decode(errors="ignore").strip()
+
+                # If no response, keep the default
+                if response:
+                    results[port_name] = response
+
+        except serial.SerialException as e:
+            # Catch any serial-related errors (e.g., access denied, device removal, etc.)
+            results[port_name] = f"SerialException: {str(e)}"
+        except UnicodeDecodeError as e:
+            # Catch issues decoding response
+            results[port_name] = f"UnicodeDecodeError: {str(e)}"
+        except Exception as e:
+            # Catch-all for any other unforeseen exceptions
+            results[port_name] = f"Exception: {str(e)}"
+
+    return results

@@ -1,16 +1,17 @@
+import ast
 import os
 import pdb
 import xml.etree.ElementTree as ET
 from typing import List, Optional
-
 # from numpy.array_api import trunc
 
-from Utils import remove_overlap_from_string, get_square_matrix_size
+from Utils import remove_overlap_from_string, get_square_matrix_size, scan_com_ports
 import dearpygui.dearpygui as dpg
 import HW_wrapper.Wrapper_Smaract as Smaract
 import HW_wrapper.Wrapper_Picomotor as Picomotor
 import HW_wrapper.Wrapper_Zelux as ZeluxCamera
 import HW_wrapper.SRS_PID.wrapper_sim960_pid as wrapper_sim960_pid
+import HW_wrapper.SRS_PID.wrapper_sim900_mainframe as wrapper_sim900_mainframe
 from SystemConfig import SystemConfig, find_ethernet_device, InstrumentsAddress
 from SystemConfig import SystemType, Instruments, Device, load_system_from_xml
 
@@ -65,23 +66,25 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
         # The 'Device' class in your system expects instrument, ip, mac, sn, com_port...
         # So you must map sim960 object => Device
         # Example:
-        sim960_list = [Device(Instruments.SIM960,'N/A','N/A','N/A','N/A')]
-        devices = []
-        for sim_dev in sim960_list:
-            new_device = Device(
-                instrument=Instruments.SIM960,
-                ip_address=sim_dev.ip_address or 'N/A',
-                mac_address=sim_dev.mac_address or 'N/A',
-                serial_number=sim_dev.serial_number or 'N/A',
-                com_port=sim_dev.com_port or 'N/A',
-            )
-            devices.append(new_device)
-
+        ports = scan_com_ports()
+        mainframe_port = next((port for port, description in ports.items() if "sim900" in description.lower()),None)
+        sim960_list = []
+        if mainframe_port:
+            temp_mainframe = wrapper_sim900_mainframe.SRSsim900(mainframe_port)
+            temp_mainframe.connect()
+            # Loop over channels 1 to 8 and check for connected modules
+            try:
+                sim960_list = [channel for channel in range(8) if int(temp_mainframe.query(f"CTCR? {channel}")) ]
+            except Exception as e:
+                print(f"failed to detect channels in SRS900 mainframe. Error: {e}")
+        print(f"SRS SIM900 channels found : {sim960_list}")
+        devices = [Device(instrument=Instruments.SIM960,ip_address= str(sim_dev), com_port=mainframe_port) for sim_dev in sim960_list]
+        if temp_mainframe:
+            temp_mainframe.disconnect()
     # Return as a list or None
     if not isinstance(devices, list) and devices:
         devices = [devices]
     return devices
-
 
 def generate_device_key(device):
     """
