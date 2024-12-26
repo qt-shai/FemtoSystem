@@ -404,9 +404,9 @@ class SRSsim960:
 
         # 2) Ensure P, I, D are zero so we begin from a "no-control" baseline.
         #    Actually set small P to avoid dividing by zero if internal logic does so.
-        self.set_proportional_gain(0.01)
-        self.set_integral_gain(0.0)
-        self.set_derivative_gain(0.0)
+        self.set_proportional_gain(0.1)
+        self.set_integral_gain(0.01)
+        self.set_derivative_gain(0.000001)
 
         # ------------------ Search for ultimate gain Ku and period Tu ------------------
         # We'll ramp P upward, monitoring the output. We'll detect oscillations by:
@@ -424,7 +424,7 @@ class SRSsim960:
         time_of_last_zero_cross = None
         min_val, max_val = None, None
 
-        current_p = 0.01
+        current_p = 0.1
 
         while (time.time() - start_time) < tune_time:
             # Ramping logic

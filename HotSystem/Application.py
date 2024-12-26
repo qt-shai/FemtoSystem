@@ -388,6 +388,7 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.srs_pid_gui: list[GUISIM960] = []
         self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
@@ -735,14 +736,15 @@ class PyGuiOverlay(Layer):
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.SIM960:
-
-                    self.srs_pid_gui = GUISIM960(
-                        sim960=hw_devices.HW_devices().SRS_PID_list,
-                        simulation=device.simulation
+                    srs_pid_list=hw_devices.HW_devices().SRS_PID_list
+                    matching_device = next(
+                        (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
+                        None  # Default if no match is found
                     )
-
-                    self.srs_pid_gui = [GUISIM960(sim960=device, simulation=device.simulation) for device in hw_devices.HW_devices().SRS_PID_list]
-
+                    self.srs_pid_gui.append(GUISIM960(
+                        sim960=matching_device,
+                        simulation=device.simulation
+                    ))
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
