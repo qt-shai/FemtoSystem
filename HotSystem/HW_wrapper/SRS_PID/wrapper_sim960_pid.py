@@ -21,13 +21,14 @@ class SRSsim960:
     We communicate by sending 'CONN <slot>, ...' commands through the SRSsim900.
     """
 
-    def __init__(self, mainframe: SRSsim900, slot: int = 3):
+    def __init__(self, mainframe: SRSsim900, slot: int = 3, simulation: bool=False):
         """
         :param mainframe: An instance of SRSsim900.
         :param slot: The slot number in the SIM900 mainframe where SIM960 is inserted.
         """
         self.mf = mainframe
         self.slot = slot
+        self.simulation = simulation
 
     def _write(self, command: str) -> None:
         """
