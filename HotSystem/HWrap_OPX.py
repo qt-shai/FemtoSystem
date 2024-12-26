@@ -96,7 +96,7 @@ class GUI_OPX():
         self.max = None
         self.plt_y = None
         self.plt_x = None
-        self.HW = hw_devices.HW_devices(simulation)
+        self.HW = hw_devices.HW_devices()
         self.system_name = self.HW.config.system_type.value
         self.mwModule = self.HW.microwave
         self.positioner = self.HW.positioner
