@@ -1,6 +1,6 @@
 import dearpygui.dearpygui as dpg
 
-from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
+from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960, AutoTuneMethod
 
 
 class GUISIM960:
@@ -28,7 +28,7 @@ class GUISIM960:
         self.is_collapsed = False
         self.unique_id = self._get_unique_id_from_device()
         self.win_tag = f"SIM960Win_{self.unique_id}"
-        self.win_label = f"SRS SIM960 ({self.unique_id})"
+        self.win_label = f"SRS SIM960, slot {self.dev.slot} ({self.unique_id})"
         if self.simulation:
             self.win_label += " [SIMULATION]"
 
