@@ -142,6 +142,19 @@ class AttoDry800(Motor):
         else:
             return -1.0
 
+    def get_control_output_voltage(self, axis: int) -> float:
+        """
+        Get the DC voltage of a specific axis.
+
+        :param axis: The axis number (0, 1, or 2).
+        :return: The DC voltage in mV.
+        """
+        response = self._perform_request(AttoJSONMethods.GET_CONTROL_OUTPUT.value, [axis])
+        if response:
+            return response[1]  # Assuming the position is the second item in the response
+        else:
+            return -1.0
+
     def move_one_step(self, axis: int, backward: bool = False) -> None:
         """
         Move one step on a specific axis in the specified direction.

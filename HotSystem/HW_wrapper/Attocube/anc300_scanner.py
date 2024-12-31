@@ -324,7 +324,6 @@ class Anc300Wrapper(Motor):
             return
         self.device.set_mode(channel, mode.value)
 
-
     def get_mode(self, channel: int) -> ANC300Modes:
         """
         Get the mode of a specific channel.
@@ -345,4 +344,22 @@ class Anc300Wrapper(Motor):
             print(f"Unsupported mode value '{mode_value}' returned for channel {channel}")
             raise ValueError(f"Unsupported mode value '{mode_value}' for channel {channel}")
 
+    def get_output_voltage(self, channel: int) -> float:
+        """
+        Get the output voltage of a specific channel.
 
+        `channel` is the channel index (starting from 1).
+
+        :param channel: Channel index (1-based).
+        :return: The current output voltage of the channel as float.
+        """
+        self.verify_channel(channel)
+        if self.simulation:
+            print(f"Simulating getting mode for channel {channel}")
+            return self._axes_positions[channel]  # Default simulated mode
+        try:
+            return self.device.get_output(channel)
+        except ValueError:
+            print(f"Unsupported output channel value '{channel}' returned for channel {channel}")
+        except Exception as e:
+            print(f"Unexpected exception '{e}' for channel {channel} in get_output_voltage for attocbue scanner device {self}")
