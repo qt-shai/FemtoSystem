@@ -1,7 +1,9 @@
+from datetime import datetime
 import time
 
 import dearpygui.dearpygui as dpg
 import numpy as np
+import pandas as pd
 from matplotlib import pyplot as plt
 
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960, AutoTuneMethod
@@ -27,10 +29,11 @@ class GUISIM960:
         :param sim960: An instance of SRSsim960 wrapper (the device to control).
         :param simulation: Whether we are in simulation mode (disables hardware actions).
         """
-        self.stabilize_measure_delay = 0.2
-        self.stabilize_measure_count = 5
-        self.stabilize_span = 1
-        self.stabilize_step = 0.1
+        self.stabilize_iterations = 1
+        self.stabilize_measure_delay = 0.5
+        self.stabilize_measure_count = 1
+        self.stabilize_span = 2
+        self.stabilize_step = 0.2
         self.stabilize_running = False
         self.new_setpoint = None
         self.dev = sim960
@@ -44,7 +47,7 @@ class GUISIM960:
 
         # Create a main window for the device
         with dpg.window(tag=self.win_tag, label=self.win_label,
-                        no_title_bar=False, height=400, width=1300, pos=[100, 100], collapsed=False):
+                        no_title_bar=False, height=400, width=1800, pos=[100, 100], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_device_image()
                 self.create_pid_controls()
@@ -225,11 +228,11 @@ class GUISIM960:
                 format="%.3f"
                 )
 
-            # Button to halt auto-tune
             dpg.add_button(
                 label="Stabilize",
                 callback=self.cb_stabilize,
             )
+
 
     def create_stabilize_controls(self):
         """
@@ -240,27 +243,33 @@ class GUISIM960:
 
             with dpg.group(horizontal=False):
                 dpg.add_input_float(
-                    label="Step", default_value=0.2,
+                    label="Step", default_value=self.stabilize_step,
                     callback=self.cb_update_stabilize_param,
                     tag=f"stabilize_step_{self.unique_id}",
                     format="%.2f", width=80
                 )
                 dpg.add_input_float(
-                    label="Span", default_value=1.0,
+                    label="Span", default_value=self.stabilize_span,
                     callback=self.cb_update_stabilize_param,
                     tag=f"stabilize_span_{self.unique_id}",
                     format="%.2f", width=80
                 )
                 dpg.add_input_int(
-                    label="Measure Count", default_value=5,
+                    label="Measure Count", default_value=self.stabilize_measure_count,
                     callback=self.cb_update_stabilize_param,
                     tag=f"stabilize_measure_count_{self.unique_id}",
                     width=80
                 )
                 dpg.add_input_float(
-                    label="Measure Delay", default_value=0.2,
+                    label="Measure Delay", default_value=self.stabilize_measure_delay,
                     callback=self.cb_update_stabilize_param,
                     tag=f"stabilize_measure_delay_{self.unique_id}",
+                    format="%.2f", width=80
+                )
+                dpg.add_input_float(
+                    label="# of Iterations", default_value=self.stabilize_iterations,
+                    callback=self.cb_update_stabilize_param,
+                    tag=f"stabilize_iterations_{self.unique_id}",
                     format="%.2f", width=80
                 )
 
@@ -280,105 +289,187 @@ class GUISIM960:
         elif sender == f"stabilize_measure_delay_{self.unique_id}":
             self.stabilize_measure_delay = app_data
             print(f"Updated measure delay to {self.stabilize_measure_delay:.2f}")
+        elif sender == f"stabilize_iterations_{self.unique_id}":
+            self.stabilize_iterations = int(app_data)
+            print(f"Updated measure delay to {self.stabilize_iterations:.2f}")
 
     def cb_stabilize(self) -> None:
         """
-        Stabilize the output, measure readings, and set the output offset
-        and manual output voltage to the closest measured value to zero,
-        updating both the device and the GUI.
+        Stabilize the output, measure readings, perform a parabolic fit for every iteration
+        (only for values below 0.1), and set the output offset to the best estimate.
+        After each iteration, measure around +1.7 ± 0.2 from the chosen voltage, record the
+        maximal value, and include it in the results. Save data to a single CSV and plot.
         """
         try:
             # Parameters
-            middle = self.dev.get_output_offset()
-            print(f"Middle = {middle:.3f} V")
-            iterations = 1
+            middle = self.dev.read_output_voltage()
+            print(f"Middle (Current Output Voltage) = {middle:.3f} V")
 
             # Fetch parameters from GUI
+            iterations = self.stabilize_iterations
             step = self.stabilize_step
             span = self.stabilize_span
             measure_count = self.stabilize_measure_count
             measure_delay = self.stabilize_measure_delay
 
-            # Generate voltage range from -span/2 to +span/2 with the specified step
+            # Generate linear voltage range
             voltage_offsets = np.arange(-span / 2, span / 2 + step, step)
 
-            # Validate the generated voltages
             for offset in voltage_offsets:
                 if not -10.000 <= middle + offset <= 10.000:
                     raise ValueError(f"Voltage {middle + offset:.3f} V is out of range.")
 
-            # Set the stabilize running flag
+            # Initialize data storage
+            all_data = []
+            chosen_voltages = []
+            recorded_readings = []
+            maximal_readings = []
+            maximal_voltages = []
+            iteration_times = []
+
+            # Stabilization loop
             self.stabilize_running = True
             self.dev.set_output_mode(manual=True)
+            colors = plt.cm.viridis(np.linspace(0, 1, iterations))
 
-            # Data collection
-            set_voltages = []
-            readings = []
+            # Get current timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # Finite loop for stabilization
             for i in range(iterations):
-                if not self.stabilize_running:
-                    print("Stabilization halted by user.")
-                    break
+                start_time = time.time()
+                iteration_data = {"Iteration": [], "Set Voltage (V)": [], "Measured Reading": []}
 
                 print(f"Iteration {i + 1}/{iterations}")
                 for offset in voltage_offsets:
-                    if not self.stabilize_running:
-                        print("Stabilization halted by user.")
-                        break
-
                     set_voltage = middle + offset
                     self.dev._write(f"MOUT {set_voltage:.3f}")
-                    print(f"Set output voltage to {set_voltage:.3f} V")
-                    time.sleep(0.5)  # Add a small delay between commands
+                    time.sleep(measure_delay)
 
-                    # Measure the output multiple times to calculate the average reading
-                    measured_values = []
-                    for _ in range(measure_count):
-                        if not self.stabilize_running:
-                            print("Stabilization halted during measurement collection.")
-                            break
-                        measured_values.append(self.dev.read_measure_input())
-                        time.sleep(measure_delay)
-
-                    if not self.stabilize_running:
-                        break
-
+                    measured_values = [
+                        self.dev.read_measure_input() for _ in range(measure_count)
+                    ]
                     avg_reading = sum(measured_values) / len(measured_values)
-                    set_voltages.append(set_voltage)
-                    readings.append(avg_reading)
+                    print(f"Measured values at Voltage {set_voltage:.3f} V: {avg_reading}")
+                    iteration_data["Iteration"].append(i + 1)
+                    iteration_data["Set Voltage (V)"].append(set_voltage)
+                    iteration_data["Measured Reading"].append(avg_reading)
 
-            # Find the voltage with the closest reading to zero
-            if set_voltages and readings:
-                closest_index = min(range(len(readings)), key=lambda i: abs(readings[i]))
-                closest_voltage = set_voltages[closest_index]
-                closest_reading = readings[closest_index]
+                # Append to all data
+                all_data.extend(pd.DataFrame(iteration_data).to_dict('records'))
 
-                print(f"Closest Voltage: {closest_voltage:.3f} V, Closest Reading: {closest_reading:.3f}")
+                # Record iteration time
+                iteration_times.append(time.time() - start_time)
 
-                # Update the output offset and manual output voltage in the device
-                if not self.simulation:
-                    self.dev.set_output_offset(closest_voltage)
-                    self.dev._write(f"MOUT {closest_voltage:.3f}")
-                    print(f"Output offset set to the closest voltage: {closest_voltage:.3f} V")
-                    print(f"Manual output set to the closest voltage: {closest_voltage:.3f} V")
+                # Perform parabolic fit
+                readings = iteration_data["Measured Reading"]
+                set_voltages = iteration_data["Set Voltage (V)"]
 
-                # Update the GUI to reflect the new offset and manual output values
-                dpg.set_value(f"output_offset_{self.unique_id}", closest_voltage)
-                dpg.set_value(f"manual_out_{self.unique_id}", closest_voltage)
+                filtered_indices = [idx for idx, val in enumerate(readings) if abs(val) < 0.1]
+                filtered_voltages = [set_voltages[idx] for idx in filtered_indices]
+                filtered_readings = [readings[idx] for idx in filtered_indices]
 
-                # Plot the data
-                plt.figure(figsize=(8, 6))
-                plt.plot(set_voltages, readings, 'bo', label="Measured Data")
-                plt.scatter([closest_voltage], [closest_reading], color='g', label="Closest to Zero", zorder=5)
-                plt.axhline(y=0, color='k', linestyle='--', label="Zero Line")
-                plt.title("Readings vs Set Voltage")
-                plt.xlabel("Set Voltage (V)")
-                plt.ylabel("Measured Reading")
-                plt.axvline(x=closest_voltage, color='g', linestyle='--', label=f"Closest Voltage: {closest_voltage:.3f} V")
-                plt.legend()
-                plt.grid(True)
-                plt.show()
+                if len(filtered_voltages) >= 3:
+                    coefficients = np.polyfit(filtered_voltages, filtered_readings, 2)
+                    if coefficients[0] > 0:
+                        estimated_min_voltage = -coefficients[1] / (2 * coefficients[0])
+                        if min(filtered_voltages) <= estimated_min_voltage <= max(filtered_voltages):
+                            chosen_voltage = estimated_min_voltage
+                        else:
+                            chosen_voltage = set_voltages[np.argmin(readings)]
+                    else:
+                        chosen_voltage = set_voltages[np.argmin(readings)]
+                else:
+                    chosen_voltage = set_voltages[np.argmin(readings)]
+
+                chosen_voltages.append(chosen_voltage)
+                print(f"* * * * Chose voltage {chosen_voltage} * * * *")
+
+                # Measure around chosen_voltage + 1.6 ± 0.3
+                span_voltage_offsets = (
+                    np.linspace(chosen_voltage - 1.3, chosen_voltage - 1.9, 10)
+                    if chosen_voltage > 0
+                    else np.linspace(chosen_voltage + 1.3, chosen_voltage + 1.9, 10)
+                )
+                span_readings = []
+                for voltage in span_voltage_offsets:
+                    self.dev._write(f"MOUT {voltage:.3f}")
+                    time.sleep(measure_delay)
+                    span_measured_values = [
+                        self.dev.read_measure_input() for _ in range(measure_count)
+                    ]
+                    span_avg_reading = sum(span_measured_values) / len(span_measured_values)
+                    span_readings.append(span_avg_reading)
+
+                print(f"Readings around Chosen Voltage + 1.6 ± 0.3:")
+                for voltage, reading in zip(span_voltage_offsets, span_readings):
+                    print(f"  Voltage: {voltage:.3f} V, Reading: {reading:.3f}")
+
+                # Find maximal reading and corresponding voltage
+                max_reading = max(span_readings)
+                max_voltage = span_voltage_offsets[np.argmax(span_readings)]
+                maximal_readings.append(max_reading)
+                maximal_voltages.append(max_voltage)
+
+                print(f"Maximal Reading: {max_reading:.3f} at Voltage: {max_voltage:.3f} V")
+
+                # Record final reading at chosen voltage
+                self.dev._write(f"MOUT {chosen_voltage:.3f}")
+                time.sleep(measure_delay)
+                measured_values = [
+                    self.dev.read_measure_input() for _ in range(measure_count)
+                ]
+                avg_chosen_reading = sum(measured_values) / len(measured_values) * 10
+                recorded_readings.append(avg_chosen_reading)
+
+            # Finalize
+            final_voltage = chosen_voltages[-1]
+            self.dev.set_output_offset(final_voltage)
+
+            # Save results to a single CSV
+            df = pd.DataFrame(all_data)
+            df["Chosen Voltage (V)"] = [v for v in chosen_voltages for _ in range(len(voltage_offsets))]
+            df["Recorded Reading"] = [r for r in recorded_readings for _ in range(len(voltage_offsets))]
+            df["Maximal Voltage (V)"] = [v for v in maximal_voltages for _ in range(len(voltage_offsets))]
+            df["Maximal Reading"] = [r for r in maximal_readings for _ in range(len(voltage_offsets))]
+            csv_filename = f"stabilization_results_{timestamp}.csv"
+            df.to_csv(csv_filename, index=False)
+            print(f"Results saved to {csv_filename}")
+
+            # Plot results
+            fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+            for i in range(iterations):
+                axs[0].plot(
+                    df[df["Iteration"] == i + 1]["Set Voltage (V)"],
+                    df[df["Iteration"] == i + 1]["Measured Reading"],
+                    'o-', color=colors[i],
+                    label=f"Iteration {i + 1}"
+                )
+                axs[0].axvline(
+                    chosen_voltages[i], color='red', linestyle='--',
+                    label=f"Chosen Voltage: {chosen_voltages[i]:.3f}"
+                )
+            axs[0].set_title("Readings vs Set Voltage (All Iterations)")
+            axs[0].set_xlabel("Set Voltage (V)")
+            axs[0].set_ylabel("Measured Reading")
+            axs[0].grid(True)
+            axs[0].legend()
+
+            axs[1].plot(np.cumsum(iteration_times), chosen_voltages, 'o-', color='blue', label="Chosen Voltages")
+            axs[1].plot(np.cumsum(iteration_times), recorded_readings, 'o-', color='green', label="Minimal Readings x10")
+            axs[1].plot(np.cumsum(iteration_times), maximal_readings, 'o-', color='purple', label="Maximal Readings")
+            axs[1].set_title("Convergence of Chosen Voltages and Readings Over Time")
+            axs[1].set_xlabel("Time (s)")
+            axs[1].set_ylabel("Value")
+            axs[1].grid(True)
+            axs[1].legend()
+
+            plt.tight_layout()
+
+            # Save figure
+            figure_filename = f"stabilization_plot_{timestamp}.png"
+            plt.savefig(figure_filename)
+            print(f"Figure saved to {figure_filename}")
+            plt.show()
 
         except Exception as e:
             print(f"Failed to stabilize output: {e}")
@@ -468,6 +559,8 @@ class GUISIM960:
         if not self.simulation:
             meas_input = self.dev.read_measure_input()
             meas_output = self.dev.read_output_voltage()
+            middle = self.dev.get_output_offset()
+            print(f"Offset = {middle}")
             dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {meas_input:.5f} V")
             dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {meas_output:.5f} V")
         else:
