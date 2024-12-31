@@ -67,6 +67,7 @@ class Experiment(Enum):
     Electron_Coherence = 17
     ODMR_Bfield = 18
     Nuclear_Fast_Rot = 19
+    testCrap = 20
 
 class queried_plane(Enum):
     XY = 0
@@ -751,6 +752,8 @@ class GUI_OPX():
                                callback=self.btnStartStateTomography, indent=-1, width=_width)
                 dpg.add_button(label="Start G2", parent="Buttons_Controls", tag="btnOPX_G2",
                                callback=self.btnStartG2, indent=-1, width=_width)
+                dpg.add_button(label="Eilon's", parent="Buttons_Controls", tag="btnOPX_Eilons",
+                               callback=self.btnStartEilons, indent=-1, width=_width)
 
                 # save exp data
                 dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
@@ -1517,6 +1520,8 @@ class GUI_OPX():
             self.NuclearFastRotation_QUA_PGM()
         if self.exp == Experiment.G2:
             self.g2_raw_QUA()
+        if self.exp == Experiment.testCrap:
+            self.Test_Crap_QUA_PGM(execute_qua=True)            
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
         if QuaCFG == None:
@@ -1589,7 +1594,11 @@ class GUI_OPX():
         update_frequency("RF", f_rf)
 
         # play MW
-        play("xPulse"* amp(p_mw), "MW", duration=t_mw // 4)
+        #play("xPulse"* amp(p_mw), "MW", duration=t_mw // 4)
+        play("xPulse"*amp(p_mw), "MW", duration=(self.t_mw/2) // 4)
+        align()
+        play("-xPulse"*amp(p_mw), "MW", duration=(self.t_mw/2) // 4)
+        align()
         # play RF (@resonance freq & pulsed time)
         align("MW", "RF")
         play("const" * amp(p_rf), "RF", duration=t_rf // 4)
@@ -1716,6 +1725,138 @@ class GUI_OPX():
             self.Population_gate_tomography_QUA_PGM(Generate_QUA_sequance = True)
         if self.exp == Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY:
             self.Entanglement_gate_tomography_QUA_PGM(Generate_QUA_sequance = True)
+        if self.exp == Experiment.testCrap:
+            self.Test_Crap_QUA_PGM(Generate_QUA_sequance = True)
+
+    def Test_Crap_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):  # Trying stuff
+        if generate_params:
+            # sequence parameters
+            self.tMeasureProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)
+            self.tPump = self.time_in_multiples_cycle_time(self.Tpump)
+            self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tMW = self.t_mw
+            self.tMW2 = self.t_mw2
+            self.tWait = self.time_in_multiples_cycle_time(self.Twait*1e3) # [nsec]
+            # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
+            # fMW_res = 0 if fMW_res < 0 else fMW_res
+            # self.fMW_res = 400 * self.u.MHz if fMW_res > 400 * self.u.MHz else fMW_res
+            self.fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz
+            self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz # Hz
+            self.verify_insideQUA_FreqValues(self.fMW_res)
+            self.tRF = self.rf_pulse_time
+            self.Npump = self.n_nuc_pump
+            
+            # frequency scan vector
+            self.f_vec = self.GenVector(min = 0 * self.u.MHz, max = self.mw_freq_scan_range * self.u.MHz, delta= self.mw_df * self.u.MHz, asInt=False)
+
+            # length and idx vector
+            self.vectorLength = len(self.f_vec) # size of arrays
+            self.array_length = len(self.f_vec)  # frquencies vector size
+            self.idx_vec_ini = np.arange(0, self.array_length, 1)  # indexes vector
+
+            # tracking signal
+            self.tSequencePeriod = ((self.tMW + self.tLaser) * (self.Npump + 2) + self.tRF * self.Npump) * self.array_length
+            self.tGetTrackingSignalEveryTime_nsec = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
+            self.tTrackingSignaIntegrationTime_usec = int(self.tTrackingSignaIntegrationTime * 1e6) # []
+            self.tTrackingIntegrationCycles = self.tTrackingSignaIntegrationTime_usec // self.time_in_multiples_cycle_time(self.Tcounter)
+            self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
+        
+        if Generate_QUA_sequance:
+            assign(self.f, self.val_vec_qua[self.idx_vec_qua[self.idx]])  # shuffle - assign new val from randon index
+
+            self.run_pump = declare(int)             # iteration variable
+            self.run_CNOT1 = declare(int)             # iteration variable
+            self.run_RF = declare(int)             # iteration variable
+            self.run_CNOT2 = declare(int)             # iteration variable
+            self.run_tomography = declare(int)             # iteration variable
+
+            self.run_pump = 1
+            self.run_CNOT1 = 0
+            self.run_RF = 0
+            self.run_CNOT2 = 0
+            self.run_tomography = 0
+
+            # signal
+
+            if (self.run_pump):
+                # polarize (@fMW_res @ fRF_res)
+                with for_(self.m, 0, self.m < self.Npump, self.m + 1):
+                    self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=0)#self.tWait)
+                align()      
+           
+            
+            if (self.run_CNOT1):
+                # CNOT (on left resonance)
+                update_frequency("MW", self.fMW_2nd_res)
+                # play MW
+                # play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
+            
+                play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+                play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+                align()
+
+            if (self.run_RF):
+                # apply pi/2 on nuclear spin
+                play("const" * amp(self.rf_proportional_pwr), "RF", duration=(self.tRF/2) // 4)
+                align()
+
+            if (self.run_CNOT2):
+                # CNOT (on right resonance)
+                update_frequency("MW", self.fMW_res)
+                # play MW
+                # play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
+            
+                play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+                play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+                align()
+
+            
+            if (self.self.run_tomography):
+                # implement tomography (measure the relevant projections to extract the density matrix elements)            
+                self.QUA_measure(m_state=self.j_idx+1,idx=self.i_idx,tMeasure=self.tMeasure,t_rf=self.tRF,t_mw=self.tMW,p_rf = self.rf_proportional_pwr)
+                # reference
+                self.QUA_ref0(idx=self.i_idx,tPump=self.tPump,tMeasure=self.tMeasure,tWait=self.tWait+3*self.tRF/2+4*self.tMW)
+                self.QUA_ref1(idx=self.i_idx,
+                                  tPump=self.tPump,tMeasure=self.tMeasure,tWait=self.tWait+3*self.tRF/2+4*self.tMW-self.t_mw2,
+                                  t_mw=self.time_in_multiples_cycle_time(self.t_mw2),f_mw=(self.fMW_1st_res+self.fMW_2nd_res)/2,p_mw=self.mw_P_amp2)
+            
+                with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
+                    assign(self.resCalculated[self.i_idx],(self.counts[self.i_idx]-self.counts_ref2[self.i_idx])*1000000/(self.counts_ref2[self.i_idx]-self.counts_ref[self.i_idx]))
+
+
+            
+            # This does ODMR to measure
+
+            # update MW frequency
+            update_frequency("MW", self.f)
+            # play MW
+            play("xPulse"*amp(self.mw_P_amp2), "MW", duration=self.tMW2 // 4)
+            # play Laser
+            align()
+            # align("MW", "Laser")
+            play("Turn_ON", "Laser", duration=(self.tLaser + self.tMeasureProcess) // 4)
+            # play Laser
+            # align("MW", "Detector_OPD")
+            # measure signal 
+            measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, self.tMeasure, self.counts_tmp))
+            assign(self.counts[self.idx_vec_qua[self.idx]], self.counts[self.idx_vec_qua[self.idx]] + self.counts_tmp)
+            align()
+
+            # reference
+            wait(self.tMW2 // 4)  # don't Play MW
+            # Play laser
+            play("Turn_ON", "Laser", duration=(self.tLaser + self.tMeasureProcess) // 4)
+            # Measure ref
+            measure("readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, self.tMeasure, self.counts_ref_tmp))
+            assign(self.counts_ref[self.idx_vec_qua[self.idx]], self.counts_ref[self.idx_vec_qua[self.idx]] + self.counts_ref_tmp)
+        if execute_qua:
+            self.Test_Crap_QUA_PGM(generate_params=True)
+            self.QUA_PGM()
+    '''
+        site_state = QUA varible
+    '''  
+
     def Nuclear_Pol_ESR_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):  # NUCLEAR_POL_ESR
         if generate_params:
             # sequence parameters
@@ -1730,6 +1871,7 @@ class GUI_OPX():
             # fMW_res = 0 if fMW_res < 0 else fMW_res
             # self.fMW_res = 400 * self.u.MHz if fMW_res > 400 * self.u.MHz else fMW_res
             self.fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz
+            self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz # Hz
             self.verify_insideQUA_FreqValues(self.fMW_res)
             self.tRF = self.rf_pulse_time
             self.Npump = self.n_nuc_pump
@@ -1756,6 +1898,30 @@ class GUI_OPX():
             with for_(self.m, 0, self.m < self.Npump, self.m + 1):
                 self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=0)#self.tWait)
             align()
+
+            # CNOT
+            update_frequency("MW", self.fMW_2nd_res)
+            # play MW
+            ##play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
+            
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            
+            align("MW","RF")
+            ## RF pi/2 Y pulse
+            frame_rotation_2pi(0.25,"RF")
+            play("const" * amp(self.rf_proportional_pwr), "RF", duration=(self.tRF/2) // 4)
+            frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
+            #
+            align("RF","MW")
+
+            # CNOT
+            update_frequency("MW", self.fMW_res)
+            # play MW
+            ##play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
+            
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
 
             # update MW frequency
             update_frequency("MW", self.f)
@@ -1835,8 +2001,11 @@ class GUI_OPX():
                 self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_2nd_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=self.tWait)
             align()
             # play MW
-            update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
-            play("xPulse"* amp(self.mw_P_amp2), "MW", duration=self.t_mw2 // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
+            #play("xPulse"* amp(self.mw_P_amp2), "MW", duration=self.t_mw2 // 4)
 
             align("MW","RF")
             # RF Y pulse
@@ -1858,11 +2027,17 @@ class GUI_OPX():
             wait((self.tRF+2*t_mw) // 4)
         with if_(m_state==2):
             wait((self.tRF+t_mw) // 4)
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=t_mw // 4)
         with if_(m_state==3):
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=t_mw // 4)
             align("MW","RF")
             play("const" * amp(p_rf), "RF", duration=self.tRF // 4)
             align("RF","MW")
@@ -1877,8 +2052,11 @@ class GUI_OPX():
             update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
             play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(self.t_mw2/2) // 4)
             wait(int((self.tRF+self.t_mw-self.t_mw2/2) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==6):
             update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
             play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(self.t_mw2/2) // 4)
@@ -1887,24 +2065,33 @@ class GUI_OPX():
             update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
             play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(self.t_mw2/2) // 4)
             wait(int((self.tRF+self.t_mw-self.t_mw2/2) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
 
         # n-coherences
         with if_(m_state==8):
             play("const" * amp(p_rf), "RF", duration=(self.tRF/2) // 4)
             wait(int((self.tRF/2+self.t_mw) // 4))
             align("RF","MW")
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==9):
             frame_rotation_2pi(0.25,"RF") # RF Y pulse
             play("const" * amp(p_rf), "RF", duration=(self.tRF/2) // 4)
             frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
             align("RF","MW")
             wait(int((self.tRF/2+self.t_mw) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==10):
             update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
             play("xPulse"* amp(self.mw_P_amp2), "MW", duration=self.t_mw2 // 4)
@@ -1912,19 +2099,25 @@ class GUI_OPX():
             play("const" * amp(p_rf), "RF", duration=(self.tRF/2) // 4)
             align("RF","MW")
             wait(int((self.tRF/2+self.t_mw-self.t_mw2) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==11):
             update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
-            play("xPulse"* amp(self.mw_P_amp2), "MW", duration=self.t_mw2 // 4)
+            play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(self.t_mw2/2) // 4)
             align("MW","RF")
             frame_rotation_2pi(0.25,"RF") # RF Y pulse
             play("const" * amp(p_rf), "RF", duration=(self.tRF/2) // 4)
             frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
             align("RF","MW")
             wait(int((self.tRF/2+self.t_mw-self.t_mw2) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
 
         # e-n-coherences
         with if_(m_state==12):
@@ -1934,8 +2127,11 @@ class GUI_OPX():
             play("const" * amp(p_rf), "RF", duration=(self.tRF/2) // 4)
             align("RF","MW")
             wait(int((self.tRF/2+self.t_mw-self.t_mw2/2) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==13):
             update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
             play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(self.t_mw2/2) // 4)
@@ -1945,8 +2141,11 @@ class GUI_OPX():
             frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
             align("RF","MW")
             wait(int((self.tRF/2+self.t_mw-self.t_mw2/2) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==14):
             update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
             play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(self.t_mw2/2) // 4)
@@ -1954,8 +2153,11 @@ class GUI_OPX():
             play("const" * amp(p_rf), "RF", duration=(self.tRF/2) // 4)
             align("RF","MW")
             wait(int((self.tRF/2+self.t_mw-self.t_mw2/2) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==15):
             update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
             play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(self.t_mw2/2) // 4)
@@ -1965,8 +2167,11 @@ class GUI_OPX():
             frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
             align("RF","MW")
             wait(int((self.tRF/2+self.t_mw-self.t_mw2/2) // 4))
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
+            update_frequency("MW", self.fMW_1st_res)
+            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
 
         align()
         # Play laser
@@ -2025,8 +2230,8 @@ class GUI_OPX():
             self.f_rf = self.rf_resonance_freq
 
             # length and idx vector
-            self.first_state = 0 # serial number of first initial state
-            self.last_state = 0 # serial number of last initial state
+            self.first_state = 4 # serial number of first initial state
+            self.last_state = 4 # serial number of last initial state
             self.number_of_states = 1 # number of initial states
             self.number_of_measurement = 15 # number of measurements
             self.vectorLength = self.number_of_states*self.number_of_measurement  # total number of measurements
@@ -2048,7 +2253,10 @@ class GUI_OPX():
                     # prepare state
                     self.QUA_prepare_state(site_state=self.site_state)
                     # C-NOT
-                    #align()
+                    align()
+                    update_frequency("MW", self.fMW_1st_res)
+                    play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+                    play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
                     #update_frequency("MW", self.fMW_2nd_res)
                     #play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
                     # measure
@@ -4452,6 +4660,12 @@ class GUI_OPX():
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
 
+        # MW parameters
+        #self.fMW_1st_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz
+        #self.verify_insideQUA_FreqValues(self.fMW_1st_res)
+        #self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz # Hz
+        #self.verify_insideQUA_FreqValues(self.fMW_2nd_res)
+
         # time scan vector
         tRabi_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
         tRabi_max = self.scan_t_end // 4 if self.scan_t_end // 4 > 0 else 1  # in [cycles]
@@ -4525,7 +4739,10 @@ class GUI_OPX():
                         wait(t_pad) # pad zeros to make the total time between perp and meas constant
                         # play MW for time t
                         update_frequency("MW", 0)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
+                        #update_frequency("MW", self.fMW_1st_res)
+                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
                         # play laser after MW
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
@@ -4995,7 +5212,9 @@ class GUI_OPX():
                 dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
                 dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
                 dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
-
+            if self.exp == Experiment.testCrap:  # freq
+                self.SearchPeakIntensity()
+                self.Common_updateGraph(_xLabel="freq [GHz]")
 
             
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
@@ -5129,6 +5348,12 @@ class GUI_OPX():
             self.X_vec = self.GenVector(-self.correlation_width+1,self.correlation_width,True)
             self.Y_vec = self.g2Vec#*self.iteration
 
+        if self.exp == Experiment.testCrap:  # freq
+            self.X_vec = self.f_vec / float(1e9) + self.mw_freq  # [GHz]
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+
         self.lock.release()
 
     def btnStartG2(self):
@@ -5140,7 +5365,22 @@ class GUI_OPX():
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
 
+    def btnStartEilons(self):
+        self.exp = Experiment.testCrap
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
+        # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
+        self.mwModule.Set_freq(self.mw_freq)
+        self.mwModule.Set_power(self.mw_Pwr)
+        self.mwModule.Set_IQ_mode_ON()
+        self.mwModule.Set_PulseModulation_ON()
+        if not self.bEnableSimulate:
+            self.mwModule.Turn_RF_ON()
+
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
+
+        if not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)        
 
     def StartFetch(self, _target):
         self.to_xml()  # write class parameters to XML
