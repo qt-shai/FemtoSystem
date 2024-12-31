@@ -70,6 +70,8 @@ class GUIAttoScanner(GUIMotor):
             self.dev.set_mode(ch, mode)
         except ValueError as e:
             print(f"Error: {e}")
+        except Exception as e:
+            print(f"Error: {e}")
 
     def btn_get_mode(self, sender, app_data, ch: int) -> None:
         """

@@ -361,7 +361,7 @@ def create_scan_vectors(initial_scan_location: List[float], l_scan: List[float],
 
         num_points = max(int((2 * half_length) / step_size) + 1, 2)  # At least 2 points if scanning
         vector = [np.clip(v,lower_bound, upper_bound) for v in np.linspace(center - half_length, center + half_length, num_points)]
-        return vector
+        return list(np.unique(vector))
 
     # Generate scan vectors for each dimension
     x_vec = calculate_vector(initial_scan_location[0], l_scan[0], step_sizes[0], bounds[0][0], bounds[1][0])

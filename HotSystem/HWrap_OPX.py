@@ -83,7 +83,7 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
-        self.scan_default_sleep_time: float = 20e-3
+        self.scan_default_sleep_time: float = 5e-3
         self.initial_scan_Location: List[float] = []
         self.iteration: int = 0
         self.tracking_function: Callable = None
@@ -5566,6 +5566,13 @@ class GUI_OPX():
                 print(f"Moving channel {channel} to position {position}")
                 if channel in [0, 1]:  # X and Y axes: atto_scanner
                     self.HW.atto_scanner.set_offset_voltage(self.HW.atto_scanner.channels[channel], position)
+                    time.sleep(10e-3)
+                    # actual_voltage = self.HW.atto_scanner.get_output_voltage(self.HW.atto_scanner.channels[channel])
+                    # while not np.isclose(actual_voltage, position,0.1):
+                    #     self.HW.atto_scanner.set_offset_voltage(self.HW.atto_scanner.channels[channel], position)
+                    #     time.sleep(10e-3)
+                    #     actual_voltage = self.HW.atto_scanner.get_output_voltage(self.HW.atto_scanner.channels[channel])
+                    #     print(f"Actual voltage: {actual_voltage}. Requested voltage: {position}")
                 elif channel == 2:  # Z axis: atto_positioner
                     self.HW.atto_positioner.set_control_fix_output_voltage(self.HW.atto_positioner.channels[channel],
                                                                            int(position))
@@ -5576,7 +5583,8 @@ class GUI_OPX():
                 """
                 x = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[0])  # X axis
                 y = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[1])  # Y axis
-                z = self.HW.atto_positioner.get_control_fix_output_voltage(2)  # Z axis
+                z = self.HW.atto_positioner.get_control_output_voltage(2)  # Z axis
+                print(f"control voltage: {z}, fixed_offset_voltage: {self.HW.atto_positioner.get_control_output_voltage(2)}")
                 return x, y, z
 
             self.HW.atto_scanner.stop_position_updates()
