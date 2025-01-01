@@ -5,6 +5,8 @@ import threading
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
     SirahMatisse, Keysight33500B, AttoScannerWrapper
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
+from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
+
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 
 class HW_devices:
@@ -35,8 +37,7 @@ class HW_devices:
             self.matisse_device: Optional[SirahMatisse] = None
             self.atto_scanner: Optional[AttoScannerWrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
-
-
+            self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
 
     def __new__(cls, simulation:bool = False) -> 'HW_devices':
         """
@@ -92,6 +93,10 @@ class HW_devices:
             elif instrument == Instruments.COBOLT:
                 cobolt_config: Device = [x for x in self.config.devices if x.instrument is Instruments.COBOLT][0]
                 self.cobolt = CoboltLaser(port=cobolt_config.com_port,simulation=self.simulation)
+            
+            elif instrument == Instruments.CLD1011LP:
+                CLD1011LP_config: Device = [x for x in self.config.devices if x.instrument is Instruments.CLD1011LP][0]
+                self.CLD1011LP = ThorlabsCLD1011LP(simulation=self.simulation)
 
             elif instrument == Instruments.PICOMOTOR:
                 self.picomotor = newportPicomotor(self.simulation)
