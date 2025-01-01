@@ -10,9 +10,9 @@ from .SmarAct.smaract_movement import Movement
 from .SmarAct.smaract_stream_manager import StreamManager
 from .wrapper_mattise import SirahMatisse
 from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
-from HW_wrapper.Attocube.atto_piezo_scanner import AttoScannerWrapper
 from .SRS_PID.wrapper_sim960_pid import SRSsim960
 from .SRS_PID.wrapper_sim900_mainframe import SRSsim900
+from .NovatechDDS.wrapper_novatech_dds import NovatechDDS426A
 
 __all__ = [
     "AttoDry800",
@@ -32,8 +32,8 @@ __all__ = [
     'StreamManager',
     'SirahMatisse',
     'Keysight33500B',
-    'AttoScannerWrapper',
     'ConnectorMode',
     'SRSsim960',
-    'SRSsim900'
+    'SRSsim900',
+    'NovatechDDS426A'
 ]
