@@ -20,7 +20,6 @@ from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
 from HW_GUI.GUI_mattise import GUIMatisse
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
-from HW_wrapper import AttoScannerWrapper
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Window import Window_singleton
 import threading

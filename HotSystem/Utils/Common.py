@@ -1,15 +1,20 @@
-import math
-import pdb
-import tkinter as tk
 import csv
+import math
+import os
+import tkinter as tk
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from enum import Enum
+from tkinter import Tk
 from tkinter import filedialog
+from tkinter.filedialog import askopenfilename
+from typing import Callable, Any, Dict, List, Type
+from typing import Tuple, Union
 import numpy as np
 import pandas as pd
-from typing import Tuple, Union, List, Optional
 from matplotlib import pyplot as plt
-import os
-from tkinter import Tk
-from tkinter.filedialog import askopenfilename
+from typing import Any, Dict, Callable, Generic, TypeVar
+T = TypeVar('T')
 
 
 def load_scan_plane_calibration_data(file_path: str) -> np.ndarray:
@@ -363,3 +368,71 @@ def select_csv_file() -> str:
     Tk().withdraw()
     file_path = askopenfilename(filetypes=[("CSV files", "*.csv")])
     return file_path
+
+class ObserverInterface(ABC):
+    """
+    An interface for managing observers and notifying them of updates.
+    """
+
+    def __init__(self) -> None:
+        self._observers: List[Callable[[Any], None]] = []
+
+    def add_observer(self, observer: Callable[[Any], None]) -> None:
+        """
+        Add an observer callback.
+
+        :param observer: A callable accepting a single argument (data).
+        """
+        if not callable(observer):
+            raise ValueError("Observer must be callable.")
+        self._observers.append(observer)
+
+    def remove_observer(self, observer: Callable[[Any], None]) -> None:
+        """
+        Remove a previously registered observer callback.
+
+        :param observer: The observer to remove.
+        """
+        if observer in self._observers:
+            self._observers.remove(observer)
+
+    def notify_observers(self, data: Any) -> None:
+        """
+        Notify all observers with the provided data.
+
+        :param data: The data to pass to all registered observers.
+        """
+        for callback in self._observers:
+            try:
+                callback(data)
+            except Exception as e:
+                print(f"Error notifying observer: {e}")
+
+
+
+class ObservableField(Generic[T], ObserverInterface):
+    """
+    A field that notifies observers on changes and integrates with the ObserverInterface.
+    """
+
+    def __init__(self, initial_value: T):
+        """
+        Initialize the observable field with an initial value.
+
+        :param initial_value: The initial value of the field.
+        """
+        super().__init__()
+        self._value = initial_value
+
+    def get(self) -> T:
+        """Retrieve the value."""
+        return self._value
+
+    def set(self, value: T) -> None:
+        """
+        Set the value and notify observers.
+
+        :param value: The new value to set.
+        """
+        self._value = value
+        self.notify_observers(value)
