@@ -182,6 +182,7 @@ def load_instrument_images():
     """
     Load images for instruments if available; otherwise, show a placeholder.
     """
+    create_themes()
     expected_base_path = r"HotSystem\SystemConfig\Images"
     # Get the current working directory
     current_working_directory = os.getcwd() + "\\"
@@ -189,12 +190,13 @@ def load_instrument_images():
     base_path = remove_overlap_from_string(current_working_directory, expected_base_path)
 
     with dpg.texture_registry():
-        image_path = os.path.join(base_path, "config.png")
-        texture_tag = "config_texture"
-        if not dpg.does_item_exist(texture_tag):
-            if os.path.exists(image_path):
-                width, height, channels, data = dpg.load_image(image_path)
-                dpg.add_static_texture(width, height, data, tag=texture_tag)
+        for icon in ['config','keyboard']:
+            image_path = os.path.join(base_path, f"{icon}.png")
+            texture_tag = f"{icon}_texture"
+            if not dpg.does_item_exist(texture_tag):
+                if os.path.exists(image_path):
+                    width, height, channels, data = dpg.load_image(image_path)
+                    dpg.add_static_texture(width, height, data, tag=texture_tag)
 
         for instrument in Instruments:
             texture_tag = f"{instrument.value}_texture"
@@ -209,38 +211,40 @@ def load_instrument_images():
                     placeholder_data = [255, 255, 255, 255] * 50 * 50
                     dpg.add_static_texture(50, 50, placeholder_data, tag=texture_tag)
 
-
 def create_themes():
     """
-    Create the themes for selected and default states with pastel colors.
+    Create the themes for selected, default, and main window states with pastel colors.
+    Themes are only created if they don't already exist.
     """
-    # Selected theme (pastel green background)
-    with dpg.theme(tag="selected_theme"):
-        with dpg.theme_component(dpg.mvChildWindow):
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green
-        with dpg.theme_component(dpg.mvText):
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
-        with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green background
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+    # Create the "selected_theme" if it doesn't already exist
+    if not dpg.does_item_exist("selected_theme"):
+        with dpg.theme(tag="selected_theme"):
+            with dpg.theme_component(dpg.mvChildWindow):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green
+            with dpg.theme_component(dpg.mvText):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+            with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (109, 155, 109), category=dpg.mvThemeCat_Core)  # Pastel green background
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
-    # Default theme (pastel light gray background)
-    with dpg.theme(tag="default_theme"):
-        with dpg.theme_component(dpg.mvChildWindow):
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray
-        with dpg.theme_component(dpg.mvText):
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
-        with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray background
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+    # Create the "default_theme" if it doesn't already exist
+    if not dpg.does_item_exist("default_theme"):
+        with dpg.theme(tag="default_theme"):
+            with dpg.theme_component(dpg.mvChildWindow):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray
+            with dpg.theme_component(dpg.mvText):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
+            with dpg.theme_component(dpg.mvInputText):  # Apply to input float widgets
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (240, 240, 240), category=dpg.mvThemeCat_Core)  # Light gray background
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
-    # Pastel magenta theme for the main window
-    with dpg.theme(tag="main_window_theme"):
-        with dpg.theme_component(dpg.mvWindowAppItem):
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (167, 199, 231), category=dpg.mvThemeCat_Core)  # Pastel magenta
-        with dpg.theme_component(dpg.mvText):
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
-
+    # Create the "main_window_theme" if it doesn't already exist
+    if not dpg.does_item_exist("main_window_theme"):
+        with dpg.theme(tag="main_window_theme"):
+            with dpg.theme_component(dpg.mvWindowAppItem):
+                dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (167, 199, 231), category=dpg.mvThemeCat_Core)  # Pastel magenta
+            with dpg.theme_component(dpg.mvText):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (51, 51, 51), category=dpg.mvThemeCat_Core)  # Dark gray text
 
 def run_system_config_gui():
     """
