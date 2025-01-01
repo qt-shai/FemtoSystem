@@ -1,7 +1,8 @@
 
-from typing import Optional
+from typing import Optional, Callable, Dict, DefaultDict
 import threading
 
+from Common import KeyboardKeys
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
     SirahMatisse, Keysight33500B
 from HW_wrapper.Attocube import Anc300Wrapper
@@ -9,6 +10,7 @@ from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
+from Utils import ObservableField
 
 
 class HW_devices:
@@ -40,7 +42,7 @@ class HW_devices:
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
             self.SRS_PID: Optional[SRSsim960] = None
-
+            self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
 
     def __new__(cls, simulation:bool = False) -> 'HW_devices':
         """

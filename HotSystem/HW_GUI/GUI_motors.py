@@ -1,8 +1,9 @@
 from enum import Enum, auto
-from typing import Optional, List, Any
+from typing import Optional, List, Callable, Dict
 
 import dearpygui.dearpygui as dpg
-from Common import DpgThemes
+from Common import DpgThemes, KeyboardKeys
+from HW_wrapper.HW_devices import HW_devices
 from HW_wrapper.abstract_motor import Motor
 from SystemConfig import Instruments, load_instrument_images
 
@@ -30,17 +31,20 @@ class GUIMotor:
         if config_options is None:
             config_options = list(GUIMotorConfig)
 
+        self.active_key: Optional[KeyboardKeys] = KeyboardKeys.CTRL_KEY
         self.is_collapsed: bool = False
+        self.is_active_motor_keyboard: bool = False
         load_instrument_images()
         self.dev = motor  # The motor device instance
         self.simulation = simulation
         self.unique_id = self._get_unique_id_from_device()  # Automatically infer the unique identifier from the device
         self.instrument = instrument
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
-
         child_width = 100
         self.window_tag = f"MotorWin_{self.unique_id}"
         self.window_label = f"{self.instrument.value}" + "(simulation)" if simulation else f"({motor.serial_number})"
+        self.hw_devices = HW_devices(simulation=simulation)
+
         with dpg.window(tag=self.window_tag, label=f"{self.window_label}",
                         no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
             with dpg.group(horizontal=True):

@@ -169,7 +169,7 @@ class Motor(ObserverInterface, ABC):
         pass
 
     @abstractmethod
-    def move_relative(self, channel: int, steps: int) -> None:
+    def move_relative(self, channel: int, steps: float) -> None:
         """
         Move a specific channel by a relative number of steps.
 
