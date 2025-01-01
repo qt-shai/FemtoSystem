@@ -19,44 +19,7 @@ class GUIAttoScanner(GUIMotor):
         super().__init__(motor=motor, instrument=instrument, simulation=simulation)
         self.dev: Anc300Wrapper = motor
         with dpg.group(horizontal=True, parent=f"{self.window_tag}"):
-            self._add_offset_voltage_controls()
             self._add_mode_controls()
-
-    def _add_offset_voltage_controls(self) -> None:
-        """
-        Add offset voltage controls to the GUI.
-        """
-        with dpg.group(horizontal=False, tag = f"offset_voltage_controls_{self.unique_id}", width = 150):
-            dpg.add_text("Offset Voltage (V)")
-            for ch in self.dev.channels:
-                with dpg.group(horizontal=True):
-                    dpg.add_input_float(label="", default_value=0.0, tag=f"ch{ch}_offset_{self.unique_id}", width=60)
-                    dpg.add_button(label="Set", callback=self.btn_set_offset, user_data=ch, width=60)
-                    dpg.add_button(label="Get", callback=self.btn_get_offset, user_data=ch, width=60)
-
-    def btn_set_offset(self, sender, app_data, ch: int) -> None:
-        """
-        Set the offset voltage for a given channel from the GUI input.
-
-        :param ch: The channel number.
-        """
-        voltage = dpg.get_value(f"ch{ch}_offset_{self.unique_id}")
-        try:
-            self.dev.set_offset_voltage(ch, voltage)
-        except ValueError as e:
-            print(f"Error: {e}")
-
-    def btn_get_offset(self, sender, app_data, ch: int) -> None:
-        """
-        Get and display the offset voltage for a given channel.
-
-        :param ch: The channel number.
-        """
-        try:
-            voltage = self.dev.get_offset_voltage(ch)
-            dpg.set_value(f"ch{ch}_offset_{self.unique_id}", voltage)
-        except Exception as e:
-            print(f"Error: {e}")
 
     def btn_set_mode(self, sender, app_data, ch: int) -> None:
         """

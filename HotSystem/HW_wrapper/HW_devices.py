@@ -3,7 +3,7 @@ from typing import Optional
 import threading
 
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B, AttoScannerWrapper
+    SirahMatisse, Keysight33500B
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
@@ -32,7 +32,7 @@ class HW_devices:
             self.elc_power_supply: Optional[ALR3206T] = None
             self.highland_eom_driver: Optional[HighlandT130]  = None
             self.microwave: Optional[RS_SGS100a] = None
-            self.positioner: Optional[smaractMCS2|AttoScannerWrapper|AttoDry800] = None
+            self.positioner: Optional[smaractMCS2|Anc300Wrapper|AttoDry800] = None
             self.camera: Optional[Zelux] = None
             self.atto_positioner: Optional[AttoDry800] = None
             self.picomotor:Optional[newportPicomotor] = None
