@@ -5587,8 +5587,8 @@ class GUI_OPX():
                 print(f"control voltage: {z}, fixed_offset_voltage: {self.HW.atto_positioner.get_control_output_voltage(2)}")
                 return x, y, z
 
-            self.HW.atto_scanner.stop_position_updates()
-            self.HW.atto_positioner.stop_position_updates()
+            self.HW.atto_scanner.stop_updates()
+            self.HW.atto_positioner.stop_updates()
 
             self.initial_scan_Location = list(get_positions())
             print(f"Initial scan location: {self.initial_scan_Location}")
@@ -5622,8 +5622,8 @@ class GUI_OPX():
                 y_vec=y_vec,
                 z_vec=z_vec
             )
-            self.HW.atto_scanner.start_position_updates()
-            self.HW.atto_positioner.start_position_updates()
+            self.HW.atto_scanner.start_updates()
+            self.HW.atto_positioner.start_updates()
         else:
             self.StartScan3D()
         if self.positioner:

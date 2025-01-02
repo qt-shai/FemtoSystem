@@ -83,7 +83,7 @@ class GUIMotor:
                 print(f"setting {self} positions channle {ch} to 0")
                 self.dev.set_position(ch,0)
 
-        self.dev.start_position_updates()
+        self.dev.start_updates()
 
 
     def _get_unique_id_from_device(self) -> str:

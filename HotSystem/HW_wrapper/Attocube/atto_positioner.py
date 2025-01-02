@@ -51,11 +51,11 @@ class AttoDry800(Motor):
                 print(f"Error connecting to the device: {e}")
                 self._connected = False
                 raise e
-        self.start_position_updates()
+        self.start_updates()
 
     def disconnect(self) -> None:
         """Disconnect from the cryostat."""
-        self.stop_position_updates()
+        self.stop_updates()
         if self.simulation:
             self._simulate_action("disconnect from the cryostat")
             self._connected = False
