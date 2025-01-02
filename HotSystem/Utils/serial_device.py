@@ -59,6 +59,7 @@ class SerialDevice:
 
         try:
             if self.rm is None:
+                print("Initializing resource manager")
                 self.rm = pyvisa.ResourceManager()
                 print("Resource Manager initialized.")
 
