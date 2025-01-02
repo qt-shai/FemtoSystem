@@ -25,12 +25,12 @@ class MotorStage(Motor):
         self.timeout = 20000
 
     def __del__(self):
-        pass
+        self.disconnect()
 
     def connect(self) -> None:
         try:
             # Connect, begin polling, and enable
-            res = self.device.Connect(self.serial_number)
+            self.device.Connect(self.serial_number)
 
             # Wait for Settings to Initialise
             if not self.device.IsSettingsInitialized():
@@ -45,7 +45,6 @@ class MotorStage(Motor):
             m_config.DeviceSettingsName = "PRMTZ8" #Type of motor
             m_config.UpdateCurrentConfiguration()
             self.device.SetSettings(self.device.MotorDeviceSettings, True, False)
-            return res
         except Exception as e:
             print(
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Error during initialization:", e)
@@ -94,8 +93,8 @@ class MotorStage(Motor):
             current_angle = self.device.Position
             new_angle = current_angle + Decimal(angle)
             print(
-                f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Moving by position {new_angle}°")
-            self.MoveABSOLUTE(new_angle)
+                f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Moving by position {angle}°")
+            self.device.MoveTo(new_angle,self.timeout)
         else:
             print(
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
@@ -117,14 +116,14 @@ class MotorStage(Motor):
     def is_busy(self) -> bool:
         return self.device.IsDeviceBusy
 
-    def get_device_info(self):
-        #Return the serial number and type of the Device
-        print("Device Methods and Properties:")
-        print(self.device.GetJogParams())
-        methods_and_properties = dir(self.device)
-        print("Device Methods and Properties:")
-        print("\n".join(methods_and_properties))  # Print each item in a new line
-        #print(self.device.get_MotorPositionLimits().MaxValue)
+    # def get_device_info(self) -> None:
+    #     #Return the serial number and type of the Device
+    #     print("Device Methods and Properties:")
+    #     print(self.device.GetJogParams())
+    #     methods_and_properties = dir(self.device)
+    #     print("Device Methods and Properties:")
+    #     print("\n".join(methods_and_properties))  # Print each item in a new line
+    #     #print(self.device.get_MotorPositionLimits().MaxValue)
 
     def jog(self, direction) -> None:
         """Makes a jog, not continuous. Can be called multiple times in a future held/unheld jog method"""
@@ -245,7 +244,7 @@ class MotorStage(Motor):
 
     def disconnect(self) -> None:
         """Disconnect the device."""
-        self.device.StopPolling()
+        #self.device.StopPolling()
         self.device.DisableDevice()
         self.device.Disconnect()
 
