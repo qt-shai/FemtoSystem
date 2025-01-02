@@ -436,3 +436,18 @@ class ObservableField(Generic[T], ObserverInterface):
         """
         self._value = value
         self.notify_observers(value)
+
+def is_within_bounds(value: float, bounds: tuple[float, float]) -> bool:
+    """
+    Checks if a given value is within the specified bounds.
+
+    :param value: The value to check.
+    :param bounds: A tuple containing the lower and upper bounds (inclusive).
+    :return: True if the value is within bounds, False otherwise.
+    """
+    if not isinstance(bounds, tuple) or len(bounds) != 2:
+        raise ValueError("Bounds must be a tuple with two elements: (lower_bound, upper_bound).")
+    lower_bound, upper_bound = bounds
+    if lower_bound > upper_bound:
+        raise ValueError("Invalid bounds: lower_bound must be less than or equal to upper_bound.")
+    return lower_bound <= value <= upper_bound

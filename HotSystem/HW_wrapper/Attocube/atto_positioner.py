@@ -37,6 +37,7 @@ class AttoDry800(Motor):
         self.fix_output_voltage_min = 0
         self.fix_output_voltage_max = 60000
         self._position_bounds: Dict[int, tuple[float, float]] = {ch: (-1e6, 1e6) for ch in self.channels}
+        self._velocity_bounds: Dict[int, tuple[float, float]] = {ch: (1, 5000) for ch in self.channels}
 
     def connect(self) -> None:
         if self.simulation:

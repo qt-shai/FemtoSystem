@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple, Dict
 import numpy as np
 from pylablib.devices import Attocube
 from HW_wrapper.abstract_motor import Motor
-from Utils import ObservableField
+from Utils import ObservableField, is_within_bounds
 
 
 class ANC300Modes(Enum):
@@ -120,14 +120,9 @@ class Anc300Wrapper(Motor):
         :param steps: The number of microns to move.
         """
         self.verify_channel(channel)
-        if self.simulation:
-            self._simulate_action(f"move channel {channel} by {steps} steps")
-            self.axes_positions[channel].set(self.axes_positions[channel].get()+ steps)
-            return
-
-        steps_voltages = self._convert_units_to_meters(steps)
         current_position = self.get_position(channel)
-        self.MoveABSOLUTE(channel, np.clip(current_position+steps_voltages,0,59))
+        new_position = current_position + steps
+        self.MoveABSOLUTE(channel, new_position)
         print(f"Moved channel {channel} by {steps} pm.")
 
     def set_zero_position(self, channel: int) -> None:
@@ -228,13 +223,14 @@ class Anc300Wrapper(Motor):
         Sets the 'position' for this channel, mapped to offset voltage internally.
         """
         self.verify_channel(channel)
-        if position < 0 or position > self.max_travel:
-            raise ValueError(f"Position {position} out of allowed 0..{self.max_travel} meters.")
+        voltage = self._convert_units_to_offset_voltage(position)
+        if not is_within_bounds(voltage, self._position_bounds[channel]):
+            raise ValueError(f"Position {voltage} is out of bounds for channel {channel}.")
         try:
-            voltage = self._convert_units_to_offset_voltage(position)
             if not self.simulation and self.device is not None:
                 self.device.set_offset(channel, voltage)
-            self.axes_positions[channel].set(position)
+            with self._lock:
+                self.axes_positions[channel].set(position)
         except Exception as e:
             print(f"Error setting position for channel {channel}: {e}")
 
@@ -272,7 +268,9 @@ class Anc300Wrapper(Motor):
         :param position: Position in picometers.
         :return: Position in meters.
         """
-        return position * self.max_travel/self.offset_voltage_max
+        new_value =  position * self.max_travel/self.offset_voltage_max
+        print(f'old value: {position}. new value:{new_value}')
+        return new_value
 
     def _convert_units_to_offset_voltage(self,position: float) -> float:
         """
@@ -281,7 +279,9 @@ class Anc300Wrapper(Motor):
         :param position: Position in picometers.
         :return: Position in offset voltage (in volts).
         """
-        return position * self.offset_voltage_max/self.max_travel
+        new_value = position * self.offset_voltage_max/self.max_travel
+        print(f'old value: {position}. new value:{new_value}')
+        return new_value
 
     def MoveABSOLUTE(self, channel: int, position: float) -> None:
         self.verify_channel(channel)
@@ -365,7 +365,8 @@ class Anc300Wrapper(Motor):
         self.verify_channel(channel)
         if self.simulation:
             print(f"Simulating getting mode for channel {channel}")
-            return self._axes_positions[channel]  # Default simulated mode
+            with self._lock():
+                return self.axes_positions[channel].get()  # Default simulated mode
         try:
             return self.device.get_output(channel)
         except ValueError:

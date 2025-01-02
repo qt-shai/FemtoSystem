@@ -3,7 +3,7 @@ from .Common import (load_scan_plane_calibration_data, save_scan_plane_calibrati
                      generate_scan_points, generate_z_series, scatter_scan_points,
                      intensity_to_rgb_heatmap_normalized, calculate_z_series, open_file_dialog,
                      get_available_xml_files, get_square_matrix_size, remove_overlap_from_string, select_csv_file,
-                     loadFromCSV, open_dialog, ObserverInterface, ObservableField)
+                     loadFromCSV, open_dialog, ObserverInterface, ObservableField, is_within_bounds)
 from .intensity_peak_finding import OptimizerMethod, find_max_signal
 from .scan_utils import create_scan_vectors
 
@@ -28,5 +28,6 @@ __all__ = [
     "find_max_signal",
     "create_scan_vectors",
     "ObserverInterface",
-    "ObservableField"
+    "ObservableField",
+    "is_within_bounds"
 ]
