@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from enum import Enum
 from typing import List, Optional
 from Utils import remove_overlap_from_string
+import socket
 
 class SystemType(Enum):
     HOT_SYSTEM = "HotSystem"
@@ -36,9 +37,12 @@ class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"
     MCS2_00017055 = "192.168.101.59"
     MATTISE = "COM3"
-    KEYSIGHT_AWG = "TCPIP::K-33522B-03690.local::5025::SOCKET"
+    KEYSIGHT_AWG_33522B = "TCPIP::K-33522B-03690.local::5025::SOCKET"
+    KEYSIGHT_AWG_33600A = "TCPIP::A-33600-00000.local::5025::SOCKET"
     Rhode_Schwarz_hot_system = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     Rhode_Schwarz_atto = "192.168.101.50"
+    # AWG_33600A = "192.168.101.159"
+    # AWG_33500B = "192.168.101.62"
     atto_positioner = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
     atto_scanner = "192.168.101.20"
     opx_ip = '192.168.101.56'
@@ -250,28 +254,72 @@ def get_mac_address(ip_address: str) -> Optional[str]:
 
     return None
 
+def parse_tcpip_resource(resource: str) -> Optional[tuple]:
+    """
+    Parses a TCPIP resource string into host and port components.
+
+    :param resource: The TCPIP resource string (e.g., "TCPIP::hostname::port::SOCKET").
+    :return: A tuple of (host, port) if parsing is successful, None otherwise.
+    """
+    try:
+        parts = resource.split("::")
+        if len(parts) >= 3 and parts[0] == "TCPIP":
+            host = parts[1]
+            port = int(parts[2])
+            return host, port
+    except ValueError:
+        pass  # Handle cases where port is not an integer
+    return None
+
+def ping_tcpip_resource(host: str, port: int, timeout: int = 2) -> bool:
+    """
+    Attempts to connect to a TCPIP resource to check its availability.
+
+    :param host: The hostname or IP address of the resource.
+    :param port: The port number of the resource.
+    :param timeout: The timeout for the connection attempt in seconds.
+    :return: True if the resource is reachable, False otherwise.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (socket.timeout, socket.error):
+        return False
+
 def find_ethernet_device(ip_address: str, instrument: Instruments) -> Optional[Device]:
     """
-    Pings an Ethernet device to check if it's available, and retrieves its MAC address if available.
-    The result is returned as a Device object.
+    Pings an Ethernet device to check if it's available and retrieves its MAC address if available.
+    Supports both standard IP addresses and TCPIP resource strings.
 
-    :param ip_address: The IP address of the device to ping and retrieve the MAC address.
+    :param ip_address: The IP address or TCPIP resource string of the device.
     :param instrument: The type of instrument (e.g., Instruments.SMARACT).
     :return: A Device object if the device is available and responds, None otherwise.
     """
-    # Ping the device
-    if ping_device(ip_address, timeout=2):
-        print(f"Device at {ip_address} is available.")
-        # Get the MAC address
-        mac_address = get_mac_address(ip_address)
-        if mac_address:
-            print(f"MAC address of {ip_address}: {mac_address}")
+    # Check if the input is a TCPIP resource
+    tcpip_resource = parse_tcpip_resource(ip_address)
+    if tcpip_resource:
+        host, port = tcpip_resource
+        if ping_tcpip_resource(host, port):
+            print(f"Device at {host}:{port} is available.")
+            # Return a Device object for the TCPIP resource
+            return Device(instrument=instrument, ip_address=f"{host}:{port}", mac_address="N/A", serial_number="N/A")
         else:
-            print(f"MAC address for {ip_address} could not be found.")
-        # Return a Device object with the retrieved details
-        return Device(instrument=instrument, ip_address=ip_address, mac_address=mac_address, serial_number="N/A")
+            print(f"Device at {host}:{port} is not available.")
     else:
-        print(f"Device at {ip_address} is not available.")
+        # Handle as a standard IP address
+        if ping_device(ip_address, timeout=2):
+            print(f"Device at {ip_address} is available.")
+            # Get the MAC address
+            mac_address = get_mac_address(ip_address)
+            if mac_address:
+                print(f"MAC address of {ip_address}: {mac_address}")
+            else:
+                print(f"MAC address for {ip_address} could not be found.")
+            # Return a Device object with the retrieved details
+            return Device(instrument=instrument, ip_address=ip_address, mac_address=mac_address, serial_number="N/A")
+        else:
+            print(f"Device at {ip_address} is not available.")
 
     return None
+
 

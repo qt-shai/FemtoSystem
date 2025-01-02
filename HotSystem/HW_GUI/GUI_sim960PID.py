@@ -383,6 +383,7 @@ class GUISIM960:
 
                 chosen_voltages.append(chosen_voltage)
                 print(f"* * * * Chose voltage {chosen_voltage} * * * *")
+                middle = chosen_voltage
 
                 # Measure around chosen_voltage + 1.6 ± 0.3
                 span_voltage_offsets = (
@@ -412,18 +413,27 @@ class GUISIM960:
 
                 print(f"Maximal Reading: {max_reading:.3f} at Voltage: {max_voltage:.3f} V")
 
-                # Record final reading at chosen voltage
-                self.dev._write(f"MOUT {chosen_voltage:.3f}")
-                time.sleep(measure_delay)
-                measured_values = [
-                    self.dev.read_measure_input() for _ in range(measure_count)
-                ]
-                avg_chosen_reading = sum(measured_values) / len(measured_values) * 10
-                recorded_readings.append(avg_chosen_reading)
+                final_voltage_offsets = np.linspace(chosen_voltage - 0.3, chosen_voltage + 0.3, 10)
+                final_readings = []
+                for voltage in final_voltage_offsets:
+                    self.dev._write(f"MOUT {voltage:.3f}")
+                    time.sleep(measure_delay)
+                    final_measured_values = [
+                        self.dev.read_measure_input() for _ in range(measure_count)
+                    ]
+                    avg_final_reading = (sum(final_measured_values) / len(final_measured_values))*1000
+                    final_readings.append(avg_final_reading)
+                    # Print each final reading
+                    print(f"Voltage: {voltage:.3f} V, Final Reading: {avg_final_reading:.3f}")
+
+                # Take the minimum reading from the measurements
+                min_final_reading = min(final_readings)
+                recorded_readings.append(min_final_reading)
+                print(f"Minimum recorded reading within ±0.3 V around {chosen_voltage:.3f} V: {min_final_reading:.3f}")
 
             # Finalize
             final_voltage = chosen_voltages[-1]
-            self.dev.set_output_offset(final_voltage)
+            # self.dev.set_output_offset(final_voltage)
 
             # Save results to a single CSV
             df = pd.DataFrame(all_data)
@@ -455,7 +465,7 @@ class GUISIM960:
             axs[0].legend()
 
             axs[1].plot(np.cumsum(iteration_times), chosen_voltages, 'o-', color='blue', label="Chosen Voltages")
-            axs[1].plot(np.cumsum(iteration_times), recorded_readings, 'o-', color='green', label="Minimal Readings x10")
+            axs[1].plot(np.cumsum(iteration_times), recorded_readings, 'o-', color='green', label="Minimal Readings x1000")
             axs[1].plot(np.cumsum(iteration_times), maximal_readings, 'o-', color='purple', label="Maximal Readings")
             axs[1].set_title("Convergence of Chosen Voltages and Readings Over Time")
             axs[1].set_xlabel("Time (s)")

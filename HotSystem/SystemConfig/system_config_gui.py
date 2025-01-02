@@ -45,20 +45,12 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
     elif instrument == Instruments.ZELUX:
         devices = ZeluxCamera.Zelux.get_available_devices()
     elif instrument == Instruments.ROHDE_SCHWARZ:
-        devices = [
-            find_ethernet_device(ip, instrument)
-            for ip in [
-                InstrumentsAddress.Rhode_Schwarz_hot_system.value,
-                InstrumentsAddress.Rhode_Schwarz_atto.value,
-            ]
-        ]
-        devices = [dev for dev in devices if dev]
-        if len(devices) == 0:
-            devices = None
+        ip_list = [InstrumentsAddress.Rhode_Schwarz_hot_system.value,
+            InstrumentsAddress.Rhode_Schwarz_atto.value]
+        devices = find_device_list_from_ip(instrument,ip_list)
     elif instrument == Instruments.ATTO_POSITIONER:
-        devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
-        if not isinstance(devices, list) and devices:
-            devices = [devices]
+        ip_list = [SystemConfig.atto_positioner_ip]
+        devices = find_device_list_from_ip(instrument,ip_list)
     elif instrument == Instruments.SIM960:
         # NEW LOGIC FOR SIM960
         # Attempt to detect or retrieve a list of SIM960 devices
@@ -81,10 +73,24 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
         devices = [Device(instrument=Instruments.SIM960,ip_address= str(sim_dev), com_port=mainframe_port) for sim_dev in sim960_list]
         if temp_mainframe:
             temp_mainframe.disconnect()
+    elif instrument == Instruments.KEYSIGHT_AWG:
+        ip_list = [InstrumentsAddress.KEYSIGHT_AWG_33522B.value, InstrumentsAddress.KEYSIGHT_AWG_33600A.value]
+        devices = find_device_list_from_ip(instrument, ip_list)
+
+
     # Return as a list or None
     if not isinstance(devices, list) and devices:
         devices = [devices]
     return devices
+
+
+def find_device_list_from_ip(instrument: Instruments, ip_list: List[str]):
+    devices = [find_ethernet_device(ip, instrument) for ip in ip_list]
+    devices = [dev for dev in devices if dev]
+    if len(devices) == 0:
+        devices = None
+    return devices
+
 
 def generate_device_key(device):
     """

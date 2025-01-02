@@ -102,7 +102,6 @@ class HW_devices:
                                                   simulation=device.simulation)
 
             elif instrument == Instruments.ATTO_SCANNER:
-                # self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=device.simulation)  # Replace with actual address
                 self.atto_scanner = Anc300Wrapper(conn= InstrumentsAddress.atto_scanner.value,
                                                   simulation=device.simulation)
 
@@ -139,6 +138,11 @@ class HW_devices:
                     slot = int(dev.ip_address),
                     simulation = dev.simulation
                 ) for dev in sim900_config]
+
+            elif instrument == Instruments.KEYSIGHT_AWG:
+                self.keysight_awg_device = Keysight33500B(address= device.ip_address,
+                                                          simulation=device.simulation)  # Replace with actual address
+
 
             else:
                 # Handle unknown instrument case
