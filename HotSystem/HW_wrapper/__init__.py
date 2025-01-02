@@ -11,6 +11,7 @@ from .SmarAct.smaract_stream_manager import StreamManager
 from .wrapper_mattise import SirahMatisse
 from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
 from HW_wrapper.Attocube.atto_piezo_scanner import AttoScannerWrapper
+from .Wrapper_ThorLabsMotorStage import MotorStage
 
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     'Keysight33500B',
     'AttoScannerWrapper',
     'ConnectorMode'
+    "ThorLabsMotorStage"
 ]
