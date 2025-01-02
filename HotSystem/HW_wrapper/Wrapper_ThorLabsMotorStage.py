@@ -114,7 +114,7 @@ class MotorStage(Motor):
         print(
             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Velocity is: {vel_params.MaxVelocity}°",
             f'Acceleration is: {vel_params.Acceleration},',f'Jog step is: {jog_params.StepSize}.')
-        return vel_params.MaxVelocity, jog_params.Acceleration
+        return vel_params.MaxVelocity, vel_params.Acceleration, jog_params.StepSize
 
     def get_info(self):
         print(dir(self.device))
@@ -210,6 +210,7 @@ class MotorStage(Motor):
 
     def jog_continuous(self, direction) -> None:
         """Makes a jog, not continuous. Can be called multiple times in a future held/unheld jog method"""
+        #self.device.StopPolling()
         try:
             if direction.lower() == "forward":
                 self.device.MoveContinuous(MotorDirection.Forward)
