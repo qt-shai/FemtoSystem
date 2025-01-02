@@ -25,7 +25,8 @@ class MotorStage(Motor):
         self.timeout = 20000
 
     def __del__(self):
-        self.disconnect()
+        # self.disconnect()
+        pass
 
     def connect(self) -> None:
         try:
@@ -92,6 +93,8 @@ class MotorStage(Motor):
         if self.validate_angle(angle):
             current_angle = self.device.Position
             new_angle = current_angle + Decimal(angle)
+            if new_angle > Decimal(360):
+                new_angle = new_angle - Decimal(360)
             print(
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Moving by position {angle}°")
             self.device.MoveTo(new_angle,self.timeout)
@@ -113,17 +116,20 @@ class MotorStage(Motor):
             f'Acceleration is: {vel_params.Acceleration},',f'Jog step is: {jog_params.StepSize}.')
         return vel_params.MaxVelocity, jog_params.Acceleration
 
+    def get_info(self):
+        print(dir(self.device))
+
     def is_busy(self) -> bool:
         return self.device.IsDeviceBusy
 
-    # def get_device_info(self) -> None:
-    #     #Return the serial number and type of the Device
-    #     print("Device Methods and Properties:")
-    #     print(self.device.GetJogParams())
-    #     methods_and_properties = dir(self.device)
-    #     print("Device Methods and Properties:")
-    #     print("\n".join(methods_and_properties))  # Print each item in a new line
-    #     #print(self.device.get_MotorPositionLimits().MaxValue)
+    def get_device_info(self) -> None:
+        #Return the serial number and type of the Device
+        print("Device Methods and Properties:")
+        print(self.device.GetJogParams())
+        methods_and_properties = dir(self.device)
+        print("Device Methods and Properties:")
+        print("\n".join(methods_and_properties))  # Print each item in a new line
+        #print(self.device.get_MotorPositionLimits().MaxValue)
 
     def jog(self, direction) -> None:
         """Makes a jog, not continuous. Can be called multiple times in a future held/unheld jog method"""
@@ -238,14 +244,17 @@ class MotorStage(Motor):
         self.device.DisableDevice()
 
     def enable(self) -> None:
-        """Enable the device."""
+        """Enable the device. It takes times for the device to enable, so no other processes can be run in that time.
+        Without polling enabling fails."""
+        self.device.StartPolling(250)
+        time.sleep(0.25)
         self.device.EnableDevice()
-        time.sleep(0.5)
+        time.sleep(0.25)
 
     def disconnect(self) -> None:
         """Disconnect the device."""
-        #self.device.StopPolling()
         self.device.DisableDevice()
+        self.device.StopPolling()
         self.device.Disconnect()
 
     def set_zero_position(self, channel: int = 0) -> None:
