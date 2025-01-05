@@ -10,7 +10,7 @@ from HW_wrapper.HW_devices import HW_devices
 class GUI_CLD1011LP():  # todo1: support several devices
     # init parameters
     def __init__(self, simulation: bool = False):
-        self.HW = HW_devices(simulation=simulation)
+        self.HW = HW_devices()
         self.window_tag = "CLD1011LP_Win"
         self.laser = self.HW.CLD1011LP
 

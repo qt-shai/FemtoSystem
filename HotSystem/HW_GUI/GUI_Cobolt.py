@@ -9,7 +9,7 @@ from HW_wrapper.HW_devices import HW_devices
 class GUI_Cobolt():  # todo1: support several devices
     # init parameters
     def __init__(self, simulation: bool = False, com_port: str = "4"):
-        self.HW = HW_devices(simulation=simulation)
+        self.HW = HW_devices()
         self.window_tag = "LaserWin"
         self.laser = self.HW.cobolt
         self.available_ports = []

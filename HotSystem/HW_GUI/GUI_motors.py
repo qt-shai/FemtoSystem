@@ -43,7 +43,7 @@ class GUIMotor:
         child_width = 100
         self.window_tag = f"MotorWin_{self.unique_id}"
         self.window_label = f"{self.instrument.value}" + "(simulation)" if simulation else f"({motor.serial_number})"
-        self.hw_devices = HW_devices(simulation=simulation)
+        self.hw_devices = HW_devices()
 
         with dpg.window(tag=self.window_tag, label=f"{self.window_label}",
                         no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
@@ -200,23 +200,38 @@ class GUIMotor:
 
     def btn_move_absolute(self, sender, app_data, ch):
         position = dpg.get_value(f"ch{ch}_ABS_{self.unique_id}")
-        self.dev.MoveABSOLUTE(ch, position)
+        try:
+            self.dev.MoveABSOLUTE(ch, position)
+        except ValueError as ex:
+            print(f"Failed moving channel {ch} to absolute position {position} with error: {ex}")
 
     def btn_move_negative_coarse(self, sender, app_data, ch):
         step = -dpg.get_value(f"ch{ch}_coarse_{self.unique_id}")
-        self.dev.move_relative(ch, step)
+        try:
+            self.dev.move_relative(ch, step)
+        except ValueError as ex:
+            print(f"Failed moving channel {ch} to relative position {step} with error: {ex}")
 
     def btn_move_positive_coarse(self, sender, app_data, ch):
         step = dpg.get_value(f"ch{ch}_coarse_{self.unique_id}")
-        self.dev.move_relative(ch, step)
+        try:
+            self.dev.move_relative(ch, step)
+        except ValueError as ex:
+            print(f"Failed moving channel {ch} to relative position {step} with error: {ex}")
 
     def btn_move_negative_fine(self, sender, app_data, ch):
         step = -dpg.get_value(f"ch{ch}_fine_{self.unique_id}") * 1e-3
-        self.dev.move_relative(ch, step)
+        try:
+            self.dev.move_relative(ch, step)
+        except ValueError as ex:
+            print(f"Failed moving channel {ch} to relative position {step} with error: {ex}")
 
     def btn_move_positive_fine(self, sender, app_data, ch):
         step = dpg.get_value(f"ch{ch}_fine_{self.unique_id}") * 1e-3
-        self.dev.move_relative(ch, step)
+        try:
+            self.dev.move_relative(ch, step)
+        except ValueError as ex:
+            print(f"Failed moving channel {ch} to relative position {step} with error: {ex}")
 
     def btn_set_zero(self, sender, app_data, ch):
         self.dev.set_zero_position(ch)

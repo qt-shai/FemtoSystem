@@ -1,15 +1,18 @@
+import ast
 import os
+import pdb
 import xml.etree.ElementTree as ET
 from typing import List, Optional
 
 # from numpy.array_api import trunc
 
-from Utils import remove_overlap_from_string, get_square_matrix_size
+from Utils import remove_overlap_from_string, get_square_matrix_size, scan_com_ports
 import dearpygui.dearpygui as dpg
 import HW_wrapper.Wrapper_Smaract as Smaract
 import HW_wrapper.Wrapper_Picomotor as Picomotor
 import HW_wrapper.Wrapper_Zelux as ZeluxCamera
 import HW_wrapper.SRS_PID.wrapper_sim960_pid as wrapper_sim960_pid
+import HW_wrapper.SRS_PID.wrapper_sim900_mainframe as wrapper_sim900_mainframe
 from SystemConfig import SystemConfig, find_ethernet_device, InstrumentsAddress
 from SystemConfig import SystemType, Instruments, Device, load_system_from_xml
 
@@ -23,7 +26,7 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
     Simulate available devices for each instrument type.
     Returns a list of Device instances, or None if none found.
     """
-
+    print(f"Looking for available devices of type {instrument}")
     devices = None
 
     if instrument == Instruments.SMARACT_SLIP:
@@ -64,18 +67,21 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
         # The 'Device' class in your system expects instrument, ip, mac, sn, com_port...
         # So you must map sim960 object => Device
         # Example:
-        sim960_list = [Device(Instruments.SIM960,'N/A','N/A','N/A','N/A')]
-        devices = []
-        for sim_dev in sim960_list:
-            new_device = Device(
-                instrument=Instruments.SIM960,
-                ip_address=sim_dev.ip_address or 'N/A',
-                mac_address=sim_dev.mac_address or 'N/A',
-                serial_number=sim_dev.serial_number or 'N/A',
-                com_port=sim_dev.com_port or 'N/A',
-            )
-            devices.append(new_device)
-
+        ports = scan_com_ports()
+        mainframe_port = next((port for port, description in ports.items() if "sim900" in description.lower()),None)
+        sim960_list = []
+        if mainframe_port:
+            temp_mainframe = wrapper_sim900_mainframe.SRSsim900(mainframe_port)
+            temp_mainframe.connect()
+            # Loop over channels 1 to 8 and check for connected modules
+            try:
+                sim960_list = [channel for channel in range(8) if int(temp_mainframe.query(f"CTCR? {channel}")) ]
+            except Exception as e:
+                print(f"failed to detect channels in SRS900 mainframe. Error: {e}")
+            print(f"SRS SIM900 channels found : {sim960_list}")
+            devices = [Device(instrument=Instruments.SIM960,ip_address= str(sim_dev), com_port=mainframe_port, simulation=False) for sim_dev in sim960_list]
+            if temp_mainframe:
+                temp_mainframe.disconnect()
     # Return as a list or None
     if not isinstance(devices, list) and devices:
         devices = [devices]
@@ -100,6 +106,7 @@ def save_to_xml(system_type: SystemType, selected_devices_list: list):
     """
     Save the chosen system type and selected devices to an XML file.
     """
+    # pdb.set_trace()
     root = ET.Element("SystemInfo")
     system_element = ET.SubElement(root, "System")
 
@@ -123,9 +130,10 @@ def save_to_xml(system_type: SystemType, selected_devices_list: list):
             mac_element.text = device.mac_address or 'N/A'
             sn_element = ET.SubElement(device_element, "SerialNumber")
             sn_element.text = device.serial_number or 'N/A'
-            # Save COM Port information
             com_port_element = ET.SubElement(device_element, "COMPort")
             com_port_element.text = device.com_port or 'N/A'
+            simulation_element = ET.SubElement(device_element, "Simulation")
+            simulation_element.text = str(device.simulation) or str(False)
         else:
             print("Warning: A None value found in selected_devices_list, skipping...")
 
@@ -273,6 +281,8 @@ def run_system_config_gui():
                 configured_device.serial_number in [None, 'N/A']
                 and configured_device.mac_address in [None, 'N/A']
                 and configured_device.ip_address in [None, 'N/A']
+                and configured_device.com_port in [None, 'N/A']
+                and configured_device.simulation == 'False'
             ):
                 # Collect instrument types with devices with 'N/A' identifiers
                 instruments_with_na_identifiers.add(configured_device.instrument)
@@ -294,22 +304,28 @@ def run_system_config_gui():
                         selected_devices[device_key] = True
                         # Update com_port if available
                         device.com_port = configured_devices_dict[device_key].com_port
+                        device.simulation = configured_devices_dict[device_key].simulation
                     elif device.instrument in instruments_with_na_identifiers:
                         selected_devices[device_key] = True
         else:
             # Add a placeholder device
+            simulation_from_config = next((dev.simulation if dev.simulation else True
+                                           for dev in system_config.devices
+                                           if dev.instrument == instrument), False)
+
             placeholder_device = Device(
                 instrument=instrument,
                 ip_address='N/A',
                 mac_address='N/A',
                 serial_number='N/A',
-                com_port='N/A'
+                com_port='N/A',
+                simulation=simulation_from_config,
             )
             placeholder_device.is_placeholder = True
             devices_list.append(placeholder_device)
             selected_devices[generate_device_key(placeholder_device)] = False
             # Check if the instrument is in the set of instruments with 'N/A' identifiers
-            if instrument in instruments_with_na_identifiers:
+            if instrument in instruments_with_na_identifiers or any(dev.instrument == instrument for dev in system_config.devices):
                 selected_devices[generate_device_key(placeholder_device)] = True
 
     num_devices = len(devices_list)
@@ -320,7 +336,7 @@ def run_system_config_gui():
     # Adjusted the window width to better fit the content
     total_cell_width = 300  # Adjusted cell width
     with dpg.window(label="System and Instrument Configuration", width=total_cell_width * matrix_size + 50,
-                    height=120 * matrix_size + 180, tag="main_window"):
+                    height=150 * matrix_size + 180, tag="main_window"):
         dpg.bind_item_theme("main_window", "main_window_theme")
         dpg.add_text("Select System Type:")
         default_system_type = system_config.system_type.value if system_config else SystemType.HOT_SYSTEM.value
@@ -329,14 +345,14 @@ def run_system_config_gui():
         dpg.add_text("Select Instruments:")
 
         # Create the main table
-        with dpg.table(header_row=False, resizable=False, width=total_cell_width * matrix_size, height=120 * matrix_size + 20):
+        with dpg.table(header_row=False, resizable=False, width=total_cell_width * matrix_size, height=150 * matrix_size + 20):
             for _ in range(matrix_size):
                 dpg.add_table_column(width=total_cell_width)
 
             index = 0  # Device index for accessing each device
 
             for _ in range(matrix_size):
-                with dpg.table_row(height=120):
+                with dpg.table_row(height=150):
                     for _ in range(matrix_size):
                         if index < num_devices:
                             device = devices_list[index]
@@ -345,7 +361,7 @@ def run_system_config_gui():
                             window_id = dpg.generate_uuid()
 
                             # Use a child window to encapsulate the content for highlighting
-                            with dpg.child_window(width=total_cell_width, height=120, tag=window_id):
+                            with dpg.child_window(width=total_cell_width, height=150, tag=window_id):
                                 with dpg.group(horizontal=True):
                                     # Image clickable to toggle selection
                                     dpg.add_image_button(
@@ -364,6 +380,12 @@ def run_system_config_gui():
                                             dpg.add_input_text(default_value=device.com_port or '',
                                                                callback=update_device_com_port,
                                                                user_data=device)
+                                            # Add a simulation checkbox
+                                        with dpg.group(horizontal=True):
+                                            dpg.add_text("Simulation:")
+                                            dpg.add_checkbox(default_value=device.simulation,
+                                                             callback=update_device_simulation,
+                                                             user_data=device)
 
                             # Bind the theme based on selection
                             if selected_devices.get(generate_device_key(device), False):
@@ -388,7 +410,7 @@ def run_system_config_gui():
     with dpg.window(label="Error", tag="ErrorPopup", modal=True, show=False):
         dpg.add_text("", tag="ErrorText")
 
-    dpg.create_viewport(title="System Configuration GUI", width=total_cell_width * matrix_size + 50, height=120 * matrix_size + 200)
+    dpg.create_viewport(title="System Configuration GUI", width=total_cell_width * matrix_size + 50, height=150 * matrix_size + 200)
 
 
 def update_device_com_port(sender, app_data, user_data):
@@ -400,6 +422,19 @@ def update_device_com_port(sender, app_data, user_data):
     """
     device = user_data
     device.com_port = app_data  # Update the com_port attribute of the device
+
+def update_device_simulation(sender, app_data, user_data):
+    """
+    Update the simulation attribute of the device.
+    sender: the ID of the calling widget
+    app_data: the value from the widget (True/False for checkbox)
+    user_data: the device object passed as user_data
+    """
+    print("Simulation callback triggered!")
+
+    device = user_data
+    device.simulation = app_data  # Update the simulation attribute of the device
+
 
 
 if __name__ == "__main__":

@@ -1,20 +1,19 @@
-import csv
+from abc import ABC
+from typing import Any, Callable, Generic, TypeVar
+T = TypeVar('T')
+import serial
+from serial.tools import list_ports
 import math
-import os
 import tkinter as tk
-from abc import ABC, abstractmethod
-from collections import defaultdict
-from enum import Enum
-from tkinter import Tk
+import csv
 from tkinter import filedialog
-from tkinter.filedialog import askopenfilename
-from typing import Callable, Any, Dict, List, Type
-from typing import Tuple, Union
 import numpy as np
 import pandas as pd
+from typing import Tuple, Union, List
 from matplotlib import pyplot as plt
-from typing import Any, Dict, Callable, Generic, TypeVar
-T = TypeVar('T')
+import os
+from tkinter import Tk
+from tkinter.filedialog import askopenfilename
 
 
 def load_scan_plane_calibration_data(file_path: str) -> np.ndarray:
@@ -368,6 +367,79 @@ def select_csv_file() -> str:
     Tk().withdraw()
     file_path = askopenfilename(filetypes=[("CSV files", "*.csv")])
     return file_path
+
+
+
+
+
+def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?\r\n"):
+    """
+    Scans all available COM ports, attempts to query each device for an IDN,
+    and returns a dictionary of {port: IDN response} for ports that respond successfully.
+
+    Parameters
+    ----------
+    baudrate : int
+        The baud rate for the serial communication. Default is 9600.
+    timeout : float
+        The read/write timeout (in seconds). Default is 1 second.
+    query_command : str
+        The SCPI or other command to send to the device to request its identity.
+        By default, '*IDN?' with CR-LF newline is used.
+
+    Returns
+    -------
+    dict
+        A dictionary where keys are the port names (e.g., 'COM3', '/dev/ttyUSB0')
+        and values are the device IDN strings, or an error message if something went wrong.
+    """
+    print("Scanning for COM ports")
+    # Dictionary to store results: {port: <idn_or_error>}
+    results = {}
+
+    # List all possible serial ports
+    available_ports = list_ports.comports()
+    print(f"Found {len(available_ports)} COM ports: {[port.device for port in available_ports]}")
+    if not available_ports:
+        # If no COM ports are found, return an empty dictionary or handle as needed
+        return results
+
+    # Iterate over each detected port
+    for port_info in available_ports:
+        port_name = port_info.device
+        print(f"Testing COM port {port_name}")
+        # Initialize the result with a default message in case something fails
+        results[port_name] = "No response or error occurred"
+
+        try:
+            with serial.Serial(port=port_name, baudrate=baudrate, timeout=timeout, write_timeout=timeout) as ser:
+                # Clear buffers before use
+                ser.reset_input_buffer()
+                ser.reset_output_buffer()
+
+                # Send the query command
+                ser.write(query_command.encode("utf-8"))
+
+                # Read the response (try reading one line or up to a certain size)
+                response = ser.readline().decode(errors="ignore").strip()
+
+                # If no response, keep the default
+                if response:
+                    results[port_name] = response
+                    print(f"Established connection with port {port_name}")
+
+        except serial.SerialException as e:
+            # Catch any serial-related errors (e.g., access denied, device removal, etc.)
+            results[port_name] = f"SerialException: {str(e)}"
+        except UnicodeDecodeError as e:
+            # Catch issues decoding response
+            results[port_name] = f"UnicodeDecodeError: {str(e)}"
+        except Exception as e:
+            # Catch-all for any other unforeseen exceptions
+            results[port_name] = f"Exception: {str(e)}"
+
+    print(results)
+    return results
 
 class ObserverInterface(ABC):
     """
