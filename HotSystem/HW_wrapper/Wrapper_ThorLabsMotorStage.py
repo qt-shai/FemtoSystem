@@ -2,6 +2,7 @@
 import time
 import clr
 import inspect
+import threading
 
 from HotSystem.HW_wrapper.abstract_motor import Motor
 
@@ -87,8 +88,73 @@ class MotorStage(Motor):
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
                 f"Angle needs to be smaller than 360°")
 
+    def set_new_jog_step(self,relative_distance:float) -> None:
+        jog_params = self.device.GetJogParams()
+        jog_params.StepSize = relative_distance
+        self.device.SetJogParams(jog_params)
 
-    def move_relative(self, angle, channel:int=0):
+    def move_to_position_non_blocking_absolute(self, position):
+        """
+        Moves the device to an absolute position non-blocking by using jogging commands.
+
+        Parameters:
+            position (Decimal): The absolute position to move to (using System.Decimal).
+
+        Raises:
+            RuntimeError: If there is an issue with the jog or device commands.
+
+        Behavior:
+            - Calculates the relative distance needed to reach the absolute position.
+            - Sets the jog step size to the calculated distance (converted to float).
+            - Executes a jog motion in the appropriate direction.
+            - Resets the jog step size to a default value of 10.0 for safety.
+        """
+        try:
+            # Get the current position as a Decimal
+            current_position = self.device.Position
+
+            # Calculate the relative distance as a Decimal
+            if Decimal(position) > current_position:
+                relative_distance = Decimal(position) - current_position
+                self.set_new_jog_step(relative_distance)
+                self.jog("forward")
+            else:
+                relative_distance = current_position - Decimal(position)
+                self.set_new_jog_step(relative_distance)
+                self.jog("backward")
+            if not self.is_busy():
+                self.set_jog_step(10)
+
+        except Exception as e:
+            raise RuntimeError(f"Error during non-blocking absolute motion: {e}")
+
+    def move_to_position_non_blocking_relative(self, position) -> None:
+        """
+        Moves the device to a relative position non-blocking by using jogging commands.
+
+        Parameters:
+            position (float): The relative distance to move in the forward direction.
+
+        Raises:
+            RuntimeError: If there is an issue with the jog or device commands.
+
+        Behavior:
+            - Sets the jog step size to the desired position.
+            - Executes a jog motion in the forward direction.
+            - Resets the jog step size to a default value of 10 for safety.
+        """
+        try:
+            # Set the jog step to the desired position
+            self.set_jog_step(position)
+            # Execute a jog forward motion
+            self.jog("forward")
+            # Reset jog step to a default value of 10
+            time.sleep(0.25)
+            self.set_jog_step(10)
+        except Exception as e:
+            raise RuntimeError(f"Error during non-blocking relative motion: {e}")
+
+    def move_relative(self, angle, channel:int=0) -> None:
         """Moves device by an angle (in degrees)"""
         if self.validate_angle(angle):
             current_angle = self.device.Position
@@ -116,20 +182,14 @@ class MotorStage(Motor):
             f'Acceleration is: {vel_params.Acceleration},',f'Jog step is: {jog_params.StepSize}.')
         return vel_params.MaxVelocity, vel_params.Acceleration, jog_params.StepSize
 
-    def get_info(self):
+    def get_info(self) -> dir:
         print(dir(self.device))
+        return dir(self.device)
 
     def is_busy(self) -> bool:
+        print(
+            f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Device is busy: {self.device.IsDeviceBusy}.")
         return self.device.IsDeviceBusy
-
-    def get_device_info(self) -> None:
-        #Return the serial number and type of the Device
-        print("Device Methods and Properties:")
-        print(self.device.GetJogParams())
-        methods_and_properties = dir(self.device)
-        print("Device Methods and Properties:")
-        print("\n".join(methods_and_properties))  # Print each item in a new line
-        #print(self.device.get_MotorPositionLimits().MaxValue)
 
     def jog(self, direction) -> None:
         """Makes a jog, not continuous. Can be called multiple times in a future held/unheld jog method"""
@@ -172,7 +232,7 @@ class MotorStage(Motor):
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
                 f"Error setting velocity in MotorStage.set_velocity_and_acceleration: {e}")
 
-    def set_jog_step(self, step_size:int) -> None:
+    def set_jog_step(self, step_size:float) -> None:
         """Sets the jog step in degrees"""
         if self.validate_angle(step_size):
             jog_step_decimal = Decimal(step_size)
@@ -244,13 +304,28 @@ class MotorStage(Motor):
         """Disable the device."""
         self.device.DisableDevice()
 
-    def enable(self) -> None:
-        """Enable the device. It takes times for the device to enable, so no other processes can be run in that time.
-        Without polling enabling fails."""
-        self.device.StartPolling(250)
-        time.sleep(0.25)
-        self.device.EnableDevice()
-        time.sleep(0.25)
+    def enable(self):
+        """
+        Enables the device for operation.
+
+        Returns:
+            str: Status message indicating success or failure.
+        """
+        try:
+            # Check if the device is connected
+            if not self.device.IsConnected:
+                return "Device is not connected. Please connect the device and try again."
+
+            # Enable the device
+            self.device.StartPolling(250)
+            time.sleep(0.25)
+            self.device.EnableDevice()
+            time.sleep(0.25)
+
+            return "Device initialized and enabled successfully."
+
+        except Exception as e:
+            return f"Error initializing device: {str(e)}"
 
     def disconnect(self) -> None:
         """Disconnect the device."""
