@@ -390,6 +390,7 @@ class PyGuiOverlay(Layer):
         """
         super().__init__()
         self.arduino_gui: Optional[GUIArduino] = None
+        self.srs_pid_gui: list[GUISIM960] = []
         self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
@@ -649,7 +650,7 @@ class PyGuiOverlay(Layer):
         dpg.setup_dearpygui()
         dpg.show_viewport()
         pass
-    def on_attach(self,simulation):
+    def on_attach(self):
 
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
         self.setup_instruments()
@@ -773,17 +774,19 @@ class PyGuiOverlay(Layer):
                     dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
-                elif instrument == Instruments.SIM960:
-
-                    self.srs_pid_gui = GUISIM960(
-                        sim960=hw_devices.HW_devices().SRS_PID_list,
-                        simulation=device.simulation
-                    )
-
-                    self.srs_pid_gui = [GUISIM960(sim960=device, simulation=device.simulation) for device in hw_devices.HW_devices().SRS_PID_list]
-
                 elif instrument == Instruments.ARDUINO:
                     self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
+
+                elif instrument == Instruments.SIM960:
+                    srs_pid_list=hw_devices.HW_devices().SRS_PID_list
+                    matching_device = next(
+                        (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
+                        None  # Default if no match is found
+                    )
+                    self.srs_pid_gui.append(GUISIM960(
+                        sim960=matching_device,
+                        simulation=device.simulation
+                    ))
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")

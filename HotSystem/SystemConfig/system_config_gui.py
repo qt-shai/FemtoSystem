@@ -3,7 +3,6 @@ import os
 import pdb
 import xml.etree.ElementTree as ET
 from typing import List, Optional, Dict
-
 # from numpy.array_api import trunc
 
 from Utils import remove_overlap_from_string, get_square_matrix_size, scan_com_ports
@@ -66,7 +65,7 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
         # The 'Device' class in your system expects instrument, ip, mac, sn, com_port...
         # So you must map sim960 object => Device
         # Example:
-
+        ports = scan_com_ports()
         mainframe_port = next((port for port, description in ports.items() if "sim900" in description.lower()),None)
         sim960_list = []
         if mainframe_port:
@@ -77,10 +76,13 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                 sim960_list = [channel for channel in range(8) if int(temp_mainframe.query(f"CTCR? {channel}")) ]
             except Exception as e:
                 print(f"failed to detect channels in SRS900 mainframe. Error: {e}")
-            print(f"SRS SIM900 channels found : {sim960_list}")
-            devices = [Device(instrument=Instruments.SIM960,ip_address= str(sim_dev), com_port=mainframe_port, simulation=False) for sim_dev in sim960_list]
-            if temp_mainframe:
-                temp_mainframe.disconnect()
+        print(f"SRS SIM900 channels found : {sim960_list}")
+        devices = [Device(instrument=Instruments.SIM960,ip_address= str(sim_dev), com_port=mainframe_port) for sim_dev in sim960_list]
+        if temp_mainframe:
+            temp_mainframe.disconnect()
+    elif instrument == Instruments.KEYSIGHT_AWG:
+        ip_list = [InstrumentsAddress.KEYSIGHT_AWG_33522B.value, InstrumentsAddress.KEYSIGHT_AWG_33600A.value]
+        devices = find_device_list_from_ip(instrument, ip_list)
 
     elif instrument == Instruments.ARDUINO:
         arduino_port = next(
@@ -113,6 +115,14 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
     # Return as a list or None
     if not isinstance(devices, list) and devices:
         devices = [devices]
+    return devices
+
+
+def find_device_list_from_ip(instrument: Instruments, ip_list: List[str]):
+    devices = [find_ethernet_device(ip, instrument) for ip in ip_list]
+    devices = [dev for dev in devices if dev]
+    if len(devices) == 0:
+        devices = None
     return devices
 
 
@@ -158,7 +168,6 @@ def save_to_xml(system_type: SystemType, selected_devices_list: list):
             mac_element.text = device.mac_address or 'N/A'
             sn_element = ET.SubElement(device_element, "SerialNumber")
             sn_element.text = device.serial_number or 'N/A'
-            # Save COM Port information
             com_port_element = ET.SubElement(device_element, "COMPort")
             com_port_element.text = device.com_port or 'N/A'
             simulation_element = ET.SubElement(device_element, "Simulation")
