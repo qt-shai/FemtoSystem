@@ -32,7 +32,7 @@ import matplotlib
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from SystemConfig import SystemType, Instruments
-from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV
+from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, open_file_dialog
 import dearpygui.dearpygui as dpg
 from PIL import Image
 import subprocess
@@ -6544,7 +6544,7 @@ class GUI_OPX():
 
     def btnLoadScan(self):
         # Open the dialog with a filter for .csv files and all file types
-        fn = self.OpenDialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
+        fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
         if fn:  # Check if a file is selected
             data = loadFromCSV(fn)
             self.idx_scan = [0, 0, 0]

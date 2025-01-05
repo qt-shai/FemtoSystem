@@ -674,7 +674,7 @@ class PyGuiOverlay(Layer):
 
         for device in self.system_config.devices:
             instrument = device.instrument
-
+            print(f"loading instrument {instrument.value}")
             try:
 
                 if instrument == Instruments.ROHDE_SCHWARZ:
