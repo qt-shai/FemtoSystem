@@ -90,14 +90,22 @@ class SerialDevice:
                 )
                 print(f"TCP/IP connection opened on {self.address}.")
             else:
+                # Serial connection
+                # Convert 'COM6' or similar to 'ASRL6::INSTR'
+                if self.address.upper().startswith("COM"):
+                    serial_address = f"ASRL{self.address[3:]}::INSTR"
+                else:
+                    serial_address = self.address  # Assume it's already in the correct format
+
                 self._connection = self.rm.open_resource(
-                    self.address,
+                    serial_address,
                     baud_rate=self.baudrate,
                     timeout=self.timeout,
                     read_termination=self.read_terminator,
-                    write_termination=self.write_terminator
+                    write_termination=self.write_terminator,
                 )
-                print(f"Serial connection opened on {self.address}.")
+                print(f"Serial connection opened on {serial_address}.")
+
         except Exception as e:
             print(f"Error initializing connection: {e}")
             self._connection = None

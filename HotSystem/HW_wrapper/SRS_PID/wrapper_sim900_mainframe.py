@@ -15,6 +15,7 @@ class SRSsim900(SerialDevice):
         :param timeout: Read/write timeout in milliseconds.
         :param simulation: Simulation mode.
         """
+        print(f"Initializing SIM900 mainframe connection on port {port}.")
         super().__init__(port, baudrate=baudrate, timeout=timeout)
         #TODO : support simulation mode
 

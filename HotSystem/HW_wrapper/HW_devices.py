@@ -77,6 +77,7 @@ class HW_devices:
         """Load specific instruments based on the system configuration."""
         for device in self.config.devices:
             instrument = device.instrument
+            print(f"Setting instrument {instrument.name}")
             if instrument == Instruments.ROHDE_SCHWARZ:
                 # Initialize Rohde & Schwarz Microwave
                 self.microwave = RS_SGS100a(f'TCPIP0::{device.ip_address}::inst0::INSTR',
