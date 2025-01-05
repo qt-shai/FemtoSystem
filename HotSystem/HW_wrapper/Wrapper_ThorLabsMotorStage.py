@@ -76,24 +76,24 @@ class MotorStage(Motor):
             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Homing Actuator")
         self.device.Home(self.timeout)  #timeout, blocking call
 
-    def MoveABSOLUTE(self, angle, channel:int=0)-> None:
-        """Moves device to angle (in degrees)"""
-        if self.validate_angle(angle):
-            d = Decimal(abs(angle))
-            print(
-                f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Moving to position {angle}°")
-            self.device.MoveTo(d, self.timeout)
-        else:
-            print(
-                f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
-                f"Angle needs to be smaller than 360°")
+    # def MoveABSOLUTE_blocked(self, angle, channel:int=0)-> None:
+    #     """Moves device to angle (in degrees)"""
+    #     if self.validate_angle(angle):
+    #         d = Decimal(abs(angle))
+    #         print(
+    #             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Moving to position {angle}°")
+    #         self.device.MoveTo(d, self.timeout)
+    #     else:
+    #         print(
+    #             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
+    #             f"Angle needs to be smaller than 360°")
 
     def set_new_jog_step(self,relative_distance:float) -> None:
         jog_params = self.device.GetJogParams()
         jog_params.StepSize = relative_distance
         self.device.SetJogParams(jog_params)
 
-    def move_to_position_non_blocking_absolute(self, position):
+    def MoveABSOLUTE(self, angle, channel:int=0):
         """
         Moves the device to an absolute position non-blocking by using jogging commands.
 
@@ -114,12 +114,12 @@ class MotorStage(Motor):
             current_position = self.device.Position
 
             # Calculate the relative distance as a Decimal
-            if Decimal(position) > current_position:
-                relative_distance = Decimal(position) - current_position
+            if Decimal(angle) > current_position:
+                relative_distance = Decimal(angle) - current_position
                 self.set_new_jog_step(relative_distance)
                 self.jog("forward")
             else:
-                relative_distance = current_position - Decimal(position)
+                relative_distance = current_position - Decimal(angle)
                 self.set_new_jog_step(relative_distance)
                 self.jog("backward")
             if not self.is_busy():
@@ -128,7 +128,7 @@ class MotorStage(Motor):
         except Exception as e:
             raise RuntimeError(f"Error during non-blocking absolute motion: {e}")
 
-    def move_to_position_non_blocking_relative(self, position) -> None:
+    def move_relative(self, angle, channel:int=0) -> None:
         """
         Moves the device to a relative position non-blocking by using jogging commands.
 
@@ -145,29 +145,30 @@ class MotorStage(Motor):
         """
         try:
             # Set the jog step to the desired position
-            self.set_jog_step(position)
+            self.set_jog_step(angle)
             # Execute a jog forward motion
             self.jog("forward")
             # Reset jog step to a default value of 10
             time.sleep(0.25)
-            self.set_jog_step(10)
+            if not self.is_busy():
+                self.set_jog_step(10)
         except Exception as e:
             raise RuntimeError(f"Error during non-blocking relative motion: {e}")
 
-    def move_relative(self, angle, channel:int=0) -> None:
-        """Moves device by an angle (in degrees)"""
-        if self.validate_angle(angle):
-            current_angle = self.device.Position
-            new_angle = current_angle + Decimal(angle)
-            if new_angle > Decimal(360):
-                new_angle = new_angle - Decimal(360)
-            print(
-                f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Moving by position {angle}°")
-            self.device.MoveTo(new_angle,self.timeout)
-        else:
-            print(
-                f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
-                f"Angle needs to be smaller than 360°")
+    # def move_relative(self, angle, channel:int=0) -> None:
+    #     """Moves device by an angle (in degrees)"""
+    #     if self.validate_angle(angle):
+    #         current_angle = self.device.Position
+    #         new_angle = current_angle + Decimal(angle)
+    #         if new_angle > Decimal(360):
+    #             new_angle = new_angle - Decimal(360)
+    #         print(
+    #             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Moving by position {angle}°")
+    #         self.device.MoveTo(new_angle,self.timeout)
+    #     else:
+    #         print(
+    #             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
+    #             f"Angle needs to be smaller than 360°")
 
     def get_current_position(self, channel: int=0) -> float:
         print(
@@ -182,14 +183,29 @@ class MotorStage(Motor):
             f'Acceleration is: {vel_params.Acceleration},',f'Jog step is: {jog_params.StepSize}.')
         return vel_params.MaxVelocity, vel_params.Acceleration, jog_params.StepSize
 
-    def get_info(self) -> dir:
-        print(dir(self.device))
-        return dir(self.device)
+    # def get_info(self) -> dir:
+    #     print(dir(self.device))
+    #     return dir(self.device)
 
     def is_busy(self) -> bool:
         print(
             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Device is busy: {self.device.IsDeviceBusy}.")
         return self.device.IsDeviceBusy
+
+    def needs_homing(self):
+        print(
+            f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
+            f"Device is Needs Homing: {self.device.NeedsHoming}.")
+        return self.device.NeedsHoming
+
+    def is_homed(self):
+        a = self.device.GetStatusBits()
+        a = bin(a)[2:]
+        is_homed = bool(int(a[-11]))
+        print(
+            f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
+            f"Device is Homed: {is_homed}.")
+        return is_homed
 
     def jog(self, direction) -> None:
         """Makes a jog, not continuous. Can be called multiple times in a future held/unheld jog method"""
