@@ -13,6 +13,7 @@ from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
 from .SRS_PID.wrapper_sim960_pid import SRSsim960
 from .SRS_PID.wrapper_sim900_mainframe import SRSsim900
 from .NovatechDDS.wrapper_novatech_dds import NovatechDDS426A
+from .Arduino.arduino_wrapper import ArduinoController
 
 __all__ = [
     "AttoDry800",
@@ -35,5 +36,6 @@ __all__ = [
     'ConnectorMode',
     'SRSsim960',
     'SRSsim900',
-    'NovatechDDS426A'
+    'NovatechDDS426A',
+    'ArduinoController'
 ]

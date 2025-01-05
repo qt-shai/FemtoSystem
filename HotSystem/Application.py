@@ -24,6 +24,7 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_arduino import GUIArduino
 from HW_GUI.GUI_atto_scanner import GUIAttoScanner
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
@@ -388,6 +389,7 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.arduino_gui: Optional[GUIArduino] = None
         self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
@@ -780,6 +782,8 @@ class PyGuiOverlay(Layer):
 
                     self.srs_pid_gui = [GUISIM960(sim960=device, simulation=device.simulation) for device in hw_devices.HW_devices().SRS_PID_list]
 
+                elif instrument == Instruments.ARDUINO:
+                    self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")

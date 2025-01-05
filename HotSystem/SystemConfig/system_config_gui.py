@@ -2,7 +2,7 @@ import ast
 import os
 import pdb
 import xml.etree.ElementTree as ET
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 # from numpy.array_api import trunc
 
@@ -21,14 +21,13 @@ devices_list = []
 selected_devices = {}
 
 # Function to simulate available devices for each instrument type
-def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
+def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSError]) -> Optional[List[Device]]:
     """
     Simulate available devices for each instrument type.
     Returns a list of Device instances, or None if none found.
     """
     print(f"Looking for available devices of type {instrument}")
     devices = None
-
     if instrument == Instruments.SMARACT_SLIP:
         devices = [
             dev
@@ -67,7 +66,7 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
         # The 'Device' class in your system expects instrument, ip, mac, sn, com_port...
         # So you must map sim960 object => Device
         # Example:
-        ports = scan_com_ports()
+
         mainframe_port = next((port for port, description in ports.items() if "sim900" in description.lower()),None)
         sim960_list = []
         if mainframe_port:
@@ -82,6 +81,35 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
             devices = [Device(instrument=Instruments.SIM960,ip_address= str(sim_dev), com_port=mainframe_port, simulation=False) for sim_dev in sim960_list]
             if temp_mainframe:
                 temp_mainframe.disconnect()
+
+    elif instrument == Instruments.ARDUINO:
+        arduino_port = next(
+            (port for port, description in ports.items() if "arduino" in description.lower()), None
+        )
+        if arduino_port:
+            return [
+                Device(
+                    instrument=Instruments.ARDUINO,
+                    ip_address="N/A",
+                    mac_address="N/A",
+                    serial_number="N/A",
+                    com_port=arduino_port,
+                    simulation=False,
+                )
+            ]
+        else:
+            return [
+                Device(
+                    instrument=Instruments.ARDUINO,
+                    ip_address="N/A",
+                    mac_address="N/A",
+                    serial_number="N/A",
+                    com_port="N/A",
+                    simulation=True,
+                )
+            ]
+        pass
+
     # Return as a list or None
     if not isinstance(devices, list) and devices:
         devices = [devices]
@@ -290,9 +318,10 @@ def run_system_config_gui():
                 # Add device_key to configured_device_keys
                 configured_device_keys.add(configured_device_key)
 
+    ports = scan_com_ports()
     # Query available devices for each instrument type
     for instrument in Instruments:
-        available_devices = get_available_devices(instrument)
+        available_devices = get_available_devices(instrument, ports)
         if available_devices:
             for device in available_devices:
                 if device:

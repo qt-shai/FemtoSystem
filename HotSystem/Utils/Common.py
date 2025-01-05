@@ -1,5 +1,9 @@
+import time
 from abc import ABC
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Callable, Generic, TypeVar, Optional
+
+from numpy import ndarray
+
 T = TypeVar('T')
 import serial
 from serial.tools import list_ports
@@ -407,9 +411,13 @@ def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?\r\n"):
     # Iterate over each detected port
     for port_info in available_ports:
         port_name = port_info.device
+        port_description = port_info.description
         print(f"Testing COM port {port_name}")
         # Initialize the result with a default message in case something fails
-        results[port_name] = "No response or error occurred"
+        results[port_name] = "No response or error occurred" if "Bluetooth" not in port_description else "Bluetooth device found"
+
+        if "Bluetooth" in port_description:
+            continue
 
         try:
             with serial.Serial(port=port_name, baudrate=baudrate, timeout=timeout, write_timeout=timeout) as ser:
@@ -417,9 +425,12 @@ def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?\r\n"):
                 ser.reset_input_buffer()
                 ser.reset_output_buffer()
 
+
+                time.sleep(50e-3)
                 # Send the query command
                 ser.write(query_command.encode("utf-8"))
 
+                time.sleep(50e-3)
                 # Read the response (try reading one line or up to a certain size)
                 response = ser.readline().decode(errors="ignore").strip()
 
@@ -523,3 +534,41 @@ def is_within_bounds(value: float, bounds: tuple[float, float]) -> bool:
     if lower_bound > upper_bound:
         raise ValueError("Invalid bounds: lower_bound must be less than or equal to upper_bound.")
     return lower_bound <= value <= upper_bound
+
+def fit_parabola(x_data: np.ndarray, y_data: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Fit a parabola (quadratic polynomial) to the given x_data and y_data.
+    Returns the polynomial coefficients (a, b, c) for ax^2 + bx + c.
+
+    :param x_data: NumPy array of x-values.
+    :param y_data: NumPy array of y-values.
+    :return: (a, b, c) polynomial coefficients.
+    """
+    if len(x_data) < 3 or len(y_data) < 3:
+        raise ValueError("At least 3 points are required to fit a parabola.")
+
+    if len(x_data) != len(y_data):
+        raise ValueError("x_data and y_data must have the same length.")
+
+    # Fit a quadratic polynomial (2nd-degree) to the data
+    coeffs = np.polyfit(x_data, y_data, 2)  # Returns [a, b, c] for ax^2 + bx + c
+    return coeffs[0], coeffs[1], coeffs[2]
+
+
+def find_parabola_minimum(a: float, b: float, c: float) -> Optional[float]:
+    """
+    Find the x-position of the minimum of a parabola described by ax^2 + bx + c.
+    If the parabola has a maximum (a < 0), return None.
+
+    :param a: Quadratic coefficient.
+    :param b: Linear coefficient.
+    :param c: Constant term.
+    :return: The x-coordinate of the parabola's minimum, or None if the parabola has a maximum.
+    """
+    if a == 0:
+        raise ValueError("Coefficient 'a' cannot be zero for a parabola.")
+
+    if a < 0:
+        return None  # Parabola has a maximum, not a minimum
+
+    return -b / (2.0 * a)

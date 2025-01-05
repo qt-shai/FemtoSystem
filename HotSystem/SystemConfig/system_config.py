@@ -32,6 +32,7 @@ class Instruments(Enum):
     KEYSIGHT_AWG = "keysight_awg"
     SIM960 = "sim960"
     CLD1011LP = "CLD1011LP"
+    ARDUINO = "ARDUINO"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"

@@ -4,7 +4,7 @@ import threading
 
 from Common import KeyboardKeys
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B
+    SirahMatisse, Keysight33500B, ArduinoController
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
@@ -38,7 +38,7 @@ class HW_devices:
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
             self.SRS_PID_list: Optional[SRSsim960] = None
-
+            self.arduino: Optional[ArduinoController] = None  # Add Arduino
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
 
@@ -151,6 +151,19 @@ class HW_devices:
                     slot = int(dev.ip_address),
                     simulation = dev.simulation
                 ) for dev in sim900_config]
+
+            elif instrument == Instruments.ARDUINO:
+                # Initialize ArduinoController
+                self.arduino = ArduinoController(
+                    address= f"ASRL{device.com_port}::INSTR" if device.com_port != "N/A" else None,
+                    baudrate=9600,
+                    timeout=1000,
+                    simulation=device.simulation
+                )
+                if not device.simulation:
+                    self.arduino.connect()
+                print(f"Arduino {'(Simulated)' if device.simulation else 'Connected'} at {device.com_port}")
+
 
             else:
                 # Handle unknown instrument case
