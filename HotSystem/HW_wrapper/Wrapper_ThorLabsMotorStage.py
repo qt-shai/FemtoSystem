@@ -24,6 +24,7 @@ class MotorStage(Motor):
         DeviceManagerCLI.BuildDeviceList()
         self.device = KCubeDCServo.CreateKCubeDCServo(self.serial_number)
         self.timeout = 20000
+        self.is_homed = False
 
     def __del__(self):
         # self.disconnect()
@@ -47,6 +48,8 @@ class MotorStage(Motor):
             m_config.DeviceSettingsName = "PRMTZ8" #Type of motor
             m_config.UpdateCurrentConfiguration()
             self.device.SetSettings(self.device.MotorDeviceSettings, True, False)
+            self.device.StartPolling(250)
+            time.sleep(0.25)
         except Exception as e:
             print(
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Error during initialization:", e)
@@ -198,14 +201,14 @@ class MotorStage(Motor):
             f"Device is Needs Homing: {self.device.NeedsHoming}.")
         return self.device.NeedsHoming
 
-    def is_homed(self):
+    def get_device_status(self):
         a = self.device.GetStatusBits()
         a = bin(a)[2:]
-        is_homed = bool(int(a[-11]))
+        self.is_homed = bool(int(a[-11]))
         print(
             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
-            f"Device is Homed: {is_homed}.")
-        return is_homed
+            f"Device is Homed: {self.is_homed}.")
+        # return is_homed
 
     def jog(self, direction) -> None:
         """Makes a jog, not continuous. Can be called multiple times in a future held/unheld jog method"""
@@ -333,10 +336,7 @@ class MotorStage(Motor):
                 return "Device is not connected. Please connect the device and try again."
 
             # Enable the device
-            self.device.StartPolling(250)
-            time.sleep(0.25)
             self.device.EnableDevice()
-            time.sleep(0.25)
 
             return "Device initialized and enabled successfully."
 
