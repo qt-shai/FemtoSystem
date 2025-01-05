@@ -115,7 +115,6 @@ class HW_devices:
                                                   simulation=device.simulation)
 
             elif instrument == Instruments.ATTO_SCANNER:
-                # self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=device.simulation)  # Replace with actual address
                 self.atto_scanner = Anc300Wrapper(conn= InstrumentsAddress.atto_scanner.value,
                                                   simulation=device.simulation)
 
@@ -164,6 +163,11 @@ class HW_devices:
                 if not device.simulation:
                     self.arduino.connect()
                 print(f"Arduino {'(Simulated)' if device.simulation else 'Connected'} at {device.com_port}")
+
+            elif instrument == Instruments.KEYSIGHT_AWG:
+                self.keysight_awg_device = Keysight33500B(address=f'TCPIP::{device.ip_address.replace(":","::")}::SOCKET',
+                                                          simulation=device.simulation)
+                self.keysight_awg_device.connect()
 
 
             else:

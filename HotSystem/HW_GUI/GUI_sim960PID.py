@@ -90,11 +90,20 @@ class GUISIM960:
         Create controls for setting and reading P, I, D values, enabling/disabling them, etc.
         """
         with dpg.group(horizontal=False, tag=f"pid_controls_{self.unique_id}", width=250):
+            try:
+                gain = self.dev.get_proportional_gain()
+            except Exception as e:
+                print("Session invalid. Reinitializing the connection...")
+                self.dev.mf.disconnect()
+                self.dev.mf.connect()
+                gain = self.dev.get_proportional_gain()
+
+
             dpg.add_text("PID Gains")
             # Proportional
             with dpg.group(horizontal=True):
                 dpg.add_input_float(
-                    label="P Gain", default_value=self.dev.get_proportional_gain(),
+                    label="P Gain", default_value=gain,
                     callback=self.cb_set_proportional_gain,
                     tag=f"p_gain_{self.unique_id}",
                     format="%.4f", step=0.1, step_fast=1.0
