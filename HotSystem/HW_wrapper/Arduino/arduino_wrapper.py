@@ -51,9 +51,7 @@ class ArduinoController(SerialDevice):
         """
         Reads the latest measurement data from the Arduino.
         """
-        response = self._get_response(verbose=True)
-        if response:
-            self.communication_result.set(response)
+        self.communication_result.get()
 
 
     @staticmethod

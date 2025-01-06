@@ -250,7 +250,8 @@ class SRSsim960:
         """
         if not (-10.0 <= output <= 10.0):
             raise ValueError("Manual output out of range.")
-        self._write(f"MOUT {output}")
+        self._write(f"MOUT {output:.5f}")
+
 
     def read_setpoint(self) -> float:
         """

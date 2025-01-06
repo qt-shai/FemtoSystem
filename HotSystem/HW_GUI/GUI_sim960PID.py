@@ -237,10 +237,17 @@ class GUISIM960:
                 format="%.3f"
                 )
 
-            dpg.add_button(
-                label="Stabilize",
-                callback=self.cb_stabilize,
+            dpg.add_text("Step for Max Extinction")
+            dpg.add_input_float(
+                label="Step [V]",
+                default_value=1.5,  # or whatever you prefer
+                tag=f"goto_step_{self.unique_id}",
+                format="%.3f"
             )
+
+            dpg.add_button(label="Stabilize",callback=self.cb_stabilize)
+            dpg.add_button(label="Goto max extinction", callback=self.goto_max_ext)
+
 
 
     def create_stabilize_controls(self):
@@ -546,14 +553,36 @@ class GUISIM960:
         if not self.simulation:
             self.dev.reset()
 
+    def goto_max_ext(self):
+        """
+        Moves the output by the amount specified in the 'Step for Max Extinction' float input.
+        """
+        # Read the current output voltage
+        meas_output = self.dev.read_output_voltage()
+
+        # Retrieve the user-entered step size
+        step_value = dpg.get_value(f"goto_step_{self.unique_id}")
+
+        # Now move output by step_value
+        self.dev.set_manual_output(meas_output + step_value)
+
+        self.dev.set_output_mode(True)
+        dpg.set_value(f"output_mode_{self.unique_id}", True)
+
     def cb_set_output_mode(self, sender, app_data):
         """
         Callback to set manual or PID mode.
         """
         mode_str = dpg.get_value(sender)
         manual = (mode_str == "Manual")
+
+        if manual: # set manual output to the PID value
+            meas_output = self.dev.read_output_voltage()
+            self.dev.set_manual_output(meas_output)
+
         if not self.simulation:
             self.dev.set_output_mode(manual)
+
 
     def cb_set_manual_output(self, sender, app_data):
         """
