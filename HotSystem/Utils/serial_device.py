@@ -74,6 +74,14 @@ class SerialDevice:
             print(f"Failed to connect to device: {e}")
             raise
 
+    def reconnect(self):
+        try:
+            del self._connection
+            self.rm = pyvisa.ResourceManager()
+            self._initialize_connection()
+        except:
+            pass
+
     def _initialize_connection(self) -> None:
         """
         Initialize the connection to the device (serial or TCP/IP).

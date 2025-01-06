@@ -697,3 +697,5 @@ class GUISIM960:
         Make the GUI visible. Typically you'd call dpg.start_dearpygui() after this.
         """
         dpg.show_item(self.win_tag)
+
+

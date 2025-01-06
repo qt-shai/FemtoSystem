@@ -45,9 +45,15 @@ class ArduinoController(SerialDevice):
         command = f"start measure:{num_points},{time_us}"
         logging.info(f"Sending command: {command}")
 
-        response = self._send_command(command, get_response=True, verbose=True)
-        if response:
-            self.communication_result.set(response)
+        try:
+            response = self._send_command(command, get_response=True, verbose=True)
+            if response:
+                self.communication_result.set(response)
+        except Exception as e:
+            logging.error(f"error {e}. this is akum. Reconnecting")
+            self.reconnect()
+
+
 
     def read_measurement(self) -> None:
         """

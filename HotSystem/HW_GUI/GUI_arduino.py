@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import threading
 
 import dearpygui.dearpygui as dpg
@@ -51,6 +52,32 @@ class GUIArduino:
             dpg.add_button(label="Read Measurement", callback=self.read_measurement_and_update_graph)
             dpg.add_button(label="Continuous Read", callback=self.toggle_continuous_read)
             dpg.add_button(label="Save Graph Data", callback=self.save_graph_data)
+
+            # --- Pulse Generation Controls ---
+            with dpg.group(horizontal=False, tag="pulse_controls", width=250):
+                dpg.add_text("Pulse Generation Controls")
+
+                # Pulse width input
+                dpg.add_input_float(
+                    label="Pulse Width [us]",
+                    default_value=100.0,
+                    tag="pulse_width",
+                    format="%.1f"
+                )
+
+                # Pulse spacing input
+                dpg.add_input_float(
+                    label="Pulse Spacing [us]",
+                    default_value=1000.0,
+                    tag="pulse_spacing",
+                    format="%.1f"
+                )
+
+                # Button: Set Pulse
+                dpg.add_button(label="Set Pulse",callback=self.set_pulse)
+
+                # Button: Stop Pulse
+                dpg.add_button(label="Stop Pulse",callback=self.stop_pulse)
 
             # Response Display
             dpg.add_text("Results:", tag="results_label")
@@ -142,8 +169,14 @@ class GUIArduino:
         """
         Continuously reads measurement data and updates the graph until stopped.
         """
+        try:
+            self.arduino.start_measurement()
+        except Exception as exc:
+            logging.error(f"!!!! Exception occurred: {exc}. Please correct this AKUM solution !!!!")
+            self.arduino.reconnect()
+            self.arduino.start_measurement()
+            # TODO: make this not AKUM
 
-        self.arduino.start_measurement()
         concatenated_measurements = []
 
         while self.continuous_read_active:
@@ -169,7 +202,11 @@ class GUIArduino:
 
             # Wait briefly before sending the next measure command
             await asyncio.sleep(0.5)  # Adjust the delay as needed
-            self.arduino.start_measurement()
+            try:
+                self.arduino.start_measurement()
+            except Exception as exc:
+                logging.error(f"!!!! Exception occurred: {exc}. Please correct this AKUM solution !!!!")
+                self.arduino.reconnect()
 
     def toggle_continuous_read(self):
         """Schedules continuous_read_loop() on the background loop."""
@@ -214,6 +251,46 @@ class GUIArduino:
             dpg.set_value("results_display", f"Data saved to {filename}")
         except Exception as exc:
             dpg.set_value("results_display", f"Error saving data: {exc}")
+
+    def set_pulse(self, sender, app_data):
+        """
+        Callback for the "Set Pulse" button.
+        Reads pulse_width_us and pulse_spacing_us from the input fields,
+        and calls self.arduino.set_pulse(...) on the device wrapper.
+        """
+        try:
+            # Read pulse width and spacing from the input fields
+            pulse_width = dpg.get_value("pulse_width")
+            pulse_spacing = dpg.get_value("pulse_spacing")
+
+            # Check for valid values
+            if pulse_width <= 0 or pulse_spacing <= 0:
+                dpg.set_value("results_display", "Pulse width and spacing must be greater than 0.")
+                return
+
+            # The `set_pulse` method expects integers, so convert them
+            self.arduino.set_pulse(int(pulse_width), int(pulse_spacing))
+
+            # Feedback to the user
+            dpg.set_value("results_display", f"Pulse set: Width = {pulse_width} μs, Spacing = {pulse_spacing} μs.")
+        except ValueError as e:
+            dpg.set_value("results_display", f"Invalid input: {e}")
+        except Exception as e:
+            dpg.set_value("results_display", f"Error setting pulse: {e}")
+
+    def stop_pulse(self, sender, app_data):
+        """
+        Callback for the "Stop Pulse" button.
+        Calls self.arduino.stop_pulse() on the device wrapper.
+        """
+        try:
+            # Call the stop_pulse method
+            self.arduino.stop_pulse()
+
+            # Provide feedback to the user
+            dpg.set_value("results_display", "Pulse generation stopped.")
+        except Exception as e:
+            dpg.set_value("results_display", f"Error stopping pulse: {e}")
 
 
 
