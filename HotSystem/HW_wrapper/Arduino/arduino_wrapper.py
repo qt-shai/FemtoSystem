@@ -27,6 +27,8 @@ class ArduinoController(SerialDevice):
         self.communication_result: ObservableField[str] = ObservableField("")
         self.num_points: ObservableField[int] = ObservableField(10)  # Default value
         self.time_interval_us: ObservableField[int] = ObservableField(1000)  # Default in microseconds
+        self.pulse_width_us = ObservableField(1000)
+        self.pulse_spacing_us = ObservableField(5000)
 
     def start_measurement(self) -> None:
         """
@@ -52,6 +54,38 @@ class ArduinoController(SerialDevice):
         Reads the latest measurement data from the Arduino.
         """
         response = self._get_response(verbose=True)
+        if response:
+            self.communication_result.set(response)
+
+    def set_pulse(self, pulse_width: int, spacing: int) -> None:
+        """
+        Sends a command to start continuous pulse generation.
+
+        :param pulse_width: Pulse duration in microseconds.
+        :param spacing: Time between pulses in microseconds.
+        """
+        if pulse_width <= 0 or spacing <= 0:
+            logging.error("Invalid pulse parameters: pulse_width and spacing must be > 0.")
+            return
+
+        self.pulse_width_us.set(pulse_width)
+        self.pulse_spacing_us.set(spacing)
+
+        command = f"set pulse:{pulse_width},{spacing}"
+        logging.info(f"Sending command: {command}")
+
+        response = self._send_command(command, get_response=True, verbose=True)
+        if response:
+            self.communication_result.set(response)
+
+    def stop_pulse(self) -> None:
+        """
+        Sends a command to stop continuous pulse generation.
+        """
+        command = "stop pulse"
+        logging.info("Stopping pulse generation.")
+
+        response = self._send_command(command, get_response=True, verbose=True)
         if response:
             self.communication_result.set(response)
 
