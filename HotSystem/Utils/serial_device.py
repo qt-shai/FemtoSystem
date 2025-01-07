@@ -2,6 +2,9 @@ from typing import Optional
 import pyvisa
 
 
+
+
+
 class SerialDevice:
     """
     Base class to manage communication with devices over serial or TCP/IP using pyvisa, with support for simulation.

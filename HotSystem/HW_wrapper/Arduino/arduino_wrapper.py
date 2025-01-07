@@ -43,10 +43,10 @@ class ArduinoController(SerialDevice):
             return
 
         command = f"start measure:{num_points},{time_us}"
-        logging.info(f"Sending command: {command}")
+        # logging.info(f"Sending command: {command}")
 
         try:
-            response = self._send_command(command, get_response=True, verbose=True)
+            response = self._send_command(command, get_response=True, verbose=False)
             if response:
                 self.communication_result.set(response)
         except Exception as e:

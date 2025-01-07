@@ -124,8 +124,9 @@ class SRSsim960:
         :param gain: Gain in V/V.
         """
         if not (0.1 <= abs(gain) <= 1000):
-            raise ValueError("Gain out of range.")
-        self._write(f"GAIN {gain}")
+            print("Gain out of range.")
+        else:
+            self._write(f"GAIN {gain}")
 
     def get_proportional_gain(self) -> float:
         """
@@ -152,8 +153,9 @@ class SRSsim960:
         :param gain: Gain in V/(V·s).
         """
         if not (1e-2 <= gain <= 5e5):
-            raise ValueError("Integral gain out of range.")
-        self._write(f"INTG {gain}")
+            print("Integral gain out of range.")
+        else:
+            self._write(f"INTG {gain}")
 
     def get_integral_gain(self) -> float:
         """
@@ -180,8 +182,9 @@ class SRSsim960:
         :param gain: Gain in V/(V/s).
         """
         if not (1e-6 <= gain <= 10):
-            raise ValueError("Derivative gain out of range.")
-        self._write(f"DERV {gain}")
+            print("Derivative gain out of range.")
+        else:
+            self._write(f"DERV {gain}")
 
     def get_derivative_gain(self) -> float:
         """
@@ -249,8 +252,9 @@ class SRSsim960:
         :param output: Voltage in volts.
         """
         if not (-10.0 <= output <= 10.0):
-            raise ValueError("Manual output out of range.")
-        self._write(f"MOUT {output:.5f}")
+            print("Manual output out of range.")
+        else:
+            self._write(f"MOUT {output:.5f}")
 
 
     def read_setpoint(self) -> float:
@@ -866,6 +870,29 @@ class SRSsim960:
             "IAE": iae,
             "RMSE": rmse
         }
+
+    def set_upper_limit(self, limit: float) -> None:
+        """Set the upper limit for output."""
+        if not (-10.0 <= limit <= 10.0):
+            print("Upper limit out of range.")
+        else:
+            self._write(f"ULIM {limit:.3f}")
+
+    def set_lower_limit(self, limit: float) -> None:
+        """Set the lower limit for output."""
+        if not (-10.0 <= limit <= 10.0):
+            print("Lower limit out of range.")
+        else:
+            self._write(f"LLIM {limit:.3f}")
+
+    def get_upper_limit(self) -> float:
+        """Get the current upper limit."""
+        return float(self._query("ULIM?"))
+
+    def get_lower_limit(self) -> float:
+        """Get the current lower limit."""
+        return float(self._query("LLIM?"))
+
 
 def adjust_pid_for_low_frequency(
     p: float,

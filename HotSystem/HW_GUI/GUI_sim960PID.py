@@ -1,5 +1,7 @@
 from datetime import datetime
 import time
+import threading
+import asyncio
 
 import dearpygui.dearpygui as dpg
 import numpy as np
@@ -8,6 +10,10 @@ from matplotlib import pyplot as plt
 
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960, AutoTuneMethod
 
+def run_asyncio_loop(loop):
+    """Helper function to run an asyncio loop in a separate thread."""
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
 
 class GUISIM960:
     """
@@ -29,6 +35,7 @@ class GUISIM960:
         :param sim960: An instance of SRSsim960 wrapper (the device to control).
         :param simulation: Whether we are in simulation mode (disables hardware actions).
         """
+        self.continuous_read_active = False
         self.stabilize_iterations = 1
         self.stabilize_measure_delay = 0.5
         self.stabilize_measure_count = 1
@@ -42,8 +49,18 @@ class GUISIM960:
         self.unique_id = self._get_unique_id_from_device()
         self.win_tag = f"SIM960Win_{self.unique_id}"
         self.win_label = f"SRS SIM960, slot {self.dev.slot} ({self.unique_id})"
+        self.background_loop = asyncio.new_event_loop()
+        t = threading.Thread(
+            target=run_asyncio_loop,
+            args=(self.background_loop,),
+            daemon=True
+        )
+        t.start()
+
         if self.simulation:
             self.win_label += " [SIMULATION]"
+
+
 
         # Create a main window for the device
         with dpg.window(tag=self.win_tag, label=self.win_label,
@@ -137,6 +154,16 @@ class GUISIM960:
                     callback=self.cb_enable_d, tag=f"enable_d_{self.unique_id}"
                 )
 
+            self.dev.enable_proportional(True)
+            self.dev.enable_integral(True)
+
+            # Add the button to fetch PID gains
+            dpg.add_button(
+                label="Get PID Gains",
+                callback=self.cb_get_pid_gains,
+                tag=f"get_pid_gains_{self.unique_id}"
+            )
+
             # Read the current setpoint from the device
             try:
                 current_setpoint = self.dev.read_setpoint()
@@ -182,17 +209,41 @@ class GUISIM960:
             # A button to reset the device
             dpg.add_button(label="Reset Device", callback=self.cb_reset_device)
 
+    def cb_get_pid_gains(self):
+        """
+        Callback to fetch the current PID gains from the device,
+        update the GUI fields, and print the values to the console.
+        """
+        try:
+            # Fetch PID gains from the device
+            p_gain = self.dev.get_proportional_gain()
+            i_gain = self.dev.get_integral_gain()
+            d_gain = self.dev.get_derivative_gain()
+
+            # Update the GUI fields
+            dpg.set_value(f"p_gain_{self.unique_id}", p_gain)
+            dpg.set_value(f"i_gain_{self.unique_id}", i_gain)
+            dpg.set_value(f"d_gain_{self.unique_id}", d_gain)
+
+            # Print to console
+            print(f"Current PID Gains: P = {p_gain:.4f}, I = {i_gain:.6f}, D = {d_gain:.6f}")
+        except Exception as e:
+            print(f"Error fetching PID gains: {e}")
+
     def cb_set_new_setpoint(self, sender, app_data):
         """Callback to set the new setpoint value."""
-        self.new_setpoint = dpg.get_value(sender)
+        self.new_setpoint = float(dpg.get_value(sender))
 
     def cb_apply_new_setpoint(self):
         """Apply the new setpoint to the device."""
-        if not self.simulation:
-            self.dev.set_setpoint(self.new_setpoint)
-            print(f"New setpoint applied: {self.new_setpoint:.3f} V")
-        else:
-            print(f"Simulation mode: Setpoint would be {self.new_setpoint:.3f} V")
+        try:
+            if not self.simulation:
+                self.dev.set_setpoint(self.new_setpoint)
+                print(f"New setpoint applied: {self.new_setpoint:.3f} V")
+            else:
+                print(f"Simulation mode: Setpoint would be {self.new_setpoint:.3f} V")
+        except Exception as e:
+            print(f"Error setting setpoint: {e}")
 
     def cb_halt_auto_tune(self):
         """
@@ -511,6 +562,154 @@ class GUISIM960:
             dpg.add_button(label="Update Readings", callback=self.cb_update_measurement)
             dpg.add_text("Measure Input:", tag=f"measure_input_{self.unique_id}")
             dpg.add_text("Output Voltage:", tag=f"output_voltage_{self.unique_id}")
+            dpg.add_button(label="Start/Stop Continuous Read", callback=self.cb_toggle_continuous_read)
+
+            dpg.add_text("Output Limits")
+            dpg.add_input_float(
+                label="Upper Limit [V]",
+                default_value=self.dev.get_upper_limit(),  # Fetch initial value from device
+                callback=self.cb_set_upper_limit,
+                tag=f"upper_limit_{self.unique_id}",
+                format="%.3f"
+            )
+            dpg.add_button(
+                label="Set Upper",
+                callback=self.cb_apply_upper_limit
+            )
+
+            dpg.add_input_float(
+                label="Lower Limit [V]",
+                default_value=self.dev.get_lower_limit(),  # Fetch initial value from device
+                callback=self.cb_set_lower_limit,
+                tag=f"lower_limit_{self.unique_id}",
+                format="%.3f"
+            )
+            dpg.add_button(
+                label="Set Lower",
+                callback=self.cb_apply_lower_limit
+            )
+
+            # Button to fetch current limits
+            dpg.add_button(
+                label="Get Limits",
+                callback=self.cb_get_limits
+            )
+
+    def cb_set_upper_limit(self, sender, app_data):
+        """Callback to set the new upper limit."""
+        self.upper_limit = float(dpg.get_value(sender))
+
+    def cb_apply_upper_limit(self):
+        """Apply the new upper limit to the device."""
+        try:
+            if not self.simulation:
+                self.dev.set_upper_limit(self.upper_limit)
+                print(f"New upper limit applied: {self.upper_limit:.3f} V")
+            else:
+                print(f"Simulation mode: Upper limit would be {self.upper_limit:.3f} V")
+        except Exception as e:
+            print(f"Error setting upper limit: {e}")
+
+    def cb_set_lower_limit(self, sender, app_data):
+        """Callback to set the new lower limit."""
+        self.lower_limit = float(dpg.get_value(sender))
+
+    def cb_apply_lower_limit(self):
+        """Apply the new lower limit to the device."""
+        try:
+            if not self.simulation:
+                self.dev.set_lower_limit(self.lower_limit)
+                print(f"New lower limit applied: {self.lower_limit:.3f} V")
+            else:
+                print(f"Simulation mode: Lower limit would be {self.lower_limit:.3f} V")
+        except Exception as e:
+            print(f"Error setting lower limit: {e}")
+
+    def cb_get_limits(self):
+        """Fetch the current limits and update the GUI fields."""
+        try:
+            upper = self.dev.get_upper_limit()
+            lower = self.dev.get_lower_limit()
+
+            dpg.set_value(f"upper_limit_{self.unique_id}", upper)
+            dpg.set_value(f"lower_limit_{self.unique_id}", lower)
+
+            print(f"Current Limits: Upper = {upper:.3f} V, Lower = {lower:.3f} V")
+        except Exception as e:
+            print(f"Error fetching limits: {e}")
+
+    def cb_toggle_continuous_read(self):
+        """
+        Toggle continuous reading of measurement for the SRS device.
+        Similar logic to the Arduino version: check loop, toggle active flag,
+        and schedule or cancel the background task.
+        """
+
+        # 1) Check if the background loop exists
+        if not self.background_loop:
+            print("Error: No background loop. Cannot schedule continuous read.")
+            return
+
+        # 2) If continuous reading is already active, stop it
+        if self.continuous_read_active:
+            self.continuous_read_active = False
+            print("Stopping continuous read...")
+
+        # 3) Otherwise, start continuous reading
+        else:
+            self.continuous_read_active = True
+            print("Starting continuous read...")
+
+            # 4) Schedule the _continuous_read_task on the background loop
+            # Option A: If your background_loop is an asyncio loop in another thread
+            # you can do run_coroutine_threadsafe():
+            asyncio.run_coroutine_threadsafe(self._continuous_read_task(), self.background_loop)
+
+            # OR Option B: If you're *inside* the same thread running an asyncio loop:
+            # self.background_loop.create_task(self._continuous_read_task())
+
+    async def _continuous_read_task(self):
+        """
+        Continuously reads the device measurement once per second and prints the result.
+        """
+        while self.continuous_read_active:
+            # In real code, check for self.simulation or device read:
+            if not self.simulation:
+                value = self.dev.read_output_voltage()
+                meas_input = self.dev.read_measure_input()
+                print(f"[{datetime.now()}] Input = {meas_input:.4f}, Output = {value:.4f}")
+                v_pi = 2.5
+
+                if value < -10:
+                    print(f"jumping to {value+v_pi*4:.3f}")
+                    self.dev.set_manual_output(value + v_pi)
+                    self.dev.set_output_mode(True)
+                    print(f"val = {self.dev.read_output_voltage()}")
+                    self.dev.set_manual_output(value + v_pi*4)
+                    await asyncio.sleep(0.5)
+                    self.dev.set_manual_output(value + v_pi*4)
+                    print(f"val = {self.dev.read_output_voltage()}")
+                    await asyncio.sleep(1.0)
+                    self.dev.set_output_mode(False)
+                elif value > 10:
+                    print(f"jumping to {value - v_pi*4:.3f}")
+                    self.dev.set_manual_output(value - v_pi*4)
+                    self.dev.set_output_mode(True)
+                    self.dev.mf.flush_output()
+                    print(f"val = {self.dev.read_output_voltage()}")
+                    self.dev.set_manual_output(value - v_pi*4)
+                    await asyncio.sleep(0.5)
+                    self.dev.set_manual_output(value - v_pi*4)
+                    print(f"val = {self.dev.read_output_voltage()}")
+                    await asyncio.sleep(1.0)
+                    self.dev.set_output_mode(False)
+
+            else:
+                # If you have a simulation mode, read or mock a reading
+                print(f"[{datetime.now()}] Simulation measurement = 42.0000")
+
+            # Sleep for 1 second in the asyncio world
+            await asyncio.sleep(1.0)
 
     def cb_set_proportional_gain(self, sender, app_data):
         """Callback to set the P gain on the device."""

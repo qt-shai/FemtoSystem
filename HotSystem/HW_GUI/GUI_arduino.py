@@ -23,6 +23,9 @@ class GUIArduino:
         """
         self.continuous_read_active = False
         self.arduino = arduino
+        if arduino is None:
+            arduino = ArduinoController(address="COM7")
+            self.arduino = arduino
 
         # Subscribe GUI elements to observable fields
         self.arduino.communication_result.add_observer(self.update_results_display)
@@ -84,9 +87,11 @@ class GUIArduino:
             dpg.add_text("", tag="results_display", wrap=450)
 
             with dpg.plot(label="Measurement Plot", height=400, width=600):
-                dpg.add_plot_axis(dpg.mvXAxis, label="Time (ms)")
+                dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)")
                 with dpg.plot_axis(dpg.mvYAxis, label="Measurement"):
                     dpg.add_line_series([], [], label="My Measurements", tag="measurement_series")
+
+
 
     def update_results_display(self, result: str):
         """
@@ -154,7 +159,9 @@ class GUIArduino:
             # 6. Update the plot series in Dear PyGui, if it exists.
             if dpg.does_item_exist("measurement_series"):
                 dpg.set_value("measurement_series", [time_values, self.measurement_data])
-                dpg.set_axis_limits("y_axis", 0, 1024)
+                # dpg.set_axis_limits("y_axis", 0, 1024)
+                dpg.set_axis_limits_auto("x_axis")
+                dpg.set_axis_limits_auto("y_axis")
                 dpg.set_value("results_display", "Graph updated successfully.")
             else:
                 dpg.set_value("results_display", "Graph update failed: series not found.")
@@ -191,7 +198,7 @@ class GUIArduino:
 
                     # Update the graph
                     time_interval = self.arduino.time_interval_us.get()
-                    time_values = [i * time_interval*1e-3 for i in range(len(concatenated_measurements))]
+                    time_values = [i * time_interval*1e-3/17 for i in range(len(concatenated_measurements))]
                     dpg.set_value("measurement_series", [time_values, concatenated_measurements])
                     dpg.set_value("results_display", f"Graph updated with {len(concatenated_measurements)} points.")
                 else:
