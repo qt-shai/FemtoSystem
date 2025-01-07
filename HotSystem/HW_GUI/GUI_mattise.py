@@ -230,7 +230,10 @@ class GUIMatisse:
         try:
             self.dev.connect()
             print("Connected to Sirah Matisse")
-            dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} connected")
+            if self.dev.is_connected:
+                dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} connected")
+            else:
+                dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} not connected")
         except Exception as e:
             print(f"Failed to connect to Sirah Matisse: {e}")
             dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} not connected")

@@ -119,7 +119,7 @@ class HW_devices:
                                                   simulation=device.simulation)
 
             elif instrument == Instruments.MATTISE:
-                self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=device.simulation)
+                self.matisse_device = SirahMatisse(addr="127.0.0.1:30000", simulation=device.simulation)
 
             elif instrument == Instruments.HIGHLAND:
                 # Initialize Highland Electronics Device
