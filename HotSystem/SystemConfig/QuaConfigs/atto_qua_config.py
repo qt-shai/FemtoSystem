@@ -20,6 +20,7 @@ class AttoQuaConfig(QUAConfigBase):
         """
         super().__init__()
         # todo: updates parameters (delays, wave forums, ...) per CFG
+        self.resonant_laser_delay = 0 #Todo: change to physical number
         self.scannerX_delay = 0
         self.scannerY_delay = 0
         self.phaseEOM_delay = 0
@@ -43,6 +44,7 @@ class AttoQuaConfig(QUAConfigBase):
                 "digital_outputs": {
                     4: {"shareable": False},  # trigger Laser (Cobolt)
                     5: {"shareable": False},  # trigger MW (Rohde Schwarz)
+                    8: {"shareable": False}, #trigger for the Resonant Laser 
                 },
                 "analog_inputs": {
                     2: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # QM: why? because
@@ -111,6 +113,16 @@ class AttoQuaConfig(QUAConfigBase):
                     "marker": {
                         "port": ("con1", 4),  # Digital output 4
                         "delay": self.laser_delay,
+                        "buffer": 0,
+                    },
+                },
+                "operations": {"Turn_ON": "laser_ON"},
+            },
+            "Resonant_Laser": {
+                "digitalInputs": {  # here it is actually outputs
+                    "marker": {
+                        "port": ("con1", 8),  # Digital output 4
+                        "delay": self.resonant_laser_delay,
                         "buffer": 0,
                     },
                 },
