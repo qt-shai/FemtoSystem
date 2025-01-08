@@ -67,6 +67,7 @@ class Experiment(Enum):
     Electron_Coherence = 17
     ODMR_Bfield = 18
     Nuclear_Fast_Rot = 19
+    TIME_BIN_ENTANGLEMENT = 20
 
 class queried_plane(Enum):
     XY = 0
@@ -200,6 +201,9 @@ class GUI_OPX():
         self.t_mw2 = 164  # [nsec] # from rabi experiment
         self.Tedge = 100 # [nsec]
         self.Twait = 2.0 # [usec]
+
+        self.TRed = 1 #[nsec]
+        self.RedPower = None #[Laser power of the red laser]
 
         self.OPX_rf_amp = 0.5  # [V], OPX max amplitude
         self.rf_Pwr = 0.1  # [V], requied OPX amplitude
@@ -751,6 +755,9 @@ class GUI_OPX():
                                callback=self.btnStartStateTomography, indent=-1, width=_width)
                 dpg.add_button(label="Start G2", parent="Buttons_Controls", tag="btnOPX_G2",
                                callback=self.btnStartG2, indent=-1, width=_width)
+                dpg.add_button(label="Start Time Bin Entanglement", parent="Buttons_Controls",
+                               tag="btnOPX_StartTimeBinEntanglement",
+                               callback=self.btnStartTimeBinEntanglement, indent=-1, width=_width)
 
                 # save exp data
                 dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
@@ -1517,6 +1524,8 @@ class GUI_OPX():
             self.NuclearFastRotation_QUA_PGM()
         if self.exp == Experiment.G2:
             self.g2_raw_QUA()
+        if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+            self.time_bin_entanglement_QUA_PGM()
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
         if QuaCFG == None:
@@ -2065,6 +2074,85 @@ class GUI_OPX():
         if execute_qua:
             self.Entanglement_gate_tomography_QUA_PGM(generate_params=True)
             self.QUA_PGM()
+
+    def time_bin_entanglement_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
+        if generate_params:
+            # dummy vectors to be aligned with QUA_PGM convention
+            self.array_length = 1
+            self.idx_vec_ini = np.arange(0, self.array_length, 1)
+            self.f_vec = self.GenVector(min=0 * self.u.MHz, max=self.mw_freq_scan_range * self.u.MHz,
+                                        delta=self.mw_df * self.u.MHz, asInt=False)
+
+            # sequence parameters
+            # How do we define the exact parameters? Where is the red laser?
+            self.tMeasureProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)  # [nsec]
+            self.tPump = self.time_in_multiples_cycle_time(self.Tpump)  # [nsec]
+            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)  # [nsec]
+            self.tWait = self.time_in_multiples_cycle_time(self.Twait * 1e3)  # [nsec]
+            self.Npump = self.n_nuc_pump
+
+            #New red laser parameters:
+
+            # MW parameters
+            self.tMW = self.time_in_multiples_cycle_time(self.t_mw)
+            self.fMW_1st_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz  # Hz
+            self.verify_insideQUA_FreqValues(self.fMW_1st_res)
+            self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz  # Hz
+            self.verify_insideQUA_FreqValues(self.fMW_2nd_res)
+
+            # RF parameters
+            self.tRF = self.time_in_multiples_cycle_time(self.rf_pulse_time)
+            self.f_rf = self.rf_resonance_freq
+
+            # length and idx vector
+            # I the condition of : if we detect an early or late photon, we make statistics measurement should be put here
+            self.number_of_states = 2  # Number of states, should be early and late?
+            self.number_of_measurement = 1  # number of intensities measurements for the first part of the sequence
+            self.vectorLength = self.number_of_states * self.number_of_measurement  # total number of measurements
+            self.idx_vec_ini = np.arange(0, self.vectorLength, 1)  # for visualization purpose
+
+            # tracking signal
+            self.tSequencePeriod = (self.tMW + self.tRF) * self.array_length
+            self.tGetTrackingSignalEveryTime_nsec = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
+            self.tTrackingSignaIntegrationTime_usec = int(self.tTrackingSignaIntegrationTime * 1e6)  # []
+            self.tTrackingIntegrationCycles = self.tTrackingSignaIntegrationTime_usec // self.time_in_multiples_cycle_time(
+                self.Tcounter)
+            self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (
+                self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
+
+            self.bEnableShuffle = False
+
+        if Generate_QUA_sequance:
+            with for_(self.site_state, 0, self.site_state < self.number_of_states,
+                      self.site_state + 1):  # site state loop
+                with for_(self.j_idx, 0, self.j_idx < self.number_of_measurement, self.j_idx + 1):  # measure loop
+                    assign(self.i_idx, self.site_state * (self.number_of_states - 1) + self.j_idx)
+                    # prepare state
+                    self.QUA_prepare_state(site_state=self.site_state)
+                    # C-NOT
+                    update_frequency("MW", self.fMW_2nd_res)
+                    play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
+                    # measure
+                    self.QUA_measure(m_state=self.j_idx + 1, idx=self.i_idx, tMeasure=self.tMeasure, t_rf=self.tRF,
+                                     t_mw=self.tMW, p_rf=self.rf_proportional_pwr)
+                    # reference
+                    self.QUA_ref0(idx=self.i_idx, tPump=self.tPump, tMeasure=self.tMeasure,
+                                  tWait=self.tWait + self.tRF + 3 * self.tMW)
+                    self.QUA_ref1(idx=self.i_idx,
+                                  tPump=self.tPump, tMeasure=self.tMeasure,
+                                  tWait=self.tWait + self.tRF + 3 * self.tMW - self.t_mw2,
+                                  t_mw=self.time_in_multiples_cycle_time(self.t_mw2),
+                                  f_mw=(self.fMW_1st_res + self.fMW_2nd_res) / 2, p_mw=self.mw_P_amp2)
+
+            with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
+                assign(self.resCalculated[self.i_idx],
+                       (self.counts[self.i_idx] - self.counts_ref2[self.i_idx]) * 1000000 / (
+                                   self.counts_ref2[self.i_idx] - self.counts_ref[self.i_idx]))
+
+        if execute_qua:
+            self.Population_gate_tomography_QUA_PGM(generate_params=True)
+            self.QUA_PGM()
+
     def Population_gate_tomography_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
         if generate_params:
             # dummy vectors to be aligned with QUA_PGM convention
@@ -5265,12 +5353,12 @@ class GUI_OPX():
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
-        self.mwModule.Set_freq(self.mw_freq)
-        self.mwModule.Set_power(self.mw_Pwr)
-        self.mwModule.Set_IQ_mode_ON()
-        self.mwModule.Set_PulseModulation_ON()
-        if not self.bEnableSimulate:
-            self.mwModule.Turn_RF_ON()
+        # self.mwModule.Set_freq(self.mw_freq)
+        # self.mwModule.Set_power(self.mw_Pwr)
+        # self.mwModule.Set_IQ_mode_ON()
+        # self.mwModule.Set_PulseModulation_ON()
+        # if not self.bEnableSimulate:
+        #     self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
@@ -5293,6 +5381,24 @@ class GUI_OPX():
 
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
+
+    def btnStartTimeBinEntanglement(self):
+        self.exp = Experiment.TIME_BIN_ENTANGLEMENT
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+        print("Life is good")
+
+        # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
+        # self.mwModule.Set_freq(self.mw_freq)
+        # self.mwModule.Set_power(self.mw_Pwr)
+        # self.mwModule.Set_IQ_mode_ON()
+        # self.mwModule.Set_PulseModulation_ON()
+        # if not self.bEnableSimulate:
+        #     self.mwModule.Turn_RF_ON()
+        #calculates the count based on division due to timing limitaiton of the counter
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
+
+        # if not self.bEnableSimulate:
+        #     self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearPolESR(self):
         self.exp = Experiment.NUCLEAR_POL_ESR
