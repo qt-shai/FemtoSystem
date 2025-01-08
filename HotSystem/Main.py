@@ -6,7 +6,6 @@ import os
 
 
 from Application import Application_singletone,PyGuiOverlay,ImGuiOverlay
-from HW_GUI.GUI_arduino import run_asyncio_loop
 
 
 # todo:

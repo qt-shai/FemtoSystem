@@ -10,6 +10,7 @@ from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
+from HW_wrapper.wrapper_wavemeter import HighFinesseWLM
 
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 from Utils import ObservableField
@@ -24,7 +25,6 @@ class HW_devices:
 
     def __init__(self):
 
-
         if not getattr(self, 'initialized', False):
             self.elc_power_supply: Optional[ALR3206T] = None
             self.highland_eom_driver: Optional[HighlandT130]  = None
@@ -35,6 +35,7 @@ class HW_devices:
             self.picomotor:Optional[newportPicomotor] = None
             self.cobolt:Optional[CoboltLaser] = None
             self.matisse_device: Optional[SirahMatisse] = None
+            self.wavemeter:Optional[HighFinesseWLM] = None
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
             self.SRS_PID_list: Optional[SRSsim960] = None
@@ -120,6 +121,10 @@ class HW_devices:
 
             elif instrument == Instruments.MATTISE:
                 self.matisse_device = SirahMatisse(addr="127.0.0.1:30000", simulation=device.simulation)
+
+            elif instrument == Instruments.WAVEMETER:
+                # Initialize the HighFinesse WLM
+                self.wavemeter = HighFinesseWLM(index=0, simulation=device.simulation)
 
             elif instrument == Instruments.HIGHLAND:
                 # Initialize Highland Electronics Device

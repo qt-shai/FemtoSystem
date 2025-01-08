@@ -272,6 +272,23 @@ class SirahMatisse:
         """
         return self.dev.set_refcell_position(value)
 
+    def set_slowpiezo_ctl_status(self, status="run"):
+        """
+        Set slow piezo lock status ("run" or "stop").
+        """
+        if self.simulation:
+            return
+        self.dev.set_slowpiezo_ctl_status(status)
+        return self.dev.get_slowpiezo_ctl_status()
+
+    def get_slowpiezo_ctl_status(self):
+        """
+        Get slow piezo lock status ("run" or "stop").
+        """
+        if self.simulation:
+            return
+        return self.dev.get_slowpiezo_ctl_status()
+
     def close(self):
         """
         Close the connection to the device.

@@ -1,3 +1,7 @@
+import asyncio
+import threading
+import time
+
 import dearpygui.dearpygui as dpg
 import numpy as np
 from Common import DpgThemes
@@ -14,6 +18,8 @@ class GUIMatisse:
         :param instrument: The instrument identifier.
         :param simulation: Flag to indicate if simulation mode is enabled.
         """
+        self.scan_thread = None
+        self.scanning = False
         self.is_collapsed: bool = False
         load_instrument_images()
         self.dev = device
@@ -33,6 +39,7 @@ class GUIMatisse:
                 self.create_piezo_controls(red_button_theme)
                 self.create_scan_controls(red_button_theme)
                 self.create_refcell_controls(red_button_theme)
+                self.create_scanning_controls(red_button_theme)
 
         # Store column tags for easy access and interchangeability
         self.column_tags = [
@@ -111,6 +118,17 @@ class GUIMatisse:
                                 format='%.4f', width=100)
             dpg.add_button(label="Set", callback=self.btn_set_slowpiezo_position)
             dpg.bind_item_theme(dpg.last_item(), theme)
+
+            dpg.add_text("Slow Piezo Lock:")
+            dpg.add_combo(
+                ["run", "stop"],
+                default_value="stop",
+                tag=f"SlowPiezoCtlStatus_{self.unique_id}",
+                callback=self.btn_set_slowpiezo_ctl_status,
+                width=100
+            )
+
+
             dpg.add_text("Fast Piezo Position:", tag=f"FastPiezoPosition_{self.unique_id}")
             dpg.add_input_float(default_value=0.0, tag=f"FastPiezoSetPos_{self.unique_id}",
                                 format='%.4f', width=100)
@@ -193,6 +211,16 @@ class GUIMatisse:
         status = dpg.get_value(f"ThinEtalonCtlStatus_{self.unique_id}")
         self.dev.set_thin_etalon_ctl_status(status)
 
+    def btn_set_slowpiezo_ctl_status(self):
+        """
+        Handle changes to the slow piezo lock combo.
+        'run' typically means 'locked', and 'stop' means 'unlocked'.
+        """
+        status = dpg.get_value(f"SlowPiezoCtlStatus_{self.unique_id}")
+        # This calls your wrapper method that actually enables or disables
+        # the slow piezo control loop in the Sirah Matisse device.
+        self.dev.set_slowpiezo_ctl_status(status)
+
     def btn_move_bifi(self):
         position = dpg.get_value(f"BifiMoveTo_{self.unique_id}")
         self.dev.bifi_move_to(position)
@@ -237,3 +265,189 @@ class GUIMatisse:
         except Exception as e:
             print(f"Failed to connect to Sirah Matisse: {e}")
             dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} not connected")
+
+    def create_scanning_controls(self, theme):
+        with dpg.group(horizontal=False, tag=f"column_scanning_{self.unique_id}", width=200):
+            dpg.add_text("Scanning Controls")
+
+            # Scan Device Selector
+            dpg.add_text("Select Scan Device:")
+            dpg.add_combo(
+                ["Slow Piezo", "Ref Cell"],  # List of devices
+                default_value="Slow Piezo",
+                label="Scan Device",
+                tag=f"ScanDeviceSelector_{self.unique_id}",
+                width=150
+            )
+
+            dpg.add_input_float(label="Scan Range (MHz)", default_value=2000.0, tag=f"ScanRange_{self.unique_id}",
+                                format="%.2f", width=150)
+            dpg.add_input_float(label="Scan Speed (MHz/s)", default_value=100.0, tag=f"ScanSpeed_{self.unique_id}",
+                                format="%.2f", width=150)
+            dpg.add_input_int(label="Number of Points", default_value=100, tag=f"NumberOfScanPoints_{self.unique_id}",
+                              min_value=10, max_value=1000, width=150)
+
+            # "To MHz" conversion fields for each device
+            dpg.add_text("Conversion Factors (to MHz):")
+            dpg.add_input_float(
+                label="Slow Piezo to MHz",
+                default_value=81500.0,
+                tag=f"SlowPiezoToMHz_{self.unique_id}",
+                format="%.6f",
+                width=150
+            )
+            dpg.add_input_float(
+                label="Ref Cell to MHz",
+                default_value=81500.0,
+                tag=f"RefCellToMHz_{self.unique_id}",
+                format="%.6f",
+                width=150
+            )
+
+            # Start/Stop Scan Button
+            dpg.add_button(label="Start Scan", tag=f"StartStopScan_{self.unique_id}", callback=self.toggle_scan)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+
+    def toggle_scan(self):
+        """
+        Toggles between starting and stopping the scan.
+        """
+        button_label = dpg.get_item_label(f"StartStopScan_{self.unique_id}")
+
+        if button_label == "Start Scan":
+            dpg.set_item_label(f"StartStopScan_{self.unique_id}", "Stop Scan")
+            self.start_scan()
+        else:
+            dpg.set_item_label(f"StartStopScan_{self.unique_id}", "Start Scan")
+            self.stop_scan()
+
+    def btn_start_stop_scan(self):
+        """
+        Handles the Start/Stop Scan button press.
+        """
+        try:
+            # Get current button label
+            button_label = dpg.get_item_label(f"StartStopScan_{self.unique_id}")
+
+            if button_label == "Start Scan":
+                # Change button to "Stop Scan"
+                dpg.set_item_label(f"StartStopScan_{self.unique_id}", "Stop Scan")
+
+                # Get the selected scan device
+                scan_device = dpg.get_value(f"ScanDeviceSelector_{self.unique_id}")
+
+                self.dev.set_slowpiezo_ctl_status("stop")
+                time.sleep(0.5)
+                self.dev.set_fastpiezo_ctl_status("stop")
+                time.sleep(0.5)
+
+                # Start the scan process
+                self.start_scan()
+            else:
+                # Change button back to "Start Scan"
+                dpg.set_item_label(f"StartStopScan_{self.unique_id}", "Start Scan")
+
+                # Stop the scan process
+                self.stop_scan()
+        except Exception as e:
+            print(f"Error handling Start/Stop Scan button: {e}")
+
+    def start_scan(self):
+        """
+        Start the scan process based on the selected device and parameters.
+        """
+        scan_device = dpg.get_value(f"ScanDeviceSelector_{self.unique_id}")
+        scan_range = dpg.get_value(f"ScanRange_{self.unique_id}")
+        scan_speed = dpg.get_value(f"ScanSpeed_{self.unique_id}")
+        num_points = dpg.get_value(f"NumberOfScanPoints_{self.unique_id}")
+
+        # Get the appropriate conversion factor
+        if scan_device == "Slow Piezo":
+            piezo_to_mhz = dpg.get_value(f"SlowPiezoToMHz_{self.unique_id}")
+            control_func = self.dev.set_slowpiezo_position
+            get_position_func = self.dev.get_slowpiezo_position
+        elif scan_device == "Ref Cell":
+            piezo_to_mhz = dpg.get_value(f"RefCellToMHz_{self.unique_id}")
+            control_func = self.dev.set_refcell_position
+            get_position_func = self.dev.get_refcell_position
+        else:
+            print(f"Unknown scan device: {scan_device}")
+            return
+
+        # Run the scan in a background thread
+        self.scanning = True
+        self.scan_thread = threading.Thread(
+            target=self.scan_loop,
+            args=(control_func, get_position_func, scan_range, scan_speed, num_points, piezo_to_mhz),
+            daemon=True
+        )
+        self.scan_thread.start()
+
+    def scan_loop(self, control_func, get_position_func, scan_range_mhz, scan_speed_mhz_per_s, num_scan_points,
+                  piezo_to_mhz):
+        """
+        Perform the up-and-down scanning using the selected device in a loop until stopped.
+
+        :param control_func: Function to set the position of the selected device.
+        :param get_position_func: Function to get the current position of the selected device.
+        :param scan_range_mhz: Total range of the scan in MHz.
+        :param scan_speed_mhz_per_s: Speed of the scan in MHz per second.
+        :param num_scan_points: Number of points in one scan direction.
+        :param piezo_to_mhz: Conversion factor from piezo units to MHz.
+        """
+        try:
+            # Convert scan parameters to piezo units
+            scan_range_piezo = scan_range_mhz / piezo_to_mhz
+            step_size_piezo = scan_range_piezo / num_scan_points
+            start_position = get_position_func()
+
+            # Generate positions for up and down scan
+            positions_up = [start_position + i * step_size_piezo for i in range(num_scan_points + 1)]
+            positions_down = positions_up[::-1]
+            full_scan_positions = positions_up + positions_down
+
+            # Calculate delay between steps based on speed
+            delay_per_step = step_size_piezo / (scan_speed_mhz_per_s / piezo_to_mhz)
+
+            print(f"Starting scan with {len(full_scan_positions)} points. Delay per step: {delay_per_step:.4f}s")
+
+            # Perform the scan loop
+            self.scanning = True
+            while self.scanning:
+                for pos in full_scan_positions:
+                    if not self.scanning:
+                        print("Scan stopped by user.")
+                        return  # Exit the scan loop if stopped
+                    control_func(pos)
+                    time.sleep(delay_per_step)  # Simulate speed
+
+            print("Scan completed successfully.")
+        except Exception as e:
+            print(f"Error during scan: {e}")
+        finally:
+            self.scanning = False
+
+    def stop_scan(self):
+        """
+        Stop the scanning process.
+        """
+        try:
+            if hasattr(self, 'scanning') and self.scanning:
+                self.scanning = False  # Signal to terminate the scanning loop
+                print("Stopping the scan...")
+
+                # Wait for the thread to finish if it's running
+                if hasattr(self, 'scan_thread') and self.scan_thread and self.scan_thread.is_alive():
+                    self.scan_thread.join(timeout=5)  # Wait for a maximum of 5 seconds
+                    if self.scan_thread.is_alive():
+                        print("Scan thread did not terminate cleanly. It may need manual intervention.")
+                    else:
+                        print("Scan stopped successfully.")
+                else:
+                    print("No active scan thread.")
+            else:
+                print("No scan is currently running.")
+        except Exception as e:
+            print(f"An error occurred while stopping the scan: {e}")
+
+

@@ -29,6 +29,7 @@ from HW_GUI.GUI_atto_scanner import GUIAttoScanner
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
 from HW_GUI.GUI_mattise import GUIMatisse
+from HW_GUI.GUI_wavemeter import GUIWavemeter
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
 from HW_GUI.GUI_sim960PID import GUISIM960
@@ -753,6 +754,10 @@ class PyGuiOverlay(Layer):
                         device=hw_devices.HW_devices().matisse_device,
                         simulation=device.simulation
                     )
+                    dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
+                elif instrument == Instruments.WAVEMETER:
+                    self.wlm_gui = GUIWavemeter(device=hw_devices.HW_devices().wavemeter, instrument=instrument, simulation=device.simulation)
                     dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
 
