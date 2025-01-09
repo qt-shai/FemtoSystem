@@ -344,24 +344,41 @@ def run_system_config_gui():
                     # Mark the device as selected if it exists in the system configuration
                     device_key = generate_device_key(device)
                     if device_key in configured_device_keys:
+                        # device.com_port = configured_devices_dict[device_key].com_port
+                        # device.simulation = configured_devices_dict[device_key].simulation
+
                         selected_devices[device_key] = True
-                        # Update com_port if available
-                        device.com_port = configured_devices_dict[device_key].com_port
-                        device.simulation = configured_devices_dict[device_key].simulation
+                        # Update device attributes from XML configuration
+                        configured_device = configured_devices_dict[device_key]
+                        device.com_port = configured_device.com_port or device.com_port
+                        device.simulation = configured_device.simulation
+
+
                     elif device.instrument in instruments_with_na_identifiers:
                         selected_devices[device_key] = True
         else:
             # Add a placeholder device
-            simulation_from_config = next((dev.simulation if dev.simulation else True
-                                           for dev in system_config.devices
-                                           if dev.instrument == instrument), False)
+            simulation_from_config = next(
+                (dev.simulation for dev in system_config.devices if dev.instrument == instrument),
+                False
+            )
+
+            com_port_from_config = next(
+                (dev.com_port for dev in system_config.devices if dev.instrument == instrument),
+                'N/A'
+            )
+
+            ip_from_config = next(
+                (dev.ip_address for dev in system_config.devices if dev.instrument == instrument),
+                'N/A'
+            )
 
             placeholder_device = Device(
                 instrument=instrument,
-                ip_address='N/A',
+                ip_address=ip_from_config,
                 mac_address='N/A',
                 serial_number='N/A',
-                com_port='N/A',
+                com_port=com_port_from_config,
                 simulation=simulation_from_config,
             )
             placeholder_device.is_placeholder = True
