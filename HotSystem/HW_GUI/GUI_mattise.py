@@ -8,7 +8,6 @@ from Common import DpgThemes
 from HW_wrapper import SirahMatisse
 from SystemConfig import Instruments, load_instrument_images
 
-
 class GUIMatisse:
     def __init__(self, device: SirahMatisse, instrument: Instruments = Instruments.MATTISE, simulation: bool = False) -> None:
         """
@@ -281,11 +280,11 @@ class GUIMatisse:
             )
 
             dpg.add_input_float(label="Scan Range (MHz)", default_value=2000.0, tag=f"ScanRange_{self.unique_id}",
-                                format="%.2f", width=150)
+                                format="%.2f", width=150, callback=self.update_scanning_parameters)
             dpg.add_input_float(label="Scan Speed (MHz/s)", default_value=100.0, tag=f"ScanSpeed_{self.unique_id}",
-                                format="%.2f", width=150)
+                                format="%.2f", width=150, callback=self.update_scanning_parameters)
             dpg.add_input_int(label="Number of Points", default_value=100, tag=f"NumberOfScanPoints_{self.unique_id}",
-                              min_value=10, max_value=1000, width=150)
+                              min_value=10, max_value=1000, width=150, callback=self.update_scanning_parameters)
 
             # "To MHz" conversion fields for each device
             dpg.add_text("Conversion Factors (to MHz):")
@@ -294,19 +293,45 @@ class GUIMatisse:
                 default_value=81500.0,
                 tag=f"SlowPiezoToMHz_{self.unique_id}",
                 format="%.6f",
-                width=150
+                width=150,
+                callback = self.update_scanning_parameters,
             )
             dpg.add_input_float(
                 label="Ref Cell to MHz",
                 default_value=81500.0,
                 tag=f"RefCellToMHz_{self.unique_id}",
                 format="%.6f",
-                width=150
+                width=150,
+                callback = self.update_scanning_parameters,
             )
 
             # Start/Stop Scan Button
             dpg.add_button(label="Start Scan", tag=f"StartStopScan_{self.unique_id}", callback=self.toggle_scan)
             dpg.bind_item_theme(dpg.last_item(), theme)
+
+            # Initialize wrapper attributes
+            self.dev.scan_device = "Slow Piezo"
+            self.dev.scan_range = 2000.0
+            self.dev.scan_speed = 100.0
+            self.dev.num_scan_points = 100
+            self.dev.slow_piezo_to_mhz = 81500.0
+            self.dev.ref_cell_to_mhz = 81500.0
+
+    def update_scanning_parameters(self, sender, app_data, user_data):
+        """
+        Update scanning parameters in the SirahMatisse wrapper based on GUI input values.
+        """
+        self.dev.scan_device = dpg.get_value(f"ScanDeviceSelector_{self.unique_id}")
+        self.dev.scan_range = dpg.get_value(f"ScanRange_{self.unique_id}")
+        self.dev.scan_speed = dpg.get_value(f"ScanSpeed_{self.unique_id}")
+        self.dev.num_scan_points = dpg.get_value(f"NumberOfScanPoints_{self.unique_id}")
+        self.dev.slow_piezo_to_mhz = dpg.get_value(f"SlowPiezoToMHz_{self.unique_id}")
+        self.dev.ref_cell_to_mhz = dpg.get_value(f"RefCellToMHz_{self.unique_id}")
+
+        print(f"Updated scanning parameters: {self.dev.scan_device}, "
+              f"Range: {self.dev.scan_range} MHz, Speed: {self.dev.scan_speed} MHz/s, "
+              f"Points: {self.dev.num_scan_points}, S low Piezo Conversion: {self.dev.slow_piezo_to_mhz}, "
+              f"Ref Cell Conversion: {self.dev.ref_cell_to_mhz}")
 
     def toggle_scan(self):
         """

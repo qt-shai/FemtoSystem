@@ -29,7 +29,6 @@ class Instruments(Enum):
     ZELUX = "zelux"
     OPX = "OPX"
     ELC_POWER_SUPPLY = "elc_power_supply"
-    SIMULATION = "simulation"
     KEYSIGHT_AWG = "keysight_awg"
     SIM960 = "sim960"
     CLD1011LP = "CLD1011LP"
@@ -48,9 +47,13 @@ class InstrumentsAddress(Enum):
     # AWG_33500B = "192.168.101.62"
     atto_positioner = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
     atto_scanner = "192.168.101.20"
-    opx_ip = '192.168.101.56'
+    opx_main_ip = '192.168.101.56'
+    opx_aux_ip = '192.168.101.61'
+
     opx_port = 80
-    opx_cluster = 'Cluster_1'
+    opx_main_cluster = 'Cluster_1'
+    opx_aux_cluster = 'Cluster_2'
+
     SRS_MAINFRAME = 'COM4'
 
 class Device:
@@ -58,13 +61,14 @@ class Device:
     Represents a device with its instrument type and additional information.
     """
     def __init__(self, instrument: Instruments, ip_address: str = None, mac_address: str = None, serial_number: str = None, com_port: str = None,
-                 simulation: bool = False):
+                 simulation: bool = False, misc = "N/A",):
         self.instrument = instrument
         self.ip_address = ip_address
         self.mac_address = mac_address
         self.serial_number = serial_number
         self.com_port = com_port
         self.simulation = simulation
+        self.misc = misc
 
     @property
     def device_key(self):
@@ -79,9 +83,9 @@ class SystemConfig:
     atto_positioner_ip: str = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
     # atto_scanner_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
     keysight_awg_ip: str = "192.168.101.53"  # todo: get correct IP + replace with search for device IP and address and some CNFG files
-    opx_ip = '192.168.101.56'
-    opx_port = 80
-    opx_cluster = 'Cluster_1'
+    # opx_ip = '192.168.101.56'
+    # opx_port = 80
+    # opx_cluster = 'Cluster_1'
 
     def __init__(self, system_type: SystemType, devices: List[Device]):
         """
@@ -137,12 +141,14 @@ def load_system_from_xml(file_path: str) -> Optional[SystemConfig]:
             sn_element = device_element.find("SerialNumber")
             com_port_element = device_element.find("COMPort")
             simulation_element = device_element.find("Simulation")
+            misc_element = device_element.find("Misc")
 
             ip_address = ip_element.text.strip() if ip_element is not None and ip_element.text else None
             mac_address = mac_element.text.strip() if mac_element is not None and mac_element.text else None
             serial_number = sn_element.text.strip() if sn_element is not None and sn_element.text else None
             com_port = com_port_element.text.strip() if com_port_element is not None and com_port_element.text else None
             simulation = simulation_element.text.strip().lower()=="true" if simulation_element is not None and simulation_element.text else None
+            misc = misc_element.text.strip() if (misc_element is not None and misc_element.text) else "N/A"
 
             device = Device(
                 instrument=instrument_enum,
@@ -151,6 +157,7 @@ def load_system_from_xml(file_path: str) -> Optional[SystemConfig]:
                 serial_number=serial_number,
                 com_port=com_port,
                 simulation=simulation,
+                misc=misc,
             )
             devices.append(device)
 

@@ -41,6 +41,7 @@ import xml.etree.ElementTree as ET
 import math
 import SystemConfig as configs
 from Utils import OptimizerMethod,find_max_signal
+
 matplotlib.use('qtagg')
 
 def create_logger(log_file_path: str):
@@ -68,6 +69,7 @@ class Experiment(Enum):
     Electron_Coherence = 17
     ODMR_Bfield = 18
     Nuclear_Fast_Rot = 19
+    PLE = 20 # Photoluminescence excitation
 
 class queried_plane(Enum):
     XY = 0
@@ -83,6 +85,7 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+
         self.scan_default_sleep_time: float = 5e-3
         self.initial_scan_Location: List[float] = []
         self.iteration: int = 0
@@ -102,6 +105,9 @@ class GUI_OPX():
         self.positioner = self.HW.positioner
         self.pico = self.HW.picomotor
         self.laser = self.HW.cobolt
+        self.matisse = self.HW.matisse_device
+        self.my_qua_jobs = []
+
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
             self.ScanTrigger = 101  # IO2
             self.TrackingTrigger = 101  # IO1
@@ -118,7 +124,9 @@ class GUI_OPX():
             else:
                 print("Setting up tracking function with atto positioner")
                 self.tracking_function = self.FindMaxSignal_atto_positioner
-
+        if (self.HW.config.system_type == configs.SystemType.ICE):
+            self.ScanTrigger = 10001 # IO2
+            self.TrackingTrigger = 10001 # IO1
 
         # At the end of the init - all values are overwritten from XML!
         # To update values of the parameters - update the XML or the corresponding place in the GUI
@@ -148,6 +156,7 @@ class GUI_OPX():
         self.queried_area = None
         self.queried_plane = None  # 0 - XY, 1 - YZ, 2 -XZ
         self.bScanChkbox = False
+        self.bPleChkbox = False
         self.L_scan = [5000, 5000, 5000]  # [nm]
         self.dL_scan = [100, 100, 100]  # [nm]
         self.b_Scan = [True, True, False]
@@ -254,6 +263,9 @@ class GUI_OPX():
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
                 self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster, timeout=60)  # in seconds
                 time.sleep(1)
+
+                # load all my jobs from file
+                # loop over all my jobs and close it
 
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
@@ -736,7 +748,7 @@ class GUI_OPX():
 
                 dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
                 dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
-
+                dpg.add_button(label="PLE", parent="Buttons_Controls", tag="btnPLE", callback=self.btnStartPLE, indent=-1, width=_width)
                 dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
                                callback=self.btnStartNuclearRABI, indent=-1, width=_width)
@@ -886,6 +898,7 @@ class GUI_OPX():
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
+
 
     def btn_z_calibrate(self):
         self.ScanTh = threading.Thread(target=self.z_calibrate)
@@ -1531,6 +1544,9 @@ class GUI_OPX():
             self.NuclearFastRotation_QUA_PGM()
         if self.exp == Experiment.G2:
             self.g2_raw_QUA()
+        if self.exp == Experiment.PLE:
+            self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger)
+            # self.MeasureByTrigger_Track_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),triggerThreshold=self.ScanTrigger)
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
         if QuaCFG == None:
@@ -1555,11 +1571,16 @@ class GUI_OPX():
             if quaPGM is None:
                 quaPGM = self.quaPGM
 
+            list_before = self.qmm.list_open_quantum_machines()
+            print(f"list_before = {list_before}")
+
             qm = self.qmm.open_qm(config=QuaCFG, close_other_machines=closeQM)
             job = qm.execute(quaPGM)
 
-            newQM = self.qmm.list_open_quantum_machines()
-            print(f"before close: {newQM}")
+            list_after = self.qmm.list_open_quantum_machines()
+            print(f"list_after = {list_after}")
+
+            self.my_qua_jobs.append(list_after[-1])
 
             return qm, job
     def verify_insideQUA_FreqValues(self, freq, min=0, max=400):  # [MHz]
@@ -4848,6 +4869,8 @@ class GUI_OPX():
 
         self.qm, self.job = self.QUA_execute()
 
+
+
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         try:
             # todo: use this function as general update graph for all experiments
@@ -5161,8 +5184,6 @@ class GUI_OPX():
 
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
-
-
 
     def StartFetch(self, _target):
         self.to_xml()  # write class parameters to XML
@@ -5554,6 +5575,48 @@ class GUI_OPX():
     def btnAutoFocus(self):
         self.ScanTh = threading.Thread(target=self.auto_focus)
         self.ScanTh.start()
+
+    def btnStartPLE(self):
+        self.exp = Experiment.PLE
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+
+        try:
+            if self.matisse.scan_device == "Slow Piezo":
+                initial_position = self.matisse.get_slowpiezo_position()
+                get_positions_func = self.matisse.get_slowpiezo_position
+                control_func = self.matisse.set_slowpiezo_position
+                piezo_to_mhz = self.matisse.slow_piezo_to_mhz
+            elif self.matisse.scan_device == "Ref Cell":
+                initial_position = self.matisse.get_refcell_position()
+                get_positions_func = self.matisse.get_refcell_position
+                control_func = self.matisse.set_refcell_position
+                piezo_to_mhz = self.matisse.ref_cell_to_mhz
+            else:
+                raise ValueError("Unknown scan device")
+        except Exception as e:
+            print(f"Failed to retrieve initial position: {e}")
+            return
+
+
+        num_points = self.matisse.num_scan_points
+        half_length = self.matisse.scan_range / 2 / piezo_to_mhz
+        vec = list(np.unique(np.linspace(initial_position-half_length,initial_position+half_length,num_points)))
+        print(f"vec: {vec}")
+
+        if not self.bEnableSimulate:
+            self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms/ self.Tcounter * self.u.ns))
+            self.StartFetch(_target=self.FetchData)
+
+        self.StartScanGeneral(
+            move_abs_fn=control_func,
+            read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
+            get_positions_fn=get_positions_func,
+            device_reset_fn=None,
+            x_vec=vec,
+            y_vec=None,
+            z_vec=None,
+            current_experiment = Experiment.PLE
+        )
 
     def StartScan(self):
         if self.positioner:
@@ -6012,7 +6075,8 @@ class GUI_OPX():
             device_reset_fn,
             x_vec=None,
             y_vec=None,
-            z_vec=None
+            z_vec=None,
+            current_experiment = Experiment.SCAN,
     ):
         """
         A fully generalized scan function that supports 1D, 2D, or 3D scans
@@ -6090,7 +6154,7 @@ class GUI_OPX():
         start_time = time.time()
         print(f"start_time: {self.format_time(start_time)}")
 
-        self.exp = Experiment.SCAN
+        self.exp = current_experiment
         self.GUI_ParametersControl(isStart=False)
         self.to_xml()  # Save last params to XML
         self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")
@@ -6134,7 +6198,9 @@ class GUI_OPX():
         #     self.positioner.set_Channel_Constant_Mode_State(channel=0)
 
         # Disable the “Start Scan” button in the GUI
-        dpg.disable_item("btnOPX_StartScan")
+        if dpg.does_item_exist("btnOPX_StartScan"):
+            dpg.disable_item("btnOPX_StartScan")
+
 
         # Prepare internal references
         self.X_vec, self.Y_vec, self.Z_vec = [], [], []
@@ -6148,10 +6214,15 @@ class GUI_OPX():
 
         # Acquire initial positions (for reference)
         # This can be done via get_positions_fn() or from the device directly.
-        for ax in range(3):
+        expected_axes = 3  # X, Y, Z
+        for ax in range(expected_axes):
             read_in_pos_fn(ax)  # Ensure in position
         current_positions = get_positions_fn()
-        self.initial_scan_Location = list(current_positions)
+        if isinstance(current_positions, float):
+            current_positions = [current_positions]  # Wrap single float in a list
+
+        # Pad with zeros if fewer than expected_axes
+        self.initial_scan_Location = list(current_positions) + [0] * (expected_axes - len(current_positions))
 
         # Build scanning arrays for each axis (like original “V_scan” concept)
         def build_scan(axis_idx, axis_positions):

@@ -65,7 +65,7 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
         # The 'Device' class in your system expects instrument, ip, mac, sn, com_port...
         # So you must map sim960 object => Device
         # Example:
-        ports = scan_com_ports()
+        # ports = scan_com_ports()
         mainframe_port = next((port for port, description in ports.items() if "sim900" in description.lower()),None)
         sim960_list = []
         if mainframe_port:
@@ -82,11 +82,9 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                     temp_mainframe.disconnect()
             except Exception as e:
                 print(f"failed to detect channels in SRS900 mainframe. Error: {e}")
-
     elif instrument == Instruments.KEYSIGHT_AWG:
         ip_list = [InstrumentsAddress.KEYSIGHT_AWG_33522B.value, InstrumentsAddress.KEYSIGHT_AWG_33600A.value]
         devices = find_device_list_from_ip(instrument, ip_list)
-
     elif instrument == Instruments.ARDUINO:
         arduino_port = next(
             (port for port, description in ports.items() if "arduino" in description.lower()), None
@@ -114,6 +112,19 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                 )
             ]
         pass
+    elif instrument == Instruments.OPX:
+        ip_list = [
+            InstrumentsAddress.opx_main_ip.value,
+            InstrumentsAddress.opx_aux_ip.value
+        ]
+        devices = find_device_list_from_ip(instrument, ip_list)
+
+        if devices:
+            for dev in devices:
+                if dev.ip_address == "192.168.101.56":
+                    dev.misc = "Cluster_1"
+                elif dev.ip_address == "192.168.101.61":
+                    dev.misc = "Cluster_2"
 
     # Return as a list or None
     if not isinstance(devices, list) and devices:
@@ -163,18 +174,27 @@ def save_to_xml(system_type: SystemType, selected_devices_list: list):
         print(device.com_port)
         if device is not None:
             device_element = ET.SubElement(devices_element, "Device")
+
             instrument_element = ET.SubElement(device_element, "Instrument")
             instrument_element.text = device.instrument.value
+
             ip_element = ET.SubElement(device_element, "IPAddress")
             ip_element.text = device.ip_address or 'N/A'
+
             mac_element = ET.SubElement(device_element, "MACAddress")
             mac_element.text = device.mac_address or 'N/A'
+
             sn_element = ET.SubElement(device_element, "SerialNumber")
             sn_element.text = device.serial_number or 'N/A'
+
             com_port_element = ET.SubElement(device_element, "COMPort")
             com_port_element.text = device.com_port or 'N/A'
+
             simulation_element = ET.SubElement(device_element, "Simulation")
             simulation_element.text = str(device.simulation) or str(False)
+
+            misc_element = ET.SubElement(device_element, "Misc")
+            misc_element.text = device.misc or "N/A"
         else:
             print("Warning: A None value found in selected_devices_list, skipping...")
 
@@ -396,23 +416,23 @@ def run_system_config_gui():
     # Adjusted the window width to better fit the content
     total_cell_width = 300  # Adjusted cell width
     with dpg.window(label="System and Instrument Configuration", width=total_cell_width * matrix_size + 50,
-                    height=150 * matrix_size + 180, tag="main_window"):
+                    height=170 * matrix_size +200, tag="main_window"):
         dpg.bind_item_theme("main_window", "main_window_theme")
-        dpg.add_text("Select System Type:")
-        default_system_type = system_config.system_type.value if system_config else SystemType.HOT_SYSTEM.value
-        dpg.add_combo([s.value for s in SystemType], default_value=default_system_type, tag="system_combobox")
-
-        dpg.add_text("Select Instruments:")
+        with dpg.group(horizontal=True):
+            dpg.add_text("System:")
+            default_system_type = system_config.system_type.value if system_config else SystemType.HOT_SYSTEM.value
+            dpg.add_combo([s.value for s in SystemType], default_value=default_system_type, tag="system_combobox")
+            dpg.add_button(label="Save", callback=on_save)
 
         # Create the main table
-        with dpg.table(header_row=False, resizable=False, width=total_cell_width * matrix_size, height=150 * matrix_size + 20):
+        with dpg.table(header_row=False, resizable=False, width=total_cell_width * matrix_size, height=170 * matrix_size + 20):
             for _ in range(matrix_size):
                 dpg.add_table_column(width=total_cell_width)
 
             index = 0  # Device index for accessing each device
 
             for _ in range(matrix_size):
-                with dpg.table_row(height=150):
+                with dpg.table_row(height=170):
                     for _ in range(matrix_size):
                         if index < num_devices:
                             device = devices_list[index]
@@ -421,7 +441,7 @@ def run_system_config_gui():
                             window_id = dpg.generate_uuid()
 
                             # Use a child window to encapsulate the content for highlighting
-                            with dpg.child_window(width=total_cell_width, height=150, tag=window_id):
+                            with dpg.child_window(width=total_cell_width, height=170, tag=window_id):
                                 with dpg.group(horizontal=True):
                                     # Image clickable to toggle selection
                                     dpg.add_image_button(
@@ -435,17 +455,26 @@ def run_system_config_gui():
                                         dpg.add_text(f"IP: {device.ip_address or 'N/A'}")
                                         dpg.add_text(f"MAC: {device.mac_address or 'N/A'}")
                                         dpg.add_text(f"SN: {device.serial_number or 'N/A'}")
+
                                         with dpg.group(horizontal=True):
                                             dpg.add_text(f"COM Port:")
                                             dpg.add_input_text(default_value=device.com_port or '',
                                                                callback=update_device_com_port,
                                                                user_data=device)
+
                                             # Add a simulation checkbox
                                         with dpg.group(horizontal=True):
                                             dpg.add_text("Simulation:")
                                             dpg.add_checkbox(default_value=device.simulation,
                                                              callback=update_device_simulation,
                                                              user_data=device)
+
+                                        with dpg.group(horizontal=True):
+                                            dpg.add_text("Misc:")
+                                            dpg.add_input_text(
+                                                default_value=device.misc or 'N/A',
+                                                callback=update_device_misc,
+                                                user_data=device)
 
                             # Bind the theme based on selection
                             if selected_devices.get(generate_device_key(device), False):
@@ -458,7 +487,7 @@ def run_system_config_gui():
                             with dpg.child_window(width=total_cell_width, height=120):
                                 pass
 
-        dpg.add_button(label="Save", callback=on_save)
+
 
     # Popups for messages
     with dpg.window(label="Success", tag="SuccessPopup", modal=True, show=False):
@@ -472,6 +501,16 @@ def run_system_config_gui():
 
     dpg.create_viewport(title="System Configuration GUI", width=total_cell_width * matrix_size + 50, height=150 * matrix_size + 200)
 
+
+def update_device_misc(sender, app_data, user_data):
+    """
+    Update the misc attribute of the device.
+    sender: the ID of the calling widget
+    app_data: the value from the widget (string)
+    user_data: the device object passed as user_data
+    """
+    device = user_data
+    device.misc = app_data  # Update the misc attribute of the device
 
 def update_device_com_port(sender, app_data, user_data):
     """

@@ -19,6 +19,13 @@ class SirahMatisse:
         self.dev: Optional[Sirah.Matisse.SirahMatisse] = None
         self.simulation = simulation
 
+        self.scan_device = "Slow Piezo"
+        self.scan_range = 2000.0
+        self.scan_speed = 100.0
+        self.num_scan_points = 100
+        self.slow_piezo_to_mhz = 81500.0
+        self.ref_cell_to_mhz = 81500.0
+
     def __del__(self):
         self.close()
 

@@ -138,7 +138,8 @@ class HW_devices:
 
             elif instrument == Instruments.OPX:
                 # Initialize OPX Quantum Controller
-                pass
+                self.config.opx_ip = device.ip_address
+                self.config.opx_cluster = device.misc
 
             elif instrument == Instruments.ELC_POWER_SUPPLY:
                 # Initialize ELC Power Supply
