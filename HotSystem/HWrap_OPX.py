@@ -242,6 +242,7 @@ class GUI_OPX():
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
                 self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster, timeout=60)  # in seconds
                 time.sleep(1)
+                self.close_qm_jobs()
 
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
@@ -249,11 +250,15 @@ class GUI_OPX():
     def close_qm_jobs(self,fn="qua_jobs.txt"):
         with open(fn, 'r') as f:
             loaded_jobs = f.readlines()
-
             for line in loaded_jobs:
                 qm_id, job_id = line.strip().split(',')
-                qm = self.qmm.get_qm(qm_id)
-                qm.queue.remove_by_id(job_id)
+                try:
+                    qm = self.qmm.get_qm(qm_id)
+                    job = qm.get_job(job_id)
+                    job.halt()
+                    qm.close()
+                except Exception  as e:
+                    print(f"Error at close_qm_jobs: {e}")
 
     def Calc_estimatedScanTime(self):
         N = np.ones(len(self.L_scan))
@@ -1559,13 +1564,14 @@ class GUI_OPX():
             job_id = job.id
 
             list_after = self.qmm.list_open_quantum_machines()
-            print(f"after open new job: {list_before}")
+            print(f"after open new job: {list_after}")
 
+            self.my_qua_jobs = [] # todo: optional so have more then one program open from same QMachine
             self.my_qua_jobs.append({"qm_id": qm_id, "job_id": job_id})
             # Save the jobs to a text file
             with open('qua_jobs.txt', 'w') as f:
-                for job in self.my_qua_jobs:
-                    f.write(f"{job['qm_id']},{job['job_id']}\n")
+                for _job in self.my_qua_jobs:
+                    f.write(f"{_job['qm_id']},{_job['job_id']}\n")
 
             return qm, job
     def verify_insideQUA_FreqValues(self, freq, min=0, max=400):  # [MHz]
