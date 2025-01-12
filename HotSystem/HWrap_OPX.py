@@ -106,7 +106,7 @@ class GUI_OPX():
         if (self.HW.config.system_type == configs.SystemType.ATTO):
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
-
+        self.my_qua_jobs = []
 
         # At the end of the init - all values are overwritten from XML!
         # To update values of the parameters - update the XML or the corresponding place in the GUI
@@ -245,6 +245,15 @@ class GUI_OPX():
 
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
+    
+    def close_qm_jobs(self,fn="qua_jobs.txt"):
+        with open(fn, 'r') as f:
+            loaded_jobs = f.readlines()
+
+            for line in loaded_jobs:
+                qm_id, job_id = line.strip().split(',')
+                qm = self.qmm.get_qm(qm_id)
+                qm.queue.remove_by_id(job_id)
 
     def Calc_estimatedScanTime(self):
         N = np.ones(len(self.L_scan))
@@ -1541,11 +1550,22 @@ class GUI_OPX():
             if quaPGM is None:
                 quaPGM = self.quaPGM
 
-            qm = self.qmm.open_qm(config=QuaCFG, close_other_machines=closeQM)
-            job = qm.execute(quaPGM)
+            list_before = self.qmm.list_open_quantum_machines()
+            print(f"before open new job: {list_before}")
 
-            newQM = self.qmm.list_open_quantum_machines()
-            print(f"before close: {newQM}")
+            qm = self.qmm.open_qm(config=QuaCFG, close_other_machines=closeQM)
+            qm_id = qm.id
+            job = qm.execute(quaPGM)
+            job_id = job.id
+
+            list_after = self.qmm.list_open_quantum_machines()
+            print(f"after open new job: {list_before}")
+
+            self.my_qua_jobs.append({"qm_id": qm_id, "job_id": job_id})
+            # Save the jobs to a text file
+            with open('qua_jobs.txt', 'w') as f:
+                for job in self.my_qua_jobs:
+                    f.write(f"{job['qm_id']},{job['job_id']}\n")
 
             return qm, job
     def verify_insideQUA_FreqValues(self, freq, min=0, max=400):  # [MHz]
@@ -4757,8 +4777,8 @@ class GUI_OPX():
             with infinite_loop_():
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
                     play("Turn_ON", "Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
-                    measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
-                    measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.Tcounter * self.u.ns), self.counts))
+                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
                     assign(self.total_counts2, self.total_counts2 + self.counts_ref)  # assign is equal in qua language  # align()
@@ -4780,49 +4800,54 @@ class GUI_OPX():
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
-        laser_on_duration = int(self.Tcounter * self.u.ns // 4)
+        delay = 2000 # 2usec
+        laser_on_duration = int((self.Tcounter+2*delay) * self.u.ns // 4)
         single_integration_time = int(self.Tcounter * self.u.ns)
-        smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
+        # smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
+        
+        ini_vec = [0 for i in range(num_measurement_per_array)]
 
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
-            counts = declare(int)  # apd1
-            total_counts = declare(int, value=0)  # apd1
+            counts = declare(int,value=0)  # apd1
+            # total_counts = declare(int, value=0)  # apd1
+            total_counts = declare(int, value=ini_vec)  # apd1
             n = declare(int)  #
+            i = declare(int,value=0)  #
             meas_idx = declare(int, value=0)
             counts_st = declare_stream()
             meas_idx_st = declare_stream()
 
-            pulsesTriggerDelay = 5000000 // 4
+            pulsesTriggerDelay = 1000000 // 4 # 1 [msec]
             sequenceState = declare(int, value=0)
             triggerTh = declare(int, value=triggerThreshold)
             assign(IO2, 0)
 
             with infinite_loop_():
-                # wait_for_trigger("Laser") # wait for smaract trigger
+                # wait_for_SW_trigger("Laser")
                 assign(sequenceState, IO2)
-                with if_((sequenceState + 1 > triggerTh) & (sequenceState - 1 < triggerTh)):
-                    assign(IO2, 0)
-                    assign(sequenceState, 0)
-                    align()
-                    align()
-                    # pause()
+                with if_(sequenceState == self.ScanTrigger):#(sequenceState + 1 > triggerTh) & (sequenceState - 1 < triggerTh)):
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
                         play("Turn_ON", "Laser", duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
-                        assign(total_counts, total_counts + counts)
+                        wait(delay,"Detector_OPD")
+                        measure("readout", "Detector_OPD", None, time_tagging.analog(times, single_integration_time, counts))
+                        assign(total_counts[i], total_counts[i] + counts)
 
-                    save(total_counts, counts_st)
-                    assign(total_counts, 0)
-
-                    align()
                     wait(pulsesTriggerDelay)
-                    # wait(pulsesTriggerDelay, "SmaractTrigger")
-                    # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-
-                    align()
                     assign(meas_idx, meas_idx + 1)
-                    save(meas_idx, meas_idx_st)
+                    assign(i,i+1)
+
+                    with if_(i == num_measurement_per_array):
+                        save(meas_idx, meas_idx_st)
+                        
+                        with for_(i, 0, i < num_measurement_per_array, i + 1):
+                            save(total_counts[i], counts_st)
+                            assign(total_counts[i],0)
+                        assign(i,0)
+
+                    
+                    assign(IO2, self.ScanTrigger-1)
+                    # assign(sequenceState, self.ScanTrigger-1)
 
             with stream_processing():
                 meas_idx_st.save("meas_idx_scanLine")
@@ -5681,31 +5706,31 @@ class GUI_OPX():
         self.to_xml()  # save last params to xml
         self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")  # moved near end of scan
 
-        try:
-            # Define the source files and destinations
-            file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
-                "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
-                "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
-                {"src": 'C:/WC/HotSystem/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
-                    "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"}]
+        # try:
+        #     # Define the source files and destinations
+        #     file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
+        #         "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
+        #         "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
+        #         {"src": 'C:/WC/HotSystem/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
+        #             "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"}]
 
-            # Move each file for both local and remote
-            for file_map in file_mappings:
-                for dest in [file_map["dest_local"], file_map["dest_remote"]]:
-                    if os.path.exists(file_map["src"]):
-                        shutil.copy(file_map["src"], dest)
-                        print(f"File moved to {dest}")
-                    else:
-                        print(f"Source file {file_map['src']} does not exist.")
-        except Exception as e:
-            print(f"Error occurred: {e}")
+        #     # Move each file for both local and remote
+        #     for file_map in file_mappings:
+        #         for dest in [file_map["dest_local"], file_map["dest_remote"]]:
+        #             if os.path.exists(file_map["src"]):
+        #                 shutil.copy(file_map["src"], dest)
+        #                 print(f"File moved to {dest}")
+        #             else:
+        #                 print(f"Source file {file_map['src']} does not exist.")
+        # except Exception as e:
+        #     print(f"Error occurred: {e}")
 
         self.stopScan = False
         isDebug = True
         self.scan_Out = []
         self.scan_intensities = []
 
-        if self.positioner is smaractMCS2:
+        if self.positioner is smaractMCS2 or True:
             # reset stage motion parameters (stream, motion delays, mav velocity)
             self.positioner.set_in_position_delay(0, delay=0)  # reset delays yo minimal
             self.positioner.DisablePositionTrigger(0)  # disable triggers
@@ -5848,11 +5873,26 @@ class GUI_OPX():
                     time.sleep(5e-3)
                     for q in self.positioner.channels:
                         self.readInpos(q)  # wait motion ends
+                    # self.positioner.MoveABSOLUTE(0, int(V[k]))
+                    # time.sleep(5e-3)
+                    # for q in self.positioner.channels:
+                    #     self.readInpos(q)  # wait motion ends
+                    # time.sleep(50e-3) # ----- test noise at edge -----
+
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
                     self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
                     time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
+                    time.sleep(5e-3) # ----- test noise at edge -----
 
                     # fetch X scanned results
+                self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
+                time.sleep(5e-3)
+                for q in self.positioner.channels:
+                    self.readInpos(q)  # wait motion ends
+                # self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
+                # time.sleep(5e-3)
+                # for q in self.positioner.channels:
+                #     self.readInpos(q)  # wait motion ends
                 if self.counts_handle.is_processing():
                     print('Waiting for QUA counts')
                     self.counts_handle.wait_for_values(1)
@@ -5863,8 +5903,8 @@ class GUI_OPX():
                     counts = self.counts_handle.fetch_all()
                     print(f"counts.size =  {counts.size}")
 
-                    self.qmm.clear_all_job_results()
-                    self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
+                    # self.qmm.clear_all_job_results()
+                    self.scan_intensities[:, j, i] = counts/ self.total_integration_time  # counts/ms = Kcounts/s
                     self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)
 
                 if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
