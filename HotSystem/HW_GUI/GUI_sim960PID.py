@@ -61,10 +61,9 @@ class GUISIM960:
             self.win_label += " [SIMULATION]"
 
 
-
         # Create a main window for the device
         with dpg.window(tag=self.win_tag, label=self.win_label,
-                        no_title_bar=False, height=400, width=1800, pos=[100, 100], collapsed=False):
+                        no_title_bar=False, height=400, width=1500, pos=[100, 100], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_device_image()
                 self.create_pid_controls()

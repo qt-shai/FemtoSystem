@@ -42,7 +42,7 @@ class GUIArduino:
         t.start()
 
         # Create GUI window
-        with dpg.window(tag="ArduinoWin", label="Arduino Communication", width=500, height=300):
+        with dpg.window(tag="ArduinoWin", label="Arduino Communication", width=650, height=800):
             dpg.add_text("Arduino Communication Panel", color=(0, 255, 0))
 
             # Input Fields

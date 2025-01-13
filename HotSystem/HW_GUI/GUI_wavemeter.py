@@ -52,8 +52,8 @@ class GUIWavemeter:
             tag=self.window_tag,
             label=f"{self.instrument.value}",
             no_title_bar=False,
-            height=300,
-            width=700,
+            height=650,
+            width=600,
             pos=[0, 0],
             collapsed=False
         ):

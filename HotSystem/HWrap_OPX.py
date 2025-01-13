@@ -42,6 +42,7 @@ import math
 import SystemConfig as configs
 from Utils import OptimizerMethod,find_max_signal
 
+
 matplotlib.use('qtagg')
 
 def create_logger(log_file_path: str):
@@ -1555,7 +1556,8 @@ class GUI_OPX():
         if self.exp == Experiment.G2:
             self.g2_raw_QUA()
         if self.exp == Experiment.PLE:
-            self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger)
+            # self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger)
+            self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger,play_element=configs.QUAConfigBase.Elements.RESONANT_LASER.value)           
             # self.MeasureByTrigger_Track_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),triggerThreshold=self.ScanTrigger)
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
@@ -4832,7 +4834,7 @@ class GUI_OPX():
                 # self.n_st.save("iteration")
 
         self.qm, self.job = self.QUA_execute()
-    def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1, triggerThreshold: int = 1):
+    def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1, triggerThreshold: int = 1,play_element = configs.QUAConfigBase.Elements.LASER.value):
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
@@ -4864,7 +4866,7 @@ class GUI_OPX():
                     align()
                     # pause()
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
-                        play("Turn_ON", "Laser", duration=laser_on_duration)
+                        play("Turn_ON", play_element, duration=laser_on_duration)
                         measure("readout", "Detector_OPD", None, time_tagging.analog(times, single_integration_time, counts))
                         assign(total_counts, total_counts + counts)
 
