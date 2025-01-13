@@ -15,6 +15,7 @@ class SystemType(Enum):
     BOAZ = "Boaz"
     AMIR = "Amir"
     SHAI = "Shai"
+    DANIEL = "Daniel"
 
 class Instruments(Enum):
     HIGHLAND = "highland"

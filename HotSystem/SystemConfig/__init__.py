@@ -3,6 +3,7 @@ from .system_config import (SystemConfig, SystemType, Instruments, load_system_f
 from .system_config_gui import save_to_xml, run_system_config_gui, load_instrument_images, create_themes
 
 from .QuaConfigs import QUAConfigBase, HotSystemQuaConfig, FemtoQuaConfig, AttoQuaConfig, QuaConfigSelector, SimulationResonantExQuaConfig
+from .QuaConfigs import QUAConfigBase, HotSystemQuaConfig, FemtoQuaConfig, AttoQuaConfig, QuaConfigSelector, DanielQuaConfig
 
 __all__ = ["SystemConfig",
            "SystemType",
@@ -19,6 +20,8 @@ __all__ = ["SystemConfig",
            "FemtoQuaConfig",
            "QuaConfigSelector",
            "InstrumentsAddress",
+           "AttoQuaConfig",
+           "DanielQuaConfig"
            "AttoQuaConfig",
            "create_themes"
            ]

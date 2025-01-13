@@ -3,7 +3,7 @@ import SystemConfig.QuaConfigs as configs
 from SystemConfig import SystemType
 
 
-class SimulatorQuaConfig(configs.QUAConfigBase):
+class DanielQuaConfig(configs.QUAConfigBase):
     def __init__(self) -> None:
         super().__init__()
         # Readout parameters
@@ -11,6 +11,7 @@ class SimulatorQuaConfig(configs.QUAConfigBase):
         self.scannerX_delay = 0
         self.scannerY_delay = 0
         self.phaseEOM_delay = 0
+        self.system_name = SystemType.DANIEL.value
 
     def get_controllers(self) -> Dict[str, Any]:
         """

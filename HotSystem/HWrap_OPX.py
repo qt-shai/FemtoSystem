@@ -120,6 +120,10 @@ class GUI_OPX():
             print("Setting up parameters for the atto system")
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
+        if (self.HW.config.system_type == configs.SystemType.DANIEL):
+            self.ScanTrigger = 1001  # IO2
+            self.TrackingTrigger = 1001  # IO1
+
             if self.HW.atto_scanner:
                 print("Setting up tracking function with atto scanner + positioner")
                 self.tracking_function = self.FindMaxSignal_atto_positioner_and_scanner
