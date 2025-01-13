@@ -107,6 +107,9 @@ class GUI_OPX():
         if (self.HW.config.system_type == configs.SystemType.ATTO):
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
+        if (self.HW.config.system_type == configs.SystemType.DANIEL):
+            self.ScanTrigger = 1001  # IO2
+            self.TrackingTrigger = 1001  # IO1
 
 
         # At the end of the init - all values are overwritten from XML!
