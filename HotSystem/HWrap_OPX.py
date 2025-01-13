@@ -156,7 +156,6 @@ class GUI_OPX():
         self.queried_area = None
         self.queried_plane = None  # 0 - XY, 1 - YZ, 2 -XZ
         self.bScanChkbox = False
-        self.bPleChkbox = False
         self.L_scan = [5000, 5000, 5000]  # [nm]
         self.dL_scan = [100, 100, 100]  # [nm]
         self.b_Scan = [True, True, False]
@@ -215,7 +214,7 @@ class GUI_OPX():
         self.Tpump = 500  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
         self.TcounterPulsed = 500  # [nsec]
-        self.total_integration_time = 5  # [msec]
+        self.total_integration_time = 5.0  # [msec]
         self.Tsettle = 2000 # [nsec]
         self.t_mw = 289  # [nsec] # from rabi experiment
         self.t_mw2 = 164  # [nsec] # from rabi experiment
@@ -263,12 +262,23 @@ class GUI_OPX():
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
                 self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster, timeout=60)  # in seconds
                 time.sleep(1)
-
-                # load all my jobs from file
-                # loop over all my jobs and close it
+                self.close_qm_jobs()
 
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
+
+    def close_qm_jobs(self,fn="qua_jobs.txt"):
+        with open(fn, 'r') as f:
+            loaded_jobs = f.readlines()
+            for line in loaded_jobs:
+                qm_id, job_id = line.strip().split(',')
+                try:
+                    qm = self.qmm.get_qm(qm_id)
+                    job = qm.get_job(job_id)
+                    job.halt()
+                    qm.close()
+                except Exception  as e:
+                    print(f"Error at close_qm_jobs: {e}")
 
     def Calc_estimatedScanTime(self):
         N = np.ones(len(self.L_scan))
@@ -1572,15 +1582,22 @@ class GUI_OPX():
                 quaPGM = self.quaPGM
 
             list_before = self.qmm.list_open_quantum_machines()
-            print(f"list_before = {list_before}")
+            print(f"before open new job: {list_before}")
 
             qm = self.qmm.open_qm(config=QuaCFG, close_other_machines=closeQM)
+            qm_id = qm.id
             job = qm.execute(quaPGM)
+            job_id = job.id
 
             list_after = self.qmm.list_open_quantum_machines()
-            print(f"list_after = {list_after}")
+            print(f"after open new job: {list_after}")
 
-            self.my_qua_jobs.append(list_after[-1])
+            self.my_qua_jobs = [] # todo: optional so have more then one program open from same QMachine
+            self.my_qua_jobs.append({"qm_id": qm_id, "job_id": job_id})
+            # Save the jobs to a text file
+            with open('qua_jobs.txt', 'w') as f:
+                for _job in self.my_qua_jobs:
+                    f.write(f"{_job['qm_id']},{_job['job_id']}\n")
 
             return qm, job
     def verify_insideQUA_FreqValues(self, freq, min=0, max=400):  # [MHz]
@@ -4796,8 +4813,8 @@ class GUI_OPX():
             with infinite_loop_():
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
                     play("Turn_ON", "Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
-                    measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
-                    measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.Tcounter * self.u.ns), self.counts))
+                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
                     assign(self.total_counts2, self.total_counts2 + self.counts_ref)  # assign is equal in qua language  # align()
@@ -4848,7 +4865,7 @@ class GUI_OPX():
                     # pause()
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
                         play("Turn_ON", "Laser", duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
+                        measure("readout", "Detector_OPD", None, time_tagging.analog(times, single_integration_time, counts))
                         assign(total_counts, total_counts + counts)
 
                     save(total_counts, counts_st)
