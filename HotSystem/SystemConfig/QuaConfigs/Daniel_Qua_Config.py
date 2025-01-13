@@ -22,12 +22,12 @@ class SimulatorQuaConfig(configs.QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
-                    4: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},  # MW I
-                    5: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},  # MW Q
+                    2: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},  # MW I
+                    3: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},  # MW Q
                 },
                 "digital_outputs": {
-                    4: {"shareable": False},  # trigger Laser (Cobolt)
-                    5: {"shareable": False},  # trigger MW (Rohde Schwarz)
+                    1: {"shareable": False},  # trigger Laser (Cobolt)
+                    2: {"shareable": False},  # trigger MW (Rohde Schwarz)
                     8: {"shareable": False},  # trigger for the Resonant Laser
                 },
                 "analog_inputs": {
@@ -62,15 +62,15 @@ class SimulatorQuaConfig(configs.QUAConfigBase):
         elements = {
             "MW": {
                 "mixInputs": {
-                    "I": ("con1", 4),  # Analog output 4
-                    "Q": ("con1", 5),  # Analog output 5
+                    "I": ("con1", 2),  # Analog output 4
+                    "Q": ("con1", 3),  # Analog output 5
                     "lo_frequency": self.NV_LO_freq,
                     "mixer": "mixer_NV",
                 },
                 "intermediate_frequency": self.NV_IF_freq,
                 "digitalInputs": {  # 'digitalInputs' is actually 'digital_outputs'. MW switch (ON/OFF)
                     "marker": {
-                        "port": ("con1", 5),  # Digital output 9
+                        "port": ("con1", 3),  # Digital output 9
                         "delay": self.switch_delay,
                         "buffer": self.switch_buffer,
                     },
@@ -91,7 +91,7 @@ class SimulatorQuaConfig(configs.QUAConfigBase):
             "Laser": {
                 "digitalInputs": {  # here it is actually outputs
                     "marker": {
-                        "port": ("con1", 4),  # Digital output 4
+                        "port": ("con1", 1),  # Digital output 4
                         "delay": self.laser_delay,
                         "buffer": 0,
                     },
@@ -111,7 +111,7 @@ class SimulatorQuaConfig(configs.QUAConfigBase):
             "MW_switch": {
                 "digitalInputs": {  # here it is actually outputs
                     "marker": {
-                        "port": ("con1", 5),  # Digital output 5
+                        "port": ("con1", 2),  # Digital output 5
                         "delay": self.switch_delay,
                         "buffer": self.switch_buffer,
                     },
