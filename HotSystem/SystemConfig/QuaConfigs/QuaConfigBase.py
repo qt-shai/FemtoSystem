@@ -2,10 +2,19 @@ from abc import ABC, abstractmethod
 import numpy as np
 from typing import Dict, Any, Optional
 from qualang_tools.units import unit
-
-
+from enum import Enum
+from typing import Dict, Any
 
 class QUAConfigBase(ABC):
+    class Elements(Enum):
+        RF = "RF"
+        MW = "MW"
+        LASER = "Laser"
+        MW_SWITCH = "MW_switch"
+        DETECTOR_OPD = "Detector_OPD"
+        DETECTOR2_OPD = "Detector2_OPD"
+        AMPLITUDE_EOM = "Amplitude_EOM"
+        
     def __init__(self):
         # connect     
         self.system_name: Optional[str] = None

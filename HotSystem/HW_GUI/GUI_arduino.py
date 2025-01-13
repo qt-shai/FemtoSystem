@@ -21,6 +21,7 @@ class GUIArduino:
 
         :param arduino: The ArduinoController instance.
         """
+        self.unique_id = "arduino_gui"
         self.continuous_read_active = False
         self.arduino = arduino
         if arduino is None:
@@ -87,12 +88,13 @@ class GUIArduino:
             dpg.add_text("", tag="results_display", wrap=450)
 
             with dpg.plot(label="Measurement Plot", height=400, width=600):
-                dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)")
-                with dpg.plot_axis(dpg.mvYAxis, label="Measurement"):
+                x_axis_tag = f"x_axis_{self.unique_id}"
+                y_axis_tag = f"y_axis_{self.unique_id}"
+                dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)",tag=x_axis_tag)
+                with dpg.plot_axis(dpg.mvYAxis, label="Measurement",tag=y_axis_tag):
                     dpg.add_line_series([], [], label="My Measurements", tag="measurement_series")
 
-
-
+        
     def update_results_display(self, result: str):
         """
         Updates the GUI text element when new data is received.
@@ -201,6 +203,10 @@ class GUIArduino:
                     time_values = [i * time_interval*1e-3/17 for i in range(len(concatenated_measurements))]
                     dpg.set_value("measurement_series", [time_values, concatenated_measurements])
                     dpg.set_value("results_display", f"Graph updated with {len(concatenated_measurements)} points.")
+                    x_axis_tag = f"x_axis_{self.unique_id}"
+                    y_axis_tag = f"y_axis_{self.unique_id}"
+                    dpg.fit_axis_data(x_axis_tag)
+                    dpg.fit_axis_data(y_axis_tag)       
                 else:
                     dpg.set_value("results_display", "No valid data received.")
             except Exception as exc:

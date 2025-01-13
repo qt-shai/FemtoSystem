@@ -5240,13 +5240,12 @@ class GUI_OPX():
     def btnStartRABI(self):
         self.exp = Experiment.RABI
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
-
-        self.mwModule.Set_freq(self.mw_freq_resonance)
-        self.mwModule.Set_power(self.mw_Pwr)
-        self.mwModule.Set_IQ_mode_ON()
-        # self.mwModule.Set_IQ_mode_OFF()
-        self.mwModule.Set_PulseModulation_ON()
-        if not self.bEnableSimulate:
+        if not self.bEnableSimulate and not self.mwModule.simulation:
+            self.mwModule.Set_freq(self.mw_freq_resonance)
+            self.mwModule.Set_power(self.mw_Pwr)
+            self.mwModule.Set_IQ_mode_ON()
+            # self.mwModule.Set_IQ_mode_OFF()
+            self.mwModule.Set_PulseModulation_ON()        
             self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
@@ -5503,7 +5502,7 @@ class GUI_OPX():
             self.stopScan = True
             self.StopFetch = True
             if not self.exp == Experiment.SCAN:
-                if self.bEnableSignalIntensityCorrection:
+                if hasattr(self, 'MAxSignalTh') and self.bEnableSignalIntensityCorrection:
                     if self.MAxSignalTh.is_alive():
                         self.MAxSignalTh.join()
             else:
@@ -5511,9 +5510,11 @@ class GUI_OPX():
                 dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
             self.GUI_ParametersControl(True)
+
             if not self.exp == Experiment.SCAN:
-                if (self.fetchTh.is_alive()):
-                    self.fetchTh.join()
+                if hasattr(self, 'fetchTh'):
+                    if (self.fetchTh.is_alive()):
+                        self.fetchTh.join()
             else:
                 dpg.enable_item("btnOPX_StartScan")
 
@@ -5523,9 +5524,10 @@ class GUI_OPX():
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
                 pass
             else:
-                self.mwModule.Get_RF_state()
-                if self.mwModule.RFstate:
-                    self.mwModule.Turn_RF_OFF()
+                if hasattr(self.mwModule, 'RFstate'):
+                    self.mwModule.Get_RF_state()
+                    if self.mwModule.RFstate:
+                        self.mwModule.Turn_RF_OFF()
 
             if self.exp not in [Experiment.COUNTER, Experiment.SCAN]:
                 self.btnSave()
@@ -5537,6 +5539,8 @@ class GUI_OPX():
         try:
             # file name
             # timeStamp = self.getCurrentTimeStamp()  # get current time stamp
+            self.timeStamp = self.getCurrentTimeStamp()
+            
             if folder is None:
                 folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + self.exp.name + '/'
             else:
@@ -5618,7 +5622,7 @@ class GUI_OPX():
         num_points = self.matisse.num_scan_points
         half_length = self.matisse.scan_range / 2 / piezo_to_mhz
         vec = list(np.unique(np.linspace(initial_position-half_length,initial_position+half_length,num_points)))
-        print(f"vec: {vec}")
+        print(f"vec: first={vec[0]:.3f}, last={vec[-1]:.3f}")
 
         if not self.bEnableSimulate:
             self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms/ self.Tcounter * self.u.ns))
@@ -6294,7 +6298,12 @@ class GUI_OPX():
             n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
             num_measurement_per_array=Nx
         )
-        res_handles = self.job.result_handles
+        res_handles = getattr(self.job, 'result_handles', None)
+        if res_handles is None:
+            print("No results")
+            self.btnStop()
+            return
+        
         self.counts_handle = res_handles.get("counts_scanLine")
         self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
 

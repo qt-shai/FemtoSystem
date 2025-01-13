@@ -62,7 +62,7 @@ class SimulationResonantExQuaConfig(QUAConfigBase):
         :return: Dictionary containing element configurations.
         """
         elements = {
-            "Laser": {
+            self.Elements.LASER.value: {
                 "digitalInputs": { # here it is actually outputs
                     "marker": {
                         "port": ("con1", 5),  # Digital output 4
@@ -72,7 +72,7 @@ class SimulationResonantExQuaConfig(QUAConfigBase):
                 },
                 "operations": {"Turn_ON": "laser_ON"},
             },
-            "Detector_OPD": {  # actual analog
+            self.Elements.DETECTOR_OPD.value: {  # actual analog
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
                     # "marker": {
@@ -96,7 +96,7 @@ class SimulationResonantExQuaConfig(QUAConfigBase):
                 "time_of_flight": self.detection_delay,
                 "smearing": 0,
             },
-            "Detector2_OPD": {  # actual analog
+            self.Elements.DETECTOR2_OPD.value: {  # actual analog
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
                     # "marker": {

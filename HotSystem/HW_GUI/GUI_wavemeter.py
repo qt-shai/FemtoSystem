@@ -130,13 +130,18 @@ class GUIWavemeter:
 
             with dpg.plot(label="WLM Plot", height=300, width=700):
                 # X-axis
-                dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", tag=f"x_axis_{self.unique_id}")
+                x_axis_tag = f"x_axis_{self.unique_id}"
+                dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", tag=x_axis_tag)
                 # Y-axis
-                with dpg.plot_axis(dpg.mvYAxis, label="Frequency", tag=f"y_axis_{self.unique_id}"):
+                y_axis_tag = f"y_axis_{self.unique_id}"
+                with dpg.plot_axis(dpg.mvYAxis, label="Frequency", tag=y_axis_tag):
                     # A line series for wave data
                     dpg.add_line_series(
                         [], [], label="WLM Measurements", tag=f"wlm_measurement_series_{self.unique_id}"
                     )
+            # Enable auto-fit for x and y axes
+            dpg.fit_axis_data(x_axis_tag)
+            dpg.fit_axis_data(y_axis_tag)
 
     def toggle_continuous_measure(self):
         """
@@ -156,54 +161,9 @@ class GUIWavemeter:
             self.continuous_measure_active = True
             print("Continuous read started.")
             future = asyncio.run_coroutine_threadsafe(self.continuous_measure_loop(), self.background_loop)
+            
 
-    # async def continuous_measure_loop(self):
-    #     """
-    #     Continuously reads WLM data (wavelength) and updates the graph until stopped,
-    #     following the same pattern you used for the Arduino code.
-    #     """
-    #     start_freq=0
-    #     try:
-    #         wavel_m = self.dev.get_wavelength()
-    #         print("Wavelength (nm)", wavel_m*1e9)
-    #         start_freq = self.dev.get_frequency() * 1e-9
-    #         print(f"Frequency (GHz) {start_freq:6f}")
-    #         pass
-    #     except Exception as exc:
-    #         logging.error(f"Exception starting WLM measurement: {exc}")
-    #         try:
-    #             self.dev.close()
-    #             # Attempt reconnect if desired:
-    #             # self.dev.connect()
-    #             # self.dev.start_measurement()
-    #         except Exception as re_exc:
-    #             logging.error(f"Failed reconnecting WLM: {re_exc}")
-    #
-    #     concatenated_measurements = []
-    #     concatenated_times = []
-    #
-    #     while self.continuous_measure_active:
-    #         try:
-    #             freq_GHz = self.dev.get_frequency()*1e-9-start_freq
-    #
-    #             concatenated_measurements.append(freq_GHz)
-    #             elapsed_time_s = time.time() - self.start_time
-    #             concatenated_times.append(elapsed_time_s)
-    #             dpg.set_value(
-    #                 f"wlm_measurement_series_{self.unique_id}",
-    #                 [concatenated_times, concatenated_measurements]
-    #             )
-    #
-    #         except Exception as exc:
-    #             # If something unexpected happens, break or log the error
-    #             dpg.set_value(f"WLM_Readout_Value_{self.unique_id}", f"Error: {exc}")
-    #             logging.error(f"Exception in continuous_measure_loop: {exc}")
-    #             break
-    #
-    #         await asyncio.sleep(0.5)
-    #
-    #
-    #     logging.info("Exiting continuous_measure_loop()")
+    
     async def continuous_measure_loop(self):
         """
         Continuously reads WLM data (frequency) and updates the graph in selected units until stopped.
@@ -220,6 +180,8 @@ class GUIWavemeter:
 
         concatenated_measurements = []
         concatenated_times = []
+        x_axis_tag = f"x_axis_{self.unique_id}"
+        y_axis_tag = f"y_axis_{self.unique_id}"
 
         while self.continuous_measure_active:
             try:
@@ -248,7 +210,12 @@ class GUIWavemeter:
                     [concatenated_times, concatenated_measurements]
                 )
                 # Update the Y-axis label
-                dpg.configure_item(f"y_axis_{self.unique_id}", label=y_label)
+                dpg.configure_item(y_axis_tag, label=y_label)
+
+                # Enable auto-fit for x and y axes
+                
+                dpg.fit_axis_data(x_axis_tag)
+                dpg.fit_axis_data(y_axis_tag)
 
             except Exception as exc:
                 logging.error(f"Exception in continuous_measure_loop: {exc}")
