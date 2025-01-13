@@ -121,7 +121,7 @@ class GUISIM960:
             with dpg.group(horizontal=True):
                 dpg.add_input_float(
                     label="P Gain", default_value=gain,
-                    callback=self.cb_set_proportional_gain,
+                    # callback=self.cb_set_proportional_gain,
                     tag=f"p_gain_{self.unique_id}",
                     format="%.4f", step=0.1, step_fast=1.0
                 )
@@ -133,7 +133,7 @@ class GUISIM960:
             with dpg.group(horizontal=True):
                 dpg.add_input_float(
                     label="I Gain", default_value=self.dev.get_integral_gain(),
-                    callback=self.cb_set_integral_gain,
+                    # callback=self.cb_set_integral_gain,
                     tag=f"i_gain_{self.unique_id}",
                     format="%.6f", step=0.1, step_fast=1.0
                 )
@@ -145,7 +145,7 @@ class GUISIM960:
             with dpg.group(horizontal=True):
                 dpg.add_input_float(
                     label="D Gain", default_value=self.dev.get_derivative_gain(),
-                    callback=self.cb_set_derivative_gain,
+                    # callback=self.cb_set_derivative_gain,
                     tag=f"d_gain_{self.unique_id}",
                     format="%.6f", step=0.1, step_fast=1.0
                 )
@@ -155,13 +155,18 @@ class GUISIM960:
                 )
 
             self.dev.enable_proportional(True)
-            self.dev.enable_integral(True)
+            self.dev.enable_integral(True)            
 
-            # Add the button to fetch PID gains
             dpg.add_button(
                 label="Get PID Gains",
                 callback=self.cb_get_pid_gains,
                 tag=f"get_pid_gains_{self.unique_id}"
+            )
+
+            dpg.add_button(
+                label="Set PID Gains",
+                callback=self.cb_set_pid_gains,
+                tag=f"set_pid_gains_{self.unique_id}"
             )
 
             # Read the current setpoint from the device
@@ -229,6 +234,26 @@ class GUISIM960:
             print(f"Current PID Gains: P = {p_gain:.4f}, I = {i_gain:.6f}, D = {d_gain:.6f}")
         except Exception as e:
             print(f"Error fetching PID gains: {e}")
+
+    def cb_set_pid_gains(self):
+        """
+        Callback to set the PID gains on the device based on the GUI fields.
+        """
+        try:
+            # Retrieve PID gains from the GUI fields
+            p_gain = dpg.get_value(f"p_gain_{self.unique_id}")
+            i_gain = dpg.get_value(f"i_gain_{self.unique_id}")
+            d_gain = dpg.get_value(f"d_gain_{self.unique_id}")
+
+            # Set PID gains on the device
+            self.dev.set_proportional_gain(p_gain)
+            self.dev.set_integral_gain(i_gain)
+            self.dev.set_derivative_gain(d_gain)
+
+            # Print to console
+            print(f"Set PID Gains: P = {p_gain:.4f}, I = {i_gain:.6f}, D = {d_gain:.6f}")
+        except Exception as e:
+            print(f"Error setting PID gains: {e}")
 
     def cb_set_new_setpoint(self, sender, app_data):
         """Callback to set the new setpoint value."""
