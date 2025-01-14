@@ -4,7 +4,7 @@ import threading
 
 from Common import KeyboardKeys
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B, ArduinoController
+    SirahMatisse, Keysight33500B
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
@@ -39,7 +39,6 @@ class HW_devices:
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
             self.SRS_PID_list: Optional[SRSsim960] = None
-            self.arduino: Optional[ArduinoController] = None  # Add Arduino
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
 

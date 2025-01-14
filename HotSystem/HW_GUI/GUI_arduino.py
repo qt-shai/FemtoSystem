@@ -3,7 +3,6 @@ import logging
 import threading
 
 import dearpygui.dearpygui as dpg
-from HW_wrapper import ArduinoController  # Import the modified ArduinoController
 
 def run_asyncio_loop(loop):
     """Runs an asyncio event loop in a dedicated thread."""
@@ -23,15 +22,6 @@ class GUIArduino:
         """
         self.unique_id = "arduino_gui"
         self.continuous_read_active = False
-        self.arduino = arduino
-        if arduino is None:
-            arduino = ArduinoController(address="COM7")
-            self.arduino = arduino
-
-        # Subscribe GUI elements to observable fields
-        self.arduino.communication_result.add_observer(self.update_results_display)
-        self.arduino.num_points.add_observer(self.update_num_points)
-        self.arduino.time_interval_us.add_observer(self.update_time_interval)
 
         # 1. Create the background loop
 
