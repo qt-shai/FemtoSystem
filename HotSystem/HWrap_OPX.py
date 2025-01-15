@@ -87,6 +87,8 @@ class GUI_OPX():
     def __init__(self, simulation: bool = False):
         # HW
 
+        self.X_vec = None
+        self.Y_vec = None
         self.scan_default_sleep_time: float = 5e-3
         self.initial_scan_Location: List[float] = []
         self.iteration: int = 0
@@ -1512,6 +1514,8 @@ class GUI_OPX():
         self.Y_vec_ref = []
         self.Y_vec_ref2 = []
         self.Y_resCalculated = []
+        self.tracking_ref = 0
+        self.refSignal = 0
         self.iteration = 0
         self.counter = -10
 
@@ -1556,6 +1560,7 @@ class GUI_OPX():
         if self.exp == Experiment.G2:
             self.g2_raw_QUA()
         if self.exp == Experiment.PLE:
+            self.bEnableShuffle=False
             # self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger)
             self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger,play_element=configs.QUAConfigBase.Elements.RESONANT_LASER.value)           
             # self.MeasureByTrigger_Track_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),triggerThreshold=self.ScanTrigger)
@@ -1583,7 +1588,7 @@ class GUI_OPX():
             if quaPGM is None:
                 quaPGM = self.quaPGM
 
-            list_before = self.qmm.list_open_quantum_machines()
+            list_before = self.qmm.list_open_qms()
             print(f"before open new job: {list_before}")
 
             qm = self.qmm.open_qm(config=QuaCFG, close_other_machines=closeQM)
@@ -1591,7 +1596,7 @@ class GUI_OPX():
             job = qm.execute(quaPGM)
             job_id = job.id
 
-            list_after = self.qmm.list_open_quantum_machines()
+            list_after = self.qmm.list_open_qms()
             print(f"after open new job: {list_after}")
 
             self.my_qua_jobs = [] # todo: optional so have more then one program open from same QMachine
@@ -4893,23 +4898,25 @@ class GUI_OPX():
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         try:
             # todo: use this function as general update graph for all experiments
-            self.lock.acquire()
+            # self.lock.acquire()
             dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal * self.TrackingThreshold: .1f},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
             dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-            dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+            if self.Y_vec_ref:
+                dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
             if self.exp == Experiment.Nuclear_Fast_Rot:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
-                if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
-                    dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
-                    dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
+            if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
+                dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
+                dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
             dpg.set_item_label("y_axis", _yLabel)
             dpg.set_item_label("x_axis", _xLabel)
             dpg.fit_axis_data('x_axis')
             dpg.fit_axis_data('y_axis')
-            self.lock.release()
+            # self.lock.release()
 
 
         except Exception as e:
+            print(f"{e}")
             self.btnStop()
 
     def FastScan_updateGraph(self):
@@ -5494,7 +5501,7 @@ class GUI_OPX():
         report = job.execution_report()
         print(report)
         qm.close()
-        newQM = self.qmm.list_open_quantum_machines()
+        newQM = self.qmm.list_open_qms()
         print(f"after close: {newQM}")
         return report
 
@@ -5599,6 +5606,10 @@ class GUI_OPX():
         self.ScanTh.start()
 
     def btnStartPLE(self):
+        self.ScanTh = threading.Thread(target=self.StartPLE)
+        self.ScanTh.start()
+
+    def StartPLE(self):
         self.exp = Experiment.PLE
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
@@ -5628,20 +5639,21 @@ class GUI_OPX():
         #     print(f"Error during trigger measurement at iteration {i}: {e}")
 
         # Define a plot function
-        def plot_func(data):
-            # Ensure data is squeezed to 1D if it has only one column
-            if data.shape[1] == 1:
-                data = data.squeeze()
+        # def plot_func(data):
+        #     # Ensure data is squeezed to 1D if it has only one column
+        #     if data.shape[1] == 1:
+        #         data = data.squeeze()
+        #     self.Y_vec = data
 
-            plt.figure(figsize=(10, 6))
-            plt.plot(data, marker='o', label="Intensity")
-
-            plt.title("Scan Intensities - Live Update")
-            plt.xlabel("Index")
-            plt.ylabel("Intensity (counts/sec)")
-            plt.legend()
-            plt.grid(True)
-            plt.show()
+            # plt.figure(figsize=(10, 6))
+            # plt.plot(data, marker='o', label="Intensity")
+            #
+            # plt.title("Scan Intensities - Live Update")
+            # plt.xlabel("Index")
+            # plt.ylabel("Intensity (counts/sec)")
+            # plt.legend()
+            # plt.grid(True)
+            # plt.show()
 
         self.StartScanGeneral(
             move_abs_fn=self.matisse.move_wavelength,
@@ -5652,7 +5664,7 @@ class GUI_OPX():
             y_vec=None,
             z_vec=None,
             current_experiment=Experiment.PLE,
-            plot_func=plot_func
+            plot_func=True
         )
 
     def StartScan(self):
@@ -6112,7 +6124,7 @@ class GUI_OPX():
             y_vec=None,
             z_vec=None,
             current_experiment = Experiment.SCAN,
-            plot_func=None
+            plot_func=False,
     ):
         """
         A fully generalized scan function that supports 1D, 2D, or 3D scans
@@ -6300,13 +6312,13 @@ class GUI_OPX():
         ]
 
         # Quick 2D plot init (original code)
-        self.Plot_Scan(
-            Nx=Nx,
-            Ny=Ny,
-            array_2d=self.scan_intensities[:, :, 0],
-            startLoc=[x / 1e6 for x in self.startLoc],
-            endLoc=[y / 1e6 for y in self.endLoc],
-        )
+        # self.Plot_Scan(
+        #     Nx=Nx,
+        #     Ny=Ny,
+        #     array_2d=self.scan_intensities[:, :, 0],
+        #     startLoc=[x / 1e6 for x in self.startLoc],
+        #     endLoc=[y / 1e6 for y in self.endLoc],
+        # )
 
         # QUA program init (example) 
         self.initQUA_gen(
@@ -6399,6 +6411,7 @@ class GUI_OPX():
                             new_z_pos = new_z_pos + z_correction_previous
 
                     # Move X
+                    # print(f"X: {self.V_scan[0][ix]}")
                     move_abs_fn(0, self.V_scan[0][ix])
                     read_in_pos_fn(0)
 
@@ -6428,7 +6441,13 @@ class GUI_OPX():
                         # Fill the slice
                         self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
                         if plot_func:
-                            plot_func(self.scan_intensities)
+                            self.X_vec = x_vec
+                            data=self.scan_intensities[:, :, iz]
+                            if data.shape[1] == 1:
+                                data = data.squeeze()
+                            self.Y_vec = data.tolist()
+                            print('Updating graph')
+                            self.Common_updateGraph(_xLabel='Frequency[MHz]', _yLabel="I[counts]")
                         else:
                             self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
 
@@ -7048,8 +7067,6 @@ class GUI_OPX():
                 print("Preparing to write rows...")
                 zipped_rows = list(zip(*data.values()))
                 print(f"Number of rows to write: {len(zipped_rows)}")
-                for row in zipped_rows:
-                    print("Row to write:", row)
 
                 writer.writerows(zipped_rows)
                 print("Rows written successfully.")
