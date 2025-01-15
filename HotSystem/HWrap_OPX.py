@@ -175,7 +175,7 @@ class GUI_OPX():
         self.bEnableShuffle = True
         self.bEnableSimulate = False
         # tracking ref
-        self.bEnableSignalIntensityCorrection = True
+        self.bEnableSignalIntensityCorrection = False
         self.trackingPeriodTime = 10000000  # [nsec]
         self.refSignal = 0.0
         self.TrackIsRunning = True
@@ -1559,7 +1559,6 @@ class GUI_OPX():
 
         if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
             self.time_bin_entanglement_QUA_PGM(execute_qua=True)
-            self.time_bin_entanglement_QUA_PGM()
         if self.exp == Experiment.PLE:
             # self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger)
             self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger,play_element=configs.QUAConfigBase.Elements.RESONANT_LASER.value)
@@ -1689,7 +1688,7 @@ class GUI_OPX():
                 self.track_idx = declare(int, value=0)              # iteration variable
                 self.tracking_signal_tmp = declare(int)             # tracking temporary variable
                 self.tracking_signal = declare(int, value=0)        # tracking variable
-                self.tracking_signal_st = declare_stream()          # tracking strean variable
+                self.tracking_signal_st = declare_stream()          # tracking stream variable
                 self.sequenceState = declare(int,value=0)           # IO1 variable
 
                 self.counts = declare(int, size=self.vectorLength)     # experiment signal (vector)
@@ -1768,6 +1767,96 @@ class GUI_OPX():
                     self.n_st.save("iteration")
                     self.tracking_signal_st.save("tracking_ref")
             
+        self.qm, self.job = self.QUA_execute()
+
+    def QUA_PGM_No_Tracking(self):
+        with program() as self.quaPGM:
+            self.n = declare(int)  # iteration variable
+            self.n_st = declare_stream()  # stream iteration number
+            self.times = declare(int, size=100)
+            self.times_ref = declare(int, size=100)
+
+            self.f = declare(int)  # frequency variable which we change during scan - here f is according to calibration function
+            self.t = declare(int)  # [cycles] time variable which we change during scan
+            self.p = declare(fixed)  # [unit less] proportional amp factor which we change during scan
+
+            self.m = declare(int)  # number of pumping iterations
+            self.i_idx = declare(int)  # iteration variable
+            self.j_idx = declare(int)  # iteration variable
+            self.k_idx = declare(int)  # iteration variable
+
+            self.site_state = declare(int)  # site preperation state
+            self.m_state = declare(int)  # measure state
+
+            self.counts_tmp = declare(int)  # temporary variable for number of counts
+            self.counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
+            self.counts_ref2_tmp = declare(int)  # 2nd temporary variable for number of counts reference
+
+            self.runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
+            self.track_idx = declare(int, value=0)  # iteration variable
+            self.tracking_signal_tmp = declare(int)  # tracking temporary variable
+            self.tracking_signal = declare(int, value=0)  # tracking variable
+            self.tracking_signal_st = declare_stream()  # tracking stream variable
+            self.sequenceState = declare(int, value=0)  # IO1 variable
+
+            self.counts = declare(int, size=self.vectorLength)  # experiment signal (vector)
+            self.counts_ref = declare(int, size=self.vectorLength)  # reference signal (vector)
+            self.counts_ref2 = declare(int, size=self.vectorLength)  # reference signal (vector)
+            self.counts_ref3 = declare(int, size=self.vectorLength)  # reference signal (vector)
+            self.resCalculated = declare(int, size=self.vectorLength)  # normalized values vector
+
+            # Shuffle parameters
+            # self.val_vec_qua = declare(fixed, value=self.p_vec_ini)    # volts QUA vector
+            # self.f_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
+            self.val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))  # volts QUA vector
+            self.idx_vec_qua = declare(int, value=self.idx_vec_ini)  # indexes QUA vector
+            self.idx = declare(int)  # index variable to sweep over all indexes
+
+            # stream parameters
+            self.counts_st = declare_stream()  # experiment signal
+            self.counts_ref_st = declare_stream()  # reference signal
+            self.counts_ref2_st = declare_stream()  # reference signal
+            self.resCalculated_st = declare_stream()  # reference signal
+
+            with for_(self.n, 0, self.n < self.n_avg, self.n + 1):  # AVG loop
+                # reset vectors
+                with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
+                    assign(self.counts_ref2[self.idx], 0)  # shuffle - assign new val from randon index
+                    assign(self.counts_ref[self.idx], 0)  # shuffle - assign new val from randon index
+                    assign(self.counts[self.idx], 0)  # shuffle - assign new val from randon index
+                    assign(self.resCalculated[self.idx], 0)  # shuffle - assign new val from randon index
+
+                # shuffle index
+                with if_(self.bEnableShuffle):
+                    self.QUA_shuffle(self.idx_vec_qua,
+                                     self.array_length)  # shuffle - idx_vec_qua vector is after shuffle
+
+                # sequence
+                with for_(self.idx, 0, self.idx < self.array_length, self.idx + 1):  # loop over scan vector
+                    assign(self.sequenceState, IO1)
+                    with if_(self.sequenceState == 0):
+                        self.execute_QUA()
+
+                # stream
+                with if_(self.sequenceState == 0):
+                    with for_(self.idx, 0, self.idx < self.vectorLength,
+                              self.idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                        save(self.counts[self.idx], self.counts_st)
+                        save(self.counts_ref[self.idx], self.counts_ref_st)
+                        save(self.counts_ref2[self.idx], self.counts_ref2_st)
+                        save(self.resCalculated[self.idx], self.resCalculated_st)
+
+                save(self.n, self.n_st)  # save number of iteration inside for_loop
+                save(self.tracking_signal, self.tracking_signal_st)  # save number of iteration inside for_loop
+
+            with stream_processing():
+                self.counts_st.buffer(self.vectorLength).average().save("counts")
+                self.counts_ref_st.buffer(self.vectorLength).average().save("counts_ref")
+                self.counts_ref2_st.buffer(self.vectorLength).average().save("counts_ref2")
+                self.resCalculated_st.buffer(self.vectorLength).average().save("resCalculated")
+                self.n_st.save("iteration")
+                self.tracking_signal_st.save("tracking_ref")
+
         self.qm, self.job = self.QUA_execute()
     def execute_QUA(self):
         if self.exp == Experiment.NUCLEAR_POL_ESR:
@@ -2173,43 +2262,45 @@ class GUI_OPX():
 
 
         if Generate_QUA_sequance:
-            play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-            # with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
-            #     # assign(self.f, self.val_vec_qua[self.idx_vec_qua[self.idx]])  # shuffle - assign new val from randon index
-            #     # update MW frequency
-            #     update_frequency("MW", self.f)
-            #
-            #     # play Laser
-            #     play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-            #     align()
-            #     # play MW pi/2 pulse
-            #     play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMW/2) // 4) #8 instead of 4 because this is pi/2
-            #     align()
-            #     # play Resonant Laser
-            #     play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-            #     align()
-            #     # Wait to prevent recording laser light
-            #     wait(self.tCollectionWait //4)
-            #     # measure signal
-            #     measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, self.tMeasure, self.counts_ref_tmp))
-            #     assign(self.counts_ref[self.idx_vec_qua[self.i_idx]], self.counts_ref[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
-            #     align()
-            #     # play MW pi pulse
-            #     play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
-            #     align()
-            #     # play Resonant Laser
-            #     play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-            #     align()
-            #     # Wait to prevent recording laser light
-            #     wait(self.tCollectionWait // 4)
-            #     measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, self.tMeasure, self.counts_ref_tmp))
-            #     assign(self.counts_ref2[self.idx_vec_qua[self.i_idx]], self.counts_ref2[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
-            #     #Define the wait time between two detectors
-            #     #Add wait time here
-            #     align()
-            #     measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, self.tMeasure, self.counts_ref_tmp))
-            #     assign(self.counts_ref3[self.idx_vec_qua[self.i_idx]], self.counts_ref3[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
-            #     align()
+                # align()
+                # with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
+                #     play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                # update MW frequency
+                update_frequency("MW", self.f)
+                align()
+
+                # play Laser
+                play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                align()
+                # play MW pi/2 pulse
+                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMW/2) // 4) #8 instead of 4 because this is pi/2
+                align()
+                # play Resonant Laser
+                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
+                align()
+                # Wait to prevent recording laser light
+                wait(self.tCollectionWait //4)
+                # measure signal
+                #measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                measure("readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                assign(self.counts_ref[self.idx_vec_qua[self.i_idx]], self.counts_ref[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
+                align()
+                # play MW pi pulse
+                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
+                align()
+                # play Resonant Laser
+                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
+                align()
+                # Wait to prevent recording laser light
+                wait(self.tCollectionWait // 4)
+                measure("readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                assign(self.counts_ref2[self.idx_vec_qua[self.i_idx]], self.counts_ref2[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
+                #Define the wait time between two detectors
+                #Add wait time here
+                align()
+                measure("readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                assign(self.counts_ref3[self.idx_vec_qua[self.i_idx]], self.counts_ref3[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
+                align()
 
                 # with if_((self.counts_ref[self.idx_vec_qua[self.i_idx]] > 0) | (self.counts_ref2[self.idx_vec_qua[self.i_idx]] > 0) | (self.counts_ref3[self.idx_vec_qua[self.i_idx]] > 0)):
                 #     # play MW pi/2 pulse
@@ -2230,8 +2321,9 @@ class GUI_OPX():
 
 
         if execute_qua:
+            self.bEnableSignalIntensityCorrection = False
             self.time_bin_entanglement_QUA_PGM(generate_params=True)
-            self.QUA_PGM()
+            self.QUA_PGM_No_Tracking()
 
 
     def Population_gate_tomography_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
@@ -5497,8 +5589,8 @@ class GUI_OPX():
         #calculates the count based on division due to timing limitaiton of the counter
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
-        # if not self.bEnableSimulate:
-        #     self.StartFetch(_target=self.FetchData)
+        if not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearPolESR(self):
         self.exp = Experiment.NUCLEAR_POL_ESR

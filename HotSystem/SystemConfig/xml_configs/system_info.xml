@@ -1,1 +1,16 @@
-<SystemInfo><System><Identifier>Daniel</Identifier><Devices><Device><Instrument>OPX</Instrument><IPAddress>192.168.101.61</IPAddress><MACAddress>N/A</MACAddress><SerialNumber>N/A</SerialNumber><COMPort>N/A</COMPort><Simulation>False</Simulation><Misc>Cluster_2</Misc></Device></Devices></System></SystemInfo>
+<SystemInfo>
+    <System>
+        <Identifier>Daniel</Identifier>
+        <Devices>
+            <Device>
+                <Instrument>OPX</Instrument>
+                <IPAddress>192.168.101.61</IPAddress>
+                <MACAddress>N/A</MACAddress>
+                <SerialNumber>N/A</SerialNumber>
+                <COMPort>N/A</COMPort>
+                <Simulation>False</Simulation>
+                <Misc>Cluster_2</Misc>
+            </Device>
+        </Devices>
+    </System>
+</SystemInfo>
