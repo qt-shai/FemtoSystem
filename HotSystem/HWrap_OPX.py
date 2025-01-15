@@ -5531,7 +5531,7 @@ class GUI_OPX():
                     if self.mwModule.RFstate:
                         self.mwModule.Turn_RF_OFF()
 
-            if self.exp not in [Experiment.COUNTER, Experiment.SCAN]:
+            if self.exp not in [Experiment.COUNTER, Experiment.SCAN, Experiment.PLE]:
                 self.btnSave()
         except Exception as e:
             print(f"An error occurred in btnStop: {e}")
@@ -5558,8 +5558,7 @@ class GUI_OPX():
             # raw data
             RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
-
-            self.saveToCSV(fileName + ".csv", RawData_to_save)
+            self.save_to_cvs(fileName + ".csv", RawData_to_save)
             print(f"CSV file saved to {fileName}.csv")
 
             # save data as image (using matplotlib)
@@ -5604,50 +5603,57 @@ class GUI_OPX():
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         try:
-            if self.matisse.scan_device == "Slow Piezo":
-                initial_position = self.matisse.get_slowpiezo_position()
-                get_positions_func = self.matisse.get_slowpiezo_position
-                control_func = self.matisse.set_slowpiezo_position
-                piezo_to_mhz = self.matisse.slow_piezo_to_mhz
-            elif self.matisse.scan_device == "Ref Cell":
-                initial_position = self.matisse.get_refcell_position()
-                get_positions_func = self.matisse.get_refcell_position
-                control_func = self.matisse.set_refcell_position
-                piezo_to_mhz = self.matisse.ref_cell_to_mhz
-            else:
-                raise ValueError("Unknown scan device")
+            # Get initial wavelength position in MHz
+            scan_device = self.matisse.scan_device
+            initial_position = self.matisse.get_wavelength_position(scan_device)
         except Exception as e:
-            print(f"Failed to retrieve initial position: {e}")
+            print(f"Failed to retrieve initial wavelength position: {e}")
             return
 
 
         num_points = self.matisse.num_scan_points
-        half_length = self.matisse.scan_range / 2 / piezo_to_mhz
+        half_length = self.matisse.scan_range / 2
         vec = list(np.unique(np.linspace(initial_position-half_length,initial_position+half_length,num_points)))
         print(f"vec: first={vec[0]:.3f}, last={vec[-1]:.3f}")
 
-        if not self.bEnableSimulate:
-            self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms/ self.Tcounter * self.u.ns))
-            
+        # if not self.bEnableSimulate:
+        #     self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms/ self.Tcounter * self.u.ns))
+        #
+        # # Trigger measurement test
+        # try:
+        #     for i in range(10):
+        #         self.qm.set_io2_value(self.ScanTrigger)
+        #         time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement
+        # except Exception as e:
+        #     print(f"Error during trigger measurement at iteration {i}: {e}")
 
-        # Trigger measurement
-        try:
-            for i in range(10000):
-                self.qm.set_io2_value(self.ScanTrigger)
-                time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement
-        except Exception as e:
-            print(f"Error during trigger measurement at iteration {i}: {e}")
+        # Define a plot function
+        def plot_func(data):
+            # Ensure data is squeezed to 1D if it has only one column
+            if data.shape[1] == 1:
+                data = data.squeeze()
 
-        # self.StartScanGeneral(
-        #     move_abs_fn=control_func,
-        #     read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
-        #     get_positions_fn=get_positions_func,
-        #     device_reset_fn=None,
-        #     x_vec=vec,
-        #     y_vec=None,
-        #     z_vec=None,
-        #     current_experiment = Experiment.PLE
-        # )
+            plt.figure(figsize=(10, 6))
+            plt.plot(data, marker='o', label="Intensity")
+
+            plt.title("Scan Intensities - Live Update")
+            plt.xlabel("Index")
+            plt.ylabel("Intensity (counts/sec)")
+            plt.legend()
+            plt.grid(True)
+            plt.show()
+
+        self.StartScanGeneral(
+            move_abs_fn=self.matisse.move_wavelength,
+            read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
+            get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device),
+            device_reset_fn=None,
+            x_vec=vec,
+            y_vec=None,
+            z_vec=None,
+            current_experiment=Experiment.PLE,
+            plot_func=plot_func
+        )
 
     def StartScan(self):
         if self.positioner:
@@ -6106,6 +6112,7 @@ class GUI_OPX():
             y_vec=None,
             z_vec=None,
             current_experiment = Experiment.SCAN,
+            plot_func=None
     ):
         """
         A fully generalized scan function that supports 1D, 2D, or 3D scans
@@ -6301,7 +6308,7 @@ class GUI_OPX():
             endLoc=[y / 1e6 for y in self.endLoc],
         )
 
-        # QUA program init (example)
+        # QUA program init (example) 
         self.initQUA_gen(
             n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
             num_measurement_per_array=Nx
@@ -6420,7 +6427,11 @@ class GUI_OPX():
                     if counts.size == Nx:
                         # Fill the slice
                         self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
-                        self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+                        if plot_func:
+                            plot_func(self.scan_intensities)
+                        else:
+                            self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+
                     else:
                         print("Warning: counts size mismatch, partial line or measurement error.")
 
@@ -6451,19 +6462,34 @@ class GUI_OPX():
                 lines_left = (Nz - iz) * (Ny - iy)
                 estimated_time_left = delta_line * lines_left - delta_line
                 estimated_time_left = max(0, estimated_time_left)
-                dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
+
+                if Nz == 1 and Ny == 1:
+                    message = f"Elapsed time: {self.format_time(elapsed_total)}"
+                else:
+                    message = f"time left: {self.format_time(estimated_time_left)}"
+
+                if dpg.does_item_exist("Scan_Message"):
+                    dpg.set_value("Scan_Message", message)
+                else:
+                    print(message)
 
             # End while iy < Ny
         # End for iz in range(Nz)
 
         # ----------------------------------------------------------------------
-        # Return to Original Position
+        # Return to Original Position (Only for Scanned Axes)
         # ----------------------------------------------------------------------
-        for ax in range(3):
-            if (ax < len(self.V_scan)) and (len(self.V_scan[ax]) > 0):
-                # Move to initial
-                move_abs_fn(ax, self.initial_scan_Location[ax])
-                read_in_pos_fn(ax)
+        if x_vec:
+            move_abs_fn(0, self.initial_scan_Location[0])  # Move X axis back to initial position
+            read_in_pos_fn(0)
+
+        if y_vec:
+            move_abs_fn(1, self.initial_scan_Location[1])  # Move Y axis back to initial position
+            read_in_pos_fn(1)
+
+        if z_vec:
+            move_abs_fn(2, self.initial_scan_Location[2])  # Move Z axis back to initial position
+            read_in_pos_fn(2)
 
         # Final save
         fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
@@ -6673,7 +6699,7 @@ class GUI_OPX():
             'Intensity': Scan_array[:, 3].tolist(), 'Xexpected': Scan_array[:, 4].tolist(), 'Yexpected': Scan_array[:, 5].tolist(),
             'Zexpected': Scan_array[:, 6].tolist(), }
 
-        self.saveToCSV(fileName + ".csv", RawData_to_save, to_append)
+        self.save_to_cvs(fileName + ".csv", RawData_to_save, to_append)
 
         if self.stopScan != True:
             # prepare image for plot
@@ -6990,39 +7016,63 @@ class GUI_OPX():
         self.expNotes = sender
         self.HW.camera.imageNotes = sender
 
-    def saveToCSV(self, file_name, data, to_append:bool = False):
-        print("Saving to CSV")
-        # Find the length of the longest list
+    def save_to_cvs(self, file_name, data, to_append: bool = False):
+        print("Starting to save data to CSV.")
 
+        # Ensure data is a dictionary
+        if not isinstance(data, dict) or not all(isinstance(v, list) for v in data.values()):
+            raise ValueError("Data must be a dictionary with list-like values.")
+
+        # Find the length of the longest list
         max_length = max(len(values) for values in data.values())
 
-        # Pad shorter lists with None  # I guess data was changed
+        # Pad shorter lists with None
         for key in data:
             while len(data[key]) < max_length:
                 data[key].append(None)
 
-        # Check if file exists, so we don't rewrite the headers when appending
+        # Check if file exists (to avoid rewriting headers when appending)
         file_exists = os.path.exists(file_name)
 
-        # Writing to CSV
         try:
-            # Open the file in append mode if to_append is True, otherwise in write mode
+            # Open the file in append or write mode
             with open(file_name, mode='a' if to_append else 'w', newline='') as file:
                 writer = csv.writer(file)
 
-                # Write titles only if not appending or file does not exist
+                # Write headers if not appending or file doesn't exist
                 if not to_append or not file_exists:
+                    print("Writing headers...")
                     writer.writerow(data.keys())
 
-                # Write data
-                writer.writerows(zip(*data.values()))
-        except Exception as e:
-            error_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{error_time}] An error occurred while writing to the file '{file_name}'. Error: {e}")
-            self.scanFN = self.create_scan_file_name(local=True)
-            print(f"Changed save location to {self.scanFN}")
+                # Write data rows
+                print("Preparing to write rows...")
+                zipped_rows = list(zip(*data.values()))
+                print(f"Number of rows to write: {len(zipped_rows)}")
+                for row in zipped_rows:
+                    print("Row to write:", row)
 
-        print("Data has been saved to", file_name)
+                writer.writerows(zipped_rows)
+                print("Rows written successfully.")
+
+            print(f"Data successfully saved to {file_name}.")
+
+        except Exception as e:
+            # Log the error with a timestamp
+            error_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{error_time}] Error while writing to '{file_name}': {e}")
+
+            # Fallback: Save to a new file location
+            self.scanFN = self.create_scan_file_name(local=True)
+            try:
+                print(f"Attempting to save to fallback location: {self.scanFN}")
+                with open(self.scanFN, mode='w', newline='') as fallback_file:
+                    writer = csv.writer(fallback_file)
+                    writer.writerow(data.keys())
+                    writer.writerows(zip(*data.values()))
+                print(f"Data successfully saved to fallback location: {self.scanFN}")
+            except Exception as fallback_error:
+                fallback_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"[{fallback_time}] Critical error: Unable to save data to fallback location. Error: {fallback_error}")
 
     def writeParametersToXML(self, fileName):
         self.to_xml(fileName)
