@@ -62,7 +62,7 @@ class SimulationResonantExQuaConfig(QUAConfigBase):
         :return: Dictionary containing element configurations.
         """
         elements = {
-            self.Elements.LASER.value: {
+            self.Elements.RESONANT_LASER.value: {
                 "digitalInputs": { # here it is actually outputs
                     "marker": {
                         "port": ("con1", 5),  # Digital output 4

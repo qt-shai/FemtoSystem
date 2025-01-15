@@ -5628,18 +5628,26 @@ class GUI_OPX():
 
         if not self.bEnableSimulate:
             self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms/ self.Tcounter * self.u.ns))
-            self.StartFetch(_target=self.FetchData)
+            
 
-        self.StartScanGeneral(
-            move_abs_fn=control_func,
-            read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
-            get_positions_fn=get_positions_func,
-            device_reset_fn=None,
-            x_vec=vec,
-            y_vec=None,
-            z_vec=None,
-            current_experiment = Experiment.PLE
-        )
+        # Trigger measurement
+        try:
+            for i in range(10000):
+                self.qm.set_io2_value(self.ScanTrigger)
+                time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement
+        except Exception as e:
+            print(f"Error during trigger measurement at iteration {i}: {e}")
+
+        # self.StartScanGeneral(
+        #     move_abs_fn=control_func,
+        #     read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
+        #     get_positions_fn=get_positions_func,
+        #     device_reset_fn=None,
+        #     x_vec=vec,
+        #     y_vec=None,
+        #     z_vec=None,
+        #     current_experiment = Experiment.PLE
+        # )
 
     def StartScan(self):
         if self.positioner:
@@ -5716,7 +5724,6 @@ class GUI_OPX():
             self.StartScan3D()
         if self.positioner:
             self.positioner.KeyboardEnabled = True  # TODO: Update the check box in the gui!!
-
 
     def fetch_peak_intensity(self, integration_time):
         self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
@@ -5849,7 +5856,6 @@ class GUI_OPX():
         self.StopJob(self.job, self.qm)
         dpg.set_value("Scan_Message", "Auto-focus done")
         print("Auto-focus done")
-
 
     def StartScan3D(self):  # currently flurascence scan
         print("start scan steps")

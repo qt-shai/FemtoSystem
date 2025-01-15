@@ -22,12 +22,12 @@
             </Device>
             <Device>
                 <Instrument>OPX</Instrument>
-                <IPAddress>192.168.101.56</IPAddress>
-                <MACAddress>d0-63-b4-04-bd-3d</MACAddress>
+                <IPAddress>192.168.101.61</IPAddress>
+                <MACAddress>d0-63-b4-03-09-bb</MACAddress>
                 <SerialNumber>N/A</SerialNumber>
                 <COMPort>N/A</COMPort>
                 <Simulation>False</Simulation>
-                <Misc>Cluster_1</Misc>
+                <Misc>Cluster_2</Misc>
             </Device>
             <Device>
                 <Instrument>sim960</Instrument>
