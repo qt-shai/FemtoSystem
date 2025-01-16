@@ -17,7 +17,7 @@ from SystemConfig import Instruments
 
 class GUI_smaract():
     def __init__(self, simulation: bool = False, serial_number:str = "") -> None:
-        self.HW = hw_devices.HW_devices(simulation)
+        self.HW = hw_devices.HW_devices()
         self.dev = self.HW.positioner
         self.selectedDevice = serial_number
         self.dev.error = None

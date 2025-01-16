@@ -417,11 +417,15 @@ class PyGuiOverlay(Layer):
         dpg.run_callbacks(jobs)
         dpg.render_dearpygui_frame()
 
-        if hasattr(self, 'cam') and hasattr(self.cam, 'cam'):
-            if len(self.cam.cam.available_cameras) > 0 and self.cam.cam.constantGrabbing:
-                self.cam.UpdateImage()
-            elif  len(self.cam.cam.available_cameras) == 0:
+        if getattr(self, 'cam', None) and getattr(self.cam, 'cam', None):
+            cam_obj = self.cam.cam
+            if isinstance(cam_obj.available_cameras, list) and cam_obj.available_cameras:
+                if getattr(cam_obj, 'constantGrabbing', False):
+                    self.cam.UpdateImage()
+            else:
                 self.cam = 'none'
+        else:
+            self.cam = 'none'
 
     def render_CLD1011LP(self):
         while self.KeepThreadRunning:
@@ -867,8 +871,9 @@ class PyGuiOverlay(Layer):
 
             # Handle Picomotor controls
             elif self.CURRENT_KEY in [KeyboardKeys.ALT_KEY, KeyboardKeys.Z_KEY]:
-                print("picomotor key")
-                self.handle_picomotor_controls(key_data_enum, is_coarse_pico)
+                if self.picomotorGUI:
+                    print("picomotor key")
+                    self.handle_picomotor_controls(key_data_enum, is_coarse_pico)
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum

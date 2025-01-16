@@ -96,7 +96,7 @@ class GUI_OPX():
         self.max = None
         self.plt_y = None
         self.plt_x = None
-        self.HW = hw_devices.HW_devices(simulation)
+        self.HW = hw_devices.HW_devices()
         self.system_name = self.HW.config.system_type.value
         self.mwModule = self.HW.microwave
         self.positioner = self.HW.positioner
@@ -5576,8 +5576,11 @@ class GUI_OPX():
                     #     actual_voltage = self.HW.atto_scanner.get_output_voltage(self.HW.atto_scanner.channels[channel])
                     #     print(f"Actual voltage: {actual_voltage}. Requested voltage: {position}")
                 elif channel == 2:  # Z axis: atto_positioner
-                    self.HW.atto_positioner.set_control_fix_output_voltage(self.HW.atto_positioner.channels[channel],
-                                                                           int(position))
+                    # if self.L_scan[2] > 1e6:
+                    self.HW.atto_positioner.MoveABSOLUTE(channel,position)
+                    # else:
+                    #     self.HW.atto_positioner.set_control_fix_output_voltage(self.HW.atto_positioner.channels[channel],
+                    #                                                        int(position))
 
             def get_positions():
                 """
@@ -5585,8 +5588,9 @@ class GUI_OPX():
                 """
                 x = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[0])  # X axis
                 y = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[1])  # Y axis
-                z = self.HW.atto_positioner.get_control_output_voltage(2)  # Z axis
-                print(f"control voltage: {z}, fixed_offset_voltage: {self.HW.atto_positioner.get_control_output_voltage(2)}")
+                z = self.HW.atto_positioner.get_position(2)  # Z axis
+                # z = self.HW.atto_positioner.get_control_output_voltage(2)  # Z axis
+                # print(f"control voltage: {z}, fixed_offset_voltage: {self.HW.atto_positioner.get_control_output_voltage(2)}")
                 return x, y, z
 
             self.HW.atto_scanner.stop_updates()

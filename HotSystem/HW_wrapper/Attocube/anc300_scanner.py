@@ -1,4 +1,6 @@
+import time
 from enum import Enum
+from sys import exec_prefix
 from typing import List, Optional, Tuple, Dict
 import numpy as np
 from pylablib.devices import Attocube
@@ -120,10 +122,13 @@ class Anc300Wrapper(Motor):
         :param steps: The number of microns to move.
         """
         self.verify_channel(channel)
-        current_position = self.get_position(channel)
-        new_position = current_position + steps
-        self.MoveABSOLUTE(channel, new_position)
-        print(f"Moved channel {channel} by {steps} pm.")
+        try:
+            current_position = self.get_position(channel)
+            new_position = current_position + steps
+            self.MoveABSOLUTE(channel, new_position)
+            print(f"Moved channel {channel} by {steps} {self._axes_pos_units[channel]}.")
+        except:
+            print(f"Failed to move channel {channel} by {steps} {self._axes_pos_units[channel]}.")
 
     def set_zero_position(self, channel: int) -> None:
         """
@@ -229,8 +234,8 @@ class Anc300Wrapper(Motor):
         try:
             if not self.simulation and self.device is not None:
                 self.device.set_offset(channel, voltage)
-            with self._lock:
-                self.axes_positions[channel].set(position)
+        except OSError as e:
+            print(f"Error setting position for channel {channel}: {e}")
         except Exception as e:
             print(f"Error setting position for channel {channel}: {e}")
 
@@ -249,6 +254,9 @@ class Anc300Wrapper(Motor):
                 return position
         except Exception as e:
             print(f"Error getting position for channel {channel}: {e}")
+            self.disconnect()
+            time.sleep(0.1)
+            self.connect()
         return self.axes_positions[channel].get()
 
     # Private helper methods
@@ -269,7 +277,6 @@ class Anc300Wrapper(Motor):
         :return: Position in meters.
         """
         new_value =  position * self.max_travel/self.offset_voltage_max
-        print(f'old value: {position}. new value:{new_value}')
         return new_value
 
     def _convert_units_to_offset_voltage(self,position: float) -> float:
@@ -280,7 +287,6 @@ class Anc300Wrapper(Motor):
         :return: Position in offset voltage (in volts).
         """
         new_value = position * self.offset_voltage_max/self.max_travel
-        print(f'old value: {position}. new value:{new_value}')
         return new_value
 
     def MoveABSOLUTE(self, channel: int, position: float) -> None:

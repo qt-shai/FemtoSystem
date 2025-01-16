@@ -59,6 +59,15 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
         if not isinstance(devices, list) and devices:
             devices = [devices]
+    elif instrument == Instruments.ATTO_SCANNER:
+        devices = find_ethernet_device(InstrumentsAddress.atto_scanner.value, instrument)
+        if not isinstance(devices, list) and devices:
+            devices = [devices]
+    elif instrument == Instruments.OPX:
+        devices = find_ethernet_device(InstrumentsAddress.opx_ip.value, instrument)
+        if not isinstance(devices, list) and devices:
+            devices = [devices]
+
     elif instrument == Instruments.SIM960:
         # NEW LOGIC FOR SIM960
         # Attempt to detect or retrieve a list of SIM960 devices
@@ -412,7 +421,7 @@ def run_system_config_gui():
                                             # Add a simulation checkbox
                                         with dpg.group(horizontal=True):
                                             dpg.add_text("Simulation:")
-                                            dpg.add_checkbox(default_value=device.simulation,
+                                            dpg.add_checkbox(default_value=True if device.simulation is None else device.simulation,
                                                              callback=update_device_simulation,
                                                              user_data=device)
 

@@ -41,6 +41,7 @@ class HW_devices:
             self.arduino: Optional[ArduinoController] = None  # Add Arduino
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
+            self._initialize()
 
     def __new__(cls) -> 'HW_devices':
         """
@@ -51,7 +52,6 @@ class HW_devices:
             if cls._instance is None:
                 cls._instance = super(HW_devices, cls).__new__(cls)
                 cls._instance.__init__()
-                cls._instance._initialize()
             return cls._instance
 
     def _initialize(self) -> None:
@@ -77,96 +77,99 @@ class HW_devices:
         """Load specific instruments based on the system configuration."""
         for device in self.config.devices:
             instrument = device.instrument
-            if instrument == Instruments.ROHDE_SCHWARZ:
-                # Initialize Rohde & Schwarz Microwave
-                self.microwave = RS_SGS100a(f'TCPIP0::{device.ip_address}::inst0::INSTR',
+            try:
+                if instrument == Instruments.ROHDE_SCHWARZ:
+                    # Initialize Rohde & Schwarz Microwave
+                    self.microwave = RS_SGS100a(f'TCPIP0::{device.ip_address}::inst0::INSTR',
+                                                          simulation=device.simulation)
+                    self.microwave.Get_deviceID()
+                    if "SGT" in self.microwave.ID:
+                        self.microwave.set_connector_mode(2)
+                        self.microwave.set_iq_modulation_state(True)
+                        self.microwave.set_iq_source_to_analog()
+                        self.microwave.set_iq_mod_to_wide(True)
+                        self.microwave.set_bb_impairment_state(False)
+
+                elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
+                    # Initialize SmarAct Slip Stick Positioner
+                    self.positioner = smaractMCS2(simulation=device.simulation)
+
+                elif instrument == Instruments.COBOLT:
+                    cobolt_config: Device = [x for x in self.config.devices if x.instrument is Instruments.COBOLT][0]
+                    self.cobolt = CoboltLaser(port=cobolt_config.com_port,simulation=device.simulation)
+
+                elif instrument == Instruments.CLD1011LP:
+                    CLD1011LP_config: Device = [x for x in self.config.devices if x.instrument is Instruments.CLD1011LP][0]
+                    self.CLD1011LP = ThorlabsCLD1011LP(simulation=Device.simulation)
+
+                elif instrument == Instruments.PICOMOTOR:
+                    self.picomotor = newportPicomotor(device.simulation)
+
+                elif instrument == Instruments.ZELUX:
+                    # Initialize Zelux Camera
+                    self.camera = Zelux(simulation=device.simulation)
+
+                elif instrument == Instruments.ATTO_POSITIONER:
+                    # Initialize Atto Positioner
+                    self.atto_positioner = AttoDry800(address=SystemConfig.atto_positioner_ip, name="atto_positioner",
                                                       simulation=device.simulation)
-                self.microwave.Get_deviceID()
-                if "SGT" in self.microwave.ID:
-                    self.microwave.set_connector_mode(2)
-                    self.microwave.set_iq_modulation_state(True)
-                    self.microwave.set_iq_source_to_analog()
-                    self.microwave.set_iq_mod_to_wide(True)
-                    self.microwave.set_bb_impairment_state(False)
 
-            elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
-                # Initialize SmarAct Slip Stick Positioner
-                self.positioner = smaractMCS2(simulation=device.simulation)
+                elif instrument == Instruments.ATTO_SCANNER:
+                    # self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=device.simulation)  # Replace with actual address
+                    self.atto_scanner = Anc300Wrapper(conn= InstrumentsAddress.atto_scanner.value,
+                                                      simulation=device.simulation)
 
-            elif instrument == Instruments.COBOLT:
-                cobolt_config: Device = [x for x in self.config.devices if x.instrument is Instruments.COBOLT][0]
-                self.cobolt = CoboltLaser(port=cobolt_config.com_port,simulation=device.simulation)
+                elif instrument == Instruments.MATTISE:
+                    self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=device.simulation)
 
-            elif instrument == Instruments.CLD1011LP:
-                CLD1011LP_config: Device = [x for x in self.config.devices if x.instrument is Instruments.CLD1011LP][0]
-                self.CLD1011LP = ThorlabsCLD1011LP(simulation=Device.simulation)
+                elif instrument == Instruments.HIGHLAND:
+                    # Initialize Highland Electronics Device
+                    highland_config: Device = [x for x in self.config.devices if x.instrument is Instruments.HIGHLAND][0]
+                    self.highland_eom_driver = HighlandT130(address=highland_config.com_port, simulation=device.simulation)
 
-            elif instrument == Instruments.PICOMOTOR:
-                self.picomotor = newportPicomotor(device.simulation)
+                elif instrument == Instruments.SMARACT_SCANNER:
+                    # Initialize SmarAct Scanner
+                    # self.smaract_scanner = stage.SmaractScanner(simulation=device.simulation)
+                    pass
 
-            elif instrument == Instruments.ZELUX:
-                # Initialize Zelux Camera
-                self.camera = Zelux(simulation=device.simulation)
+                elif instrument == Instruments.OPX:
+                    # Initialize OPX Quantum Controller
+                    pass
 
-            elif instrument == Instruments.ATTO_POSITIONER:
-                # Initialize Atto Positioner
-                self.atto_positioner = AttoDry800(address=SystemConfig.atto_positioner_ip, name="atto_positioner",
-                                                  simulation=device.simulation)
+                elif instrument == Instruments.ELC_POWER_SUPPLY:
+                    # Initialize ELC Power Supply
+                    self.elc_power_supply = ALR3206T(simulation=device.simulation)
 
-            elif instrument == Instruments.ATTO_SCANNER:
-                # self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=device.simulation)  # Replace with actual address
-                self.atto_scanner = Anc300Wrapper(conn= InstrumentsAddress.atto_scanner.value,
-                                                  simulation=device.simulation)
+                elif instrument == Instruments.SIM960:
+                    # Initialize SRS SIM960 PID controller
+                    # pdb.set_trace()
+                    sim900_config: list[Device] = [x for x in self.config.devices if x.instrument is Instruments.SIM960]
+                    mainframe = SRSsim900(f"ASRL{sim900_config[0].com_port[-1]}::INSTR")
+                    mainframe.connect()
+                    mainframe.initialize()
+                    self.SRS_PID_list = [SRSsim960(
+                        mainframe = mainframe,
+                        slot = int(dev.ip_address),
+                        simulation = dev.simulation
+                    ) for dev in sim900_config]
 
-            elif instrument == Instruments.MATTISE:
-                self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=device.simulation)
-
-            elif instrument == Instruments.HIGHLAND:
-                # Initialize Highland Electronics Device
-                highland_config: Device = [x for x in self.config.devices if x.instrument is Instruments.HIGHLAND][0]
-                self.highland_eom_driver = HighlandT130(address=highland_config.com_port, simulation=device.simulation)
-
-            elif instrument == Instruments.SMARACT_SCANNER:
-                # Initialize SmarAct Scanner
-                # self.smaract_scanner = stage.SmaractScanner(simulation=device.simulation)
-                pass
-
-            elif instrument == Instruments.OPX:
-                # Initialize OPX Quantum Controller
-                pass
-
-            elif instrument == Instruments.ELC_POWER_SUPPLY:
-                # Initialize ELC Power Supply
-                self.elc_power_supply = ALR3206T(simulation=device.simulation)
-
-            elif instrument == Instruments.SIM960:
-                # Initialize SRS SIM960 PID controller
-                # pdb.set_trace()
-                sim900_config: list[Device] = [x for x in self.config.devices if x.instrument is Instruments.SIM960]
-                mainframe = SRSsim900(f"ASRL{sim900_config[0].com_port[-1]}::INSTR")
-                mainframe.connect()
-                mainframe.initialize()
-                self.SRS_PID_list = [SRSsim960(
-                    mainframe = mainframe,
-                    slot = int(dev.ip_address),
-                    simulation = dev.simulation
-                ) for dev in sim900_config]
-
-            elif instrument == Instruments.ARDUINO:
-                # Initialize ArduinoController
-                self.arduino = ArduinoController(
-                    address= f"ASRL{device.com_port}::INSTR" if device.com_port != "N/A" else None,
-                    baudrate=9600,
-                    timeout=1000,
-                    simulation=device.simulation
-                )
-                if not device.simulation:
-                    self.arduino.connect()
-                print(f"Arduino {'(Simulated)' if device.simulation else 'Connected'} at {device.com_port}")
+                elif instrument == Instruments.ARDUINO:
+                    # Initialize ArduinoController
+                    self.arduino = ArduinoController(
+                        address= f"ASRL{device.com_port}::INSTR" if device.com_port != "N/A" else None,
+                        baudrate=9600,
+                        timeout=1000,
+                        simulation=device.simulation
+                    )
+                    if not device.simulation:
+                        self.arduino.connect()
+                    print(f"Arduino {'(Simulated)' if device.simulation else 'Connected'} at {device.com_port}")
 
 
-            else:
-                # Handle unknown instrument case
-                print(f"Unknown instrument: {instrument}")
+                else:
+                    # Handle unknown instrument case
+                    print(f"Unknown instrument: {instrument}")
+            except Exception as e:
+                print(f"Failed to connect to instrument {instrument} with error: {e}")
 
         self.initialized = True  # Mark the instance as init

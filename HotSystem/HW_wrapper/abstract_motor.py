@@ -119,7 +119,7 @@ class Motor(ABC):
         Update the motor's positions and notify observers.
         """
         for channel in self.channels:
-            self.get_position(channel)
+            self.axes_positions[channel].set(self.get_position(channel))
 
     @abstractmethod
     def connect(self) -> None:

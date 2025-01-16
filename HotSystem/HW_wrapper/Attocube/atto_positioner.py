@@ -31,12 +31,12 @@ class AttoDry800(Motor):
             ch: ObservableField(0.0) for ch in self.channels}
         self.axes_voltages: Dict[int, ObservableField[float]] = {
             ch: ObservableField(0.0) for ch in self.channels}
-        self._axes_pos_units: Dict[int, str] = {ch: "nm" for ch in self.channels}
+        self._axes_pos_units: Dict[int, str] = {ch: "µm" for ch in self.channels}
         self._connected: bool = False
         self.device = AttocubeDevice(address, simulation=simulation)
         self.fix_output_voltage_min = 0
         self.fix_output_voltage_max = 60000
-        self._position_bounds: Dict[int, tuple[float, float]] = {ch: (-1e6, 1e6) for ch in self.channels}
+        self._position_bounds: Dict[int, tuple[float, float]] = {0: (0, 5e3),1: (0, 5e3), 2: (1e3, 5e3) }
         self._velocity_bounds: Dict[int, tuple[float, float]] = {ch: (1, 5000) for ch in self.channels}
 
     def connect(self) -> None:
@@ -93,11 +93,14 @@ class AttoDry800(Motor):
         Move a specific channel to an absolute position.
 
         :param channel: The channel number to move.
-        :param position: The target position in steps.
+        :param position: The target position in µm.
         """
         self._check_and_enable_output(channel)
-        self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, position])
-        self.wait_for_axes_to_stop([channel])
+        low_bound, high_bound = self._position_bounds[channel]
+        if  low_bound < position < high_bound:
+            self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, position*1e3])
+        else:
+            print(f"Position out of range. Got {position}. Bounds: {low_bound}, {high_bound}")
 
     def move_relative(self, channel: int, steps: int) -> None:
         """
@@ -129,11 +132,12 @@ class AttoDry800(Motor):
         """
         amplitude_mv = int(amplitude_mv)
         if axis not in self.channels:
-            raise ValueError(f"Invalid axis {axis}. Valid axes are {self.channels}.")
+            print(f"Invalid axis {axis}. Valid axes are {self.channels}.")
         if not (0<=amplitude_mv<=60000):
-            raise ValueError(f"Invalid amplitude. Must be between 0 and 60000. Received {amplitude_mv}")
-        self._perform_request(AttoJSONMethods.SET_CONTROL_FIX_OUTPUT_VOLTAGE.value, [axis, amplitude_mv])
-        print(f"Set axis {axis} to a fixed voltage of {amplitude_mv} mV.")
+            print(f"Invalid amplitude. Must be between 0 and 60000. Received {amplitude_mv}")
+        else:
+            self._perform_request(AttoJSONMethods.SET_CONTROL_FIX_OUTPUT_VOLTAGE.value, [axis, amplitude_mv])
+            print(f"Set axis {axis} to a fixed voltage of {amplitude_mv} mV.")
 
     def get_control_fix_output_voltage(self, axis: int) -> float:
         """
@@ -321,7 +325,7 @@ class AttoDry800(Motor):
         else:
             response = self._perform_request(AttoJSONMethods.GET_POSITION.value, [axis])
             if response:
-                return response[1]  # Assuming the position is the second item in the response
+                return response[1]*1e-3  # Assuming the position is the second item in the response
             else:
                 return None
 
@@ -353,7 +357,7 @@ class AttoDry800(Motor):
         else:
             return -1.0
 
-    def wait_for_axes_to_stop(self, axes: List[int], max_wait_time: float = 10.0) -> None:
+    def wait_for_axes_to_stop(self, axes: List[int], max_wait_time: float = 20.0) -> None:
         """
         Wait for a specified list of axes to stop moving.
 
