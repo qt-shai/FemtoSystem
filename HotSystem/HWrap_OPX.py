@@ -87,6 +87,7 @@ class GUI_OPX():
     def __init__(self, simulation: bool = False):
         # HW
 
+        self.scan_intensities = None
         self.X_vec = None
         self.Y_vec = None
         self.scan_default_sleep_time: float = 5e-3
@@ -5624,8 +5625,8 @@ class GUI_OPX():
 
         num_points = self.matisse.num_scan_points
         half_length = self.matisse.scan_range / 2
-        vec = list(np.unique(np.linspace(initial_position-half_length,initial_position+half_length,num_points)))
-        print(f"vec: first={vec[0]:.3f}, last={vec[-1]:.3f}")
+        vec = list(np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
+                np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
         self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1], get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device), device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, UseDisplayDuring=False)
 
@@ -6028,7 +6029,7 @@ class GUI_OPX():
 
                 if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
                     j = j + 1
-                    self.prepare_scan_data(max_position_x_scan = self.endLoc[0] * 1e6 + self.dL_scan[0] * 1e3, min_position_x_scan = self.startLoc[0] * 1e6,start_pos=ini_scan_pos)
+                    self.prepare_scan_data()#max_position_x_scan = self.endLoc[0] * 1e6 + self.dL_scan[0] * 1e3, min_position_x_scan = self.startLoc[0] * 1e6,start_pos=ini_scan_pos)
                     self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
                 else:
                     print("****** error: ******\nNumber of measurements is not consistent with excpected.\nthis line will be repeated.")
@@ -6082,9 +6083,6 @@ class GUI_OPX():
             meas_continuously=True,
     ):
 
-        # ----------------------------------------------------------------------
-        # Dimension Setup
-        # ----------------------------------------------------------------------
         x_vec = x_vec if x_vec else []
         y_vec = y_vec if y_vec else []
         z_vec = z_vec if z_vec else []
@@ -6093,9 +6091,6 @@ class GUI_OPX():
         dim = sum(bool(v) for v in [x_vec, y_vec, z_vec])
         print(f"Starting {dim}D scan: Nx={Nx}, Ny={Ny}, Nz={Nz}")
 
-        # ----------------------------------------------------------------------
-        # Initial Setup (Files, GUI, QUA, etc.)
-        # ----------------------------------------------------------------------
         start_time = time.time()
         print(f"start_time: {self.format_time(start_time)}")
 
@@ -6134,18 +6129,10 @@ class GUI_OPX():
 
         if device_reset_fn:
             device_reset_fn()
-        # Example of special device resets (original code checks for smaractMCS2, etc.)
-        # if self.positioner is smaractMCS2:
-        #     self.positioner.set_in_position_delay(0, delay=0)
-        #     self.positioner.DisablePositionTrigger(0)
-        #     self.positioner.SetVelocity(0, 0)
-        #     self.positioner.setIOmoduleEnable(dev=0)
-        #     self.positioner.set_Channel_Constant_Mode_State(channel=0)
 
         # Disable the “Start Scan” button in the GUI
         if dpg.does_item_exist("btnOPX_StartScan"):
             dpg.disable_item("btnOPX_StartScan")
-
 
         # Prepare internal references
         self.X_vec, self.Y_vec, self.Z_vec = [], [], []
@@ -6170,23 +6157,12 @@ class GUI_OPX():
         self.initial_scan_Location = list(current_positions) + [0] * (expected_axes - len(current_positions))
 
         # Build scanning arrays for each axis (like original “V_scan” concept)
-        def build_scan(axis_idx, axis_positions):
-            """
-            Axis index: 0 -> X, 1 -> Y, 2 -> Z
-            axis_positions: list of positions to scan
-            """
-            if not axis_positions:
-                # If no scanning on this axis, just keep the current pos
-                return [self.initial_scan_Location[axis_idx]]
-            else:
-                return axis_positions
-
-        # Build and store for each axis
         self.V_scan = [
-            build_scan(0, x_vec),
-            build_scan(1, y_vec),
-            build_scan(2, z_vec)
+            x_vec if x_vec else [self.initial_scan_Location[0]],
+            y_vec if y_vec else [self.initial_scan_Location[1]],
+            z_vec if z_vec else [self.initial_scan_Location[2]],
         ]
+
         Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
 
         # Initialize the 3D array for intensities
@@ -6262,6 +6238,7 @@ class GUI_OPX():
         # ----------------------------------------------------------------------
         if meas_continuously:
             self.scan_counts_aggregated = []
+            self.scan_frequencies_aggregated = []
             print("Entering infinite averaging mode...")
             while not self.stopScan:
                 for iz in range(Nz):
@@ -6274,6 +6251,7 @@ class GUI_OPX():
                             move_abs_fn(1, self.V_scan[1][iy])
                             read_in_pos_fn(1)
 
+                        current_positions_array = []
                         for ix in range(Nx):
                             if self.stopScan:
                                 break
@@ -6282,15 +6260,23 @@ class GUI_OPX():
                             move_abs_fn(0, self.V_scan[0][ix])
                             read_in_pos_fn(0)
 
+                            current_positions = get_positions_fn()
+                            current_positions_array.append(current_positions)
+
                             # Trigger measurement
-                            self.qm.set_io2_value(self.ScanTrigger)
-                            time.sleep(self.total_integration_time * 1e-3 + 1e-3)
+                            try:
+                                self.qm.set_io2_value(self.ScanTrigger)
+                                time.sleep(self.total_integration_time * 1e-3 + 1e-3)
+                            except Exception as e:
+                                print(f"Error: {e}")
+
 
                         # Fetch data after the X loop
                         if self.counts_handle.is_processing():
                             self.counts_handle.wait_for_values(1)
                             counts = self.counts_handle.fetch_all()
                             self.scan_counts_aggregated.append(np.squeeze(counts))
+                            self.scan_frequencies_aggregated.append(np.squeeze(current_positions_array))
 
                             # Update intensities and iterations for averaging
                             for ix, count in enumerate(counts):
@@ -6300,9 +6286,8 @@ class GUI_OPX():
                                         scan_counts[ix, iy, iz] / scan_iterations[ix, iy, iz]
                                 )
 
-
                             # Update the graph
-                            self.X_vec = x_vec
+                            self.X_vec = current_positions_array
                             data = self.scan_intensities[:, :, iz]
                             if data.shape[1] == 1:
                                 data = data.squeeze()
@@ -6409,11 +6394,7 @@ class GUI_OPX():
                 if (meas_idx - previousMeas_idx) % (Nx if Nx > 1 else 1) == 0:
                     iy += 1
                     # Save partial data
-                    self.prepare_scan_data(
-                        max_position_x_scan=self.endLoc[0],
-                        min_position_x_scan=self.startLoc[0],
-                        start_pos=self.initial_scan_Location
-                    )
+                    self.prepare_scan_data()
                     self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN, to_append=True)
                 else:
                     print(
@@ -6444,8 +6425,6 @@ class GUI_OPX():
                 else:
                     print(message)
 
-            # End while iy < Ny
-        # End for iz in range(Nz)
 
         # ----------------------------------------------------------------------
         # Return to Original Position (Only for Scanned Axes)
@@ -6463,6 +6442,35 @@ class GUI_OPX():
             read_in_pos_fn(2)
 
         # Final save
+        # Determine the expected number of columns (length of the longest row)
+        max_length = max(len(row) for row in self.scan_frequencies_aggregated)
+        # Process scan frequencies
+        self.scan_frequencies_aggregated = np.array([
+            np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_frequencies_aggregated
+        ])
+        # Process scan counts
+        self.scan_counts_aggregated = np.array([
+            np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_counts_aggregated
+        ])
+        # Flatten the scan frequencies and intensities for saving
+        self.X_vec = np.array([list(positions) for positions in self.scan_frequencies_aggregated])
+        self.scan_intensities = np.array([list(counts) for counts in self.scan_counts_aggregated])[:, :, np.newaxis]
+
+        # Get the dimensions of scan_intensities
+        Nx = self.scan_intensities.shape[1]  # X-axis (number of points per line)
+        Ny = self.scan_intensities.shape[0]  # Y-axis (number of lines in the data)
+        Nz = 1  # Default Z-axis since no additional layers are specified
+
+        self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
+        self.V_scan[2] = [0]  # Keep Z dimension as a single layer
+
+        self.Y_vec = list(range(Ny))
+        self.Z_vec = list(range(Nz))
+
+        # Prepare the scan data
+        self.prepare_scan_data()
+
+        # Save the scan data
         fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
         self.writeParametersToXML(fn + ".xml")
 
@@ -6476,17 +6484,57 @@ class GUI_OPX():
 
         return self.scan_intensities
 
-    def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
-        # Create object to be saved in excel
+    def prepare_scan_data(self):
+        """
+        Prepare scan data with actual positions (X_vec, Y_vec, Z_vec), intensities,
+        and expected positions derived from V_scan. If actual positions are None,
+        they default to expected positions.
+        """
+        # Create an object to be saved in Excel
         self.scan_Out = []
-        for i in range(len(self.V_scan[2])):
-            for j in range(len(self.V_scan[1])):
-                for k in range(len(self.V_scan[0])):
-                    x = self.V_scan[0][k]
-                    y = self.V_scan[1][j]
-                    z = self.V_scan[2][i]
-                    I = self.scan_intensities[k, j, i]
-                    self.scan_Out.append([x, y, z, I, x, y, z])
+
+        # Get dimensions
+        Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
+
+        # Ensure self.Y_vec matches Ny
+        self.Y_vec = list(range(Ny))
+
+        # Ensure self.Z_vec matches Nz
+        self.Z_vec = list(range(Nz))
+
+        # Loop over Z, Y, and X scan coordinates
+        for i in range(Nz):  # Z dimension
+            for j in range(Ny):  # Y dimension
+                for k in range(Nx):  # X dimension
+                    # Expected positions derived from V_scan
+                    x_expected = self.V_scan[0][k]
+                    y_expected = self.V_scan[1][j]
+                    z_expected = self.V_scan[2][i]
+
+                    # Actual positions
+                    x_actual = (
+                        self.X_vec[j, k] if self.X_vec is not None and j < self.X_vec.shape[0] and k < self.X_vec.shape[1]
+                        else x_expected
+                    )
+                    y_actual = (
+                        self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected
+                    )
+                    z_actual = (
+                        self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected
+                    )
+
+                    # Intensity at the current position
+                    intensities = (
+                        self.scan_intensities[k, j, i]
+                        if self.scan_intensities is not None
+                           and k < self.scan_intensities.shape[0]
+                           and j < self.scan_intensities.shape[1]
+                           and i < self.scan_intensities.shape[2]
+                        else 0
+                    )
+
+                    # Append data for this point
+                    self.scan_Out.append([x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
