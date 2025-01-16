@@ -63,7 +63,7 @@ class GUISIM960:
 
         # Create a main window for the device
         with dpg.window(tag=self.win_tag, label=self.win_label,
-                        no_title_bar=False, height=400, width=1500, pos=[100, 100], collapsed=False):
+                        no_title_bar=False, height=400, width=1700, pos=[100, 100], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_device_image()
                 self.create_pid_controls()
@@ -240,9 +240,10 @@ class GUISIM960:
         """
         try:
             # Retrieve PID gains from the GUI fields
-            p_gain = dpg.get_value(f"p_gain_{self.unique_id}")
-            i_gain = dpg.get_value(f"i_gain_{self.unique_id}")
-            d_gain = dpg.get_value(f"d_gain_{self.unique_id}")
+            # Retrieve PID gains from the GUI fields with 3 decimal places of precision
+            p_gain = round(dpg.get_value(f"p_gain_{self.unique_id}"), 3)
+            i_gain = round(dpg.get_value(f"i_gain_{self.unique_id}"), 3)
+            d_gain = round(dpg.get_value(f"d_gain_{self.unique_id}"), 3)
 
             # Set PID gains on the device
             self.dev.set_proportional_gain(p_gain)
@@ -322,6 +323,7 @@ class GUISIM960:
 
             dpg.add_button(label="Stabilize",callback=self.cb_stabilize)
             dpg.add_button(label="Goto max extinction", callback=self.goto_max_ext)
+            dpg.add_button(label="Jump to Zero", callback=self.cb_jump_to_zero)
 
     def create_stabilize_controls(self):
         """
@@ -361,6 +363,25 @@ class GUISIM960:
                     tag=f"stabilize_iterations_{self.unique_id}",
                     format="%.2f", width=80
                 )
+
+            with dpg.group(horizontal=True):
+                # Measurement Input Plot
+                with dpg.plot(label="Measurement Input", height=200, width=400):
+                    x_axis_tag = f"input_x_axis_{self.unique_id}"
+                    y_axis_tag = f"input_y_axis_{self.unique_id}"
+                    dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", tag=x_axis_tag)
+                    with dpg.plot_axis(dpg.mvYAxis, label="Input Voltage (V)", tag=y_axis_tag):
+                        dpg.add_line_series([], [], label="Measurement Input", tag=f"measurement_series_input_{self.unique_id}")
+
+                # Output Voltage Plot
+                with dpg.plot(label="Output Voltage", height=200, width=400):
+                    x_axis_tag = f"output_x_axis_{self.unique_id}"
+                    y_axis_tag = f"output_y_axis_{self.unique_id}"
+                    dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", tag=x_axis_tag)
+                    with dpg.plot_axis(dpg.mvYAxis, label="Output Voltage (V)", tag=y_axis_tag):
+                        dpg.add_line_series([], [], label="Output Voltage", tag=f"measurement_series_output_{self.unique_id}")
+
+
 
     def cb_update_stabilize_param(self, sender, app_data):
         """
@@ -694,44 +715,132 @@ class GUISIM960:
         """
         Continuously reads the device measurement once per second and prints the result.
         """
+        time_values = []
+        measurement_inputs = []
+        output_voltages = []
+        start_time = time.time()
+        v_pi = 2.5
+
         while self.continuous_read_active:
-            # In real code, check for self.simulation or device read:
-            if not self.simulation:
-                value = self.dev.read_output_voltage()
-                meas_input = self.dev.read_measure_input()
-                print(f"[{datetime.now()}] Input = {meas_input:.4f}, Output = {value:.4f}")
-                v_pi = 2.5
+            try:
+                # In real code, check for self.simulation or device read:
+                if not self.simulation:
+                    current_time = time.time() - start_time
+                    output_voltage = self.dev.read_output_voltage()
+                    measurement_input  = self.dev.read_measure_input()
 
-                if abs(value) > 10:
-                    print('SRS is not stable.')
-                    sign = 1 if value > 0 else -1
-                    offset = v_pi * 4 * sign
-                    print(f"jumping to {value + offset:.3f}")
-                    self.dev.set_manual_output(value + offset)
-                    self.dev.set_output_mode(True)
+                    time_values.append(current_time)
+                    measurement_inputs.append(measurement_input)
+                    output_voltages.append(output_voltage)
 
-                    print(f"val = {self.dev.read_output_voltage()}")
-                    self.dev.set_manual_output(value + offset)
-                    await asyncio.sleep(0.5)
-                    self.dev.set_manual_output(value + offset)
-                    print(f"val = {self.dev.read_output_voltage()}")
-                    await asyncio.sleep(1.0)
-                    self.dev.set_output_mode(False)
-                    # self.dev.mf.flush_output()
-                    self.dev.is_stable = False
-                    self.dev.last_stable_timestamp = datetime.now()
+                    # Limit the data to avoid memory overflow (e.g., keep the last 1000 points)
+                    if len(time_values) > 1000:
+                        time_values.pop(0)
+                        measurement_inputs.pop(0)
+                        output_voltages.pop(0)
+
+                    # Update the graph
+                    if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
+                        dpg.set_value(f"measurement_series_input_{self.unique_id}", [time_values, measurement_inputs])
+                        x_axis_tag = f"input_x_axis_{self.unique_id}"
+                        y_axis_tag = f"input_y_axis_{self.unique_id}"
+                        dpg.fit_axis_data(x_axis_tag)
+                        dpg.fit_axis_data(y_axis_tag)
+
+                    if dpg.does_item_exist(f"measurement_series_output_{self.unique_id}"):
+                        dpg.set_value(f"measurement_series_output_{self.unique_id}", [time_values, output_voltages])
+                        x_axis_tag = f"output_x_axis_{self.unique_id}"
+                        y_axis_tag = f"output_y_axis_{self.unique_id}"
+                        dpg.fit_axis_data(x_axis_tag)
+                        dpg.fit_axis_data(y_axis_tag)
+
+
+                    # Update GUI display with current measurement values
+                    dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {measurement_input:.5f} V")
+                    dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {output_voltage:.5f} V")
+
+                    if abs(output_voltage) > 10:
+                        print('SRS is not stable.')
+                        sign = 1 if output_voltage > 0 else -1
+                        offset = v_pi * 4 * sign
+                        print(f"jumping to {output_voltage + offset:.3f}")
+                        self.dev.set_manual_output(output_voltage + offset)
+                        self.dev.set_output_mode(True)
+
+                        print(f"val = {self.dev.read_output_voltage()}")
+                        self.dev.set_manual_output(output_voltage + offset)
+                        await asyncio.sleep(0.5)
+                        self.dev.set_manual_output(output_voltage + offset)
+                        print(f"val = {self.dev.read_output_voltage()}")
+                        await asyncio.sleep(1.0)
+                        self.dev.set_output_mode(False)
+                        # self.dev.mf.flush_output()
+                        self.dev.is_stable = False
+                        self.dev.last_stable_timestamp = datetime.now()
+                    else:
+                        if not self.dev.is_stable and datetime.now() > self.dev.last_stable_timestamp + timedelta(seconds=self.dev.stability_recovery_time_seconds):
+                            print('SRS is not stable. Trying to recover...')
+                            if np.isclose(self.dev.read_setpoint(), self.dev.read_setpoint(), self.dev.stability_tolerance):
+                                print('SRS is stable.')
+                                self.dev.is_stable = True
                 else:
-                    if not self.dev.is_stable and datetime.now() > self.dev.last_stable_timestamp + timedelta(seconds=self.dev.stability_recovery_time_seconds):
-                        print('SRS is not stable. Trying to recover...')
-                        if np.isclose(self.dev.read_setpoint(), self.dev.read_setpoint(), self.dev.stability_tolerance):
-                            print('SRS is stable.')
-                            self.dev.is_stable = True
-            else:
-                # If you have a simulation mode, read or mock a reading
-                print(f"[{datetime.now()}] Simulation measurement = 0.0000")
+                    # In simulation mode, mock data
+                    current_time = time.time() - start_time
+                    simulated_input = np.sin(current_time)  # Example: sine wave data
+                    simulated_output = np.cos(current_time)  # Example: cosine wave data
+
+                    time_values.append(current_time)
+                    measurement_inputs.append(simulated_input)
+                    output_voltages.append(simulated_output)
+
+                    if len(time_values) > 1000:
+                        time_values.pop(0)
+                        measurement_inputs.pop(0)
+                        output_voltages.pop(0)
+
+                    if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
+                        dpg.set_value(f"measurement_series_input_{self.unique_id}", [time_values, measurement_inputs])
+
+                    if dpg.does_item_exist(f"measurement_series_output_{self.unique_id}"):
+                        dpg.set_value(f"measurement_series_output_{self.unique_id}", [time_values, output_voltages])
+
+            except Exception as e:
+                # Handle errors gracefully
+                dpg.set_value(f"measure_input_{self.unique_id}", f"Error reading input: {e}")
+                break
 
             # Sleep for 1 second in the asyncio world
             await asyncio.sleep(1.0)
+
+    def cb_jump_to_zero(self):
+        """
+        Moves the SRS output voltage to a stable state near zero (synchronously).
+        """
+        try:
+            print(f"jumping to 0")
+
+            # Apply the offset multiple times for stabilization
+            self.dev.set_manual_output(0)
+            time.sleep(0.5)
+            self.dev.set_output_mode(True)
+
+            print(f"val = {self.dev.read_output_voltage()}")
+            time.sleep(0.5)
+            self.dev.set_manual_output(0)
+            print(f"val = {self.dev.read_output_voltage()}")
+            time.sleep(0.5)
+
+            # Turn off manual output
+            self.dev.set_output_mode(False)
+
+            # Flush the output and mark the device as unstable
+            #self.dev.mf.flush_output()
+            self.dev.is_stable = False
+            self.dev.last_stable_timestamp = datetime.now()
+
+            print("Jump to zero completed.")
+        except Exception as e:
+            print(f"Error during Jump to Zero: {e}")
 
     def cb_set_proportional_gain(self, sender, app_data):
         """Callback to set the P gain on the device."""
