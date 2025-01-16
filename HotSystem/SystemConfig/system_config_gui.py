@@ -328,12 +328,30 @@ def run_system_config_gui():
     load_instrument_images()
 
     # Load the existing system configuration
-    system_config = load_system_from_xml("xml_configs/system_info.xml")
+    # Define the primary and alternative paths
+    primary_path = "xml_configs/system_info.xml"
+    alternative_path = "C:/wc/HotSystem/SystemConfig/xml_configs/system_info.xml"
+
+    # Check if the primary path exists
+    if os.path.exists(primary_path):
+        system_config_path = primary_path
+    elif os.path.exists(alternative_path):
+        system_config_path = alternative_path
+    else:
+        system_config_path = None
+        print("Error: system_info.xml not found in either path")
+        return
+
+    system_config = load_system_from_xml(system_config_path)
 
     # Create a set of device keys from the existing configuration for comparison
     configured_device_keys = set()
     instruments_with_na_identifiers = set()
     configured_devices_dict = {}
+
+    if system_config is None:
+        print("Error: system_config is None")
+
     if system_config:
         for configured_device in system_config.devices:
             configured_device_key = generate_device_key(configured_device)

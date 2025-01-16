@@ -38,14 +38,14 @@ class SimulationResonantExQuaConfig(QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
-                    1: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},  # only for detector
+                    1: {"offset": 0.0, "delay": self.rf_delay, "shareable": False},  # only for detector
                 },
                 "digital_outputs": {
-                    5: {"shareable": True},  # Marker
+                    5: {"shareable": False},  # Marker
                 },
                 "analog_inputs": {
-                    1: {"offset": 0.00979, "gain_db": 0, "shareable": True}, # 20db 0.2V electrical
-                    2: {"offset": 0.00979, "gain_db": -12, "shareable": True}, # 6db 1V -->~0.25V
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # 20db 0.2V electrical
+                    2: {"offset": 0.00979, "gain_db": -12, "shareable": False}, # 6db 1V -->~0.25V
                 },
                 # "digital_inputs": {
                 #     2: {'polarity': 'RISING', 'deadtime': 4, "threshold": self.signal_threshold_OPD, "shareable": False},  #4 to 16nsec,
@@ -62,7 +62,7 @@ class SimulationResonantExQuaConfig(QUAConfigBase):
         :return: Dictionary containing element configurations.
         """
         elements = {
-            self.Elements.LASER.value: {
+            self.Elements.RESONANT_LASER.value: {
                 "digitalInputs": { # here it is actually outputs
                     "marker": {
                         "port": ("con1", 5),  # Digital output 4

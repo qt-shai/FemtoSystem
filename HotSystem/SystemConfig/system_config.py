@@ -106,6 +106,7 @@ def load_system_from_xml(file_path: str) -> Optional[SystemConfig]:
     :return: An instance of SystemConfig based on the XML data.
     """
     if not os.path.exists(file_path):
+        print('Path does not exist')
         return None
     try:
         # Parse the XML file
