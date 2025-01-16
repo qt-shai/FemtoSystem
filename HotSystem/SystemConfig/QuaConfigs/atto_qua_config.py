@@ -73,12 +73,12 @@ class AttoQuaConfig(QUAConfigBase):
         :return: Dictionary containing element configurations.
         """
         elements = {
-            "RF": {
+            self.Elements.RF.value: {
                 "singleInput": {"port": ("con1", 6)},  # Analog output 6
                 "intermediate_frequency": self.rf_frequency,
                 "operations": {"const": "const_pulse_single"},
             },
-            "MW": {
+            self.Elements.MW.value: {
                 "mixInputs": {
                     "I": ("con1", 4),  # Analog output 4
                     "Q": ("con1", 5),  # Analog output 5
@@ -106,7 +106,7 @@ class AttoQuaConfig(QUAConfigBase):
                     "y90": "y90_pulse",
                 },
             },
-            "Laser": {
+            self.Elements.LASER.value: {
                 "digitalInputs": { # here it is actually outputs
                     "marker": {
                         "port": ("con1", 4),  # Digital output 4
@@ -116,7 +116,7 @@ class AttoQuaConfig(QUAConfigBase):
                 },
                 "operations": {"Turn_ON": "laser_ON"},
             },
-            "MW_switch": {
+            self.Elements.MW_SWITCH.value: {
                 "digitalInputs": { # here it is actually outputs
                     "marker": {
                         "port": ("con1", 5),  # Digital output 5
@@ -136,7 +136,7 @@ class AttoQuaConfig(QUAConfigBase):
             #     },
             #     "operations": {"ON": "switch_ON"},
             # },
-            "Detector_OPD": {
+            self.Elements.DETECTOR_OPD.value: {
                 "singleInput": {"port": ("con1", 4)},  # analoge outputs, not used
                 "digitalInputs": {
                     # "marker": {
@@ -156,7 +156,7 @@ class AttoQuaConfig(QUAConfigBase):
                 "time_of_flight": self.detection_delay_OPD,
                 "smearing": 0,
             },
-            "Detector2_OPD": {
+            self.Elements.DETECTOR2_OPD.value: {
                 "singleInput": {"port": ("con1", 4)},  # not used
                 "digitalInputs": {
                     # "marker": {

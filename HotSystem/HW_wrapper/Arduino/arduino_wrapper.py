@@ -43,17 +43,53 @@ class ArduinoController(SerialDevice):
             return
 
         command = f"start measure:{num_points},{time_us}"
+        # logging.info(f"Sending command: {command}")
+
+        try:
+            response = self._send_command(command, get_response=True, verbose=False)
+            if response:
+                self.communication_result.set(response)
+        except Exception as e:
+            logging.error(f"error {e}. this is akum. Reconnecting")
+            self.reconnect()
+
+
+
+    def read_measurement(self) -> None:
+        """
+        Reads the latest measurement data from the Arduino.
+        """
+        self.communication_result.get()
+
+    def set_pulse(self, pulse_width: int, spacing: int) -> None:
+        """
+        Sends a command to start continuous pulse generation.
+
+        :param pulse_width: Pulse duration in microseconds.
+        :param spacing: Time between pulses in microseconds.
+        """
+        if pulse_width <= 0 or spacing <= 0:
+            logging.error("Invalid pulse parameters: pulse_width and spacing must be > 0.")
+            return
+
+        self.pulse_width_us.set(pulse_width)
+        self.pulse_spacing_us.set(spacing)
+
+        command = f"set pulse:{pulse_width},{spacing}"
         logging.info(f"Sending command: {command}")
 
         response = self._send_command(command, get_response=True, verbose=True)
         if response:
             self.communication_result.set(response)
 
-    def read_measurement(self) -> None:
+    def stop_pulse(self) -> None:
         """
-        Reads the latest measurement data from the Arduino.
+        Sends a command to stop continuous pulse generation.
         """
-        response = self._get_response(verbose=True)
+        command = "stop pulse"
+        logging.info("Stopping pulse generation.")
+
+        response = self._send_command(command, get_response=True, verbose=True)
         if response:
             self.communication_result.set(response)
 

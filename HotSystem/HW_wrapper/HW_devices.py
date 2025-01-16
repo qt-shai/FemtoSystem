@@ -1,4 +1,4 @@
-
+import pdb
 from typing import Optional, Callable, Dict, DefaultDict
 import threading
 
@@ -10,6 +10,7 @@ from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
+from HW_wrapper.wrapper_wavemeter import HighFinesseWLM
 
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 from Utils import ObservableField
@@ -24,7 +25,6 @@ class HW_devices:
 
     def __init__(self):
 
-
         if not getattr(self, 'initialized', False):
             self.elc_power_supply: Optional[ALR3206T] = None
             self.highland_eom_driver: Optional[HighlandT130]  = None
@@ -35,6 +35,7 @@ class HW_devices:
             self.picomotor:Optional[newportPicomotor] = None
             self.cobolt:Optional[CoboltLaser] = None
             self.matisse_device: Optional[SirahMatisse] = None
+            self.wavemeter:Optional[HighFinesseWLM] = None
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
             self.SRS_PID_list: Optional[SRSsim960] = None
@@ -77,6 +78,7 @@ class HW_devices:
         """Load specific instruments based on the system configuration."""
         for device in self.config.devices:
             instrument = device.instrument
+            print(f"Setting instrument {instrument.name}")
             try:
                 if instrument == Instruments.ROHDE_SCHWARZ:
                     # Initialize Rohde & Schwarz Microwave
@@ -115,12 +117,15 @@ class HW_devices:
                                                       simulation=device.simulation)
 
                 elif instrument == Instruments.ATTO_SCANNER:
-                    # self.keysight_awg_device = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value, simulation=device.simulation)  # Replace with actual address
                     self.atto_scanner = Anc300Wrapper(conn= InstrumentsAddress.atto_scanner.value,
                                                       simulation=device.simulation)
 
                 elif instrument == Instruments.MATTISE:
-                    self.matisse_device = SirahMatisse(addr=InstrumentsAddress.MATTISE.value, simulation=device.simulation)
+                    self.matisse_device = SirahMatisse(addr="127.0.0.1:30000", simulation=device.simulation)
+
+                elif instrument == Instruments.WAVEMETER:
+                    # Initialize the HighFinesse WLM
+                    self.wavemeter = HighFinesseWLM(index=0, simulation=device.simulation)
 
                 elif instrument == Instruments.HIGHLAND:
                     # Initialize Highland Electronics Device
@@ -132,9 +137,10 @@ class HW_devices:
                     # self.smaract_scanner = stage.SmaractScanner(simulation=device.simulation)
                     pass
 
-                elif instrument == Instruments.OPX:
-                    # Initialize OPX Quantum Controller
-                    pass
+            elif instrument == Instruments.OPX:
+                # Initialize OPX Quantum Controller
+                self.config.opx_ip = device.ip_address
+                self.config.opx_cluster = device.misc
 
                 elif instrument == Instruments.ELC_POWER_SUPPLY:
                     # Initialize ELC Power Supply
@@ -164,6 +170,11 @@ class HW_devices:
                     if not device.simulation:
                         self.arduino.connect()
                     print(f"Arduino {'(Simulated)' if device.simulation else 'Connected'} at {device.com_port}")
+
+                elif instrument == Instruments.KEYSIGHT_AWG:
+                    self.keysight_awg_device = Keysight33500B(address=f'TCPIP::{device.ip_address.replace(":","::")}::SOCKET',
+                                                              simulation=device.simulation)
+                    self.keysight_awg_device.connect()
 
 
                 else:

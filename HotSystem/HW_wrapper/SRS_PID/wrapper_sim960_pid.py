@@ -1,4 +1,5 @@
 import math
+from datetime import datetime, timedelta
 from typing import Dict
 
 from matplotlib.backends.backend_pdf import PdfPages
@@ -21,13 +22,19 @@ class SRSsim960:
     We communicate by sending 'CONN <slot>, ...' commands through the SRSsim900.
     """
 
-    def __init__(self, mainframe: SRSsim900, slot: int = 3):
+    def __init__(self, mainframe: SRSsim900, slot: int = 3, simulation: bool=False):
         """
         :param mainframe: An instance of SRSsim900.
         :param slot: The slot number in the SIM900 mainframe where SIM960 is inserted.
         """
+        self.stability_recovery_time_seconds = 10
+        self.auto_tune_running = None
         self.mf = mainframe
         self.slot = slot
+        self.simulation = simulation
+        self.is_stable:bool = False
+        self.last_stable_timestamp:datetime = datetime.now() - timedelta(seconds=self.stability_recovery_time_seconds*1e3)
+        self.stability_tolerance:float = 0.01
 
     def _write(self, command: str) -> None:
         """
@@ -96,6 +103,24 @@ class SRSsim960:
         val = 1 if enable else 0
         self._write(f"PCTL {val}")
 
+    def set_setpoint(self, setpoint: float):
+        """
+        Set a new setpoint on the SIM960 controller.
+
+        :param port: Serial port to connect to the SIM960.
+        :param baud_rate: Baud rate for serial communication.
+        :param setpoint: Desired setpoint value in volts (-10.000 to +10.000).
+        """
+        try:
+            # Ensure the setpoint is within the valid range
+            if not -10.000 <= setpoint <= 10.000:
+                raise ValueError("Setpoint must be within the range -10.000 to +10.000 volts.")
+
+            self._write(f"SETP {setpoint:.3f}")
+
+        except Exception as e:
+            print(f"Error: {e}")
+
     def set_proportional_gain(self, gain: float) -> None:
         """
         Set proportional gain (GAIN).
@@ -104,8 +129,9 @@ class SRSsim960:
         :param gain: Gain in V/V.
         """
         if not (0.1 <= abs(gain) <= 1000):
-            raise ValueError("Gain out of range.")
-        self._write(f"GAIN {gain}")
+            print("Gain out of range.")
+        else:
+            self._write(f"GAIN {gain}")
 
     def get_proportional_gain(self) -> float:
         """
@@ -132,8 +158,9 @@ class SRSsim960:
         :param gain: Gain in V/(V·s).
         """
         if not (1e-2 <= gain <= 5e5):
-            raise ValueError("Integral gain out of range.")
-        self._write(f"INTG {gain}")
+            print("Integral gain out of range.")
+        else:
+            self._write(f"INTG {gain}")
 
     def get_integral_gain(self) -> float:
         """
@@ -160,8 +187,9 @@ class SRSsim960:
         :param gain: Gain in V/(V/s).
         """
         if not (1e-6 <= gain <= 10):
-            raise ValueError("Derivative gain out of range.")
-        self._write(f"DERV {gain}")
+            print("Derivative gain out of range.")
+        else:
+            self._write(f"DERV {gain}")
 
     def get_derivative_gain(self) -> float:
         """
@@ -229,8 +257,31 @@ class SRSsim960:
         :param output: Voltage in volts.
         """
         if not (-10.0 <= output <= 10.0):
-            raise ValueError("Manual output out of range.")
-        self._write(f"MOUT {output}")
+            print("Manual output out of range.")
+        else:
+            self._write(f"MOUT {output:.5f}")
+
+
+    def read_setpoint(self) -> float:
+        """
+        Reads the current setpoint value from the SIM960 device.
+
+        :return: The current setpoint in volts.
+        """
+        try:
+            # Send the query command to read the setpoint
+            response = self._query("SETP?")
+
+            # Convert the response to a float
+            setpoint = float(response.strip())
+            print(f"Current setpoint: {setpoint:.3f} V")
+            return setpoint
+        except ValueError as e:
+            print(f"Error parsing setpoint value: {e}")
+            raise
+        except Exception as e:
+            print(f"Failed to read setpoint: {e}")
+            raise
 
     def get_manual_output(self) -> float:
         """
@@ -260,10 +311,6 @@ class SRSsim960:
         """
         return float(self._query("OMON?"))
 
-    # -----------------------------------------------------------------------
-    # Manual Scan to find peak/valley
-    # -----------------------------------------------------------------------
-
     def manual_scan_and_find_peak(
         self,
         start: float,
@@ -271,7 +318,7 @@ class SRSsim960:
         step: float,
         find_peak: bool = True,
         settle_time: float = 0.2
-    ) -> float:
+        ) -> float:
         """
         Manually scan MOUT between start and stop, reading MMON?.
         Finds the max (if find_peak=True) or min (otherwise).
@@ -311,9 +358,6 @@ class SRSsim960:
         self.set_manual_output(best_mout)
         return best_mout
 
-    # -----------------------------------------------------------------------
-    # Enable PID, wait, read output, then fix it in manual
-    # -----------------------------------------------------------------------
 
     def enable_pid_and_fix_after_wait(self, wait_time: float = 1.0) -> None:
         """
@@ -326,22 +370,151 @@ class SRSsim960:
         self.set_output_mode(manual=True)
         self.set_manual_output(pid_output)
 
-    # -----------------------------------------------------------------------
-    # PID Auto-Tuning
-    # -----------------------------------------------------------------------
-
-
     def auto_tune_pid(
             self,
             method: AutoTuneMethod = AutoTuneMethod.ZIEGLER_NICHOLS,
-            tune_time: float = 300.0,
+            tune_time: float = 30.0,
             max_gain: float = 200.0,
-            gain_step: float = 0.2,
+            gain_step: float = 1.0,
+            amplitude_threshold: float = 0.001,
+            measure_count: int = 5,
+            measure_delay: float = 0.1,
+            stable_cycles_required: int = 3
+        ) -> tuple[float, float, float]:
+        """
+        Auto-tune the PID loop by increasing P until oscillations are detected
+        and remain stable for a given number of cycles.
+
+        :param method: AutoTuneMethod for final P, I, D formula.
+        :param tune_time: Maximum time to spend searching for oscillations.
+        :param max_gain: Maximum proportional gain to try.
+        :param gain_step: Increment step for P gain.
+        :param amplitude_threshold: Minimum amplitude to confirm oscillations.
+        :param measure_count: Number of measurements to average at each step.
+        :param measure_delay: Delay between measurements.
+        :param stable_cycles_required: Number of stable oscillation cycles required.
+        :return: Tuple (P, I, D).
+        """
+        # Initialize PID mode
+        self.set_output_mode(manual=False)
+        self.enable_proportional(True)
+        self.enable_integral(False)
+        self.enable_derivative(False)
+
+        # Start with minimal P gain
+        current_p = 3
+        self.set_proportional_gain(current_p)
+        self.set_integral_gain(0.01)
+        self.set_derivative_gain(0.000001)
+
+        start_time = time.time()
+
+        found_ku = False
+        ku = None
+        tu = None
+
+        # Ensure auto-tune is running
+        self.auto_tune_running = True
+        cycle_count = 0
+        last_amplitude = 0
+        last_time = time.time()
+
+        while self.auto_tune_running and (time.time() - start_time) < tune_time:
+            if current_p > max_gain:
+                break
+
+            # Set proportional gain
+            self.set_proportional_gain(current_p)
+
+            # Measure the output multiple times to calculate the amplitude
+            readings = []
+            for _ in range(measure_count):
+                if not self.auto_tune_running:
+                    print("Auto-tune halted during measurement collection.")
+                    return None, None, None
+                readings.append(self.read_measure_input())
+                time.sleep(measure_delay)
+
+            # Calculate average amplitude
+            avg_reading = sum(readings) / len(readings)
+            amplitude = max(readings) - min(readings)
+
+            print(f"P: {current_p}, Amplitude: {amplitude}")
+
+            # Check for oscillations
+            if amplitude > amplitude_threshold:
+                current_time = time.time()
+                if last_amplitude > 0 and (current_time - last_time) > (measure_count * measure_delay):
+                    cycle_count += 1
+                    print(f"Oscillation cycle detected: Cycle {cycle_count}")
+                    last_time = current_time
+
+                # Reset cycle count if amplitude decreases
+                if amplitude < last_amplitude*0.7:
+                    print(f"Amp = {amplitude}, 0.7*last_amp = {last_amplitude*0.7}, resetting...")
+                    cycle_count = 0
+                    current_p += gain_step
+
+                # Check if stable cycles have been achieved
+                if cycle_count >= stable_cycles_required:
+                    found_ku = True
+                    ku = current_p
+                    # Estimate Tu as the period between last two cycle detections
+                    tu = measure_count * measure_delay
+                    print(f"Stable oscillations detected. Ku: {ku}, Tu: {tu}")
+                    break
+
+                last_amplitude = amplitude
+            else:
+                cycle_count = 0  # Reset if no oscillations are detected
+                last_amplitude = 0
+                current_p += gain_step
+
+
+        # If the process was halted
+        if not self.auto_tune_running:
+            print("Auto-tune halted.")
+            return None, None, None
+
+        if not found_ku:
+            raise RuntimeError("Failed to detect stable oscillations within the tune_time or max_gain limit.")
+
+        # Calculate final PID gains based on the selected method
+        if method == AutoTuneMethod.ZIEGLER_NICHOLS:
+            p_final = 0.6 * ku
+            ti = 0.5 * tu
+            td = 0.125 * tu
+        elif method == AutoTuneMethod.COHEN_COON:
+            p_final = 0.9 * ku
+            ti = 0.75 * tu
+            td = 0.15 * tu
+        elif method == AutoTuneMethod.TYREUS_LUYBEN:
+            p_final = 0.45 * ku
+            ti = 2.2 * tu
+            td = 0.16 * tu
+        else:
+            p_final = 0.5 * ku
+            ti = 1.0 * tu
+            td = 0.1 * tu
+
+        i_final = p_final / ti if ti else 0.0
+        d_final = p_final * td
+
+        print(f"Final PID values: P={p_final}, I={i_final}, D={d_final}")
+        self.auto_tune_running = False
+        return p_final, i_final, d_final
+
+    def auto_tune_pid_original(
+            self,
+            method: AutoTuneMethod = AutoTuneMethod.ZIEGLER_NICHOLS,
+            tune_time: float = 30.0,
+            max_gain: float = 200.0,
+            gain_step: float = 1,
             stable_cycles_required: int = 3,
             amplitude_threshold: float = 0.001,
             measure_count: int = 5,
-            measure_delay: float = 1.0
-    ) -> tuple[float, float, float]:
+            measure_delay: float = 0.1
+        ) -> tuple[float, float, float]:
         """
         Auto-tune the PID loop for slow processes with low-frequency noise (e.g. <1 Hz).
 
@@ -403,9 +576,9 @@ class SRSsim960:
 
         # 2) Ensure P, I, D are zero so we begin from a "no-control" baseline.
         #    Actually set small P to avoid dividing by zero if internal logic does so.
-        self.set_proportional_gain(0.01)
-        self.set_integral_gain(0.0)
-        self.set_derivative_gain(0.0)
+        self.set_proportional_gain(0.1)
+        self.set_integral_gain(0.01)
+        self.set_derivative_gain(0.000001)
 
         # ------------------ Search for ultimate gain Ku and period Tu ------------------
         # We'll ramp P upward, monitoring the output. We'll detect oscillations by:
@@ -423,14 +596,18 @@ class SRSsim960:
         time_of_last_zero_cross = None
         min_val, max_val = None, None
 
-        current_p = 0.01
+        current_p = 0.1
 
-        while (time.time() - start_time) < tune_time:
+        # Ensure auto-tune is running
+        self.auto_tune_running = True
+
+        while self.auto_tune_running and (time.time() - start_time) < tune_time:
             # Ramping logic
             if current_p > max_gain:
                 break  # we've exceeded what we're willing to try; stop
 
             # 1) Set P
+            print(f"setting gain to {current_p}")
             self.set_proportional_gain(current_p)
 
             # 2) Wait & gather multiple measurements to reduce noise
@@ -439,7 +616,9 @@ class SRSsim960:
             time.sleep(total_wait / 2.0)  # partial soak
             readings = []
             for _ in range(measure_count):
-                readings.append(self.read_measure_input())
+                measured_value = self.read_measure_input()
+                print(f"measured value: {measured_value}")
+                readings.append(measured_value)
                 time.sleep(measure_delay)
 
             # 3) Compute average reading
@@ -462,6 +641,7 @@ class SRSsim960:
 
                 # Only track a cycle if amplitude above threshold
                 if amplitude >= amplitude_threshold:
+                    print(f"Oscillations detected amplitude is {amplitude}")
                     if time_of_last_zero_cross is not None:
                         half_period = now - time_of_last_zero_cross
                         cycle_count += 0.5  # each sign flip => half-cycle
@@ -473,8 +653,11 @@ class SRSsim960:
                             # Approx period = average half_period * 2 => but let's assume last half_period * 2
                             tu = half_period * 2
                             found_ku = True
+                            print(f"Found ku : {ku}, Found Tu: {tu}")
                             break
                     time_of_last_zero_cross = now
+                else:
+                    print(f"Oscillations amplitude is {amplitude}")
 
             cycle_sign = new_sign
             current_p += gain_step
@@ -520,6 +703,8 @@ class SRSsim960:
             i_final = p_final / ti if ti != 0 else 0.0
             d_final = p_final * td
 
+        print(f"Final values: {p_final}, {ti}, {td}, {i_final}, {d_final}")
+
         return (p_final, i_final, d_final)
 
     def test_pid_performance(
@@ -533,7 +718,7 @@ class SRSsim960:
             pdf_filename: str = "PID_Performance_Report.pdf",
             tolerance: float = 0.02,
             steady_time: float = 1.0
-    ) -> Dict[str, float]:
+        ) -> Dict[str, float]:
         """
         Test and document the system's PID performance over a specified period.
 
@@ -691,12 +876,35 @@ class SRSsim960:
             "RMSE": rmse
         }
 
+    def set_upper_limit(self, limit: float) -> None:
+        """Set the upper limit for output."""
+        if not (-10.0 <= limit <= 10.0):
+            print("Upper limit out of range.")
+        else:
+            self._write(f"ULIM {limit:.3f}")
+
+    def set_lower_limit(self, limit: float) -> None:
+        """Set the lower limit for output."""
+        if not (-10.0 <= limit <= 10.0):
+            print("Lower limit out of range.")
+        else:
+            self._write(f"LLIM {limit:.3f}")
+
+    def get_upper_limit(self) -> float:
+        """Get the current upper limit."""
+        return float(self._query("ULIM?"))
+
+    def get_lower_limit(self) -> float:
+        """Get the current lower limit."""
+        return float(self._query("LLIM?"))
+
+
 def adjust_pid_for_low_frequency(
     p: float,
     i: float,
     d: float,
     target_bandwidth_hz: float = 0.1
-) -> tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
     """
     Adjust the PID gains to ensure the control loop bandwidth is around or below
     a target low-frequency range (default 0.1 Hz).

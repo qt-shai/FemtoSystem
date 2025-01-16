@@ -24,11 +24,11 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
-from HW_GUI.GUI_arduino import GUIArduino
 from HW_GUI.GUI_atto_scanner import GUIAttoScanner
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
 from HW_GUI.GUI_mattise import GUIMatisse
+from HW_GUI.GUI_wavemeter import GUIWavemeter
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
 from HW_GUI.GUI_sim960PID import GUISIM960
@@ -390,6 +390,7 @@ class PyGuiOverlay(Layer):
         """
         super().__init__()
         self.arduino_gui: Optional[GUIArduino] = None
+        self.srs_pid_gui: list[GUISIM960] = []
         self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
@@ -446,17 +447,17 @@ class PyGuiOverlay(Layer):
                     dpg.set_item_label(item="cld1011lp btn_turn_on_off_modulation",label="disable modulation")
                 else:
                     dpg.set_item_label(item="cld1011lp btn_turn_on_off_modulation",label="enable modulation")
-                
+
                 if self.CLD1011LP_gui.laser.mode in ['POW']:
                     dpg.set_item_label(item="btn_switch_mode",label="set current mode")
                 else:
                     dpg.set_item_label(item="cld1011lp btn_switch_mode",label="set power mode")
-                
+
                 dpg.set_value(value=f"Current " + self.CLD1011LP_gui.laser.actual_current+ " A", item="cld1011lp Laser Current")
                 dpg.set_value(value=f"Temperature " + self.CLD1011LP_gui.laser.actual_temp+ " degC", item="cld1011lp Laser Temp")
                 dpg.set_value(value=f"Modulation " + self.CLD1011LP_gui.laser.modulation_mod, item="cld1011lp Laser Modulation")
                 dpg.set_value(value=f"Mode " + self.CLD1011LP_gui.laser.mode, item="cld1011lp Laser Mode")
-                
+
             except Exception as e:
                 print(f"CLD1011LP render error: {e}")
 
@@ -465,9 +466,9 @@ class PyGuiOverlay(Layer):
             time.sleep(0.15)
             try:
                 if self.coboltGUI.laser.is_connected():
-                    Laser_state=self.coboltGUI.laser.get_state()  
+                    Laser_state=self.coboltGUI.laser.get_state()
                     dpg.set_value("Laser State","State:  "+Laser_state)
-                    Laser_mode=self.coboltGUI.laser.get_mode() 
+                    Laser_mode=self.coboltGUI.laser.get_mode()
                     dpg.set_value("Laser Mode","Mode: "+Laser_mode)
 
                     if self.coboltGUI.laser.is_on():
@@ -758,6 +759,10 @@ class PyGuiOverlay(Layer):
                     )
                     dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
+                elif instrument == Instruments.WAVEMETER:
+                    self.wlm_gui = GUIWavemeter(device=hw_devices.HW_devices().wavemeter, instrument=instrument, simulation=device.simulation)
+                    dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.KEYSIGHT_AWG:
                     self.keysight_gui = GUIKeysight33500B(
@@ -777,17 +782,19 @@ class PyGuiOverlay(Layer):
                     dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
-                elif instrument == Instruments.SIM960:
-
-                    self.srs_pid_gui = GUISIM960(
-                        sim960=hw_devices.HW_devices().SRS_PID_list,
-                        simulation=device.simulation
-                    )
-
-                    self.srs_pid_gui = [GUISIM960(sim960=device, simulation=device.simulation) for device in hw_devices.HW_devices().SRS_PID_list]
-
                 elif instrument == Instruments.ARDUINO:
                     self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
+
+                elif instrument == Instruments.SIM960:
+                    srs_pid_list=hw_devices.HW_devices().SRS_PID_list
+                    matching_device = next(
+                        (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
+                        None  # Default if no match is found
+                    )
+                    self.srs_pid_gui.append(GUISIM960(
+                        sim960=matching_device,
+                        simulation=device.simulation
+                    ))
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")

@@ -6,15 +6,18 @@ class SRSsim900(SerialDevice):
     Includes multiplexer/preamp/voltmeter controls as shown in the example code.
     """
 
-    def __init__(self, port: str, baudrate: int = 9600, timeout: int = 1000):
+    def __init__(self, port: str, baudrate: int = 9600, timeout: int = 1000, simulation:bool = False):
         """
         Initialize the SIM900 mainframe connection.
 
         :param port: The COM port or device path.
         :param baudrate: Baud rate for serial communication.
         :param timeout: Read/write timeout in milliseconds.
+        :param simulation: Simulation mode.
         """
+        print(f"Initializing SIM900 mainframe connection on port {port}.")
         super().__init__(port, baudrate=baudrate, timeout=timeout)
+        #TODO : support simulation mode
 
     def initialize(self) -> None:
         """
