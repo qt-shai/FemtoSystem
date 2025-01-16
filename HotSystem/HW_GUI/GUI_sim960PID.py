@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import threading
 import asyncio
@@ -322,8 +322,6 @@ class GUISIM960:
 
             dpg.add_button(label="Stabilize",callback=self.cb_stabilize)
             dpg.add_button(label="Goto max extinction", callback=self.goto_max_ext)
-
-
 
     def create_stabilize_controls(self):
         """
@@ -704,33 +702,33 @@ class GUISIM960:
                 print(f"[{datetime.now()}] Input = {meas_input:.4f}, Output = {value:.4f}")
                 v_pi = 2.5
 
-                if value < -10:
-                    print(f"jumping to {value+v_pi*4:.3f}")
-                    self.dev.set_manual_output(value + v_pi)
+                if abs(value) > 10:
+                    print('SRS is not stable.')
+                    sign = 1 if value > 0 else -1
+                    offset = v_pi * 4 * sign
+                    print(f"jumping to {value + offset:.3f}")
+                    self.dev.set_manual_output(value + offset)
                     self.dev.set_output_mode(True)
-                    print(f"val = {self.dev.read_output_voltage()}")
-                    self.dev.set_manual_output(value + v_pi*4)
-                    await asyncio.sleep(0.5)
-                    self.dev.set_manual_output(value + v_pi*4)
-                    print(f"val = {self.dev.read_output_voltage()}")
-                    await asyncio.sleep(1.0)
-                    self.dev.set_output_mode(False)
-                elif value > 10:
-                    print(f"jumping to {value - v_pi*4:.3f}")
-                    self.dev.set_manual_output(value - v_pi*4)
-                    self.dev.set_output_mode(True)
-                    self.dev.mf.flush_output()
-                    print(f"val = {self.dev.read_output_voltage()}")
-                    self.dev.set_manual_output(value - v_pi*4)
-                    await asyncio.sleep(0.5)
-                    self.dev.set_manual_output(value - v_pi*4)
-                    print(f"val = {self.dev.read_output_voltage()}")
-                    await asyncio.sleep(1.0)
-                    self.dev.set_output_mode(False)
 
+                    print(f"val = {self.dev.read_output_voltage()}")
+                    self.dev.set_manual_output(value + offset)
+                    await asyncio.sleep(0.5)
+                    self.dev.set_manual_output(value + offset)
+                    print(f"val = {self.dev.read_output_voltage()}")
+                    await asyncio.sleep(1.0)
+                    self.dev.set_output_mode(False)
+                    # self.dev.mf.flush_output()
+                    self.dev.is_stable = False
+                    self.dev.last_stable_timestamp = datetime.now()
+                else:
+                    if not self.dev.is_stable and datetime.now() > self.dev.last_stable_timestamp + timedelta(seconds=self.dev.stability_recovery_time_seconds):
+                        print('SRS is not stable. Trying to recover...')
+                        if np.isclose(self.dev.read_setpoint(), self.dev.read_setpoint(), self.dev.stability_tolerance):
+                            print('SRS is stable.')
+                            self.dev.is_stable = True
             else:
                 # If you have a simulation mode, read or mock a reading
-                print(f"[{datetime.now()}] Simulation measurement = 42.0000")
+                print(f"[{datetime.now()}] Simulation measurement = 0.0000")
 
             # Sleep for 1 second in the asyncio world
             await asyncio.sleep(1.0)

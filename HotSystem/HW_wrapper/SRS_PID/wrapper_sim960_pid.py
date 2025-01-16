@@ -1,4 +1,5 @@
 import math
+from datetime import datetime, timedelta
 from typing import Dict
 
 from matplotlib.backends.backend_pdf import PdfPages
@@ -26,10 +27,14 @@ class SRSsim960:
         :param mainframe: An instance of SRSsim900.
         :param slot: The slot number in the SIM900 mainframe where SIM960 is inserted.
         """
+        self.stability_recovery_time_seconds = 10
         self.auto_tune_running = None
         self.mf = mainframe
         self.slot = slot
         self.simulation = simulation
+        self.is_stable:bool = False
+        self.last_stable_timestamp:datetime = datetime.now() - timedelta(seconds=self.stability_recovery_time_seconds*1e3)
+        self.stability_tolerance:float = 0.01
 
     def _write(self, command: str) -> None:
         """

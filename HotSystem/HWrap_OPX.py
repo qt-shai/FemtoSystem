@@ -109,6 +109,7 @@ class GUI_OPX():
         self.pico = self.HW.picomotor
         self.laser = self.HW.cobolt
         self.matisse = self.HW.matisse_device
+        self.SRS = self.HW.SRS_PID_list
         self.my_qua_jobs = []
 
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
@@ -5621,39 +5622,10 @@ class GUI_OPX():
             print(f"Failed to retrieve initial wavelength position: {e}")
             return
 
-
         num_points = self.matisse.num_scan_points
         half_length = self.matisse.scan_range / 2
         vec = list(np.unique(np.linspace(initial_position-half_length,initial_position+half_length,num_points)))
         print(f"vec: first={vec[0]:.3f}, last={vec[-1]:.3f}")
-
-        # if not self.bEnableSimulate:
-        #     self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms/ self.Tcounter * self.u.ns))
-        #
-        # # Trigger measurement test
-        # try:
-        #     for i in range(10):
-        #         self.qm.set_io2_value(self.ScanTrigger)
-        #         time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement
-        # except Exception as e:
-        #     print(f"Error during trigger measurement at iteration {i}: {e}")
-
-        # Define a plot function
-        # def plot_func(data):
-        #     # Ensure data is squeezed to 1D if it has only one column
-        #     if data.shape[1] == 1:
-        #         data = data.squeeze()
-        #     self.Y_vec = data
-
-            # plt.figure(figsize=(10, 6))
-            # plt.plot(data, marker='o', label="Intensity")
-            #
-            # plt.title("Scan Intensities - Live Update")
-            # plt.xlabel("Index")
-            # plt.ylabel("Intensity (counts/sec)")
-            # plt.legend()
-            # plt.grid(True)
-            # plt.show()
 
         self.StartScanGeneral(
             move_abs_fn=self.matisse.move_wavelength,
@@ -5664,7 +5636,7 @@ class GUI_OPX():
             y_vec=None,
             z_vec=None,
             current_experiment=Experiment.PLE,
-            plot_func=True
+            UseDisplayDuring=False
         )
 
     def StartScan(self):
@@ -6124,7 +6096,8 @@ class GUI_OPX():
             y_vec=None,
             z_vec=None,
             current_experiment = Experiment.SCAN,
-            plot_func=False,
+            UseDisplayDuring=True,
+            meas_continuously=True,
     ):
         """
         A fully generalized scan function that supports 1D, 2D, or 3D scans
@@ -6311,16 +6284,7 @@ class GUI_OPX():
             self.V_scan[2][-1] if Nz > 1 else self.initial_scan_Location[2]
         ]
 
-        # Quick 2D plot init (original code)
-        # self.Plot_Scan(
-        #     Nx=Nx,
-        #     Ny=Ny,
-        #     array_2d=self.scan_intensities[:, :, 0],
-        #     startLoc=[x / 1e6 for x in self.startLoc],
-        #     endLoc=[y / 1e6 for y in self.endLoc],
-        # )
-
-        # QUA program init (example) 
+        # QUA program init (example)
         self.initQUA_gen(
             n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
             num_measurement_per_array=Nx
@@ -6364,95 +6328,159 @@ class GUI_OPX():
             )[0]
             z_calibration_offset = int(z_correction_origin)
 
+        # Initialize the 3D array for intensities
+        self.scan_intensities = np.zeros((Nx, Ny, Nz), dtype=float)
+        scan_counts = np.zeros_like(self.scan_intensities)
+        scan_iterations = np.zeros_like(self.scan_intensities, dtype=int)
+
         # ----------------------------------------------------------------------
         # Main Scanning Loops
         # ----------------------------------------------------------------------
-        for iz in range(Nz):
-            if self.stopScan:
-                break
-            if Nz > 1:
-                # Move Z axis
-                move_abs_fn(2, self.V_scan[2][iz])
-                read_in_pos_fn(2)
+        if meas_continuously:
+            self.scan_counts_aggregated = []
+            print("Entering infinite averaging mode...")
+            while not self.stopScan:
+                for iz in range(Nz):
+                    if Nz > 1:
+                        move_abs_fn(2, self.V_scan[2][iz])
+                        read_in_pos_fn(2)
 
-            iy = 0
-            while iy < Ny:
-                if self.stopScan:
-                    break
-                if Ny > 1:
-                    # Move Y axis
-                    move_abs_fn(1, self.V_scan[1][iy])
-                    read_in_pos_fn(1)
+                    for iy in range(Ny):
+                        if Ny > 1:
+                            move_abs_fn(1, self.V_scan[1][iy])
+                            read_in_pos_fn(1)
 
-                # Flip direction for S-shape scanning
-                self.dir *= -1
+                        for ix in range(Nx):
+                            if self.stopScan:
+                                break
 
-                # For each X
-                line_start_time = time.time()
-                for ix in range(Nx):
-                    if self.stopScan:
-                        break
+                            # Move X axis
+                            move_abs_fn(0, self.V_scan[0][ix])
+                            read_in_pos_fn(0)
 
-                    # Z correction
-                    new_z_pos = self.V_scan[2][iz] if Nz > 1 else self.initial_scan_Location[2]
-                    if self.b_Zcorrection and (self.ZCalibrationData is not None):
-                        z_correction_new = calculate_z_series(
-                            self.ZCalibrationData,
-                            np.array([int(self.V_scan[0][ix])]),
-                            int(self.V_scan[1][iy]) if Ny > 1 else self.initial_scan_Location[1]
-                        )[0] - z_calibration_offset
+                            # Trigger measurement
+                            self.qm.set_io2_value(self.ScanTrigger)
+                            time.sleep(self.total_integration_time * 1e-3 + 1e-3)
 
-                        if abs(z_correction_new - z_correction_previous) > self.z_correction_threshold:
-                            new_z_pos = new_z_pos + int(z_correction_new)
-                            z_correction_previous = z_correction_new
-                            move_abs_fn(2, new_z_pos)
-                            read_in_pos_fn(2)
-                        else:
-                            new_z_pos = new_z_pos + z_correction_previous
+                        # Fetch data after the X loop
+                        if self.counts_handle.is_processing():
+                            self.counts_handle.wait_for_values(1)
+                            counts = self.counts_handle.fetch_all()
+                            self.scan_counts_aggregated.append(np.squeeze(counts))
 
-                    # Move X
-                    # print(f"X: {self.V_scan[0][ix]}")
-                    move_abs_fn(0, self.V_scan[0][ix])
-                    read_in_pos_fn(0)
+                            # Update intensities and iterations for averaging
+                            for ix, count in enumerate(counts):
+                                scan_counts[ix, iy, iz] += count
+                                scan_iterations[ix, iy, iz] += 1
+                                self.scan_intensities[ix, iy, iz] = (
+                                        scan_counts[ix, iy, iz] / scan_iterations[ix, iy, iz]
+                                )
 
-                    # Trigger measurement
-                    self.qm.set_io2_value(self.ScanTrigger)
-                    time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement
 
-                    # If QUA is streaming data
-                    # no-op; we'll fetch after the line
-
-                # End of X loop
-
-                # Now fetch from QUA
-                if self.counts_handle.is_processing():
-                    print('Waiting for QUA counts...')
-                    self.counts_handle.wait_for_values(1)
-                    self.meas_idx_handle.wait_for_values(1)
-                    time.sleep(0.1)
-
-                    meas_idx = self.meas_idx_handle.fetch_all()
-                    print(f"meas_idx = {meas_idx}")
-                    counts = self.counts_handle.fetch_all()
-                    print(f"counts.size = {counts.size}")
-
-                    self.qmm.clear_all_job_results()
-                    if counts.size == Nx:
-                        # Fill the slice
-                        self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
-                        if plot_func:
+                            # Update the graph
                             self.X_vec = x_vec
-                            data=self.scan_intensities[:, :, iz]
+                            data = self.scan_intensities[:, :, iz]
                             if data.shape[1] == 1:
                                 data = data.squeeze()
                             self.Y_vec = data.tolist()
-                            print('Updating graph')
-                            self.Common_updateGraph(_xLabel='Frequency[MHz]', _yLabel="I[counts]")
-                        else:
-                            self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+                            print("Updating graph with averaged data")
+                            self.Common_updateGraph(
+                                _xLabel="Frequency[MHz]",
+                                _yLabel="I[counts]",
+                            )
+        else:
+            for iz in range(Nz):
+                if self.stopScan:
+                    break
+                if Nz > 1:
+                    # Move Z axis
+                    move_abs_fn(2, self.V_scan[2][iz])
+                    read_in_pos_fn(2)
 
-                    else:
-                        print("Warning: counts size mismatch, partial line or measurement error.")
+                iy = 0
+                while iy < Ny:
+                    if self.stopScan:
+                        break
+                    if Ny > 1:
+                        # Move Y axis
+                        move_abs_fn(1, self.V_scan[1][iy])
+                        read_in_pos_fn(1)
+
+                    # Flip direction for S-shape scanning
+                    self.dir *= -1
+
+                    # For each X
+                    line_start_time = time.time()
+                    for ix in range(Nx):
+                        if self.stopScan:
+                            break
+
+                        # Z correction
+                        new_z_pos = self.V_scan[2][iz] if Nz > 1 else self.initial_scan_Location[2]
+                        if self.b_Zcorrection and (self.ZCalibrationData is not None):
+                            z_correction_new = calculate_z_series(
+                                self.ZCalibrationData,
+                                np.array([int(self.V_scan[0][ix])]),
+                                int(self.V_scan[1][iy]) if Ny > 1 else self.initial_scan_Location[1]
+                            )[0] - z_calibration_offset
+
+                            if abs(z_correction_new - z_correction_previous) > self.z_correction_threshold:
+                                new_z_pos = new_z_pos + int(z_correction_new)
+                                z_correction_previous = z_correction_new
+                                move_abs_fn(2, new_z_pos)
+                                read_in_pos_fn(2)
+                            else:
+                                new_z_pos = new_z_pos + z_correction_previous
+
+                        # Move X
+                        # print(f"X: {self.V_scan[0][ix]}")
+                        move_abs_fn(0, self.V_scan[0][ix])
+                        read_in_pos_fn(0)
+
+                        # Trigger measurement
+
+                        while not self.SRS[0].is_stable:
+                            print('Waiting for SRS to stabilize')
+                            time.sleep(1)
+
+                        self.qm.set_io2_value(self.ScanTrigger)
+                        time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement
+
+
+                        # If QUA is streaming data
+                        # no-op; we'll fetch after the line
+
+                    # End of X loop
+
+                    # Now fetch from QUA
+                    if self.counts_handle.is_processing():
+                        print('Waiting for QUA counts...')
+                        self.counts_handle.wait_for_values(1)
+                        self.meas_idx_handle.wait_for_values(1)
+                        time.sleep(0.1)
+
+                        meas_idx = self.meas_idx_handle.fetch_all()
+                        print(f"meas_idx = {meas_idx}")
+                        counts = self.counts_handle.fetch_all()
+                        print(f"counts.size = {counts.size}")
+
+                        self.qmm.clear_all_job_results()
+                        if counts.size == Nx:
+                            # Fill the slice
+                            self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
+                            if UseDisplayDuring:
+                                self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+                            else:
+                                self.X_vec = x_vec
+                                data=self.scan_intensities[:, :, iz]
+                                if data.shape[1] == 1:
+                                    data = data.squeeze()
+                                self.Y_vec = data.tolist()
+                                print('Updating graph')
+                                self.Common_updateGraph(_xLabel='Frequency[MHz]', _yLabel="I[counts]")
+
+                        else:
+                            print("Warning: counts size mismatch, partial line or measurement error.")
 
                 if (meas_idx - previousMeas_idx) % (Nx if Nx > 1 else 1) == 0:
                     iy += 1
@@ -6578,8 +6606,6 @@ class GUI_OPX():
                          int(np_array[1, 6].astype(float) / 1e6)]  # um
         self.endLoc = [int(np_array[-1, 4].astype(float) / 1e6), int(np_array[-1, 5].astype(float) / 1e6),
                        int(np_array[-1, 6].astype(float) / 1e6)]  # um
-
-        # todo align image (camera) with xy grap (scan output)
 
         if bLoad:
             self.Plot_Loaded_Scan(use_fast_rgb=True)  ### HERE
