@@ -172,10 +172,10 @@ class GUI_OPX():
         self.stopScan = True
         self.scanFN = ""
 
-        self.bEnableShuffle = True
-        self.bEnableSimulate = False
+        self.bEnableShuffle = False
+        self.bEnableSimulate = True
         # tracking ref
-        self.bEnableSignalIntensityCorrection = False
+        self.bEnableSignalIntensityCorrection = True
         self.trackingPeriodTime = 10000000  # [nsec]
         self.refSignal = 0.0
         self.TrackIsRunning = True
@@ -212,17 +212,17 @@ class GUI_OPX():
         self.MeasProcessTime = 300  # [nsec], time required for measure element to finish process
         self.Tpump = 500  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
-        self.TcounterPulsed = 500  # [nsec]
+        self.TcounterPulsed = 5000  # [nsec]
         self.total_integration_time = 5.0  # [msec]
         self.Tsettle = 2000 # [nsec]
-        self.t_mw = 289  # [nsec] # from rabi experiment
-        self.t_mw2 = 164  # [nsec] # from rabi experiment
+        self.t_mw = 20  # [nsec] # from rabi experiment
+        self.t_mw2 = 10  # [nsec] # from rabi experiment
         self.Tedge = 100 # [nsec]
         self.Twait = 2.0 # [usec]
 
         self.TRed = 1 #[nsec]
         self.TRedStatistics = 1  # [nsec]
-        self.RedPower = None #[Laser power of the red laser]
+        self.TwaitTimeBin = 16 # [nsec]
 
         self.OPX_rf_amp = 0.5  # [V], OPX max amplitude
         self.rf_Pwr = 0.1  # [V], requied OPX amplitude
@@ -253,7 +253,7 @@ class GUI_OPX():
         self.update_from_xml()
         self.bScanChkbox = False
 
-        self.chkbox_close_all_qm = False
+        self.chkbox_close_all_qm = True
         # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
 
         # self.ZCalibrationData = np.array([[1274289050, 1099174441, -5215799855],[1274289385, -1900825080, -5239700330],[-1852010640, -1900825498, -5277599782]])
@@ -2227,6 +2227,7 @@ class GUI_OPX():
             # sequence parameters.
             self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed)
             self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tWait = self.time_in_multiples_cycle_time(self.TwaitTimeBin)
 
             #New red laser parameters:
             #1. Time of Pulse
@@ -2237,6 +2238,7 @@ class GUI_OPX():
 
             # MW parameters
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw)
+            self.tMW2 = self.time_in_multiples_cycle_time(self.t_mw2)
             self.fMW_1st_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz  # Hz
             self.verify_insideQUA_FreqValues(self.fMW_1st_res)
 
@@ -2245,7 +2247,7 @@ class GUI_OPX():
             #                             delta=self.mw_df * self.u.MHz, asInt=False)
 
             # length and idx vector
-            self.vectorLength = 100 #Number of measurmenets, Consider setting in the init
+            self.vectorLength = 10 #Number of measurmenets, Consider setting in the init
             self.idx_vec = np.arange(0, self.vectorLength, 1)  # indexes vector
             self.number_of_statistical_measurements = 1000
             self.jdx_vec = np.arange(0, self.number_of_statistical_measurements, 1)  # indexes vector
@@ -2263,44 +2265,49 @@ class GUI_OPX():
 
         if Generate_QUA_sequance:
                 # align()
-                # with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
-                #     play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-                # update MW frequency
-                update_frequency("MW", self.f)
-                align()
+                with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
+                    play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                    wait(self.tWait // 4)
+                    align()
 
-                # play Laser
-                play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-                align()
-                # play MW pi/2 pulse
-                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMW/2) // 4) #8 instead of 4 because this is pi/2
-                align()
-                # play Resonant Laser
-                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-                align()
-                # Wait to prevent recording laser light
-                wait(self.tCollectionWait //4)
-                # measure signal
-                #measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                measure("readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref[self.idx_vec_qua[self.i_idx]], self.counts_ref[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
-                align()
-                # play MW pi pulse
-                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
-                align()
-                # play Resonant Laser
-                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-                align()
-                # Wait to prevent recording laser light
-                wait(self.tCollectionWait // 4)
-                measure("readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref2[self.idx_vec_qua[self.i_idx]], self.counts_ref2[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
-                #Define the wait time between two detectors
-                #Add wait time here
-                align()
-                measure("readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref3[self.idx_vec_qua[self.i_idx]], self.counts_ref3[self.idx_vec_qua[self.i_idx]] + self.counts_ref_tmp)
-                align()
+
+                    # play Laser
+                    # with infinite_loop_():
+                    #     #with for_(self.n, 0, self.n < 1, self.n + 1):  # number of averages / total integation time
+                    #     play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                    #     wait(self.tWait // 4)
+
+                    # update MW frequency
+                    update_frequency("MW", self.f)
+                    # play MW pi/2 pulse
+                    play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMW2) // 4)
+                    align()
+                    # play Resonant Laser
+                    play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
+                    align()
+                    # Wait to prevent recording laser light
+                    wait(self.tWait //4)
+                    # align()
+                    # measure signal
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                    assign(self.counts_ref[self.idx_vec_qua[self.i_idx-1]], self.counts_ref[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                    align()
+                    # play MW pi pulse
+                    play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
+                    align()
+                    # play Resonant Laser
+                    play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
+                    align()
+                    # Wait to prevent recording laser light
+                    wait(self.tWait // 4)
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                    assign(self.counts_ref2[self.idx_vec_qua[self.i_idx-1]], self.counts_ref2[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                    #Define the wait time between two detectors
+                    #Add wait time here
+                    align()
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                    assign(self.counts_ref3[self.idx_vec_qua[self.i_idx-1]], self.counts_ref3[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                    align()
 
                 # with if_((self.counts_ref[self.idx_vec_qua[self.i_idx]] > 0) | (self.counts_ref2[self.idx_vec_qua[self.i_idx]] > 0) | (self.counts_ref3[self.idx_vec_qua[self.i_idx]] > 0)):
                 #     # play MW pi/2 pulse
@@ -2321,7 +2328,6 @@ class GUI_OPX():
 
 
         if execute_qua:
-            self.bEnableSignalIntensityCorrection = False
             self.time_bin_entanglement_QUA_PGM(generate_params=True)
             self.QUA_PGM_No_Tracking()
 
@@ -5162,6 +5168,8 @@ class GUI_OPX():
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
         elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
+        elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
         else:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
 
@@ -5293,6 +5301,8 @@ class GUI_OPX():
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
+        elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+            self.counter_Signal, self.ref_signal = self.results.fetch_all()
         else:
             self.signal, self.ref_signal, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
 
@@ -5409,7 +5419,7 @@ class GUI_OPX():
             self.X_vec = self.idx_vec #index
             self.Y_vec = self.counts
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
-            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+            #self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
         self.lock.release()
 
@@ -5514,17 +5524,17 @@ class GUI_OPX():
         self.exp = Experiment.PULSED_ODMR
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        # self.mwModule.Set_freq(self.mw_freq)
-        # self.mwModule.Set_power(self.mw_Pwr)
-        # self.mwModule.Set_IQ_mode_ON()
-        # self.mwModule.Set_PulseModulation_ON()
-        # if not self.bEnableSimulate:
-        #     self.mwModule.Turn_RF_ON()
+        self.mwModule.Set_freq(self.mw_freq)
+        self.mwModule.Set_power(self.mw_Pwr)
+        self.mwModule.Set_IQ_mode_ON()
+        self.mwModule.Set_PulseModulation_ON()
+        if not self.bEnableSimulate:
+            self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
-        # if not self.bEnableSimulate:
-        #     self.StartFetch(_target=self.FetchData)
+        if not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearRABI(self):
         self.exp = Experiment.NUCLEAR_RABI
@@ -5545,13 +5555,13 @@ class GUI_OPX():
         self.exp = Experiment.POPULATION_GATE_TOMOGRAPHY
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
-        # self.mwModule.Set_freq(self.mw_freq)
-        # self.mwModule.Set_power(self.mw_Pwr)
-        # self.mwModule.Set_IQ_mode_ON()
-        # self.mwModule.Set_PulseModulation_ON()
-        # if not self.bEnableSimulate:
-        #     self.mwModule.Turn_RF_ON()
+        #self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
+        self.mwModule.Set_freq(self.mw_freq)
+        self.mwModule.Set_power(self.mw_Pwr)
+        self.mwModule.Set_IQ_mode_ON()
+        self.mwModule.Set_PulseModulation_ON()
+        if not self.bEnableSimulate:
+            self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
@@ -5589,25 +5599,26 @@ class GUI_OPX():
         #calculates the count based on division due to timing limitaiton of the counter
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
-        if not self.bEnableSimulate:
-            self.StartFetch(_target=self.FetchData)
+        # if not self.bEnableSimulate:
+        #     self.StartFetch(_target=self.FetchData)
+        #     print("Fetching Data")
 
     def btnStartNuclearPolESR(self):
         self.exp = Experiment.NUCLEAR_POL_ESR
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        # # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
-        # self.mwModule.Set_freq(self.mw_freq)
-        # self.mwModule.Set_power(self.mw_Pwr)
-        # self.mwModule.Set_IQ_mode_ON()
-        # self.mwModule.Set_PulseModulation_ON()
-        # if not self.bEnableSimulate:
-        #     self.mwModule.Turn_RF_ON()
+        # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
+        self.mwModule.Set_freq(self.mw_freq)
+        self.mwModule.Set_power(self.mw_Pwr)
+        self.mwModule.Set_IQ_mode_ON()
+        self.mwModule.Set_PulseModulation_ON()
+        if not self.bEnableSimulate:
+            self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
-        # if not self.bEnableSimulate:
-        #     self.StartFetch(_target=self.FetchData)
+        if not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)
 
     def btnStartNuclearMR(self):
         self.exp = Experiment.NUCLEAR_MR
@@ -5750,20 +5761,21 @@ class GUI_OPX():
 
             self.GUI_ParametersControl(True)
             if not self.exp == Experiment.SCAN:
-                if (self.fetchTh.is_alive()):
-                    self.fetchTh.join()
-            else:
-                dpg.enable_item("btnOPX_StartScan")
+                print("Hi")
+            #     if (self.fetchTh.is_alive()):
+            #         self.fetchTh.join()
+            # else:
+            #     dpg.enable_item("btnOPX_StartScan")
 
             if (self.job):
                 self.StopJob(self.job, self.qm)
 
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
                 pass
-            else:
-                self.mwModule.Get_RF_state()
-                if self.mwModule.RFstate:
-                    self.mwModule.Turn_RF_OFF()
+            # else:
+            #     self.mwModule.Get_RF_state()
+            #     if self.mwModule.RFstate:
+            #         self.mwModule.Turn_RF_OFF()
 
             if self.exp not in [Experiment.COUNTER, Experiment.SCAN]:
                 self.btnSave()
