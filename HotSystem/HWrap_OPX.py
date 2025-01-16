@@ -5627,17 +5627,7 @@ class GUI_OPX():
         vec = list(np.unique(np.linspace(initial_position-half_length,initial_position+half_length,num_points)))
         print(f"vec: first={vec[0]:.3f}, last={vec[-1]:.3f}")
 
-        self.StartScanGeneral(
-            move_abs_fn=self.matisse.move_wavelength,
-            read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
-            get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device),
-            device_reset_fn=None,
-            x_vec=vec,
-            y_vec=None,
-            z_vec=None,
-            current_experiment=Experiment.PLE,
-            UseDisplayDuring=False
-        )
+        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1], get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device), device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, UseDisplayDuring=False)
 
     def StartScan(self):
         if self.positioner:
@@ -5699,15 +5689,7 @@ class GUI_OPX():
             print(f"x_vec: {x_vec}")
             print(f"y_vec: {y_vec}")
             print(f"z_vec: {z_vec}")
-            self.StartScanGeneral(
-                move_abs_fn=move_axes,
-                read_in_pos_fn=lambda ch: (time.sleep(self.scan_default_sleep_time), True)[1],
-                get_positions_fn=get_positions,
-                device_reset_fn = None,
-                x_vec=x_vec,
-                y_vec=y_vec,
-                z_vec=z_vec
-            )
+            self.start_scan_general(move_abs_fn=move_axes, read_in_pos_fn=lambda ch: (time.sleep(self.scan_default_sleep_time), True)[1], get_positions_fn=get_positions, device_reset_fn=None, x_vec=x_vec, y_vec=y_vec, z_vec=z_vec)
             self.HW.atto_scanner.start_updates()
             self.HW.atto_positioner.start_updates()
         else:
@@ -6086,7 +6068,7 @@ class GUI_OPX():
         if not (self.stopScan):
             self.btnStop()
 
-    def StartScanGeneral(
+    def start_scan_general(
             self,
             move_abs_fn,
             read_in_pos_fn,
@@ -6099,64 +6081,6 @@ class GUI_OPX():
             UseDisplayDuring=True,
             meas_continuously=True,
     ):
-        """
-        A fully generalized scan function that supports 1D, 2D, or 3D scans
-        in any combination of X, Y, Z axes. It preserves all functionality
-        from the original StartScan3D code (file copying, QUA program invocation,
-        data saving, motion logic, etc.).
-
-        :param move_abs_fn: Function to move an axis to an absolute position.
-            Signature: move_abs_fn(axis_index: int, position: float) -> None
-        :param read_in_pos_fn: Function to ensure motion has settled.
-            Signature: read_in_pos_fn(axis_index: int) -> bool
-        :param get_positions_fn: Function to read the current axis positions.
-            Signature: get_positions_fn() -> List[float]
-        :param device_reset_fn: Function to reset the hardware to its initial state.
-            Signature: device_reset_fn() -> None
-        :param x_vec: List of X positions (pm, volts, or any consistent unit).
-                     If None or empty, X axis is skipped.
-        :param y_vec: List of Y positions (same unit rules as x_vec).
-        :param z_vec: List of Z positions (same unit rules).
-
-        # --------------------------------------------------------------------------
-        # Example Usage
-        # --------------------------------------------------------------------------
-
-        Example of calling StartScanGeneral with the original code's values:
-
-        move_abs_fn     = lambda ch, pos: self.positioner.MoveABSOLUTE(ch, pos)
-        read_in_pos_fn  = lambda ch: self.readInpos(ch)
-        get_positions_fn= lambda: [pos for pos in self.positioner.AxesPositions]
-        fetch_data_fn   = self.GlobalFetchData
-
-        # Suppose we want a 2D scan in X and Y, ignoring Z:
-        x_vec = np.linspace(-10000, 10000, 21)  # example 21 points in X
-        y_vec = np.linspace(-5000, 5000, 11)   # example 11 points in Y
-        z_vec = []                              # no scanning in Z
-
-        def device_reset_fn():
-            # Example of special device resets (original code checks for smaractMCS2, etc.)
-            self.positioner.set_in_position_delay(0, delay=0)
-            self.positioner.DisablePositionTrigger(0)
-            self.positioner.SetVelocity(0, 0)
-            self.positioner.setIOmoduleEnable(dev=0)
-            self.positioner.set_Channel_Constant_Mode_State(channel=0)
-
-        self.StartScanGeneral(
-            move_abs_fn=move_abs_fn,
-            read_in_pos_fn=read_in_pos_fn,
-            get_positions_fn=get_positions_fn,
-            fetch_data_fn=fetch_data_fn,
-            device_reset_fn,
-            x_vec=x_vec,
-            y_vec=y_vec,
-            z_vec=z_vec
-        )
-
-        This preserves all original file copying, QUA program calls,
-        S-shaped scanning, data saving, Z-correction, and stop conditions.
-
-        """
 
         # ----------------------------------------------------------------------
         # Dimension Setup
