@@ -220,7 +220,7 @@ class GUI_OPX():
         self.scan_t_end = 2000  # [nsec]
         self.scan_t_dt = 40  # [nsec], must above 4ns (1 cycle)
 
-        self.MeasProcessTime = 300  # [nsec], time required for measure element to finish process
+        self.MeasProcessTime = 0  # [nsec], time required for measure element to finish process
         self.Tpump = 500  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
         self.TcounterPulsed = 5000  # [nsec]
@@ -2244,7 +2244,7 @@ class GUI_OPX():
 
             # sequence parameters.
             self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed)
-            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tMeasure = self.time_in_multiples_cycle_time(self.MeasProcessTime)
             self.tWait = self.time_in_multiples_cycle_time(self.TwaitTimeBin)
 
             #New red laser parameters:
@@ -2282,50 +2282,50 @@ class GUI_OPX():
 
 
         if Generate_QUA_sequance:
+            # align()
+            with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
+                play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                align()
+
+
+
+                # play Laser
+                # with infinite_loop_():
+                #     #with for_(self.n, 0, self.n < 1, self.n + 1):  # number of averages / total integation time
+                #     play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                #     wait(self.tWait // 4)
+
+                # update MW frequency
+                update_frequency("MW", self.f)
+                # play MW pi/2 pulse
+                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMW2) // 4)
+                align()
+                # play Resonant Laser
+                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
+                align()
+                # Wait to prevent recording laser light
+                wait(self.tWait //4)
                 # align()
-                with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
-                    play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-                    wait(self.tWait // 4)
-                    align()
-
-
-                    # play Laser
-                    # with infinite_loop_():
-                    #     #with for_(self.n, 0, self.n < 1, self.n + 1):  # number of averages / total integation time
-                    #     play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-                    #     wait(self.tWait // 4)
-
-                    # update MW frequency
-                    update_frequency("MW", self.f)
-                    # play MW pi/2 pulse
-                    play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMW2) // 4)
-                    align()
-                    # play Resonant Laser
-                    play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-                    align()
-                    # Wait to prevent recording laser light
-                    wait(self.tWait //4)
-                    # align()
-                    # measure signal
-                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                    assign(self.counts_ref[self.idx_vec_qua[self.i_idx-1]], self.counts_ref[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
-                    align()
-                    # play MW pi pulse
-                    play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
-                    align()
-                    # play Resonant Laser
-                    play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-                    align()
-                    # Wait to prevent recording laser light
-                    wait(self.tWait // 4)
-                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                    assign(self.counts_ref2[self.idx_vec_qua[self.i_idx-1]], self.counts_ref2[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
-                    #Define the wait time between two detectors
-                    #Add wait time here
-                    align()
-                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                    assign(self.counts_ref3[self.idx_vec_qua[self.i_idx-1]], self.counts_ref3[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
-                    align()
+                # measure signal
+                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                assign(self.counts_ref[self.idx_vec_qua[self.i_idx-1]], self.counts_ref[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                align()
+                # play MW pi pulse
+                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
+                align()
+                # play Resonant Laser
+                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
+                align()
+                # Wait to prevent recording laser light
+                wait(self.tWait // 4)
+                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                assign(self.counts_ref2[self.idx_vec_qua[self.i_idx-1]], self.counts_ref2[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                #Define the wait time between two detectors
+                #Add wait time here
+                align()
+                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                assign(self.counts_ref3[self.idx_vec_qua[self.i_idx-1]], self.counts_ref3[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                align()
 
                 # with if_((self.counts_ref[self.idx_vec_qua[self.i_idx]] > 0) | (self.counts_ref2[self.idx_vec_qua[self.i_idx]] > 0) | (self.counts_ref3[self.idx_vec_qua[self.i_idx]] > 0)):
                 #     # play MW pi/2 pulse
