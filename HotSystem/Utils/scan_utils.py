@@ -1,9 +1,13 @@
 import os
 import shutil
 import time
-import numpy as np
-from typing import List, Tuple, Callable, Any
 from itertools import product
+from typing import Callable, Any
+from typing import List, Tuple
+
+import numpy as np
+import plotly.graph_objects as go
+
 
 def copy_files(
     create_scan_file_name_func: Callable[[bool], str],
@@ -255,3 +259,113 @@ def format_elapsed_time(elapsed_time: float) -> str:
     hours, rem = divmod(elapsed_time, 3600)
     minutes, seconds = divmod(rem, 60)
     return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
+
+def save_scan_stack_visualization(volume_data: np.ndarray, output_file: str) -> None:
+    """
+    Visualize 4D data (3D spatial data with intensity as the 4th dimension) in an interactive 3D scatter plot
+    and save it to an HTML file.
+
+    :param volume_data: 4D numpy array (shape: [z, y, x, intensity]) representing the 3D scan with intensities.
+    :param output_file: Path to save the interactive HTML file.
+    :raises ValueError: If output_file is not a string.
+    :raises FileNotFoundError: If the directory in output_file does not exist.
+    :raises PermissionError: If the program lacks permission to write to the specified location.
+    :return: None
+    """
+    if not isinstance(output_file, str):
+        raise ValueError("The output_file parameter must be a string representing the file path.")
+
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        raise FileNotFoundError(f"The directory '{output_dir}' does not exist.")
+
+    try:
+        # Extract dimensions
+        z_size, y_size, x_size, _ = volume_data.shape
+        z_coords, y_coords, x_coords = np.mgrid[0:z_size, 0:y_size, 0:x_size]
+        intensities = volume_data[:, :, :, 0].flatten()
+
+        fig = go.Figure(
+            data=go.Scatter3d(
+                x=x_coords.flatten(),
+                y=y_coords.flatten(),
+                z=z_coords.flatten(),
+                mode='markers',
+                marker=dict(
+                    size=5,
+                    color=intensities,  # Intensity as the color dimension
+                    colorscale='Viridis',  # Choose a colorscale
+                    colorbar=dict(title='Intensity'),
+                    opacity=0.8
+                )
+            )
+        )
+
+        fig.update_layout(
+            title="3D Scatter Plot with Intensity",
+            scene=dict(
+                xaxis_title="X",
+                yaxis_title="Y",
+                zaxis_title="Z"
+            )
+        )
+
+        fig.write_html(output_file)
+        print(f"Visualization saved to {output_file}")
+
+    except PermissionError:
+        raise PermissionError(f"Permission denied. Cannot write to '{output_file}'.")
+
+# # Example Usage
+# if __name__ == "__main__":
+#     # Generate random 4D data (50x50x10 with random intensity values)
+#     volume_data = np.random.rand(10, 50, 50, 1) * 100  # Intensity values scaled to 0-100
+#
+#     # Output file path
+#     output_file = "random_3d_visualization.html"
+#
+#     # Visualize and save
+#     save_microscope_stack_visualization(volume_data, output_file)
+
+
+def create_scan_vectors(initial_scan_location: List[float], l_scan: List[float], step_sizes: List[float],
+                        bounds: Tuple[List[float], List[float]]) -> Tuple[List[float], List[float], List[float]]:
+    """
+    Create x, y, and z vectors for a scan based on initial location, scan dimensions, step sizes, and bounds.
+
+    :param initial_scan_location: Initial scan location as a list [x, y, z].
+    :param l_scan: Scan dimensions (half-lengths) as a list [Lx, Ly, Lz].
+    :param step_sizes: Step sizes for each dimension as a list [step_x, step_y, step_z].
+    :param bounds: Tuple of two lists [lower_bounds, upper_bounds] defining the clipping bounds for each axis.
+    :return: Tuple containing x, y, and z vectors for the scan.
+    """
+    if not (len(initial_scan_location) == len(l_scan) == len(step_sizes) == len(bounds[0]) == len(bounds[1]) == 3):
+        raise ValueError("All input lists must have a length of 3.")
+
+    def calculate_vector(center: float, half_length: float, step_size: float, lower_bound: float, upper_bound: float) -> List[float]:
+        """
+        Calculate a vector for a single axis.
+
+        :param center: Center coordinate for the axis.
+        :param half_length: Half-length of the scan region for the axis.
+        :param step_size: Step size for the axis.
+        :param lower_bound: Lower bound for the axis.
+        :param upper_bound: Upper bound for the axis.
+        :return: A list representing the vector for the axis, clipped within bounds.
+        """
+        if step_size <= 0:
+            raise ValueError("Step size must be positive.")
+
+        if half_length <= 0:
+            return [max(lower_bound, min(center, upper_bound))]  # Single point if no scan length
+
+        num_points = max(int((2 * half_length) / step_size) + 1, 2)  # At least 2 points if scanning
+        vector = [np.clip(v,lower_bound, upper_bound) for v in np.linspace(center - half_length, center + half_length, num_points)]
+        return list(np.unique(vector))
+
+    # Generate scan vectors for each dimension
+    x_vec = calculate_vector(initial_scan_location[0], l_scan[0], step_sizes[0], bounds[0][0], bounds[1][0])
+    y_vec = calculate_vector(initial_scan_location[1], l_scan[1], step_sizes[1], bounds[0][1], bounds[1][1])
+    z_vec = calculate_vector(initial_scan_location[2], l_scan[2], step_sizes[2], bounds[0][2], bounds[1][2])
+
+    return x_vec, y_vec, z_vec

@@ -1,6 +1,7 @@
 import time
 from typing import List, Optional, Dict
 from HW_wrapper.abstract_motor import Motor
+from Utils import ObservableField
 from ..Attocube import AttocubeDevice, AttoJSONMethods
 
 
@@ -26,17 +27,22 @@ class AttoDry800(Motor):
         self.no_of_channels: int = 3  # Assuming 3 axes for movement
         self.channels: List[int] = [0, 1, 2]  # Logical channels for X, Y, Z axes
         self.StepsIn1mm: int = 1000000  # Steps in 1mm (assuming 1 step = 1 nm)
-        self._axes_positions: Dict[int, float] = {ch: 0.0 for ch in self.channels}  # Positions in nanometers
-        self._axes_pos_units: Dict[int, str] = {ch: "nm" for ch in self.channels}
+        self.axes_positions: Dict[int, ObservableField[float]] = {
+            ch: ObservableField(0.0) for ch in self.channels}
+        self.axes_voltages: Dict[int, ObservableField[float]] = {
+            ch: ObservableField(0.0) for ch in self.channels}
+        self._axes_pos_units: Dict[int, str] = {ch: "µm" for ch in self.channels}
         self._connected: bool = False
         self.device = AttocubeDevice(address, simulation=simulation)
+        self.fix_output_voltage_min = 0
+        self.fix_output_voltage_max = 60000
+        self._position_bounds: Dict[int, tuple[float, float]] = {0: (0, 5e3),1: (0, 5e3), 2: (1e3, 5e3) }
+        self._velocity_bounds: Dict[int, tuple[float, float]] = {ch: (1, 5000) for ch in self.channels}
 
     def connect(self) -> None:
-        """Connect to the cryostat."""
         if self.simulation:
-            self._simulate_action("connect to the cryostat")
+            self._simulate_action("connect to the atto positioner")
             self._connected = True
-            self.start_position_updates()
         else:
             try:
                 self.device.connect()
@@ -46,11 +52,11 @@ class AttoDry800(Motor):
                 print(f"Error connecting to the device: {e}")
                 self._connected = False
                 raise e
-        self.start_position_updates()
+        self.start_updates()
 
     def disconnect(self) -> None:
         """Disconnect from the cryostat."""
-        self.stop_position_updates()
+        self.stop_updates()
         if self.simulation:
             self._simulate_action("disconnect from the cryostat")
             self._connected = False
@@ -87,11 +93,14 @@ class AttoDry800(Motor):
         Move a specific channel to an absolute position.
 
         :param channel: The channel number to move.
-        :param position: The target position in steps.
+        :param position: The target position in µm.
         """
         self._check_and_enable_output(channel)
-        self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, position])
-        self.wait_for_axes_to_stop([channel])
+        low_bound, high_bound = self._position_bounds[channel]
+        if  low_bound < position < high_bound:
+            self._perform_request(AttoJSONMethods.MOVE_ABSOLUTE.value, [channel, position*1e3])
+        else:
+            print(f"Position out of range. Got {position}. Bounds: {low_bound}, {high_bound}")
 
     def move_relative(self, channel: int, steps: int) -> None:
         """
@@ -111,23 +120,24 @@ class AttoDry800(Motor):
 
         :param channel: The channel number to zero.
         """
-        self._axes_positions[channel] = 0.0
+        self.axes_positions[channel].set( 0.0)
         print(f"Channel {channel} position set to zero.")
 
-    def set_control_fix_output_voltage(self, axis: int, amplitude_mv: int) -> None:
+    def set_control_fix_output_voltage(self, axis: int, amplitude_mv: float) -> None:
         """
         Set a fixed DC voltage for a specific axis.
 
         :param axis: The axis number (0, 1, or 2).
         :param amplitude_mv: The DC voltage to set in millivolts. (up to 60000 mV).
         """
+        amplitude_mv = int(amplitude_mv)
         if axis not in self.channels:
-            raise ValueError(f"Invalid axis {axis}. Valid axes are {self.channels}.")
+            print(f"Invalid axis {axis}. Valid axes are {self.channels}.")
         if not (0<=amplitude_mv<=60000):
-            raise ValueError(f"Invalid amplitude. Must be between 0 and 60000. Received {amplitude_mv}")
-
-        self._perform_request(AttoJSONMethods.SET_CONTROL_FIX_OUTPUT_VOLTAGE.value, [axis, amplitude_mv])
-        print(f"Set axis {axis} to a fixed voltage of {amplitude_mv} mV.")
+            print(f"Invalid amplitude. Must be between 0 and 60000. Received {amplitude_mv}")
+        else:
+            self._perform_request(AttoJSONMethods.SET_CONTROL_FIX_OUTPUT_VOLTAGE.value, [axis, amplitude_mv])
+            print(f"Set axis {axis} to a fixed voltage of {amplitude_mv} mV.")
 
     def get_control_fix_output_voltage(self, axis: int) -> float:
         """
@@ -137,6 +147,19 @@ class AttoDry800(Motor):
         :return: The fixed DC voltage in mV.
         """
         response = self._perform_request(AttoJSONMethods.GET_CONTROL_FIX_OUTPUT_VOLTAGE.value, [axis])
+        if response:
+            return response[1]  # Assuming the position is the second item in the response
+        else:
+            return -1.0
+
+    def get_control_output_voltage(self, axis: int) -> float:
+        """
+        Get the DC voltage of a specific axis.
+
+        :param axis: The axis number (0, 1, or 2).
+        :return: The DC voltage in mV.
+        """
+        response = self._perform_request(AttoJSONMethods.GET_CONTROL_OUTPUT.value, [axis])
         if response:
             return response[1]  # Assuming the position is the second item in the response
         else:
@@ -209,20 +232,6 @@ class AttoDry800(Motor):
         else:
             return "Unknown"
 
-    def get_current_position(self, channel: int) -> float|None:
-        """
-        Get the current position of a specific channel in nanometers.
-
-        :param channel: The channel number.
-        :return: Current position in nanometers.
-        """
-        if self.is_connected():
-            position = self.get_position(channel)
-            self._axes_positions[channel] = position
-        else:
-            return None
-        return position
-
     def get_position_unit(self, channel: int) -> str:
         """
         Get the position unit of the specified channel.
@@ -283,7 +292,10 @@ class AttoDry800(Motor):
             return response
         except Exception as e:
             print(f"Error performing request {method} with params {params}: {e}")
-            raise e
+            self.disconnect()
+            time.sleep(0.1)
+            self.connect()
+            self._perform_request(method, params, verbose)
 
     def _check_and_enable_output(self, channel: int) -> None:
         """
@@ -301,18 +313,21 @@ class AttoDry800(Motor):
         if response_move and not response_move[1]:
             self._perform_request(AttoJSONMethods.SET_CONTROL_MOVE.value, [channel, True])
 
-    def get_position(self, axis: int) -> float:
+    def get_position(self, axis: int) -> Optional[float]:
         """
         Get the current position of a specific axis.
 
         :param axis: The axis number (0, 1, or 2).
         :return: The current position in nanometers.
         """
-        response = self._perform_request(AttoJSONMethods.GET_POSITION.value, [axis])
-        if response:
-            return response[1]  # Assuming the position is the second item in the response
+        if self.simulation:
+            return self.axes_positions[axis].get()
         else:
-            return -1.0
+            response = self._perform_request(AttoJSONMethods.GET_POSITION.value, [axis])
+            if response:
+                return response[1]*1e-3  # Assuming the position is the second item in the response
+            else:
+                return None
 
     def get_moving_status(self) -> Dict[int, bool]:
         """
@@ -320,11 +335,14 @@ class AttoDry800(Motor):
 
         :return: A dictionary with axis numbers as keys and their moving status (True/False) as values.
         """
-        response = self._perform_request(AttoJSONMethods.GET_STATUS_MOVING_ALL_AXES.value, [])
-        if response:
-            return {axis: response[axis] for axis in self.channels}
+        if self.simulation:
+            return {axis:False for axis in self.channels}
         else:
-            return {}
+            response = self._perform_request(AttoJSONMethods.GET_STATUS_MOVING_ALL_AXES.value, [])
+            if response:
+                return {axis: response[axis] for axis in self.channels}
+            else:
+                return {}
 
     def get_control_frequency(self, axis: int) -> float:
         """
@@ -339,7 +357,7 @@ class AttoDry800(Motor):
         else:
             return -1.0
 
-    def wait_for_axes_to_stop(self, axes: List[int], max_wait_time: float = 10.0) -> None:
+    def wait_for_axes_to_stop(self, axes: List[int], max_wait_time: float = 20.0) -> None:
         """
         Wait for a specified list of axes to stop moving.
 

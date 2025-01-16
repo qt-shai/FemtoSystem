@@ -1,48 +1,15 @@
 <SystemInfo>
     <System>
-        <Identifier>HotSystem</Identifier>
+        <Identifier>Daniel</Identifier>
         <Devices>
             <Device>
-                <Instrument>rohde_schwarz</Instrument>
-                <IPAddress>192.168.101.57</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>N/A</SerialNumber>
-                <COMPort>N/A</COMPort>
-            </Device>
-            <Device>
-                <Instrument>smaract_scanner</Instrument>
-                <IPAddress>192.168.101.59</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>MCS2-00018624</SerialNumber>
-                <COMPort>N/A</COMPort>
-            </Device>
-            <Device>
-                <Instrument>cobolt</Instrument>
-                <IPAddress>N/A</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>N/A</SerialNumber>
-                <COMPort>3</COMPort>
-            </Device>
-            <Device>
-                <Instrument>picomotor</Instrument>
-                <IPAddress>8742 101373</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>8742 101373</SerialNumber>
-                <COMPort>N/A</COMPort>
-            </Device>
-            <Device>
-                <Instrument>zelux</Instrument>
-                <IPAddress>N/A</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>22962</SerialNumber>
-                <COMPort>N/A</COMPort>
-            </Device>
-            <Device>
                 <Instrument>OPX</Instrument>
-                <IPAddress>N/A</IPAddress>
+                <IPAddress>192.168.101.61</IPAddress>
                 <MACAddress>N/A</MACAddress>
                 <SerialNumber>N/A</SerialNumber>
                 <COMPort>N/A</COMPort>
+                <Simulation>False</Simulation>
+                <Misc>Cluster_2</Misc>
             </Device>
         </Devices>
     </System>

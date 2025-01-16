@@ -1,12 +1,12 @@
-from abc import ABC, abstractmethod
-from typing import List, Optional, Callable, Dict
 import threading
-import time
-
+from abc import ABC, abstractmethod
+from typing import List, Optional, Dict
 import numpy as np
+from Utils import ObservableField
 
 
 class Motor(ABC):
+
     """
     Abstract base class for motor control.
     This class defines the interface that all motor types must implement to be compatible with the GUI.
@@ -21,6 +21,7 @@ class Motor(ABC):
         :param name: The name of the motor device.
         :param polling_rate: The rate at which the motor's position is polled (in Hz).
         """
+        self._lock = threading.Lock()
         self.simulation:bool = simulation
         self.no_of_channels: int = 0
         self.channels: List[int] = []
@@ -28,11 +29,16 @@ class Motor(ABC):
         self.serial_number: Optional[str] = serial_number  # Optional serial number
         self.name: Optional[str] = name  # Optional device name
         self._polling_rate: float = polling_rate
-        self._observers: List[Callable[[int, float], None]] = []  # Observers to notify on position change
-        self._axes_positions: Dict[int, float] = {}  # Positions per channel
+        self.axes_positions: Dict[int, ObservableField[float]] = {
+            ch: ObservableField(0.0) for ch in self.channels}
+        self.axes_velocities: Dict[int, ObservableField[float]] = {
+            ch: ObservableField(0.0) for ch in self.channels}
         self._axes_pos_units: Dict[int, str] = {}
+        self._axes_velocity_units: Dict[int, str] = {}
         self._update_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._position_bounds: Dict[int, tuple[float,float]] = {ch: (1e9,-1e9) for ch in self.channels}
+        self._velocity_bounds: Dict[int, tuple[float, float]] = {ch: (1e9, -1e9) for ch in self.channels}
 
     def set_polling_rate(self, rate: float) -> None:
         """
@@ -42,30 +48,35 @@ class Motor(ABC):
         """
         self._polling_rate = rate
 
-    def add_position_observer(self, observer: Callable[[int, float], None]) -> None:
+    def set_position(self, channel: int, value: float) -> None:
         """
-        Add an observer that will be notified when the position changes.
+        Set the position of a specific channel, then notify observers.
 
-        :param observer: A callable that accepts the channel number and new position.
+        :param channel: The channel number.
+        :param value: The new position value.
         """
-        self._observers.append(observer)
+        self.verify_channel(channel)
+        lower_bound, upper_bound = self._position_bounds[channel]
 
-    def remove_position_observer(self, observer: Callable[[int, float], None]) -> None:
-        """
-        Remove an observer.
+        if not (lower_bound <= value <= upper_bound):
+            raise ValueError(
+                f"Position {value} is out of bounds for channel {channel}. Bounds: ({lower_bound}, {upper_bound}).")
 
-        :param observer: The observer to remove.
-        """
-        self._observers.remove(observer)
+        with self._lock:
+            self.axes_positions[channel].set(value)
 
     def get_position(self, channel: int) -> float:
         """
-        Get the current position of a specific channel.
+        Get the position of a specific channel, optionally notifying observers.
 
         :param channel: The channel number.
-        :return: The current position.
+        :return: The current position value.
         """
-        return self._axes_positions.get(channel, 0.0)
+        self.verify_channel(channel)
+        with self._lock:
+            value = np.random.rand() if self.simulation else self.axes_positions[channel].get()
+            self.axes_positions[channel].set(value)
+        return value
 
     def get_position_unit(self, channel: int) -> float:
         """
@@ -76,29 +87,16 @@ class Motor(ABC):
         """
         return self._axes_pos_units.get(channel, 0.0)
 
-    def _set_position(self, channel: int, value: float) -> None:
-        """
-        Set the position of a specific channel and notify observers.
-
-        :param channel: The channel number.
-        :param value: The new position value.
-        """
-        self._axes_positions[channel] = value
-        # Notify observers
-        for observer in self._observers:
-            observer(channel, value)
-
-    def start_position_updates(self) -> None:
+    def start_updates(self) -> None:
         """
         Start the thread that updates the motor positions.
         """
         if self._update_thread is None or not self._update_thread.is_alive():
             self._stop_event.clear()
-            self._update_thread = threading.Thread(target=self._position_update_loop)
-            self._update_thread.daemon = True
+            self._update_thread = threading.Thread(target=self._update_loop, daemon=True)
             self._update_thread.start()
 
-    def stop_position_updates(self) -> None:
+    def stop_updates(self) -> None:
         """
         Stop the position update thread.
         """
@@ -107,38 +105,21 @@ class Motor(ABC):
             self._update_thread.join()
             self._update_thread = None
 
-    def _position_update_loop(self) -> None:
-        """
-        The loop that runs in a separate thread to update the positions.
-        """
+    def _update_loop(self) -> None:
+        thread_wait_time = 1 / self._polling_rate
         while not self._stop_event.is_set():
             try:
                 self.update_positions()
-                time.sleep(1 / self._polling_rate)
-            except TimeoutError:
-                print(f"Timeout error in {self} position update loop.")
+                threading.Event().wait(thread_wait_time)
+            except Exception as ex:
+                print(f"Unexpected error in position update loop: {ex}")
 
     def update_positions(self) -> None:
         """
         Update the motor's positions and notify observers.
         """
         for channel in self.channels:
-            if not self.simulation:
-                new_position = self.get_current_position(channel)
-            else:
-                new_position = int(np.random.rand(1)*self.StepsIn1mm)
-            self._set_position(channel, new_position)
-
-    @abstractmethod
-    def get_current_position(self, channel: int) -> float:
-        """
-        Get the current position of a specific channel.
-        This method must be implemented by subclasses.
-
-        :param channel: The channel number.
-        :return: The current position.
-        """
-        pass
+            self.axes_positions[channel].set(self.get_position(channel))
 
     @abstractmethod
     def connect(self) -> None:
@@ -180,7 +161,7 @@ class Motor(ABC):
         pass
 
     @abstractmethod
-    def move_relative(self, channel: int, steps: int) -> None:
+    def move_relative(self, channel: int, steps: float) -> None:
         """
         Move a specific channel by a relative number of steps.
 
@@ -218,15 +199,20 @@ class Motor(ABC):
     def GetPosition(self) -> None:
         """Update internal positions for all axes."""
         for channel in self.channels:
-            position = self.get_position(channel)
-            self._axes_positions[channel] = position
+            self.get_position(channel)
 
     @property
     def AxesPositions(self) -> Dict[int, float]:
         """List of current axis positions in nanometers."""
-        return self._axes_positions
+        return {ch: self.axes_positions[ch].get() for ch in self.channels}
 
     @property
     def AxesPosUnits(self) -> Dict[int, str]:
         """List of position units for each axis."""
         return self._axes_pos_units
+
+    def verify_channel(self, channel: int, verbose:bool = False) -> None:
+        if channel not in self.channels:
+            if verbose:
+                print(f"channel {channel} is not supported. Expected values are {self.channels}")
+            raise ValueError(f"channel {channel} is not supported. Expected values are {self.channels}")

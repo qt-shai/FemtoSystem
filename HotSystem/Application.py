@@ -1,11 +1,20 @@
 import inspect
-import pdb
+import os
+import sys
+import threading
+import time
 from typing import Optional
+
+import dearpygui.dearpygui as dpg
 import dearpygui.demo as DPGdemo
+import glfw
 import imgui
+import numpy as np
 from OpenGL.GL import glGetString
 from imgui.integrations.glfw import GlfwRenderer
 from pyglet.gl import GL_VERSION, glClearColor, glClear, GL_COLOR_BUFFER_BIT
+
+import HW_wrapper.HW_devices as hw_devices
 from Common import Common_Counter_Singletone, KeyboardKeys
 from EventDispatcher import EventDispatcher
 from ExpSequenceGui import ExpSequenceGui
@@ -15,24 +24,18 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_atto_scanner import GUIAttoScanner
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
 from HW_GUI.GUI_mattise import GUIMatisse
+from HW_GUI.GUI_wavemeter import GUIWavemeter
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
-from HW_wrapper import AttoScannerWrapper
-from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
-from Window import Window_singleton
-import threading
-import glfw
-import dearpygui.dearpygui as dpg
-import os
-import time
-import HW_wrapper.HW_devices as hw_devices
+from HW_GUI.GUI_sim960PID import GUISIM960
 from HWrap_OPX import GUI_OPX
-import sys
+from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Utils.Common import calculate_z_series
-import numpy as np
+from Window import Window_singleton
 
 
 class Layer:
@@ -40,7 +43,7 @@ class Layer:
         self.m_DebugName = name
         self.KeepThreadRunning = True
 
-    def on_attach(self,simulation):
+    def on_attach(self):
         pass  # Do something when a layer is added to the layers stack
 
     def on_detach(self):
@@ -95,15 +98,19 @@ class LayerStack:
             pass
 
 class ImGuiOverlay(Layer):
-    def __init__(self, simulation: bool = False):
+    def __init__(self):
         super().__init__()
         self.system_config: Optional[SystemConfig] = load_system_config()
         self.system_type: Optional[SystemType] = self.system_config.system_type
         # TODO : fix for all systems !!
+        simulation = False
         if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
             simulation = True
         self.exSeq = ExpSequenceGui()
-        self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
+        try:
+            self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
+        except:
+            self.mwGUI = None
         # self.opxGUI = GUI_OPX(simulation)
     m_Time = 0.0
 
@@ -116,11 +123,12 @@ class ImGuiOverlay(Layer):
             self.guiID = Common_Counter_Singletone()
             self.guiID.Reset()
             self.exSeq.controls()
-            self.mwGUI.controls()
+            if self.mwGUI:
+                self.mwGUI.controls()
             # self.smaractGUI.controls()
             # self.picomotorGUI.controls()
 
-    def on_attach(self,simulation):
+    def on_attach(self):
         imgui.create_context()
         self.renderer = GlfwRenderer(Application_singletone().GetWindow().m_Window_GL,False)
         
@@ -293,7 +301,7 @@ class Application_singletone:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(self, simulation = False):
+    def __new__(self):
         with self._lock:
             if self._instance is None:
                 self._instance = super(Application_singletone, self).__new__(self)
@@ -303,8 +311,7 @@ class Application_singletone:
                 # print("Application all ready exist!")
                 pass
         return self._instance
-    def __init__(self, simulation = False):
-        self.simulation = simulation
+    def __init__(self):
         self.m_Window.winData.event_callback = self.OnEvent
         pass
     
@@ -348,9 +355,9 @@ class Application_singletone:
         pass
     def PushLayer(self, layer = Layer()): # should get layer
         self.m_LayerStack.push_layer(layer)
-    def PushOverLay(self, layer = Layer(),simulation=False): # should get layer
+    def PushOverLay(self, layer = Layer()): # should get layer
         self.m_LayerStack.push_overlay(layer)
-        layer.on_attach(simulation)
+        layer.on_attach()
     def GetWindow(self):
         return self.m_Window
     def Appclose(self):
@@ -377,11 +384,13 @@ class PyGuiOverlay(Layer):
 
     m_Time = 0.0
 
-    def __init__(self, simulation:bool = False):
+    def __init__(self):
         """
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.arduino_gui: Optional[GUIArduino] = None
+        self.srs_pid_gui: list[GUISIM960] = []
         self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
@@ -397,7 +406,6 @@ class PyGuiOverlay(Layer):
         self.lsr = None
         self.opx = None
         self.cam = None
-        self.simulation = simulation
         self.error = None
         self.picomotor_thread = None
         self.cobolt_thread = None
@@ -410,11 +418,15 @@ class PyGuiOverlay(Layer):
         dpg.run_callbacks(jobs)
         dpg.render_dearpygui_frame()
 
-        if hasattr(self, 'cam') and hasattr(self.cam, 'cam'):
-            if len(self.cam.cam.available_cameras) > 0 and self.cam.cam.constantGrabbing:
-                self.cam.UpdateImage()
-            elif  len(self.cam.cam.available_cameras) == 0:
+        if getattr(self, 'cam', None) and getattr(self.cam, 'cam', None):
+            cam_obj = self.cam.cam
+            if isinstance(cam_obj.available_cameras, list) and cam_obj.available_cameras:
+                if getattr(cam_obj, 'constantGrabbing', False):
+                    self.cam.UpdateImage()
+            else:
                 self.cam = 'none'
+        else:
+            self.cam = 'none'
 
     def render_CLD1011LP(self):
         while self.KeepThreadRunning:
@@ -435,17 +447,17 @@ class PyGuiOverlay(Layer):
                     dpg.set_item_label(item="cld1011lp btn_turn_on_off_modulation",label="disable modulation")
                 else:
                     dpg.set_item_label(item="cld1011lp btn_turn_on_off_modulation",label="enable modulation")
-                
+
                 if self.CLD1011LP_gui.laser.mode in ['POW']:
                     dpg.set_item_label(item="btn_switch_mode",label="set current mode")
                 else:
                     dpg.set_item_label(item="cld1011lp btn_switch_mode",label="set power mode")
-                
+
                 dpg.set_value(value=f"Current " + self.CLD1011LP_gui.laser.actual_current+ " A", item="cld1011lp Laser Current")
                 dpg.set_value(value=f"Temperature " + self.CLD1011LP_gui.laser.actual_temp+ " degC", item="cld1011lp Laser Temp")
                 dpg.set_value(value=f"Modulation " + self.CLD1011LP_gui.laser.modulation_mod, item="cld1011lp Laser Modulation")
                 dpg.set_value(value=f"Mode " + self.CLD1011LP_gui.laser.mode, item="cld1011lp Laser Mode")
-                
+
             except Exception as e:
                 print(f"CLD1011LP render error: {e}")
 
@@ -454,9 +466,9 @@ class PyGuiOverlay(Layer):
             time.sleep(0.15)
             try:
                 if self.coboltGUI.laser.is_connected():
-                    Laser_state=self.coboltGUI.laser.get_state()  
+                    Laser_state=self.coboltGUI.laser.get_state()
                     dpg.set_value("Laser State","State:  "+Laser_state)
-                    Laser_mode=self.coboltGUI.laser.get_mode() 
+                    Laser_mode=self.coboltGUI.laser.get_mode()
                     dpg.set_value("Laser Mode","Mode: "+Laser_mode)
 
                     if self.coboltGUI.laser.is_on():
@@ -642,7 +654,7 @@ class PyGuiOverlay(Layer):
         dpg.setup_dearpygui()
         dpg.show_viewport()
         pass
-    def on_attach(self,simulation):
+    def on_attach(self):
 
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
         self.setup_instruments()
@@ -665,31 +677,27 @@ class PyGuiOverlay(Layer):
         y_offset = 30
         vertical_spacing = 20  # Spacing between GUIs
 
-        """Load specific instruments based on the system configuration."""
-        self.simulation = any(device.instrument == Instruments.SIMULATION for device in self.system_config.devices)
-
         for device in self.system_config.devices:
             instrument = device.instrument
-
+            print(f"loading instrument {instrument.value}")
             try:
 
                 if instrument == Instruments.ROHDE_SCHWARZ:
                     pass
-                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
+                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(device.simulation)
                     # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
                     # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
 
-
                 elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
-                    self.smaractGUI = gui_Smaract.GUI_smaract(simulation=self.simulation,
+                    self.smaractGUI = gui_Smaract.GUI_smaract(simulation=device.simulation,
                                                               serial_number=device.serial_number)
                     dpg.set_item_pos(self.smaractGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.smaractGUI.window_tag) + vertical_spacing
 
-                    if not self.simulation:
+                    if not device.simulation:
                         self.smaract_thread = threading.Thread(target=self.render_smaract)
                         self.smaract_thread.start()
-                
+
                 elif instrument == Instruments.CLD1011LP:
                     self.CLD1011LP_gui = gui_CLD1011LP.GUI_CLD1011LP(self.simulation)
                     dpg.set_item_pos(self.CLD1011LP_gui.window_tag, [20, y_offset])
@@ -699,19 +707,19 @@ class PyGuiOverlay(Layer):
                         self.CLD1011LP_thread.start()
 
                 elif instrument == Instruments.COBOLT:
-                    self.coboltGUI = gui_Cobolt.GUI_Cobolt(self.simulation, com_port = device.com_port)
+                    self.coboltGUI = gui_Cobolt.GUI_Cobolt(device.simulation, com_port = device.com_port)
                     dpg.set_item_pos(self.coboltGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.coboltGUI.window_tag) + vertical_spacing
-                    if not self.simulation:
+                    if not device.simulation:
                         self.cobolt_thread = threading.Thread(target=self.render_cobolt)
                         self.cobolt_thread.start()
 
                 elif instrument == Instruments.PICOMOTOR:
-                    self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=self.simulation)
+                    self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=device.simulation)
                     dpg.set_item_pos(self.picomotorGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.picomotorGUI.window_tag) + vertical_spacing
 
-                    if not self.simulation:
+                    if not device.simulation:
                         self.picomotor_thread = threading.Thread(target=self.render_picomotor)
                         self.picomotor_thread.start()
 
@@ -722,52 +730,72 @@ class PyGuiOverlay(Layer):
                         dpg.set_item_pos(self.cam.window_tag, [self.Monitor_width-dpg.get_item_width(self.cam.window_tag)-vertical_spacing, vertical_spacing])
 
                 elif instrument == Instruments.OPX:
-                    self.opx = GUI_OPX(self.simulation)
+                    self.opx = GUI_OPX(device.simulation)
                     self.opx.controls()
                     dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.ATTO_POSITIONER:
                     self.atto_positioner_gui = GUIMotorAttoPositioner(
-                        motor=hw_devices.HW_devices(simulation=self.simulation).atto_positioner,
+                        motor=hw_devices.HW_devices().atto_positioner,
                         instrument=Instruments.ATTO_POSITIONER,
-                        simulation=self.simulation
+                        simulation=device.simulation
                     )
                     dpg.set_item_pos(self.atto_positioner_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.atto_positioner_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.HIGHLAND:
                     self.highland_gui = GUIHighlandT130(
-                        device=hw_devices.HW_devices(simulation=self.simulation).highland_eom_driver,
-                        simulation=self.simulation
+                        device=hw_devices.HW_devices().highland_eom_driver,
+                        simulation=device.simulation
                     )
                     dpg.set_item_pos(self.highland_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.highland_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.MATTISE:
                     self.mattise_gui = GUIMatisse(
-                        device=hw_devices.HW_devices(simulation=self.simulation).matisse_device,
-                        simulation=self.simulation
+                        device=hw_devices.HW_devices().matisse_device,
+                        simulation=device.simulation
                     )
+                    dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
+                elif instrument == Instruments.WAVEMETER:
+                    self.wlm_gui = GUIWavemeter(device=hw_devices.HW_devices().wavemeter, instrument=instrument, simulation=device.simulation)
                     dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.KEYSIGHT_AWG:
                     self.keysight_gui = GUIKeysight33500B(
-                        device= hw_devices.HW_devices(simulation=self.simulation).keysight_awg_device,
-                        simulation=self.simulation
+                        device= hw_devices.HW_devices().keysight_awg_device,
+                        simulation=device.simulation
                     )
                     dpg.set_item_pos(self.keysight_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.keysight_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.ATTO_SCANNER:
-                    self.atto_scanner_gui = GUIMotor(
-                        motor= hw_devices.HW_devices(simulation=self.simulation).atto_scanner,
+                    hw_devices.HW_devices().atto_scanner.connect()
+                    self.atto_scanner_gui = GUIAttoScanner(
+                        motor= hw_devices.HW_devices().atto_scanner,
                         instrument=Instruments.ATTO_SCANNER,
-                        simulation=self.simulation
+                        simulation=device.simulation
                     )
-                    dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, y_offset])
+                    dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.ARDUINO:
+                    self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
+
+                elif instrument == Instruments.SIM960:
+                    srs_pid_list=hw_devices.HW_devices().SRS_PID_list
+                    matching_device = next(
+                        (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
+                        None  # Default if no match is found
+                    )
+                    self.srs_pid_gui.append(GUISIM960(
+                        sim960=matching_device,
+                        simulation=device.simulation
+                    ))
+
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 
@@ -850,8 +878,9 @@ class PyGuiOverlay(Layer):
 
             # Handle Picomotor controls
             elif self.CURRENT_KEY in [KeyboardKeys.ALT_KEY, KeyboardKeys.Z_KEY]:
-                print("picomotor key")
-                self.handle_picomotor_controls(key_data_enum, is_coarse_pico)
+                if self.picomotorGUI:
+                    print("picomotor key")
+                    self.handle_picomotor_controls(key_data_enum, is_coarse_pico)
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum

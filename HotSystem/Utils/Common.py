@@ -1,13 +1,24 @@
+import time
+from abc import ABC
+from typing import Any, Callable, Generic, TypeVar, Optional
+
+from numpy import ndarray
+
+T = TypeVar('T')
+import serial
+from serial.tools import list_ports
 import math
-import pdb
 import tkinter as tk
 import csv
 from tkinter import filedialog
 import numpy as np
 import pandas as pd
-from typing import Tuple, Union, List, Optional
+from typing import Tuple, Union, List
 from matplotlib import pyplot as plt
 import os
+from tkinter import Tk
+from tkinter.filedialog import askopenfilename
+
 
 def load_scan_plane_calibration_data(file_path: str) -> np.ndarray:
     """
@@ -323,7 +334,7 @@ def open_dialog():  # move to common
 
     return file_path
 
-def load_from_csv(file_name):
+def loadFromCSV(file_name):
     data = []
     with open(file_name, 'r', newline='') as file:
         reader = csv.reader(file)
@@ -351,4 +362,213 @@ def fast_rgb_convert(array2d):
     result_array_ = result_array_.reshape(-1)
     return result_array_
 
+def select_csv_file() -> str:
+    """
+    Open a file dialog to select a CSV file.
 
+    :return: Path to the selected CSV file.
+    """
+    Tk().withdraw()
+    file_path = askopenfilename(filetypes=[("CSV files", "*.csv")])
+    return file_path
+
+
+
+
+
+def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?\r\n"):
+    """
+    Scans all available COM ports, attempts to query each device for an IDN,
+    and returns a dictionary of {port: IDN response} for ports that respond successfully.
+
+    Parameters
+    ----------
+    baudrate : int
+        The baud rate for the serial communication. Default is 9600.
+    timeout : float
+        The read/write timeout (in seconds). Default is 1 second.
+    query_command : str
+        The SCPI or other command to send to the device to request its identity.
+        By default, '*IDN?' with CR-LF newline is used.
+
+    Returns
+    -------
+    dict
+        A dictionary where keys are the port names (e.g., 'COM3', '/dev/ttyUSB0')
+        and values are the device IDN strings, or an error message if something went wrong.
+    """
+    print("Scanning for COM ports")
+    # Dictionary to store results: {port: <idn_or_error>}
+    results = {}
+
+    # List all possible serial ports
+    available_ports = list_ports.comports()
+    print(f"Found {len(available_ports)} COM ports: {[port.device for port in available_ports]}")
+    if not available_ports:
+        # If no COM ports are found, return an empty dictionary or handle as needed
+        return results
+
+    # Iterate over each detected port
+    for port_info in available_ports:
+        port_name = port_info.device
+        port_description = port_info.description
+        print(f"Testing COM port {port_name}")
+        # Initialize the result with a default message in case something fails
+        results[port_name] = "No response or error occurred" if "Bluetooth" not in port_description else "Bluetooth device found"
+
+        if "Bluetooth" in port_description:
+            continue
+
+        try:
+            with serial.Serial(port=port_name, baudrate=baudrate, timeout=timeout, write_timeout=timeout) as ser:
+                # Clear buffers before use
+                ser.reset_input_buffer()
+                ser.reset_output_buffer()
+
+
+                time.sleep(50e-3)
+                # Send the query command
+                ser.write(query_command.encode("utf-8"))
+
+                time.sleep(50e-3)
+                # Read the response (try reading one line or up to a certain size)
+                response = ser.readline().decode(errors="ignore").strip()
+
+                # If no response, keep the default
+                if response:
+                    results[port_name] = response
+                    print(f"Established connection with port {port_name}")
+
+        except serial.SerialException as e:
+            # Catch any serial-related errors (e.g., access denied, device removal, etc.)
+            results[port_name] = f"SerialException: {str(e)}"
+        except UnicodeDecodeError as e:
+            # Catch issues decoding response
+            results[port_name] = f"UnicodeDecodeError: {str(e)}"
+        except Exception as e:
+            # Catch-all for any other unforeseen exceptions
+            results[port_name] = f"Exception: {str(e)}"
+
+    print(results)
+    return results
+
+class ObserverInterface(ABC):
+    """
+    An interface for managing observers and notifying them of updates.
+    """
+
+    def __init__(self) -> None:
+        self._observers: List[Callable[[Any], None]] = []
+
+    def add_observer(self, observer: Callable[[Any], None]) -> None:
+        """
+        Add an observer callback.
+
+        :param observer: A callable accepting a single argument (data).
+        """
+        if not callable(observer):
+            raise ValueError("Observer must be callable.")
+        self._observers.append(observer)
+
+    def remove_observer(self, observer: Callable[[Any], None]) -> None:
+        """
+        Remove a previously registered observer callback.
+
+        :param observer: The observer to remove.
+        """
+        if observer in self._observers:
+            self._observers.remove(observer)
+
+    def notify_observers(self, data: Any) -> None:
+        """
+        Notify all observers with the provided data.
+
+        :param data: The data to pass to all registered observers.
+        """
+        for callback in self._observers:
+            try:
+                callback(data)
+            except Exception as e:
+                print(f"Error notifying observer: {e}")
+
+
+
+class ObservableField(Generic[T], ObserverInterface):
+    """
+    A field that notifies observers on changes and integrates with the ObserverInterface.
+    """
+
+    def __init__(self, initial_value: T):
+        """
+        Initialize the observable field with an initial value.
+
+        :param initial_value: The initial value of the field.
+        """
+        super().__init__()
+        self._value = initial_value
+
+    def get(self) -> T:
+        """Retrieve the value."""
+        return self._value
+
+    def set(self, value: T) -> None:
+        """
+        Set the value and notify observers.
+
+        :param value: The new value to set.
+        """
+        self._value = value
+        self.notify_observers(value)
+
+def is_within_bounds(value: float, bounds: tuple[float, float]) -> bool:
+    """
+    Checks if a given value is within the specified bounds.
+
+    :param value: The value to check.
+    :param bounds: A tuple containing the lower and upper bounds (inclusive).
+    :return: True if the value is within bounds, False otherwise.
+    """
+    if not isinstance(bounds, tuple) or len(bounds) != 2:
+        raise ValueError("Bounds must be a tuple with two elements: (lower_bound, upper_bound).")
+    lower_bound, upper_bound = bounds
+    if lower_bound > upper_bound:
+        raise ValueError("Invalid bounds: lower_bound must be less than or equal to upper_bound.")
+    return lower_bound <= value <= upper_bound
+
+def fit_parabola(x_data: np.ndarray, y_data: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Fit a parabola (quadratic polynomial) to the given x_data and y_data.
+    Returns the polynomial coefficients (a, b, c) for ax^2 + bx + c.
+
+    :param x_data: NumPy array of x-values.
+    :param y_data: NumPy array of y-values.
+    :return: (a, b, c) polynomial coefficients.
+    """
+    if len(x_data) < 3 or len(y_data) < 3:
+        raise ValueError("At least 3 points are required to fit a parabola.")
+
+    if len(x_data) != len(y_data):
+        raise ValueError("x_data and y_data must have the same length.")
+
+    # Fit a quadratic polynomial (2nd-degree) to the data
+    coeffs = np.polyfit(x_data, y_data, 2)  # Returns [a, b, c] for ax^2 + bx + c
+    return coeffs[0], coeffs[1], coeffs[2]
+
+
+def find_parabola_minimum(a: float, b: float, c: float) -> Optional[float]:
+    """
+    Find the x-position of the minimum of a parabola described by ax^2 + bx + c.
+    If the parabola has a maximum (a < 0), return None.
+
+    :param a: Quadratic coefficient.
+    :param b: Linear coefficient.
+    :param c: Constant term.
+    :return: The x-coordinate of the parabola's minimum, or None if the parabola has a maximum.
+    """
+    if a == 0:
+        raise ValueError("Coefficient 'a' cannot be zero for a parabola.")
+
+    if a < 0:
+        return None  # Parabola has a maximum, not a minimum
+
+    return -b / (2.0 * a)
