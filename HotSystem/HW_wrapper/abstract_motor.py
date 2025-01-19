@@ -74,7 +74,7 @@ class Motor(ABC):
         """
         self.verify_channel(channel)
         with self._lock:
-            value = np.random.rand() if self.simulation else self.axes_positions[channel].get()
+            value = np.random.uniform(self._position_bounds[channel][0],self._position_bounds[channel][1]/2) if self.simulation else self.axes_positions[channel].get()
             self.axes_positions[channel].set(value)
         return value
 
