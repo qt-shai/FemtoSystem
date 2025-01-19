@@ -130,7 +130,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
                     # "marker": {
-                    #     "port": ("con1", 3),
+                    #     "port": ("con1", 8),
                     #     "delay": self.detection_delay,
                     #     "buffer": 0,
                     # },
