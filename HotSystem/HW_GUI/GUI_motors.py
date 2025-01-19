@@ -2,6 +2,8 @@ from enum import Enum, auto
 from typing import Optional, List, Callable, Dict
 
 import dearpygui.dearpygui as dpg
+import numpy as np
+
 from Common import DpgThemes, KeyboardKeys
 from HW_wrapper.HW_devices import HW_devices
 from HW_wrapper.abstract_motor import Motor
@@ -80,8 +82,9 @@ class GUIMotor:
             self.connect()
         else:
             for ch in self.dev.channels:
-                print(f"setting {self} positions channle {ch} to 0")
-                self.dev.set_position(ch,0)
+                position = np.random.uniform(self.dev._position_bounds[ch][0], self.dev._position_bounds[ch][1]/2)
+                print(f"setting {self} positions channle {ch} to {position}")
+                self.dev.set_position(ch,position)
 
         self.dev.start_updates()
 

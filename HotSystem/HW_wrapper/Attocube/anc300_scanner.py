@@ -232,6 +232,9 @@ class Anc300Wrapper(Motor):
         if not is_within_bounds(voltage, self._position_bounds[channel]):
             raise ValueError(f"Position {voltage} is out of bounds for channel {channel}.")
         try:
+            if self.simulation:
+                self._simulate_action(f"set position for channel {channel} to {position}")
+                self.axes_positions[channel].set( position)
             if not self.simulation and self.device is not None:
                 self.device.set_offset(channel, voltage)
         except OSError as e:
