@@ -38,7 +38,7 @@ class HW_devices:
             self.wavemeter:Optional[HighFinesseWLM] = None
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
-            self.SRS_PID_list: Optional[SRSsim960] = None
+            self.SRS_PID_list: Optional[list[SRSsim960]] = None
             self.arduino: Optional[ArduinoController] = None  # Add Arduino
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]

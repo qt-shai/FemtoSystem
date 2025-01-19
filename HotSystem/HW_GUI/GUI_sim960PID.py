@@ -262,6 +262,8 @@ class GUISIM960:
     def cb_apply_new_setpoint(self):
         """Apply the new setpoint to the device."""
         try:
+            if self.new_setpoint is None:
+                self.new_setpoint = 0.0
             if not self.simulation:
                 self.dev.set_setpoint(self.new_setpoint)
                 print(f"New setpoint applied: {self.new_setpoint:.3f} V")
@@ -926,7 +928,7 @@ class GUISIM960:
         """
         Callback to set output offset.
         """
-        new_val = dpg.get_value(sender)
+        new_val = round(dpg.get_value(sender),3)
         if not self.simulation:
             self.dev.set_output_offset(new_val)
 

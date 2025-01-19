@@ -88,6 +88,8 @@ class GUI_OPX():
     def __init__(self, simulation: bool = False):
         # HW
 
+        self.counts_handle = None
+        self.meas_idx_handle = None
         self.scan_intensities = None
         self.X_vec = None
         self.Y_vec = None
@@ -111,7 +113,6 @@ class GUI_OPX():
         self.pico = self.HW.picomotor
         self.laser = self.HW.cobolt
         self.matisse = self.HW.matisse_device
-        self.SRS = self.HW.SRS_PID_list
         self.my_qua_jobs = []
 
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
@@ -124,6 +125,12 @@ class GUI_OPX():
             print("Setting up parameters for the atto system")
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
+            if self.HW.atto_scanner:
+                print("Setting up tracking function with atto scanner + positioner")
+                self.tracking_function = self.FindMaxSignal_atto_positioner_and_scanner
+            else:
+                print("Setting up tracking function with atto positioner")
+                self.tracking_function = self.FindMaxSignal_atto_positioner
         if (self.HW.config.system_type == configs.SystemType.DANIEL):
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
@@ -257,7 +264,7 @@ class GUI_OPX():
         self.update_from_xml()
         self.bScanChkbox = False
 
-        self.chkbox_close_all_qm = True
+        self.chkbox_close_all_qm = False
         # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
 
         # self.ZCalibrationData = np.array([[1274289050, 1099174441, -5215799855],[1274289385, -1900825080, -5239700330],[-1852010640, -1900825498, -5277599782]])
@@ -274,7 +281,7 @@ class GUI_OPX():
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
 
-    def close_qm_jobs(self,fn="C:\\Users\\daniel.QT\\PycharmProjects\\QuTi\\qua_jobs.txt"):
+    def close_qm_jobs(self,fn="qua_jobs.txt"):
         with open(fn, 'r') as f:
             loaded_jobs = f.readlines()
             for line in loaded_jobs:
@@ -765,6 +772,7 @@ class GUI_OPX():
 
                 dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
                 dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
+                dpg.add_button(label="PLE", parent="Buttons_Controls", tag="btnPLE", callback=self.btnStartPLE, indent=-1, width=_width)
                 dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
                                callback=self.btnStartNuclearRABI, indent=-1, width=_width)
@@ -814,6 +822,8 @@ class GUI_OPX():
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=True)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1)
             dpg.bind_item_theme(item="btnOPX_Stop", theme="btnRedTheme")
+            dpg.add_button(label="Find Max Intensity", parent="Params_Controls", tag="btnOPX_StartFindMaxIntensity",
+                           callback=self.MoveToPeakIntensity, indent=-1)
 
     def GUI_ScanControls(self):
         self.Calc_estimatedScanTime()
@@ -915,6 +925,7 @@ class GUI_OPX():
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
+
 
     def btn_z_calibrate(self):
         self.ScanTh = threading.Thread(target=self.z_calibrate)
@@ -5444,8 +5455,6 @@ class GUI_OPX():
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
 
-
-
     def StartFetch(self, _target):
         self.to_xml()  # write class parameters to XML
         self.timeStamp = self.getCurrentTimeStamp()
@@ -5567,7 +5576,7 @@ class GUI_OPX():
         self.exp = Experiment.POPULATION_GATE_TOMOGRAPHY
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
-        #self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
+        # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
         self.mwModule.Set_freq(self.mw_freq)
         self.mwModule.Set_power(self.mw_Pwr)
         self.mwModule.Set_IQ_mode_ON()
@@ -5764,7 +5773,7 @@ class GUI_OPX():
             self.stopScan = True
             self.StopFetch = True
             if not self.exp == Experiment.SCAN:
-                if self.bEnableSignalIntensityCorrection:
+                if hasattr(self, 'MAxSignalTh') and self.bEnableSignalIntensityCorrection:
                     if self.MAxSignalTh.is_alive():
                         self.MAxSignalTh.join()
             else:
@@ -5772,22 +5781,24 @@ class GUI_OPX():
                 dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
             self.GUI_ParametersControl(True)
+
             if not self.exp == Experiment.SCAN:
-                print("Hi")
-            #     if (self.fetchTh.is_alive()):
-            #         self.fetchTh.join()
-            # else:
-            #     dpg.enable_item("btnOPX_StartScan")
+                if hasattr(self, 'fetchTh'):
+                    if (self.fetchTh.is_alive()):
+                        self.fetchTh.join()
+            else:
+                dpg.enable_item("btnOPX_StartScan")
 
             if (self.job):
                 self.StopJob(self.job, self.qm)
 
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
                 pass
-            # else:
-            #     self.mwModule.Get_RF_state()
-            #     if self.mwModule.RFstate:
-            #         self.mwModule.Turn_RF_OFF()
+            else:
+                if hasattr(self.mwModule, 'RFstate'):
+                    self.mwModule.Get_RF_state()
+                    if self.mwModule.RFstate:
+                        self.mwModule.Turn_RF_OFF()
 
             if self.exp not in [Experiment.COUNTER, Experiment.SCAN, Experiment.PLE]:
                 self.btnSave()
@@ -5795,10 +5806,13 @@ class GUI_OPX():
             print(f"An error occurred in btnStop: {e}")
 
     def btnSave(self, folder=None):  # save data
+        print("Saving data...")
         try:
             # file name
             # timeStamp = self.getCurrentTimeStamp()  # get current time stamp
-            if folder == None:
+            self.timeStamp = self.getCurrentTimeStamp()
+
+            if folder is None:
                 folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + self.exp.name + '/'
             else:
                 folder_path = folder + self.exp.name + '/'
@@ -5808,6 +5822,7 @@ class GUI_OPX():
 
             # parameters + note        
             self.writeParametersToXML(fileName + ".xml")
+            print(f'XML file saved to {fileName}.xml')
 
             # raw data
             RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
@@ -5816,7 +5831,7 @@ class GUI_OPX():
             print(f"CSV file saved to {fileName}.csv")
 
             # save data as image (using matplotlib)
-            if folder == None:
+            if folder is None:
                 width = 1920  # Set the width of the image
                 height = 1080  # Set the height of the image
                 # Create a blank figure with the specified width and height, Convert width and height to inches
@@ -5833,7 +5848,7 @@ class GUI_OPX():
 
                 # Save the figure as a PNG file
                 plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
-
+                print(f"Figure saved to {fileName}.png")
                 # close figure
                 plt.close(fig)
 
@@ -5842,6 +5857,7 @@ class GUI_OPX():
 
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))  # raise
+            print(f"Error while saving data: {ex}")
 
     def btnStartScan(self):
         self.ScanTh = threading.Thread(target=self.StartScan)
@@ -5872,7 +5888,7 @@ class GUI_OPX():
         vec = list(np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
                 np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
-        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1], get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device), device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, UseDisplayDuring=False)
+        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1], get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device), device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, UseDisplayDuring=False,check_srs_stability=True,)
 
     def StartScan(self):
         if self.positioner:
@@ -6317,19 +6333,9 @@ class GUI_OPX():
         if not (self.stopScan):
             self.btnStop()
 
-    def start_scan_general(
-            self,
-            move_abs_fn,
-            read_in_pos_fn,
-            get_positions_fn,
-            device_reset_fn,
-            x_vec=None,
-            y_vec=None,
-            z_vec=None,
-            current_experiment = Experiment.SCAN,
-            UseDisplayDuring=True,
-            meas_continuously=True,
-    ):
+    def start_scan_general(self, move_abs_fn, read_in_pos_fn, get_positions_fn, device_reset_fn, x_vec=None, y_vec=None,
+                           z_vec=None, current_experiment=Experiment.SCAN, UseDisplayDuring=True, meas_continuously=True,
+                           check_srs_stability=True):
 
         x_vec = x_vec if x_vec else []
         y_vec = y_vec if y_vec else []
@@ -6454,13 +6460,8 @@ class GUI_OPX():
             time.sleep(0.005)
             read_in_pos_fn(x_channel)
 
-        # S-scan direction
         self.dir = 1
-
-        # File naming
         self.scanFN = self.create_scan_file_name(local=True)
-
-        # Initialize measurement counters
         previousMeas_idx = 0
         meas_idx = 0
 
@@ -6481,6 +6482,152 @@ class GUI_OPX():
         scan_counts = np.zeros_like(self.scan_intensities)
         scan_iterations = np.zeros_like(self.scan_intensities, dtype=int)
 
+        def perform_scan_pass(Nx, Ny, Nz, continuous=False,check_srs_stability=True,):
+            nonlocal z_correction_previous, previousMeas_idx, meas_idx
+
+            # For time estimations
+            pass_start_time = time.time()
+
+            for iz in range(Nz):
+                if self.stopScan:
+                    break
+                # Move Z axis if scanning in Z
+                if Nz > 1:
+                    move_abs_fn(2, self.V_scan[2][iz])
+                    read_in_pos_fn(2)
+
+                iy = 0
+                while iy < Ny:
+                    if self.stopScan:
+                        break
+                    # Move Y axis if scanning in Y
+                    if Ny > 1:
+                        move_abs_fn(1, self.V_scan[1][iy])
+                        read_in_pos_fn(1)
+
+                    # Flip direction for S-shape scanning
+                    self.dir *= -1
+
+                    line_start_time = time.time()
+                    # X loop
+                    for ix in range(Nx):
+                        if self.stopScan:
+                            break
+
+                        # Z correction if needed
+                        new_z_pos = self.V_scan[2][iz] if Nz > 1 else self.initial_scan_Location[2]
+                        if self.b_Zcorrection and (self.ZCalibrationData is not None):
+                            z_correction_new = (
+                                    calculate_z_series(
+                                        self.ZCalibrationData,
+                                        np.array([int(self.V_scan[0][ix])]),
+                                        int(self.V_scan[1][iy]) if Ny > 1 else self.initial_scan_Location[1],
+                                    )[0]
+                                    - z_calibration_offset
+                            )
+
+                            if abs(z_correction_new - z_correction_previous) > self.z_correction_threshold:
+                                new_z_pos += int(z_correction_new)
+                                z_correction_previous = z_correction_new
+                                move_abs_fn(2, new_z_pos)
+                                read_in_pos_fn(2)
+                            else:
+                                new_z_pos += z_correction_previous
+
+                        # Move X
+                        move_abs_fn(0, self.V_scan[0][ix])
+                        read_in_pos_fn(0)
+
+                        # Ensure SRS stable
+                        if check_srs_stability:
+                            while not self.HW.SRS_PID_list[0].is_stable:
+                                if self.stopScan:
+                                    return False
+                                print("Waiting for SRS to stabilize")
+                                time.sleep(1)
+
+                        # Trigger measurement
+                        self.qm.set_io2_value(self.ScanTrigger)
+                        time.sleep(self.total_integration_time * 1e-3 + 1e-3)
+
+                    # End X loop
+                    if self.stopScan:
+                        break
+
+                    # Fetch data from QUA
+                    if self.counts_handle.is_processing():
+                        # block until at least 1 data chunk is there
+                        self.counts_handle.wait_for_values(1)
+                        self.meas_idx_handle.wait_for_values(1)
+                        time.sleep(0.1)
+
+                        meas_idx = self.meas_idx_handle.fetch_all()
+                        counts = self.counts_handle.fetch_all()
+
+                        self.qmm.clear_all_job_results()
+
+                        # Validate data
+                        if counts.size == Nx:
+
+                            if continuous:
+                                for ix, ct in enumerate(counts):
+                                    scan_counts[ix, iy, iz] += ct
+                                    scan_iterations[ix, iy, iz] += 1
+                                    self.scan_intensities[ix, iy, iz] = (
+                                            scan_counts[ix, iy, iz] / scan_iterations[ix, iy, iz]
+                                    )
+                            else:
+                                # Single pass: store the slice
+                                self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
+
+                            if UseDisplayDuring:
+                                self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+                            else:
+                                self.X_vec = self.V_scan[0]
+                                data = self.scan_intensities[:, :, iz]
+                                if data.shape[1] == 1:
+                                    data = data.squeeze()
+                                self.Y_vec = data.tolist()
+                                # print("Updating graph")
+                                self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
+                        else:
+                            print(
+                                "Warning: counts size mismatch. Possibly partial line or measurement error."
+                            )
+                            return False
+
+                        # Check if line is “complete”
+                        if not continuous:
+                            if (meas_idx - previousMeas_idx) % (Nx if Nx > 1 else 1) == 0:
+                                # Good line: increment
+                                iy += 1
+                                # Save partial data
+                                self.prepare_scan_data()
+                                self.save_scan_data(
+                                    Nx=Nx, Ny=Ny, Nz=Nz,
+                                    fileName=self.scanFN,
+                                    to_append=True
+                                )
+                            else:
+                                print(
+                                    "****** Error: ******\n"
+                                    "Number of measurements is not consistent with expected.\n"
+                                    "Repeating line..."
+                                )
+                                # do not increment iy => repeat line
+                        else:
+                            # If continuous, just move to the next line
+                            iy += 1
+
+                    # End while over iy
+                # End iz loop
+
+            pass_end_time = time.time()
+            if not continuous:
+                print(f"Pass time: {pass_end_time - pass_start_time:.2f} s")
+            previousMeas_idx = meas_idx
+            return True  # If we got here, presumably okay
+
         # ----------------------------------------------------------------------
         # Main Scanning Loops
         # ----------------------------------------------------------------------
@@ -6489,190 +6636,15 @@ class GUI_OPX():
             self.scan_frequencies_aggregated = []
             print("Entering infinite averaging mode...")
             while not self.stopScan:
-                for iz in range(Nz):
-                    if Nz > 1:
-                        move_abs_fn(2, self.V_scan[2][iz])
-                        read_in_pos_fn(2)
-
-                    for iy in range(Ny):
-                        if Ny > 1:
-                            move_abs_fn(1, self.V_scan[1][iy])
-                            read_in_pos_fn(1)
-
-                        current_positions_array = []
-                        for ix in range(Nx):
-                            if self.stopScan:
-                                break
-
-                            # Move X axis
-                            move_abs_fn(0, self.V_scan[0][ix])
-                            read_in_pos_fn(0)
-
-                            current_positions = get_positions_fn()
-                            current_positions_array.append(current_positions)
-
-                            # Trigger measurement
-                            try:
-                                self.qm.set_io2_value(self.ScanTrigger)
-                                time.sleep(self.total_integration_time * 1e-3 + 1e-3)
-                            except Exception as e:
-                                print(f"Error: {e}")
-
-
-                        # Fetch data after the X loop
-                        if self.counts_handle.is_processing():
-                            self.counts_handle.wait_for_values(1)
-                            counts = self.counts_handle.fetch_all()
-                            self.scan_counts_aggregated.append(np.squeeze(counts))
-                            self.scan_frequencies_aggregated.append(np.squeeze(current_positions_array))
-
-                            # Update intensities and iterations for averaging
-                            for ix, count in enumerate(counts):
-                                scan_counts[ix, iy, iz] += count
-                                scan_iterations[ix, iy, iz] += 1
-                                self.scan_intensities[ix, iy, iz] = (
-                                        scan_counts[ix, iy, iz] / scan_iterations[ix, iy, iz]
-                                )
-
-                            # Update the graph
-                            self.X_vec = current_positions_array
-                            data = self.scan_intensities[:, :, iz]
-                            if data.shape[1] == 1:
-                                data = data.squeeze()
-                            self.Y_vec = data.tolist()
-                            print("Updating graph with averaged data")
-                            self.Common_updateGraph(
-                                _xLabel="Frequency[MHz]",
-                                _yLabel="I[counts]",
-                            )
+                success = perform_scan_pass(Nx, Ny, Nz, continuous=True,check_srs_stability=check_srs_stability)
+                if not success:
+                    print("Error in scanning pass")
+                    return
         else:
-            for iz in range(Nz):
-                if self.stopScan:
-                    break
-                if Nz > 1:
-                    # Move Z axis
-                    move_abs_fn(2, self.V_scan[2][iz])
-                    read_in_pos_fn(2)
-
-                iy = 0
-                while iy < Ny:
-                    if self.stopScan:
-                        break
-                    if Ny > 1:
-                        # Move Y axis
-                        move_abs_fn(1, self.V_scan[1][iy])
-                        read_in_pos_fn(1)
-
-                    # Flip direction for S-shape scanning
-                    self.dir *= -1
-
-                    # For each X
-                    line_start_time = time.time()
-                    for ix in range(Nx):
-                        if self.stopScan:
-                            break
-
-                        # Z correction
-                        new_z_pos = self.V_scan[2][iz] if Nz > 1 else self.initial_scan_Location[2]
-                        if self.b_Zcorrection and (self.ZCalibrationData is not None):
-                            z_correction_new = calculate_z_series(
-                                self.ZCalibrationData,
-                                np.array([int(self.V_scan[0][ix])]),
-                                int(self.V_scan[1][iy]) if Ny > 1 else self.initial_scan_Location[1]
-                            )[0] - z_calibration_offset
-
-                            if abs(z_correction_new - z_correction_previous) > self.z_correction_threshold:
-                                new_z_pos = new_z_pos + int(z_correction_new)
-                                z_correction_previous = z_correction_new
-                                move_abs_fn(2, new_z_pos)
-                                read_in_pos_fn(2)
-                            else:
-                                new_z_pos = new_z_pos + z_correction_previous
-
-                        # Move X
-                        # print(f"X: {self.V_scan[0][ix]}")
-                        move_abs_fn(0, self.V_scan[0][ix])
-                        read_in_pos_fn(0)
-
-                        # Trigger measurement
-
-                        while not self.SRS[0].is_stable:
-                            print('Waiting for SRS to stabilize')
-                            time.sleep(1)
-
-                        self.qm.set_io2_value(self.ScanTrigger)
-                        time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement
-
-
-                        # If QUA is streaming data
-                        # no-op; we'll fetch after the line
-
-                    # End of X loop
-
-                    # Now fetch from QUA
-                    if self.counts_handle.is_processing():
-                        print('Waiting for QUA counts...')
-                        self.counts_handle.wait_for_values(1)
-                        self.meas_idx_handle.wait_for_values(1)
-                        time.sleep(0.1)
-
-                        meas_idx = self.meas_idx_handle.fetch_all()
-                        print(f"meas_idx = {meas_idx}")
-                        counts = self.counts_handle.fetch_all()
-                        print(f"counts.size = {counts.size}")
-
-                        self.qmm.clear_all_job_results()
-                        if counts.size == Nx:
-                            # Fill the slice
-                            self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
-                            if UseDisplayDuring:
-                                self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
-                            else:
-                                self.X_vec = x_vec
-                                data=self.scan_intensities[:, :, iz]
-                                if data.shape[1] == 1:
-                                    data = data.squeeze()
-                                self.Y_vec = data.tolist()
-                                print('Updating graph')
-                                self.Common_updateGraph(_xLabel='Frequency[MHz]', _yLabel="I[counts]")
-
-                        else:
-                            print("Warning: counts size mismatch, partial line or measurement error.")
-
-                if (meas_idx - previousMeas_idx) % (Nx if Nx > 1 else 1) == 0:
-                    iy += 1
-                    # Save partial data
-                    self.prepare_scan_data()
-                    self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN, to_append=True)
-                else:
-                    print(
-                        "****** Error: ******\nNumber of measurements is not consistent with expected.\nRepeating line...")
-
-                previousMeas_idx = meas_idx
-
-                # Move back X if needed for next line
-                if Nx > 1:
-                    move_abs_fn(0, scanPx_Start)
-                    read_in_pos_fn(0)
-
-                # Time calculations
-                line_end_time = time.time()
-                delta_line = line_end_time - line_start_time
-                elapsed_total = line_end_time - start_time
-                lines_left = (Nz - iz) * (Ny - iy)
-                estimated_time_left = delta_line * lines_left - delta_line
-                estimated_time_left = max(0, estimated_time_left)
-
-                if Nz == 1 and Ny == 1:
-                    message = f"Elapsed time: {self.format_time(elapsed_total)}"
-                else:
-                    message = f"time left: {self.format_time(estimated_time_left)}"
-
-                if dpg.does_item_exist("Scan_Message"):
-                    dpg.set_value("Scan_Message", message)
-                else:
-                    print(message)
-
+            success = perform_scan_pass(Nx, Ny, Nz, continuous=False,check_srs_stability=check_srs_stability)
+            if not success:
+                print("Error in scanning pass")
+                return
 
         # ----------------------------------------------------------------------
         # Return to Original Position (Only for Scanned Axes)
@@ -6692,19 +6664,11 @@ class GUI_OPX():
         # Final save
         # Determine the expected number of columns (length of the longest row)
         max_length = max(len(row) for row in self.scan_frequencies_aggregated)
-        # Process scan frequencies
-        self.scan_frequencies_aggregated = np.array([
-            np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_frequencies_aggregated
-        ])
-        # Process scan counts
-        self.scan_counts_aggregated = np.array([
-            np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_counts_aggregated
-        ])
-        # Flatten the scan frequencies and intensities for saving
+        self.scan_frequencies_aggregated = np.array([np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_frequencies_aggregated])
+        self.scan_counts_aggregated = np.array([np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_counts_aggregated])
         self.X_vec = np.array([list(positions) for positions in self.scan_frequencies_aggregated])
         self.scan_intensities = np.array([list(counts) for counts in self.scan_counts_aggregated])[:, :, np.newaxis]
 
-        # Get the dimensions of scan_intensities
         Nx = self.scan_intensities.shape[1]  # X-axis (number of points per line)
         Ny = self.scan_intensities.shape[0]  # Y-axis (number of lines in the data)
         Nz = 1  # Default Z-axis since no additional layers are specified
@@ -6715,10 +6679,7 @@ class GUI_OPX():
         self.Y_vec = list(range(Ny))
         self.Z_vec = list(range(Nz))
 
-        # Prepare the scan data
         self.prepare_scan_data()
-
-        # Save the scan data
         fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
         self.writeParametersToXML(fn + ".xml")
 
@@ -6760,16 +6721,9 @@ class GUI_OPX():
                     z_expected = self.V_scan[2][i]
 
                     # Actual positions
-                    x_actual = (
-                        self.X_vec[j, k] if self.X_vec is not None and j < self.X_vec.shape[0] and k < self.X_vec.shape[1]
-                        else x_expected
-                    )
-                    y_actual = (
-                        self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected
-                    )
-                    z_actual = (
-                        self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected
-                    )
+                    x_actual = (self.X_vec[j, k] if self.X_vec is not None and j < self.X_vec.shape[0] and k < self.X_vec.shape[1] else x_expected)
+                    y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
+                    z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
 
                     # Intensity at the current position
                     intensities = (
@@ -6783,22 +6737,6 @@ class GUI_OPX():
 
                     # Append data for this point
                     self.scan_Out.append([x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
-
-    def OpenDialog(self, filetypes=None):  # move to common
-        if filetypes is None:
-            filetypes = [("All Files", "*.*")]
-        root = tk.Tk()  # Create the root window
-        root.withdraw()  # Hide the main window
-        file_path = filedialog.askopenfilename(filetypes=filetypes)  # Open a file dialog
-
-        if file_path:  # Check if a file was selected
-            print(f"Selected file: {file_path}")  # add to logger
-        else:
-            print("No file selected")  # add to logger
-
-        root.destroy()  # Close the main window if your application has finished using it
-
-        return file_path
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
@@ -6883,6 +6821,8 @@ class GUI_OPX():
         return x_fixed, y_fixed, z_fixed, allPoints_fixed, pattern_length
 
     def btnGetLoggedPoints(self):
+        if self.HW.atto_scanner:
+            return
         current_label = dpg.get_item_label("btnOPX_GetLoggedPoint")
         prefix = "mcs"
         num_of_logged_points = 0
@@ -6954,9 +6894,9 @@ class GUI_OPX():
 
     def btnLoadScan(self):
         # Open the dialog with a filter for .csv files and all file types
-        fn = self.OpenDialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
+        fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
         if fn:  # Check if a file is selected
-            data = self.loadFromCSV(fn)
+            data = loadFromCSV(fn)
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)
 
@@ -6969,7 +6909,12 @@ class GUI_OPX():
 
         # raw data
         Scan_array = np.array(self.scan_Out)
-        RawData_to_save = {'X': Scan_array[:, 0].tolist(), 'Y': Scan_array[:, 1].tolist(), 'Z': Scan_array[:, 2].tolist(),
+        if to_append:
+            RawData_to_save = {'X': Scan_array[-Nx:, 0].tolist(), 'Y': Scan_array[-Nx:, 1].tolist(), 'Z': Scan_array[-Nx:, 2].tolist(),
+                               'Intensity': Scan_array[-Nx:, 3].tolist(), 'Xexpected': Scan_array[-Nx:, 4].tolist(), 'Yexpected': Scan_array[-Nx:, 5].tolist(),
+                               'Zexpected': Scan_array[-Nx:, 6].tolist(), }
+        else:
+            RawData_to_save = {'X': Scan_array[:, 0].tolist(), 'Y': Scan_array[:, 1].tolist(), 'Z': Scan_array[:, 2].tolist(),
             'Intensity': Scan_array[:, 3].tolist(), 'Xexpected': Scan_array[:, 4].tolist(), 'Yexpected': Scan_array[:, 5].tolist(),
             'Zexpected': Scan_array[:, 6].tolist(), }
 
@@ -7010,7 +6955,7 @@ class GUI_OPX():
         if local:
             folder_path = "C:/temp/TempScanData/"
         else:
-            folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/scan/'
+            folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}'
         if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
             os.makedirs(folder_path)
         fileName = os.path.join(folder_path, timeStamp + "scan_" + self.expNotes)
@@ -7093,11 +7038,11 @@ class GUI_OPX():
             print("")
 
             # optional: fit to parabula
-            if False:
-                coefficients = np.polyfit(self.coordinate, self.track_X, 2)
-                a, b, c = coefficients
-                maxPos_parabula = int(-b / (2 * a))
-                print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula}")
+            # if False:
+            #     coefficients = np.polyfit(self.coordinate, self.track_X, 2)
+            #     a, b, c = coefficients
+            #     maxPos_parabula = int(-b / (2 * a))
+            #     print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula}")
 
             # find max signal
             maxPos = self.coordinate[self.track_X.index(max(self.track_X))]
@@ -7119,13 +7064,144 @@ class GUI_OPX():
         self.qm.set_io1_value(0)
         time.sleep(0.1)
 
+    def FindMaxSignal_atto_positioner_and_scanner(self):
+        """
+        Find the peak intensity by optimizing offset voltages:
+        - X and Y axes are controlled by the atto_scanner.
+        - Z axis is controlled by the atto_positioner.
+        """
+        print('Start looking for peak intensity using atto_positioner_and_scanner')
+
+        # Move and read functions for mixed axes control
+        def move_axes(channel: int, position: float):
+            """
+            Set offset voltage for the corresponding axis.
+            """
+            if channel in [0, 1]:  # X and Y axes: atto_scanner
+                self.HW.atto_scanner.set_offset_voltage(self.HW.atto_scanner.channels[channel], position)
+            elif channel == 2:  # Z axis: atto_positioner
+                self.HW.atto_positioner.set_control_fix_output_voltage(self.HW.atto_positioner.channels[channel], int(position))
+
+        def get_positions():
+            """
+            Get current positions for all three axes.
+            """
+            x = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[0])  # X axis
+            y = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[1])  # Y axis
+            z = self.HW.atto_positioner.get_control_fix_output_voltage(2)  # Z axis
+            return x, y, z
+
+        # Example scan radii for each axis
+        tracking_scan_radius = [2.5, 2.5, 10000]
+
+        initial_guess = get_positions()
+        bounds = self.calculate_tracking_bounds(initial_guess, tracking_scan_radius)
+
+        # Call the generalized find_max_signal function
+        x_opt, y_opt, z_opt, intensity = find_max_signal(
+            move_abs_fn=move_axes,
+            read_in_pos_fn=lambda ch: (time.sleep(30e-3), True)[1],  # Ensure move has settled
+            get_positions_fn=get_positions,
+            fetch_data_fn=self.GlobalFetchData,  # Function to fetch new data
+            get_signal_fn=lambda: self.counter_Signal[0] if self.exp == Experiment.COUNTER else self.tracking_ref,
+            # Signal to maximize
+            bounds=bounds,
+            method=OptimizerMethod.DIRECTIONAL,
+            initial_guess=initial_guess,
+            max_iter=30,
+            use_coarse_scan=True
+        )
+
+        # Reset the output state or finalize settings
+        self.qm.set_io1_value(0)
+
+        print(
+            f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV, z={z_opt:.2f} mV with intensity={intensity:.4f}"
+        )
+
+    def calculate_tracking_bounds(self, initial_guess, scan_radius):
+        x_guess, y_guess, z_guess = initial_guess
+        # Clip around each axis with respective scan radii
+        x_bounds = (
+            np.clip(x_guess - scan_radius[0], self.HW.atto_scanner.offset_voltage_min,
+                    self.HW.atto_scanner.offset_voltage_max),
+            np.clip(x_guess + scan_radius[0], self.HW.atto_scanner.offset_voltage_min,
+                    self.HW.atto_scanner.offset_voltage_max),
+        )
+        y_bounds = (
+            np.clip(y_guess - scan_radius[1], self.HW.atto_scanner.offset_voltage_min,
+                    self.HW.atto_scanner.offset_voltage_max),
+            np.clip(y_guess + scan_radius[1], self.HW.atto_scanner.offset_voltage_min,
+                    self.HW.atto_scanner.offset_voltage_max),
+        )
+        z_bounds = (
+            np.clip(z_guess - scan_radius[2], self.HW.atto_positioner.fix_output_voltage_min,
+                    self.HW.atto_positioner.fix_output_voltage_max),
+            np.clip(z_guess + scan_radius[2], self.HW.atto_positioner.fix_output_voltage_min,
+                    self.HW.atto_positioner.fix_output_voltage_max),
+        )
+        bounds = (x_bounds, y_bounds, z_bounds)
+        print(f"Bounds are : {bounds}")
+        return bounds
+
+    def FindMaxSignal_atto_positioner(self):
+
+        print('Start looking for peak intensity using atto_positioner')
+        initial_position = [self.HW.atto_positioner.get_control_fix_output_voltage(ch) for ch in self.HW.atto_positioner.channels]
+
+        bounds = ((self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max),
+                  (self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max),
+                  (self.HW.atto_positioner.fix_output_voltage_min, self.HW.atto_positioner.fix_output_voltage_max))
+
+        # Now we call our generalized FindMaxSignal function with these parameters
+
+        x_opt, y_opt, z_opt, intensity = find_max_signal(
+            move_abs_fn= self.HW.atto_positioner.set_control_fix_output_voltage,
+            read_in_pos_fn= lambda ch: (time.sleep(30e-3), True)[1],
+            get_positions_fn=lambda: [self.HW.atto_positioner.get_control_fix_output_voltage(ch) for ch in self.HW.atto_positioner.channels],
+            fetch_data_fn=self.GlobalFetchData,
+            get_signal_fn=lambda: self.counter_Signal[0] if self.exp == Experiment.COUNTER else self.tracking_ref,
+            bounds=bounds,
+            method=OptimizerMethod.DIRECTIONAL,
+            initial_guess=initial_position,
+            max_iter=30,
+            use_coarse_scan= True
+        )
+
+        time.sleep(0.1)
+        self.GlobalFetchData()
+
+        self.refSignal = self.counter_Signal[0] if self.exp == Experiment.COUNTER else self.tracking_ref
+        print(f"new ref Signal = {self.refSignal}")
+
+        self.qm.set_io1_value(0)
+        time.sleep(0.1)
+
+        print(
+            f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV, z={z_opt:.2f} mV with intensity={intensity:.4f}")
+
+    def MoveToPeakIntensity(self):
+        print('Start looking for peak intensity')
+        if self.bEnableSignalIntensityCorrection:
+            print(f"self.HW.atto_scanner is {self.HW.atto_scanner}")
+            print(f"self.HW.atto_positioner is {self.HW.atto_positioner}")
+            if self.HW.atto_scanner or self.HW.atto_positioner:
+                print("Working in Atto system")
+                self.MAxSignalTh = threading.Thread(target=self.tracking_function)
+            else:
+                self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
+            self.MAxSignalTh.start()
+
     def SearchPeakIntensity(self):
         if self.bEnableSignalIntensityCorrection:
             if (self.refSignal == 0) and (not (self.MAxSignalTh.is_alive())):
                 self.refSignal = self.tracking_ref  # round(sum(self.Y_Last_ref) / len(self.Y_Last_ref))
             elif (self.refSignal * self.TrackingThreshold > self.tracking_ref) and (not (self.MAxSignalTh.is_alive())):
                 self.qm.set_io1_value(1)  # shift to reference only
-                self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
+                if self.system_name == SystemType.ATTO.value:
+                    self.MAxSignalTh = threading.Thread(target=self.tracking_function)
+                else:
+                    self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
                 self.MAxSignalTh.start()
             elif (not (self.MAxSignalTh.is_alive())):
                 self.refSignal = self.refSignal if self.refSignal > self.tracking_ref else self.tracking_ref
@@ -7214,15 +7290,6 @@ class GUI_OPX():
             except Exception as fallback_error:
                 fallback_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 print(f"[{fallback_time}] Critical error: Unable to save data to fallback location. Error: {fallback_error}")
-
-    def loadFromCSV(self, file_name):
-        data = []
-        with open(file_name, 'r', newline='') as file:
-            reader = csv.reader(file)
-            for row in reader:
-                data.append(row)
-        del data[0]
-        return data
 
     def writeParametersToXML(self, fileName):
         self.to_xml(fileName)
