@@ -40,7 +40,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
         # Delays
         self.detection_delay = 28 # ns
         self.detection_delay_OPD = 308 # ns
-        self.mw_delay = 118  # ns
+        self.mw_delay = 0  # ns
         self.laser_delay = 120  # ns
 
         # RF parameters

@@ -2233,11 +2233,11 @@ class GUI_OPX():
 
             #Updated experiment parameters
             self.MeasProcessTime = 16  # [nsec], time required for measure element to finish process
-            self.TcounterPulsed = 5000  # [nsec]
+            self.TGreenLaser = 5000  # [nsec]
             self.t_mw = 20  # [nsec]
 
             # sequence parameters.
-            self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tLaser = self.time_in_multiples_cycle_time(self.TGreenLaser)
             self.tMeasure = self.time_in_multiples_cycle_time(self.MeasProcessTime) #Measurement time of the detector
             self.tWaitTimeGateSuppression = self.time_in_multiples_cycle_time(self.TwaitTimeBin)
 
@@ -2257,11 +2257,13 @@ class GUI_OPX():
 
         if Generate_QUA_sequance:
             # align()
+            # Consider perfoming the calculations outside the sequence for reduction of runtime
             with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
-                play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-                align("MW","Laser")
                 # update MW frequency
                 update_frequency("MW", self.f)
+                #Intialization of the state using a Green Laser to |0>
+                play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                align("MW","Laser")
                 # play MW pi/2 pulse
                 play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMWPiHalf) // 4)
                 align("MW","Resonant_Laser")
@@ -2273,7 +2275,7 @@ class GUI_OPX():
                 # align()
                 # measure signal
                 measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_ref_tmp)
+                assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_ref_tmp) #Change name to counts
                 align("Detector_OPD","MW")
                 # play MW pi pulse
                 play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
