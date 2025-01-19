@@ -43,7 +43,7 @@ class QUAConfigBase(ABC):
         self.pi_half_len_NV = self.pi_len_NV  # in units of ns
 
         # MW Switch parameters
-        self.switch_delay = 122  # in ns
+        self.switch_delay = 94  # in ns
         self.switch_buffer = 0  # in ns
         self.switch_len = 100  # in ns
 
@@ -52,7 +52,7 @@ class QUAConfigBase(ABC):
         self.signal_threshold_OPD = 1 # in voltage (with 20dB attenuation it was 0.1)
 
         # Delays
-        self.detection_delay = 28 # ns
+        self.detection_delay = 112  # ns
         self.detection_delay_OPD = 308
         self.mw_delay = 0  # ns
         self.laser_delay = 120  # ns

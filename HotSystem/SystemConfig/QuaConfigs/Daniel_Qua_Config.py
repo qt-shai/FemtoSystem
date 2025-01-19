@@ -8,6 +8,46 @@ class DanielQuaConfig(configs.QUAConfigBase):
         super().__init__()
         # Readout parameters
         self.resonant_laser_delay = 124  # Todo: change to physical number
+        self.NV_IF_freq = 124e6  # in units of Hz
+        self.NV_LO_freq = 2.7e9  # in units of Hz
+
+        # Pulses lengths
+        self.initialization_len = 5000  # in ns
+        self.meas_len = 300  # in ns
+        self.minimal_meas_len = 16  # in ns
+        self.long_meas_len = 5e3  # in ns
+        self.very_long_meas_len = 25e3  # in ns
+
+        # MW parameters
+        self.mw_amp_NV = 0.5  # in units of volts
+        self.mw_len_NV = 100  # in units of ns
+
+        self.pi_amp_NV = 0.5  # in units of volts
+        self.pi_len_NV = 16  # in units of ns
+
+        self.pi_half_amp_NV = self.pi_amp_NV / 2  # in units of volts
+        self.pi_half_len_NV = self.pi_len_NV  # in units of ns
+
+        # MW Switch parameters
+        self.switch_delay = 122  # in ns
+        self.switch_buffer = 0  # in ns
+        self.switch_len = 100  # in ns
+
+        # Readout parameters
+        self.signal_threshold = -400  # in ADC units
+        self.signal_threshold_OPD = 1 # in voltage (with 20dB attenuation it was 0.1)
+
+        # Delays
+        self.detection_delay = 28 # ns
+        self.detection_delay_OPD = 308 # ns
+        self.mw_delay = 118  # ns
+        self.laser_delay = 120  # ns
+
+        # RF parameters
+        self.rf_frequency = 3.03 * self.u.MHz
+        self.rf_amp = 0.5
+        self.rf_length = 1000
+        self.rf_delay = 8  # ns
         self.scannerX_delay = 0
         self.scannerY_delay = 0
         self.phaseEOM_delay = 0
@@ -130,7 +170,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
                     # "marker": {
-                    #     "port": ("con1", 3),
+                    #     "port": ("con1", 8),
                     #     "delay": self.detection_delay,
                     #     "buffer": 0,
                     # },
