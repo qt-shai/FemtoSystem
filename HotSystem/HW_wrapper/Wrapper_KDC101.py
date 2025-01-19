@@ -4,7 +4,7 @@ import clr
 import inspect
 import threading
 
-from HotSystem.HW_wrapper.abstract_motor import Motor
+from HW_wrapper import Motor
 
 clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\Thorlabs.MotionControl.DeviceManagerCLI.dll")
 clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\Thorlabs.MotionControl.GenericMotorCLI.dll")

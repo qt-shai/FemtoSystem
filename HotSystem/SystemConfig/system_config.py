@@ -50,7 +50,6 @@ class InstrumentsAddress(Enum):
     atto_scanner = "192.168.101.20"
     opx_main_ip = '192.168.101.56'
     opx_aux_ip = '192.168.101.61'
-
     opx_port = 80
     opx_main_cluster = 'Cluster_1'
     opx_aux_cluster = 'Cluster_2'

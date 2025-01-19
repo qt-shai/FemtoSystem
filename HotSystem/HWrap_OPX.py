@@ -4595,6 +4595,8 @@ class GUI_OPX():
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
         tMW = self.t_mw
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+        tMW2 = self.time_in_multiples_cycle_time(self.t_mw2)
+
 
         # MW frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
@@ -5056,7 +5058,8 @@ class GUI_OPX():
                 # self.n_st.save("iteration")
 
         self.qm, self.job = self.QUA_execute()
-    def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1, triggerThreshold: int = 1):
+    def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1,
+                                 triggerThreshold: int = 1, play_element = configs.QUAConfigBase.Elements.LASER.value):
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
@@ -6957,7 +6960,7 @@ class GUI_OPX():
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)
 
-    def save_scan_data(self, Nx, Ny, Nz, fileName=None):
+    def save_scan_data(self, Nx, Ny, Nz, fileName=None, to_append:bool = False):
         if fileName == None:
             fileName = self.create_scan_file_name()
 

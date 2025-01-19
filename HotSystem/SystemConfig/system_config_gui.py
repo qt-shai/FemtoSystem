@@ -63,7 +63,19 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
         if not isinstance(devices, list) and devices:
             devices = [devices]
     elif instrument == Instruments.OPX:
-        devices = find_ethernet_device(InstrumentsAddress.opx_ip.value, instrument)
+        ip_list = [
+            InstrumentsAddress.opx_main_ip.value,
+            InstrumentsAddress.opx_aux_ip.value
+        ]
+        devices = find_device_list_from_ip(instrument, ip_list)
+
+        if devices:
+            for dev in devices:
+                if dev.ip_address == "192.168.101.56":
+                    dev.misc = "Cluster_1"
+                elif dev.ip_address == "192.168.101.61":
+                    dev.misc = "Cluster_2"
+
         if not isinstance(devices, list) and devices:
             devices = [devices]
 

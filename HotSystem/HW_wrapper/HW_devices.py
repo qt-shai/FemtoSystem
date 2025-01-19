@@ -8,7 +8,7 @@ from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, Hig
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
-from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
+from HW_wrapper.Wrapper_Cobolt import CoboltLaser
 from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
 from HW_wrapper.wrapper_wavemeter import HighFinesseWLM
 
@@ -137,10 +137,10 @@ class HW_devices:
                     # self.smaract_scanner = stage.SmaractScanner(simulation=device.simulation)
                     pass
 
-            elif instrument == Instruments.OPX:
-                # Initialize OPX Quantum Controller
-                self.config.opx_ip = device.ip_address
-                self.config.opx_cluster = device.misc
+                elif instrument == Instruments.OPX:
+                    # Initialize OPX Quantum Controller
+                    self.config.opx_ip = device.ip_address
+                    self.config.opx_cluster = device.misc
 
                 elif instrument == Instruments.ELC_POWER_SUPPLY:
                     # Initialize ELC Power Supply

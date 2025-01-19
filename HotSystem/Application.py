@@ -24,6 +24,7 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_arduino import GUIArduino
 from HW_GUI.GUI_atto_scanner import GUIAttoScanner
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B

@@ -11,6 +11,10 @@ from .SmarAct.smaract_stream_manager import StreamManager
 from .wrapper_mattise import SirahMatisse
 from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
 from .Wrapper_KDC101 import MotorStage
+from .SRS_PID.wrapper_sim960_pid import SRSsim960
+from .SRS_PID.wrapper_sim900_mainframe import SRSsim900
+from .NovatechDDS.wrapper_novatech_dds import NovatechDDS426A
+from .Arduino.arduino_wrapper import ArduinoController
 
 
 __all__ = [
@@ -31,7 +35,9 @@ __all__ = [
     'StreamManager',
     'SirahMatisse',
     'Keysight33500B',
-    'AttoScannerWrapper',
-    'ConnectorMode'
-    "ThorLabsMotorStage"
+    'ConnectorMode',
+    'SRSsim960',
+    'SRSsim900',
+    'NovatechDDS426A',
+    'ArduinoController'
 ]
