@@ -7,7 +7,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
     def __init__(self) -> None:
         super().__init__()
         # Readout parameters
-        self.resonant_laser_delay = 0  # Todo: change to physical number
+        self.resonant_laser_delay = 124  # Todo: change to physical number
         self.scannerX_delay = 0
         self.scannerY_delay = 0
         self.phaseEOM_delay = 0
@@ -27,19 +27,19 @@ class DanielQuaConfig(configs.QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
-                    1: {"offset": 0.0, "delay": self.rf_delay, "shareable": True},  # only for detector
-                    2: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW I
-                    3: {"offset": 0.0, "delay": self.mw_delay, "shareable": True},  # MW Q
+                    1: {"offset": 0.0, "delay": self.rf_delay, "shareable": False},  # only for detector
+                    2: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},  # MW I
+                    3: {"offset": 0.0, "delay": self.mw_delay, "shareable": False},  # MW Q
                 },
                 "digital_outputs": {
-                    1: {"shareable": True},  # trigger Laser (Cobolt)
-                    2: {"shareable": True},  # trigger MW (Rohde Schwarz)
-                    8: {"shareable": True},  # trigger for the Resonant Laser
+                    1: {"shareable": False},  # trigger Laser (Cobolt)
+                    2: {"shareable": False},  # trigger MW (Rohde Schwarz)
+                    8: {"shareable": False},  # trigger for the Resonant Laser
                 },
                 "analog_inputs": {
                     #Not used, so can be in everyone configuration file
-                    1: {"offset": 0.00979, "gain_db": 0, "shareable": True},  # 20db 0.2V electrical # counter1
-                    2: {"offset": 0.00979, "gain_db": -12, "shareable": True},  # 6db 1V -->~0.25V # counter2
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False},  # 20db 0.2V electrical # counter1
+                    2: {"offset": 0.00979, "gain_db": -12, "shareable": False},  # 6db 1V -->~0.25V # counter2
                 },
                 # "digital_inputs": {  # counter 1
                 #     4: {
@@ -130,7 +130,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
                     # "marker": {
-                    #     "port": ("con1", 3),
+                    #     "port": ("con1", 8),
                     #     "delay": self.detection_delay,
                     #     "buffer": 0,
                     # },
