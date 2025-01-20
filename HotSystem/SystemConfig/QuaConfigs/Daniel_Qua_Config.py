@@ -11,11 +11,17 @@ class DanielQuaConfig(configs.QUAConfigBase):
         self.scannerX_delay = 0
         self.scannerY_delay = 0
         self.phaseEOM_delay = 0
+        self.detection_delay = 36  # ns
 
         self.signal_threshold = -500  # in ADC units with 20dB attenuation we measured 0.2V on the oscilloscope
         self.signal_threshold_2 = -350  # in ADC units with 20dB attenuation we measured 0.2V on the oscilloscope
         self.signal_threshold_OPD = 1  # in voltage (with 20dB attenuation it was 0.1)
         self.system_name = SystemType.DANIEL.value
+
+        # self.gaussian_amplitude = 0.2  # Amplitude of the Gaussian pulse
+        # self.gaussian_mu = 0          # Mean of the Gaussian (centered at 0)
+        # self.gaussian_sigma = 0.5     # Standard deviation of the Gaussian
+        # self.gaussian_length = 16     # Length of the pulse in ns
 
     def get_controllers(self) -> Dict[str, Any]:
         """
@@ -34,6 +40,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "digital_outputs": {
                     1: {"shareable": False},  # trigger Laser (Cobolt)
                     2: {"shareable": False},  # trigger MW (Rohde Schwarz)
+                    3: {"shareable": False},  # Marker
                     8: {"shareable": False},  # trigger for the Resonant Laser
                 },
                 "analog_inputs": {
@@ -42,17 +49,17 @@ class DanielQuaConfig(configs.QUAConfigBase):
                     2: {"offset": 0.00979, "gain_db": -12, "shareable": False},  # 6db 1V -->~0.25V # counter2
                 },
                 # "digital_inputs": {  # counter 1
-                #     4: {
+                #     1: {
                 #         "polarity": "RISING",
                 #         "deadtime": 4,
                 #         "threshold": self.signal_threshold_OPD,
-                #         "shareable": True,
+                #         "shareable": False,
                 #     },
-                #     5: {  # counter 2
+                #     2: {  # counter 2
                 #         "polarity": "RISING",
                 #         "deadtime": 4,
                 #         "threshold": self.signal_threshold_OPD,
-                #         "shareable": True,
+                #         "shareable": False,
                 #     },
                 #
                 # },
@@ -129,11 +136,11 @@ class DanielQuaConfig(configs.QUAConfigBase):
             self.Elements.DETECTOR_OPD.value: {  # actual analog
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
-                    # "marker": {
-                    #     "port": ("con1", 8),
-                    #     "delay": self.detection_delay,
-                    #     "buffer": 0,
-                    # },
+                    "marker": {
+                        "port": ("con1", 3),
+                        "delay": self.detection_delay,
+                        "buffer": 0,
+                    },
                 },
                 "operations": {
                     "readout": "readout_pulse",
@@ -239,5 +246,29 @@ class DanielQuaConfig(configs.QUAConfigBase):
             "length": 16,  # Minimal pulse length
             "waveforms": {"single": "zero_wf"},
         }
+        # pulses["gaussian_waveform_pulse"] = {
+        #     "operation": "control",
+        #     "length": self.gaussian_length,
+        #     "waveforms": "gaussian_waveform",
+        # }
         return pulses
 
+    # def gauss(self, amplitude, mu, sigma, length):
+    #     t = np.linspace(-length / 2, length / 2, length)
+    #     gauss_wave = amplitude * np.exp(-((t - mu) ** 2) / (2 * sigma ** 2))
+    #     return [float(x) for x in gauss_wave]
+    #
+    # def get_waveforms(self) -> Dict[str, Any]:
+    #     gaussian_waveform_data = self.gauss(
+    #         amplitude=self.gaussian_amplitude,
+    #         mu=self.gaussian_mu,
+    #         sigma=self.gaussian_sigma,
+    #         length=self.gaussian_length,
+    #     )
+    #
+    #     waveforms = super().get_waveforms()
+    #     waveforms["gaussian_waveform"] = {
+    #             'type': "arbitrary",
+    #             'samples': gaussian_waveform_data
+    #     }
+    #     return waveforms
