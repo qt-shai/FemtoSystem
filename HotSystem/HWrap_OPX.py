@@ -5036,6 +5036,7 @@ class GUI_OPX():
         single_integration_time = int(self.Tcounter * self.u.ns)
         smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
 
+
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
             counts = declare(int)  # apd1
@@ -5061,7 +5062,7 @@ class GUI_OPX():
                     # pause()
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
                         play("Turn_ON", play_element, duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None, time_tagging.analog(times, single_integration_time, counts))
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
                         assign(total_counts, total_counts + counts)
 
                     save(total_counts, counts_st)
@@ -5847,7 +5848,11 @@ class GUI_OPX():
         vec = list(np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
                 np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
-        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1], get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device), device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, UseDisplayDuring=False,check_srs_stability=True,)
+        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength,
+                                read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
+                                get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device),
+                                device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE,
+                                UseDisplayDuring=False,check_srs_stability = (self.HW.SRS_PID_list is not None))
 
     def StartScan(self):
         if self.positioner:
