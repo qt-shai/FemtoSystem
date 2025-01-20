@@ -6474,6 +6474,7 @@ class GUI_OPX():
 
                     line_start_time = time.time()
                     # X loop
+                    current_positions_array=[]
                     for ix in range(Nx):
                         if self.stopScan:
                             break
@@ -6502,6 +6503,9 @@ class GUI_OPX():
                         move_abs_fn(0, self.V_scan[0][ix])
                         read_in_pos_fn(0)
 
+                        current_positions = get_positions_fn()
+                        current_positions_array.append(current_positions)
+
                         # Ensure SRS stable
                         if check_srs_stability:
                             while not self.HW.SRS_PID_list[0].is_stable:
@@ -6527,6 +6531,8 @@ class GUI_OPX():
 
                         meas_idx = self.meas_idx_handle.fetch_all()
                         counts = self.counts_handle.fetch_all()
+                        self.scan_counts_aggregated.append(np.squeeze(counts))
+                        self.scan_frequencies_aggregated.append(np.squeeze(current_positions_array))
 
                         self.qmm.clear_all_job_results()
 
@@ -6547,12 +6553,19 @@ class GUI_OPX():
                             if UseDisplayDuring:
                                 self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
                             else:
-                                self.X_vec = self.V_scan[0]
+                                # self.X_vec = self.V_scan[0]
+                                half_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
+                                self.X_vec = self.V_scan[0][:half_length]
                                 data = self.scan_intensities[:, :, iz]
                                 if data.shape[1] == 1:
                                     data = data.squeeze()
                                 self.Y_vec = data.tolist()
-                                # print("Updating graph")
+
+                                # Split the data into up scan and down scan
+                                up_scan_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
+                                self.Y_vec = data[:up_scan_length].tolist()  # Data for up scan
+                                self.Y_vec_ref = data[up_scan_length:].tolist()  # Data for down scan
+
                                 self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
                         else:
                             print(
