@@ -5846,7 +5846,8 @@ class GUI_OPX():
                                 read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
                                 get_positions_fn=lambda: self.HW.wavemeter.get_frequency(),
                                 device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE,
-                                UseDisplayDuring=False,check_srs_stability = (self.HW.SRS_PID_list is not None))
+                                UseDisplayDuring=False,check_srs_stability = (self.HW.SRS_PID_list is not None),
+                                meas_continuously=True)
 
     def StartScan(self):
         if self.positioner:
@@ -5912,7 +5913,7 @@ class GUI_OPX():
             print(f"x_vec: {x_vec}")
             print(f"y_vec: {y_vec}")
             print(f"z_vec: {z_vec}")
-            self.start_scan_general(move_abs_fn=move_axes, read_in_pos_fn=lambda ch: (time.sleep(self.scan_default_sleep_time), True)[1], get_positions_fn=get_positions, device_reset_fn=None, x_vec=x_vec, y_vec=y_vec, z_vec=z_vec)
+            self.start_scan_general(move_abs_fn=move_axes, read_in_pos_fn=lambda ch: (time.sleep(self.scan_default_sleep_time), True)[1], get_positions_fn=get_positions, device_reset_fn=None, x_vec=x_vec, y_vec=y_vec, z_vec=z_vec, meas_continuously=False)
             self.HW.atto_scanner.start_updates()
             self.HW.atto_positioner.start_updates()
         else:
@@ -6292,8 +6293,8 @@ class GUI_OPX():
             self.btnStop()
 
     def start_scan_general(self, move_abs_fn, read_in_pos_fn, get_positions_fn, device_reset_fn, x_vec=None, y_vec=None,
-                           z_vec=None, current_experiment=Experiment.SCAN, UseDisplayDuring=True, meas_continuously=True,
-                           check_srs_stability=True):
+                           z_vec=None, current_experiment=Experiment.SCAN, UseDisplayDuring=True, meas_continuously=False,
+                           check_srs_stability=False):
 
         x_vec = x_vec if x_vec else []
         y_vec = y_vec if y_vec else []
@@ -6622,9 +6623,9 @@ class GUI_OPX():
         # ----------------------------------------------------------------------
         # Main Scanning Loops
         # ----------------------------------------------------------------------
+        self.scan_counts_aggregated = []
+        self.scan_frequencies_aggregated = []
         if meas_continuously:
-            self.scan_counts_aggregated = []
-            self.scan_frequencies_aggregated = []
             print("Entering infinite averaging mode...")
             while not self.stopScan:
                 success = perform_scan_pass(Nx, Ny, Nz, continuous=True,check_srs_stability=check_srs_stability)
@@ -6633,6 +6634,7 @@ class GUI_OPX():
                     print("scanning pass is not complete")
         else:
             success = perform_scan_pass(Nx, Ny, Nz, continuous=False,check_srs_stability=check_srs_stability)
+            self.scan_iterations += success
             if not success:
                 print("Error in scanning pass")
                 return
@@ -6699,8 +6701,8 @@ class GUI_OPX():
         Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
 
         # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
-        intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, Ny, Nz)
-
+        intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, Nz)
+        Ny = intensities_data.shape[1]
         # Loop over Z, Y, and X scan coordinates
         for i in range(Nz):  # Z dimension
             for j in range(Ny):  # Y dimension
