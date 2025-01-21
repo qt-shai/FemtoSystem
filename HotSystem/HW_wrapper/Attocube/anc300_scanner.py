@@ -251,7 +251,7 @@ class Anc300Wrapper(Motor):
             return self.axes_positions[channel].get()
         try:
             if self.device is not None:
-                voltage = self.device.get_offset(channel)
+                voltage = self.device.get_output(channel)
                 position = self._convert_units_to_meters(voltage)
                 self.axes_positions[channel].set(position)
                 return position

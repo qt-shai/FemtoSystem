@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 from enum import Enum
-from typing import Union, Optional, Callable, List
+from typing import Union, Optional, Callable, List, Tuple
 import glfw
 import numpy as np
 
@@ -178,7 +178,7 @@ class GUI_OPX():
         self.scanFN = ""
 
         self.bEnableShuffle = False
-        self.bEnableSimulate = True
+        self.bEnableSimulate = False
         # tracking ref
         self.bEnableSignalIntensityCorrection = True
         self.trackingPeriodTime = 10000000  # [nsec]
@@ -5743,7 +5743,7 @@ class GUI_OPX():
             else:
                 dpg.enable_item("btnOPX_StartScan")
 
-            if self.job and not self.simulation:
+            if not self.simulation and self.job:
                 self.StopJob(self.job, self.qm)
 
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
@@ -5844,7 +5844,7 @@ class GUI_OPX():
 
         self.start_scan_general(move_abs_fn=self.matisse.move_wavelength,
                                 read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
-                                get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device),
+                                get_positions_fn=lambda: self.HW.wavemeter.get_frequency(),
                                 device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE,
                                 UseDisplayDuring=False,check_srs_stability = (self.HW.SRS_PID_list is not None))
 
@@ -6366,7 +6366,10 @@ class GUI_OPX():
             current_positions = [current_positions]  # Wrap single float in a list
 
         # Pad with zeros if fewer than expected_axes
-        self.initial_scan_Location = list(current_positions) + [0] * (expected_axes - len(current_positions))
+        if self.exp == Experiment.PLE:
+            self.initial_scan_Location = [x_vec[0]] + [0] * (expected_axes - len(current_positions))
+        else:
+            self.initial_scan_Location = list(current_positions) + [0] * (expected_axes - len(current_positions))
 
         # Build scanning arrays for each axis (like original “V_scan” concept)
         self.V_scan = [
@@ -6396,8 +6399,14 @@ class GUI_OPX():
             self.V_scan[2][-1] if Nz > 1 else self.initial_scan_Location[2]
         ]
 
+        if UseDisplayDuring:
+            self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc,
+                           endLoc=self.endLoc)
+
         # QUA program init (example)
         if not self.simulation:
+
+
             self.initQUA_gen(
                 n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
                 num_measurement_per_array=Nx
@@ -6439,14 +6448,15 @@ class GUI_OPX():
         # Initialize the 3D array for intensities
         self.scan_intensities = np.zeros((Nx, Ny, Nz), dtype=float)
         scan_counts = np.zeros_like(self.scan_intensities)
-        scan_iterations = np.zeros_like(self.scan_intensities, dtype=int)
+        self.scan_iterations = 0
 
         def perform_scan_pass(Nx, Ny, Nz, continuous=False,check_srs_stability=True,):
             nonlocal z_correction_previous, previousMeas_idx, meas_idx
 
             # For time estimations
             pass_start_time = time.time()
-
+            current_positions_array = []
+            data = []
             for iz in range(Nz):
                 if self.stopScan:
                     break
@@ -6502,7 +6512,7 @@ class GUI_OPX():
                         current_positions_array.append(current_positions)
 
                         # Ensure SRS stable
-                        if check_srs_stability and not self.simulation:
+                        if self.exp == Experiment.PLE and check_srs_stability and not self.simulation:
                             while not self.HW.SRS_PID_list[0].is_stable:
                                 if self.stopScan:
                                     return False
@@ -6542,24 +6552,15 @@ class GUI_OPX():
 
                         # Validate data
                         if counts.size == Nx:
-
-                            if continuous:
-                                for ix, ct in enumerate(counts):
-                                    scan_counts[ix, iy, iz] += ct
-                                    scan_iterations[ix, iy, iz] += 1
-                                    self.scan_intensities[ix, iy, iz] = (
-                                            scan_counts[ix, iy, iz] / scan_iterations[ix, iy, iz]
-                                    )
-                            else:
-                                # Single pass: store the slice
-                                self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
+                            self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
 
                             if UseDisplayDuring:
                                 self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+                                self.extract_vectors(current_positions_array)
                             else:
                                 # self.X_vec = self.V_scan[0]
                                 half_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
-                                self.X_vec = list(np.array(self.V_scan[0][:half_length]) *1e-9)
+                                self.X_vec = list((np.array(current_positions_array[:half_length])-current_positions_array[0])*1e-6)
                                 data = self.scan_intensities[:, :, iz]
                                 if data.shape[1] == 1:
                                     data = data.squeeze()
@@ -6569,8 +6570,10 @@ class GUI_OPX():
                                 up_scan_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
                                 self.Y_vec = data[:up_scan_length].tolist()  # Data for up scan
                                 self.Y_vec_ref = data[up_scan_length:].tolist()  # Data for down scan
-
-                                self.Common_updateGraph(_xLabel="Frequency[THz]", _yLabel="I[counts]")
+                                self.V_scan[1] = list(range(self.scan_iterations+1))
+                                self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
+                                self.Y_vec = list(range(self.scan_iterations+1))
+                                self.Z_vec = list(range(Nz))
                         else:
                             print(
                                 "Warning: counts size mismatch. Possibly partial line or measurement error."
@@ -6597,12 +6600,7 @@ class GUI_OPX():
 
                         # Save partial data
                         if save_partial:
-                            self.prepare_scan_data()
-                            self.save_scan_data(
-                                Nx=Nx, Ny=Ny, Nz=Nz,
-                                fileName=self.scanFN,
-                                to_append=True
-                            )
+                            prepare_and_save_data(Nx, Ny, Nz)
 
                     # End while over iy
                 # End iz loop
@@ -6611,7 +6609,15 @@ class GUI_OPX():
             if not continuous:
                 print(f"Pass time: {pass_end_time - pass_start_time:.2f} s")
             previousMeas_idx = meas_idx
-            return True  # If we got here, presumably okay
+            return not self.stopScan  # If we got here, presumably okay
+
+        def prepare_and_save_data(Nx, Ny, Nz):
+            self.prepare_scan_data()
+            self.save_scan_data(
+                Nx=Nx, Ny=Ny, Nz=Nz,
+                fileName=self.scanFN,
+                to_append=True
+            )
 
         # ----------------------------------------------------------------------
         # Main Scanning Loops
@@ -6622,9 +6628,9 @@ class GUI_OPX():
             print("Entering infinite averaging mode...")
             while not self.stopScan:
                 success = perform_scan_pass(Nx, Ny, Nz, continuous=True,check_srs_stability=check_srs_stability)
+                self.scan_iterations += success
                 if not success:
-                    print("Error in scanning pass")
-                    return
+                    print("scanning pass is not complete")
         else:
             success = perform_scan_pass(Nx, Ny, Nz, continuous=False,check_srs_stability=check_srs_stability)
             if not success:
@@ -6647,24 +6653,26 @@ class GUI_OPX():
             read_in_pos_fn(2)
 
         # Final save
-        # Determine the expected number of columns (length of the longest row)
-        max_length = max(len(row) for row in self.scan_frequencies_aggregated)
-        self.scan_frequencies_aggregated = np.array([np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_frequencies_aggregated])
-        self.scan_counts_aggregated = np.array([np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_counts_aggregated])
-        self.X_vec = np.array([list(positions) for positions in self.scan_frequencies_aggregated])
-        self.scan_intensities = np.array([list(counts) for counts in self.scan_counts_aggregated])[:, :, np.newaxis]
 
         Nx = self.scan_intensities.shape[0]  # X-axis (number of points per line)
         Ny = self.scan_intensities.shape[1]  # Y-axis (number of lines in the data)
         Nz = 1  # Default Z-axis since no additional layers are specified
 
-        self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
-        self.V_scan[2] = [0]  # Keep Z dimension as a single layer
+        if UseDisplayDuring:
+            self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
+            self.V_scan[2] = [0]  # Keep Z dimension as a single layer
+            self.Y_vec = list(range(Ny))
+            self.Z_vec = list(range(Nz))
+            self.prepare_scan_data()
+        else:
+            self.X_vec = list(np.array(self.scan_frequencies_aggregated).flatten())
+            self.Y_vec = list(range(self.scan_iterations))
+            self.Z_vec = list(range(Nz))
+            self.V_scan[1] = list(range(self.scan_iterations))
+            self.scan_intensities = list(np.array(self.scan_counts_aggregated).flatten())
+            self.prepare_scan_data()
 
-        self.Y_vec = list(range(Ny))
-        self.Z_vec = list(range(Nz))
 
-        self.prepare_scan_data()
         fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
         self.writeParametersToXML(fn + ".xml")
 
@@ -6690,11 +6698,8 @@ class GUI_OPX():
         # Get dimensions
         Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
 
-        # Ensure self.Y_vec matches Ny
-        self.Y_vec = list(range(Ny))
-
-        # Ensure self.Z_vec matches Nz
-        self.Z_vec = list(range(Nz))
+        # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
+        intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, Ny, Nz)
 
         # Loop over Z, Y, and X scan coordinates
         for i in range(Nz):  # Z dimension
@@ -6712,11 +6717,11 @@ class GUI_OPX():
 
                     # Intensity at the current position
                     intensities = (
-                        self.scan_intensities[k, j, i]
-                        if self.scan_intensities is not None
-                           and k < self.scan_intensities.shape[0]
-                           and j < self.scan_intensities.shape[1]
-                           and i < self.scan_intensities.shape[2]
+                        intensities_data[k, j, i]
+                        if intensities_data is not None
+                           and k < intensities_data.shape[0]
+                           and j < intensities_data.shape[1]
+                           and i < intensities_data.shape[2]
                         else 0
                     )
 
@@ -6889,10 +6894,6 @@ class GUI_OPX():
         if fileName == None:
             fileName = self.create_scan_file_name()
 
-        # parameters + note --- cause crash during scan. no need to update every slice.
-        # self.writeParametersToXML(fileName + ".xml")
-
-        # raw data
         Scan_array = np.array(self.scan_Out)
         if to_append:
             RawData_to_save = {'X': Scan_array[-Nx:, 0].tolist(), 'Y': Scan_array[-Nx:, 1].tolist(), 'Z': Scan_array[-Nx:, 2].tolist(),
@@ -7380,3 +7381,29 @@ class GUI_OPX():
         alpha_channel = mask_non_zero.astype(float)
 
         return np.dstack((result_array_, alpha_channel))
+
+    def extract_vectors(self, current_positions_array: List[Tuple[float, ...]]) -> None:
+        """
+        Extract X, Y, Z vectors from an array of N-dimensional tuples (up to 3 dimensions).
+
+        :param current_positions_array: A list of tuples, each containing up to 3 coordinates (x, y, z).
+        """
+        # Initialize empty lists
+        self.X_vec, self.Y_vec, self.Z_vec = [], [], []
+
+        for pos in current_positions_array:
+            if len(pos) > 0:  # X coordinate exists
+                self.X_vec.append(pos[0])
+            if len(pos) > 1:  # Y coordinate exists
+                self.Y_vec.append(pos[1])
+            if len(pos) > 2:  # Z coordinate exists
+                self.Z_vec.append(pos[2])
+
+        # Convert empty lists to None if a dimension is missing
+        if not self.X_vec:
+            self.X_vec = None
+        if not self.Y_vec:
+            self.Y_vec = None
+        if not self.Z_vec:
+            self.Z_vec = None
+
