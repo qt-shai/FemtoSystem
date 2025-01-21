@@ -1,5 +1,6 @@
 from typing import Optional
 
+import numpy as np
 from pylablib.devices import Sirah
 
 
@@ -333,7 +334,7 @@ class SirahMatisse:
         """
         if self.simulation:
             print(f"Simulating get_wavelength_position for device: {scan_device}")
-            return 0.0  # Return a mock value for simulation
+            return np.random.uniform(10,1000)  # Return a mock value for simulation
 
         # Map integer input to device names
         if scan_device == 0:

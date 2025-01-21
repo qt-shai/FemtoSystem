@@ -12,33 +12,28 @@ import sys
 import threading
 import time
 from enum import Enum
-from tkinter import filedialog
 from typing import Union, Optional, Callable, List
 import glfw
 import numpy as np
-import tkinter as tk
 
-from gevent.libev.corecext import callback
 from matplotlib import pyplot as plt
 from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
 from qualang_tools.results import progress_counter, fetching_tool
-from functools import partial
 from qualang_tools.units import unit
 from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
-from smaract import ctl
 import matplotlib
 
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from SystemConfig import SystemType, Instruments
-from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, open_file_dialog
+from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, \
+    open_file_dialog, create_gaussian_vector
 import dearpygui.dearpygui as dpg
 from PIL import Image
 import subprocess
 import shutil
 import xml.etree.ElementTree as ET
-import math
 import SystemConfig as configs
 from Utils import OptimizerMethod,find_max_signal
 
@@ -141,7 +136,6 @@ class GUI_OPX():
         # At the end of the init - all values are overwritten from XML!
         # To update values of the parameters - update the XML or the corresponding place in the GUI
         self.map: Optional[Map] = None
-        self.simulation = simulation
         self.click_coord = None
         self.clicked_position = None
         self.map_item_x = 0
@@ -263,7 +257,7 @@ class GUI_OPX():
         # load class parameters from XML
         self.update_from_xml()
         self.bScanChkbox = False
-
+        self.simulation = simulation
         self.chkbox_close_all_qm = False
         # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
 
@@ -5749,7 +5743,7 @@ class GUI_OPX():
             else:
                 dpg.enable_item("btnOPX_StartScan")
 
-            if (self.job):
+            if self.job and not self.simulation:
                 self.StopJob(self.job, self.qm)
 
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
@@ -6403,18 +6397,19 @@ class GUI_OPX():
         ]
 
         # QUA program init (example)
-        self.initQUA_gen(
-            n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-            num_measurement_per_array=Nx
-        )
-        res_handles = getattr(self.job, 'result_handles', None)
-        if res_handles is None:
-            print("No results")
-            self.btnStop()
-            return
+        if not self.simulation:
+            self.initQUA_gen(
+                n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                num_measurement_per_array=Nx
+            )
+            res_handles = getattr(self.job, 'result_handles', None)
+            if res_handles is None:
+                print("No results")
+                self.btnStop()
+                return
 
-        self.counts_handle = res_handles.get("counts_scanLine")
-        self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
+            self.counts_handle = res_handles.get("counts_scanLine")
+            self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
 
         # Example: offset for X start
         if Nx > 1:
@@ -6507,23 +6502,30 @@ class GUI_OPX():
                         current_positions_array.append(current_positions)
 
                         # Ensure SRS stable
-                        if check_srs_stability:
+                        if check_srs_stability and not self.simulation:
                             while not self.HW.SRS_PID_list[0].is_stable:
                                 if self.stopScan:
                                     return False
                                 print("Waiting for SRS to stabilize")
                                 time.sleep(1)
 
-                        # Trigger measurement
-                        self.qm.set_io2_value(self.ScanTrigger)
-                        time.sleep(self.total_integration_time * 1e-3 + 1e-3)
+                        if not self.simulation:
+                            # Trigger measurement
+                            self.qm.set_io2_value(self.ScanTrigger)
+                            time.sleep(self.total_integration_time * 1e-3 + 1e-3)
 
                     # End X loop
                     if self.stopScan:
                         break
 
+                    counts = None
                     # Fetch data from QUA
-                    if self.counts_handle.is_processing():
+                    if self.simulation:
+                        counts = np.concatenate([
+                            create_gaussian_vector(Nx // 2, center=1.5, width=10),
+                            create_gaussian_vector(Nx - Nx // 2, center=3.5, width=10)
+                        ])
+                    elif self.counts_handle.is_processing():
                         # block until at least 1 data chunk is there
                         self.counts_handle.wait_for_values(1)
                         self.meas_idx_handle.wait_for_values(1)
@@ -6531,10 +6533,12 @@ class GUI_OPX():
 
                         meas_idx = self.meas_idx_handle.fetch_all()
                         counts = self.counts_handle.fetch_all()
+                        self.qmm.clear_all_job_results()
+
+                    if counts is not None:
                         self.scan_counts_aggregated.append(np.squeeze(counts))
                         self.scan_frequencies_aggregated.append(np.squeeze(current_positions_array))
 
-                        self.qmm.clear_all_job_results()
 
                         # Validate data
                         if counts.size == Nx:
@@ -6555,7 +6559,7 @@ class GUI_OPX():
                             else:
                                 # self.X_vec = self.V_scan[0]
                                 half_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
-                                self.X_vec = self.V_scan[0][:half_length]
+                                self.X_vec = list(np.array(self.V_scan[0][:half_length]) *1e-9)
                                 data = self.scan_intensities[:, :, iz]
                                 if data.shape[1] == 1:
                                     data = data.squeeze()
@@ -6566,7 +6570,7 @@ class GUI_OPX():
                                 self.Y_vec = data[:up_scan_length].tolist()  # Data for up scan
                                 self.Y_vec_ref = data[up_scan_length:].tolist()  # Data for down scan
 
-                                self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
+                                self.Common_updateGraph(_xLabel="Frequency[THz]", _yLabel="I[counts]")
                         else:
                             print(
                                 "Warning: counts size mismatch. Possibly partial line or measurement error."
@@ -6574,17 +6578,11 @@ class GUI_OPX():
                             return False
 
                         # Check if line is “complete”
+                        save_partial = True
                         if not continuous:
                             if (meas_idx - previousMeas_idx) % (Nx if Nx > 1 else 1) == 0:
                                 # Good line: increment
                                 iy += 1
-                                # Save partial data
-                                self.prepare_scan_data()
-                                self.save_scan_data(
-                                    Nx=Nx, Ny=Ny, Nz=Nz,
-                                    fileName=self.scanFN,
-                                    to_append=True
-                                )
                             else:
                                 print(
                                     "****** Error: ******\n"
@@ -6592,9 +6590,19 @@ class GUI_OPX():
                                     "Repeating line..."
                                 )
                                 # do not increment iy => repeat line
+                                save_partial = False
                         else:
                             # If continuous, just move to the next line
                             iy += 1
+
+                        # Save partial data
+                        if save_partial:
+                            self.prepare_scan_data()
+                            self.save_scan_data(
+                                Nx=Nx, Ny=Ny, Nz=Nz,
+                                fileName=self.scanFN,
+                                to_append=True
+                            )
 
                     # End while over iy
                 # End iz loop
@@ -6646,8 +6654,8 @@ class GUI_OPX():
         self.X_vec = np.array([list(positions) for positions in self.scan_frequencies_aggregated])
         self.scan_intensities = np.array([list(counts) for counts in self.scan_counts_aggregated])[:, :, np.newaxis]
 
-        Nx = self.scan_intensities.shape[1]  # X-axis (number of points per line)
-        Ny = self.scan_intensities.shape[0]  # Y-axis (number of lines in the data)
+        Nx = self.scan_intensities.shape[0]  # X-axis (number of points per line)
+        Ny = self.scan_intensities.shape[1]  # Y-axis (number of lines in the data)
         Nz = 1  # Default Z-axis since no additional layers are specified
 
         self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
@@ -6698,7 +6706,7 @@ class GUI_OPX():
                     z_expected = self.V_scan[2][i]
 
                     # Actual positions
-                    x_actual = (self.X_vec[j, k] if self.X_vec is not None and j < self.X_vec.shape[0] and k < self.X_vec.shape[1] else x_expected)
+                    x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
                     y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
                     z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
 
@@ -6934,8 +6942,13 @@ class GUI_OPX():
         else:
             folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}'
         if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
-            os.makedirs(folder_path)
-        fileName = os.path.join(folder_path, timeStamp + "scan_" + self.expNotes)
+            try:
+                os.makedirs(folder_path)
+            except FileNotFoundError as ex:
+                print(f"An error occurd when trying to create {folder_path}")
+                print("Saving to local folder instead.")
+                return self.create_scan_file_name(local=True)
+        fileName = os.path.join(folder_path, f"{timeStamp}_{self.exp.name}_{self.expNotes}")
         return fileName
 
     def move_single_step(self, ch, step):

@@ -572,3 +572,22 @@ def find_parabola_minimum(a: float, b: float, c: float) -> Optional[float]:
         return None  # Parabola has a maximum, not a minimum
 
     return -b / (2.0 * a)
+
+def create_gaussian_vector(nx: int, center: float = 2, width: float = 4) -> np.ndarray:
+    """
+    Create a NumPy vector with Nx points, with a Gaussian centered at Nx/center and a width of Nx/width.
+
+    :param nx: Number of points in the vector.
+    :param center: Factor to determine the center of the Gaussian as Nx/center. Default is 2.
+    :param width: Factor to determine the width of the Gaussian as Nx/width. Default is 4.
+    :return: NumPy array containing the Gaussian vector.
+    """
+    if nx <= 0:
+        raise ValueError("Number of points (nx) must be a positive integer.")
+
+    x = np.linspace(0, nx - 1, nx)  # Create an array of Nx points
+    center_value = nx / center  # Gaussian center
+    width_value = nx / width  # Gaussian width (standard deviation)
+
+    gaussian = np.exp(-((x - center_value) ** 2) / (2 * (width_value ** 2)))  # Gaussian formula
+    return gaussian
