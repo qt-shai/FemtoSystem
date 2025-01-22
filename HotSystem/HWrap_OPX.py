@@ -6718,6 +6718,7 @@ class GUI_OPX():
 
         def prepare_and_save_data(Nx, Ny, Nz):
             self.prepare_scan_data()
+            print(f"file : {self.scanFN}")
             self.save_scan_data(
                 Nx=Nx, Ny=Ny, Nz=Nz,
                 fileName=self.scanFN,
@@ -6792,47 +6793,87 @@ class GUI_OPX():
 
         return self.scan_intensities
 
+    # def prepare_scan_data(self):
+    #     """
+    #     Prepare scan data with actual positions (X_vec, Y_vec, Z_vec), intensities,
+    #     and expected positions derived from V_scan. If actual positions are None,
+    #     they default to expected positions.
+    #     """
+    #     # Create an object to be saved in Excel
+    #     self.scan_Out = []
+    #
+    #     # Get dimensions
+    #     Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
+    #
+    #     # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
+    #
+    #     intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, 1)
+    #     Ny = intensities_data.shape[1]
+    #
+    #     # Loop over Z, Y, and X scan coordinates
+    #     for i in range(Nz):  # Z dimension
+    #         for j in range(Ny):  # Y dimension
+    #             for k in range(Nx):  # X dimension
+    #                 # Expected positions derived from V_scan
+    #                 x_expected = self.V_scan[0][k]
+    #                 y_expected = self.V_scan[1][j]
+    #                 z_expected = self.V_scan[2][i]
+    #
+    #                 # Actual positions
+    #                 x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
+    #                 y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
+    #                 z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
+    #
+    #                 # Intensity at the current position
+    #                 intensities = (
+    #                     intensities_data[k, j, i]
+    #                     if intensities_data is not None
+    #                        and k < intensities_data.shape[0]
+    #                        and j < intensities_data.shape[1]
+    #                        and i < intensities_data.shape[2]
+    #                     else 0
+    #                 )
+    #
+    #                 # Append data for this point
+    #                 self.scan_Out.append([x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
+
     def prepare_scan_data(self):
         """
-        Prepare scan data with actual positions (X_vec, Y_vec, Z_vec), intensities,
-        and expected positions derived from V_scan. If actual positions are None,
-        they default to expected positions.
+        Append the last line of scan data to self.scan_Out, with actual positions (X_vec, Y_vec),
+        intensities, and expected positions derived from V_scan.
         """
-        # Create an object to be saved in Excel
-        self.scan_Out = []
-
         # Get dimensions
-        Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
+        Nx = len(self.V_scan[0])
+        Ny = len(self.V_scan[1])
 
-        # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
-        intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, Nz)
-        Ny = intensities_data.shape[1]
-        # Loop over Z, Y, and X scan coordinates
-        for i in range(Nz):  # Z dimension
-            for j in range(Ny):  # Y dimension
-                for k in range(Nx):  # X dimension
-                    # Expected positions derived from V_scan
-                    x_expected = self.V_scan[0][k]
-                    y_expected = self.V_scan[1][j]
-                    z_expected = self.V_scan[2][i]
+        # Extract the last line of scan counts from self.scan_counts_aggregated
+        try:
+            last_line_data = np.array(self.scan_counts_aggregated)[-1]
+        except IndexError:
+            print("Error: No data available in scan_counts_aggregated.")
+            return
 
-                    # Actual positions
-                    x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
-                    y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
-                    z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
+        # Append data for the last line in Y to self.scan_Out
+        last_line_index = Ny - 1
+        for k in range(Nx):  # X dimension
+            # Expected positions derived from V_scan
+            x_expected = self.V_scan[0][k]
+            y_expected = self.V_scan[1][last_line_index]
+            z_expected = 0
 
-                    # Intensity at the current position
-                    intensities = (
-                        intensities_data[k, j, i]
-                        if intensities_data is not None
-                           and k < intensities_data.shape[0]
-                           and j < intensities_data.shape[1]
-                           and i < intensities_data.shape[2]
-                        else 0
-                    )
+            # Actual positions
+            x_actual = self.X_vec[k] if self.X_vec and k < len(self.X_vec) else x_expected
+            y_actual = self.Y_vec[last_line_index] if self.Y_vec and last_line_index < len(self.Y_vec) else y_expected
+            z_actual = self.Z_vec[-1]
 
-                    # Append data for this point
-                    self.scan_Out.append([x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
+            # Intensity at the current position
+            try:
+                intensities = last_line_data[k]
+            except IndexError:
+                intensities = 0  # Fallback if the intensity data is incomplete
+
+            # Append the current point to scan_Out
+            self.scan_Out.append([x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
