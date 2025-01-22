@@ -7,11 +7,47 @@ class DanielQuaConfig(configs.QUAConfigBase):
     def __init__(self) -> None:
         super().__init__()
         # Readout parameters
-        self.resonant_laser_delay = 124  # Todo: change to physical number
+        self.NV_IF_freq = 124e6  # in units of Hz
+        self.NV_LO_freq = 2.7e9  # in units of Hz
+
+        # Pulses lengths
+        self.initialization_len = 5000  # in ns
+        self.meas_len = 300  # in ns
+        self.minimal_meas_len = 16  # in ns
+        self.long_meas_len = 5e3  # in ns
+        self.very_long_meas_len = 25e3  # in ns
+
+        self.pi_amp_NV = 0.5  # in units of volts
+        self.pi_len_NV = 16  # in units of ns
+
+        self.pi_half_amp_NV = self.pi_amp_NV / 2  # in units of volts
+        self.pi_half_len_NV = self.pi_len_NV  # in units of ns
+
+        # MW Switch parameters
+        self.switch_delay = 0  # in ns
+        self.switch_buffer = 0  # in ns
+        self.switch_len = 16  # in ns
+
+        # Readout parameters
+        self.signal_threshold = -400  # in ADC units
+        self.signal_threshold_OPD = 1 # in voltage (with 20dB attenuation it was 0.1)
+
+        # Delays
+        self.detection_delay_OPD = 308
+        self.mw_delay = 0  # ns
+        self.laser_delay = 0  # ns
+
+        # RF parameters
+        self.rf_frequency = 3.03 * self.u.MHz
+        self.rf_amp = 0.5
+        self.rf_length = 1000
+        self.rf_delay = 0  # ns
+
+        self.resonant_laser_delay = 0  # Todo: change to physical number
         self.scannerX_delay = 0
         self.scannerY_delay = 0
         self.phaseEOM_delay = 0
-        self.detection_delay = 36  # ns
+        self.detection_delay = 28  # ns
 
         self.signal_threshold = -500  # in ADC units with 20dB attenuation we measured 0.2V on the oscilloscope
         self.signal_threshold_2 = -350  # in ADC units with 20dB attenuation we measured 0.2V on the oscilloscope
@@ -40,7 +76,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "digital_outputs": {
                     1: {"shareable": False},  # trigger Laser (Cobolt)
                     2: {"shareable": False},  # trigger MW (Rohde Schwarz)
-                    3: {"shareable": False},  # Marker
+                    3: {"shareable": False},  # Marker for the detector
                     8: {"shareable": False},  # trigger for the Resonant Laser
                 },
                 "analog_inputs": {
@@ -48,21 +84,21 @@ class DanielQuaConfig(configs.QUAConfigBase):
                     1: {"offset": 0.00979, "gain_db": 0, "shareable": False},  # 20db 0.2V electrical # counter1
                     2: {"offset": 0.00979, "gain_db": -12, "shareable": False},  # 6db 1V -->~0.25V # counter2
                 },
-                # "digital_inputs": {  # counter 1
-                #     1: {
-                #         "polarity": "RISING",
-                #         "deadtime": 4,
-                #         "threshold": self.signal_threshold_OPD,
-                #         "shareable": False,
-                #     },
-                #     2: {  # counter 2
-                #         "polarity": "RISING",
-                #         "deadtime": 4,
-                #         "threshold": self.signal_threshold_OPD,
-                #         "shareable": False,
-                #     },
-                #
-                # },
+                "digital_inputs": {  # counter 1
+                    1: {
+                        "polarity": "RISING",
+                        "deadtime": 4,
+                        "threshold": self.signal_threshold_OPD,
+                        "shareable": False,
+                    },
+                    2: {  # counter 2
+                        "polarity": "RISING",
+                        "deadtime": 4,
+                        "threshold": self.signal_threshold_OPD,
+                        "shareable": False,
+                    },
+
+                },
             }
         }
         return controllers
@@ -183,15 +219,15 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "smearing": 0,
             },
             # self.Elements.DETECTOR_OPD.value: {
-            #     "singleInput": {"port": ("con1", 4)},  # analog outputs, not used
+            #     "singleInput": {"port": ("con1", 1)},  # analog outputs, not used
             #     "digitalInputs": {
             #         # "marker": {
-            #         #     "port": ("con1", 10),  # Digital output 10
+            #         #     "port": ("con1", 2),  # Digital output 10
             #         #     "delay": self.detection_delay_OPD,
             #         #     "buffer": 0,
             #         # },
             #     },
-            #     "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
+            #     "digitalOutputs": {"out1": ("con1", 1)},  # 'digitalOutputs' here is actually 'digital input' of OPD
             #     "outputs": {"out1": ("con1", 2)},
             #     "operations": {
             #         "readout": "readout_pulse",
