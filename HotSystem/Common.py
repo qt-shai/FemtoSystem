@@ -194,3 +194,5 @@ class WindowNames(Enum):
     LASER = "LaserWin"
     ARDUINO = "Arduino_Win"
     SIM960 = "SIM960_Win"
+    ATTO_SCANNER = "MotorWin_ANC300"
+    ATTO_POSITIONER = "MotorWin_atto_positioner"

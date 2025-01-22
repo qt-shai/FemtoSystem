@@ -39,6 +39,7 @@ import xml.etree.ElementTree as ET
 import math
 import SystemConfig as configs
 from Utils import OptimizerMethod,find_max_signal
+from Common import WindowNames
 
 
 matplotlib.use('qtagg')
@@ -929,17 +930,11 @@ class GUI_OPX():
 
 
     def save_pos(self):
-        # Define the list of windows to check and save positions for
-        window_names = [
-            "pico_Win", "mcs_Win", "Zelux Window","Wavemeter_Win","HighlandT130_Win","Matisse_Win",
-            "OPX Window", "Map_window", "Scan_Window", "LaserWin","Arduino_Win","SIM960_Win"
-        ]
-
         # Dictionary to store window positions and dimensions
         window_positions = {}
-
-        # Iterate through the list of window names and collect their positions and sizes if they exist
-        for win_name in window_names:
+        # Iterate through the list of window names in the Enum
+        for window in WindowNames:
+            win_name = window.value
             if dpg.does_item_exist(win_name):
                 win_pos = dpg.get_item_pos(win_name)
                 win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
@@ -955,7 +950,9 @@ class GUI_OPX():
                 lines = []
 
             # Remove any existing window position and size entries
-            new_content = [line for line in lines if not any(win_name in line for win_name in window_positions.keys())]
+            new_content = [
+                line for line in lines if not any(win_name in line for win_name in window_positions.keys())
+            ]
 
             # Append the new window positions and dimensions to the content
             for win_name, (position, size) in window_positions.items():
@@ -969,6 +966,8 @@ class GUI_OPX():
             print("Window positions and sizes saved successfully to map_config.txt.")
         except Exception as e:
             print(f"Error saving window positions and sizes: {e}")
+
+
 
     def load_pos(self):
         try:
