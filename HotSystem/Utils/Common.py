@@ -572,3 +572,101 @@ def find_parabola_minimum(a: float, b: float, c: float) -> Optional[float]:
         return None  # Parabola has a maximum, not a minimum
 
     return -b / (2.0 * a)
+
+def create_gaussian_vector(nx: int, center: float = 2, width: float = 4) -> np.ndarray:
+    """
+    Create a NumPy vector with Nx points, with a Gaussian centered at Nx/center and a width of Nx/width.
+
+    :param nx: Number of points in the vector.
+    :param center: Factor to determine the center of the Gaussian as Nx/center. Default is 2.
+    :param width: Factor to determine the width of the Gaussian as Nx/width. Default is 4.
+    :return: NumPy array containing the Gaussian vector.
+    """
+    if nx <= 0:
+        raise ValueError("Number of points (nx) must be a positive integer.")
+
+    x = np.linspace(0, nx - 1, nx)  # Create an array of Nx points
+    center_value = nx / center  # Gaussian center
+    width_value = nx / width  # Gaussian width (standard deviation)
+
+    gaussian = np.exp(-((x - center_value) ** 2) / (2 * (width_value ** 2)))  # Gaussian formula
+    return gaussian
+
+def reshape_and_pad_scan_counts(scan_counts: np.ndarray, Nx: int, Ny: int, Nz: int) -> np.ndarray:
+    """
+    Reshape and pad a partially filled 1D array into a 3D array with dimensions (Nx, Ny, Nz).
+
+    :param scan_counts: Flattened array of scan counts (partially filled).
+    :param Nx: Target size of the X-dimension.
+    :param Ny: Nominal size of the Y-dimension.
+    :param Nz: Target size of the Z-dimension.
+    :return: Reshaped and padded 3D array of scan counts.
+    """
+    # Flatten the input array to ensure compatibility
+    flattened_data = np.array(scan_counts).flatten()
+
+    # Calculate the total number of elements in a single XY slice
+    slice_size = Nx * Nz
+
+    # Calculate the total number of required elements for the full 3D array
+    total_required_elements = Nx * Ny * Nz
+
+    # Pad the flattened array to match the total required elements
+    if len(flattened_data) < total_required_elements:
+        padding_size = total_required_elements - len(flattened_data)
+        flattened_data = np.pad(flattened_data, (0, padding_size), constant_values=0)
+    elif len(flattened_data) > total_required_elements:
+        flattened_data = flattened_data[:total_required_elements]
+
+    # Reshape the padded array into the desired 3D shape
+    reshaped_data = flattened_data.reshape(Nx, Ny, Nz)
+
+    return reshaped_data
+
+def test_reshape_and_pad_scan_counts():
+    """Run a series of tests on the reshape_and_pad_scan_counts function."""
+    # Test case 1: Perfectly filled array
+    scan_counts = np.arange(50)  # 10x5x1
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 5, 1), f"Unexpected shape: {result.shape}"
+
+    # Test case 2: Incomplete array requiring padding
+    scan_counts = np.arange(48)  # 10x5x1 with padding needed
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 5, 1), f"Unexpected shape: {result.shape}"
+    assert result[-1, -1, -1] == 0, "Padding not applied correctly"
+
+    # Test case 3: Empty array
+    scan_counts = np.array([])  # No elements
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 0, 1), f"Unexpected shape: {result.shape}"
+
+    # Test case 4: Single element array
+    scan_counts = np.array([42])  # One element
+    Nx, Ny, Nz = 2, 2, 2
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (2, 1, 2), f"Unexpected shape: {result.shape}"
+    assert result[0, 0, 0] == 42, "Element not placed correctly"
+
+    # Test case 5: Uneven elements
+    scan_counts = np.arange(23)  # Incomplete last slice
+    Nx, Ny, Nz = 3, 3, 3
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (3, 3, 3), f"Unexpected shape: {result.shape}"
+    assert result[-1, -1, -1] == 0, "Padding not applied correctly"
+
+    # Test case 6: Large array with multiple slices
+    scan_counts = np.arange(120)  # 10x6x2
+    Nx, Ny, Nz = 10, 6, 2
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 6, 2), f"Unexpected shape: {result.shape}"
+
+    print("All tests passed!")
+
+# Run tests
+
+if __name__ == "__main__":
+    test_reshape_and_pad_scan_counts()

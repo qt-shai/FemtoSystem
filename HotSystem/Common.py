@@ -181,4 +181,16 @@ def save_figure(fileName, data, format_ext:str = "jpg"):
     plt.savefig(fileName + "." + format_ext, bbox_inches='tight', pad_inches=0)  # Save as high-resolution image
     plt.close()  # Close the plot to free up resources
 
-
+class WindowNames(Enum):
+    PICO = "pico_Win"
+    MCS = "mcs_Win"
+    ZELUX = "Zelux Window"
+    WAVEMETER = "Wavemeter_Win"
+    HIGHLAND_T130 = "HighlandT130_Win"
+    MATISSE = "Matisse_Win"
+    OPX = "OPX Window"
+    MAP = "Map_window"
+    SCAN = "Scan_Window"
+    LASER = "LaserWin"
+    ARDUINO = "Arduino_Win"
+    SIM960 = "SIM960_Win"

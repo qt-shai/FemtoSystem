@@ -26,9 +26,9 @@ class GUIMatisse:
         self.instrument = instrument
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
-        self.window_tag = f"MatisseWin_{self.unique_id}"
+        self.window_tag = "Matisse_Win"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
-                        no_title_bar=False, height=320, width=1800, pos=[0, 0], collapsed=False):
+                        no_title_bar=False, height=320, width=1800, pos=[20, 20], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_diode_power_controls(red_button_theme)
@@ -278,11 +278,11 @@ class GUIMatisse:
                 width=150
             )
 
-            dpg.add_input_float(label="Scan Range (MHz)", default_value=2000.0, tag=f"ScanRange_{self.unique_id}",
+            dpg.add_input_float(label="Scan Range (MHz)", default_value=200.0, tag=f"ScanRange_{self.unique_id}",
                                 format="%.2f", width=150, callback=self.update_scanning_parameters)
             dpg.add_input_float(label="Scan Speed (MHz/s)", default_value=100.0, tag=f"ScanSpeed_{self.unique_id}",
                                 format="%.2f", width=150, callback=self.update_scanning_parameters)
-            dpg.add_input_int(label="Number of Points", default_value=100, tag=f"NumberOfScanPoints_{self.unique_id}",
+            dpg.add_input_int(label="Number of Points", default_value=10, tag=f"NumberOfScanPoints_{self.unique_id}",
                               min_value=10, max_value=1000, width=150, callback=self.update_scanning_parameters)
 
             # "To MHz" conversion fields for each device
@@ -310,9 +310,9 @@ class GUIMatisse:
 
             # Initialize wrapper attributes
             self.dev.scan_device = "Slow Piezo"
-            self.dev.scan_range = 2000.0
+            self.dev.scan_range = 200.0
             self.dev.scan_speed = 100.0
-            self.dev.num_scan_points = 100
+            self.dev.num_scan_points = 10
             self.dev.slow_piezo_to_mhz = 81500.0
             self.dev.ref_cell_to_mhz = 81500.0
 

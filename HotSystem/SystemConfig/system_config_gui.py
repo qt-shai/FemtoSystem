@@ -64,17 +64,20 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
             devices = [devices]
     elif instrument == Instruments.OPX:
         ip_list = [
-            InstrumentsAddress.opx_main_ip.value,
-            InstrumentsAddress.opx_aux_ip.value
+            InstrumentsAddress.opx_hot_system_ip.value,
+            InstrumentsAddress.opx_femto_system_ip.value,
+            InstrumentsAddress.opx_atto_system_ip.value
         ]
         devices = find_device_list_from_ip(instrument, ip_list)
 
         if devices:
             for dev in devices:
-                if dev.ip_address == "192.168.101.56":
-                    dev.misc = "Cluster_1"
-                elif dev.ip_address == "192.168.101.61":
-                    dev.misc = "Cluster_2"
+                if dev.ip_address == InstrumentsAddress.opx_hot_system_ip.value:
+                    dev.misc = InstrumentsAddress.opx_hot_system_cluster.value
+                elif dev.ip_address == InstrumentsAddress.opx_femto_system_ip.value:
+                    dev.misc = InstrumentsAddress.opx_femto_system_cluster.value
+                elif dev.ip_address == InstrumentsAddress.opx_atto_system_ip.value:
+                    dev.misc = InstrumentsAddress.opx_atto_system_cluster.value
 
         if not isinstance(devices, list) and devices:
             devices = [devices]
@@ -89,9 +92,13 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
         # ports = scan_com_ports()
         mainframe_port = next((port for port, description in ports.items() if "sim900" in description.lower()),None)
         sim960_list = []
+
         if mainframe_port:
-            temp_mainframe = wrapper_sim900_mainframe.SRSsim900(mainframe_port)
-            temp_mainframe.connect()
+            try:
+                temp_mainframe = wrapper_sim900_mainframe.SRSsim900(mainframe_port)
+                temp_mainframe.connect()
+            except Exception as e:
+                print(f"failed mainframe. Error: {e}")
 
             # Loop over channels 1 to 8 and check for connected modules
             try:
@@ -103,6 +110,7 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                     temp_mainframe.disconnect()
             except Exception as e:
                 print(f"failed to detect channels in SRS900 mainframe. Error: {e}")
+
     elif instrument == Instruments.KEYSIGHT_AWG:
         ip_list = [InstrumentsAddress.KEYSIGHT_AWG_33522B.value, InstrumentsAddress.KEYSIGHT_AWG_33600A.value]
         devices = find_device_list_from_ip(instrument, ip_list)
@@ -135,8 +143,8 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
         pass
     elif instrument == Instruments.OPX:
         ip_list = [
-            InstrumentsAddress.opx_main_ip.value,
-            InstrumentsAddress.opx_aux_ip.value
+            InstrumentsAddress.opx_hot_system_ip.value,
+            InstrumentsAddress.opx_femto_system_ip.value
         ]
         devices = find_device_list_from_ip(instrument, ip_list)
 

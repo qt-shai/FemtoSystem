@@ -1,4 +1,6 @@
 from typing import Optional
+
+import numpy as np
 from pylablib.devices.HighFinesse import wlm
 
 
@@ -90,7 +92,7 @@ class HighFinesseWLM:
         :return: The current wavelength in nm, or None if simulation/not connected.
         """
         if self.simulation or self.dev is None:
-            return None
+            return np.random.uniform(10,1000)
         return self.dev.get_frequency()
 
     def set_exposure(self, exposure_time: int, channel: int = 0):
