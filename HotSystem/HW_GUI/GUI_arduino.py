@@ -42,59 +42,36 @@ class GUIArduino:
         t.start()
 
         # Create GUI window
-        with dpg.window(tag="ArduinoWin", label="Arduino Communication", width=650, height=800):
-            dpg.add_text("Arduino Communication Panel", color=(0, 255, 0))
+        with dpg.window(tag="Arduino_Win", label="Arduino Communication", width=460, height=420, pos=[30, 30],collapsed=True):
 
             # Input Fields
-            dpg.add_input_int(label="Number of Points", tag="num_points", default_value=self.arduino.num_points.get(),
-                              callback=self.set_num_points)
-            dpg.add_input_int(label="Time Interval (μs)", tag="time_interval", default_value=self.arduino.time_interval_us.get(),
-                              callback=self.set_time_interval)
+            with dpg.group(horizontal=True):
+                dpg.add_input_int(label="Points", tag="num_points", default_value=self.arduino.num_points.get(),
+                                  callback=self.set_num_points,width=150)
+                dpg.add_input_int(label="Time", tag="time_interval", default_value=self.arduino.time_interval_us.get(),
+                                  callback=self.set_time_interval,width=150)
 
-            # Buttons
-            dpg.add_button(label="Start Measurement", callback=self.arduino.start_measurement)
-            dpg.add_button(label="Read Measurement", callback=self.read_measurement_and_update_graph)
-            dpg.add_button(label="Continuous Read", callback=self.toggle_continuous_read)
-            dpg.add_button(label="Save Graph Data", callback=self.save_graph_data)
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Start", callback=self.arduino.start_measurement)
+                dpg.add_button(label="Read", callback=self.read_measurement_and_update_graph)
+                dpg.add_button(label="Cont Read", callback=self.toggle_continuous_read)
+                dpg.add_button(label="Save Data", callback=self.save_graph_data)
 
             # --- Pulse Generation Controls ---
-            with dpg.group(horizontal=False, tag="pulse_controls", width=250):
-                dpg.add_text("Pulse Generation Controls")
+            with dpg.group(horizontal=True):
+                dpg.add_input_float(label="Width", default_value=100.0, tag="pulse_width", format="%.1f",width=100)
+                dpg.add_input_float(label="Spacing", default_value=1000.0, tag="pulse_spacing", format="%.1f",width=100)
+                dpg.add_button(label="Set",callback=self.set_pulse,width=50)
+                dpg.add_button(label="Stop",callback=self.stop_pulse,width=50)
 
-                # Pulse width input
-                dpg.add_input_float(
-                    label="Pulse Width [us]",
-                    default_value=100.0,
-                    tag="pulse_width",
-                    format="%.1f"
-                )
-
-                # Pulse spacing input
-                dpg.add_input_float(
-                    label="Pulse Spacing [us]",
-                    default_value=1000.0,
-                    tag="pulse_spacing",
-                    format="%.1f"
-                )
-
-                # Button: Set Pulse
-                dpg.add_button(label="Set Pulse",callback=self.set_pulse)
-
-                # Button: Stop Pulse
-                dpg.add_button(label="Stop Pulse",callback=self.stop_pulse)
-
-            # Response Display
-            dpg.add_text("Results:", tag="results_label")
-            dpg.add_text("", tag="results_display", wrap=450)
-
-            with dpg.plot(label="Measurement Plot", height=400, width=600):
+            with dpg.plot(label="Measurement Plot", height=300, width=400):
                 x_axis_tag = f"x_axis_{self.unique_id}"
                 y_axis_tag = f"y_axis_{self.unique_id}"
                 dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)",tag=x_axis_tag)
                 with dpg.plot_axis(dpg.mvYAxis, label="Measurement",tag=y_axis_tag):
                     dpg.add_line_series([], [], label="My Measurements", tag="measurement_series")
 
-        
+
     def update_results_display(self, result: str):
         """
         Updates the GUI text element when new data is received.
@@ -305,6 +282,16 @@ class GUIArduino:
         except Exception as e:
             dpg.set_value("results_display", f"Error stopping pulse: {e}")
 
+    def window_moved_callback(sender, app_data):
+        """
+        Called whenever the user moves a window that has this callback attached.
+
+        :param sender: The tag (string) of the window being moved.
+        :param app_data: Typically the new position [x, y] of the window (provided by Dear PyGui).
+        """
+        # You can get the updated position from app_data or by using dpg.get_item_pos(sender)
+        new_pos = dpg.get_item_pos(sender)
+        print(f"Window '{sender}' moved. New position: {new_pos}")
 
 
 

@@ -36,6 +36,7 @@ from HW_GUI.GUI_sim960PID import GUISIM960
 from HWrap_OPX import GUI_OPX
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Utils.Common import calculate_z_series
+from Common import WindowNames
 from Window import Window_singleton
 
 
@@ -413,11 +414,14 @@ class PyGuiOverlay(Layer):
         self.CLD1011LP_thread = None
         self.GetScreenSize()
         self.CURRENT_KEY = None
+        self.window_positions = {}
 
     def on_render(self):
         jobs = dpg.get_callback_queue() # retrieves and clears queue
         dpg.run_callbacks(jobs)
         dpg.render_dearpygui_frame()
+
+        self.track_window_position()
 
         if getattr(self, 'cam', None) and getattr(self.cam, 'cam', None):
             cam_obj = self.cam.cam
@@ -655,6 +659,19 @@ class PyGuiOverlay(Layer):
         dpg.setup_dearpygui()
         dpg.show_viewport()
         pass
+
+    def track_window_position(self):
+        """
+        Periodically checks the position of tracked windows and logs changes.
+        """
+        for window in WindowNames:
+            win_name = window.value
+            if dpg.does_item_exist(win_name):
+                current_pos = dpg.get_item_pos(win_name)
+                if win_name not in self.window_positions or self.window_positions[win_name] != current_pos:
+                    print(f"Window '{win_name}' moved. New position: {current_pos}")
+                    self.window_positions[win_name] = current_pos
+
     def on_attach(self):
 
         self.startDPG(IsDemo=False,_width=2150,_height=1800)

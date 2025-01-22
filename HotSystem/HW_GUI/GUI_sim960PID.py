@@ -47,7 +47,7 @@ class GUISIM960:
         self.simulation = simulation
         self.is_collapsed = False
         self.unique_id = self._get_unique_id_from_device()
-        self.win_tag = f"SIM960Win_{self.unique_id}"
+        self.win_tag = "SIM960_Win"
         self.win_label = f"SRS SIM960, slot {self.dev.slot} ({self.unique_id})"
         self.background_loop = asyncio.new_event_loop()
         t = threading.Thread(
@@ -63,7 +63,7 @@ class GUISIM960:
 
         # Create a main window for the device
         with dpg.window(tag=self.win_tag, label=self.win_label,
-                        no_title_bar=False, height=400, width=1700, pos=[100, 100], collapsed=False):
+                        no_title_bar=False, height=400, width=1200, pos=[100, 100], collapsed=True):
             with dpg.group(horizontal=True):
                 self.create_device_image()
                 self.create_pid_controls()
@@ -105,7 +105,7 @@ class GUISIM960:
         """
         Create controls for setting and reading P, I, D values, enabling/disabling them, etc.
         """
-        with dpg.group(horizontal=False, tag=f"pid_controls_{self.unique_id}", width=250):
+        with dpg.group(horizontal=False, tag=f"pid_controls_{self.unique_id}"):
             try:
                 gain = self.dev.get_proportional_gain()
             except Exception as e:
@@ -118,55 +118,26 @@ class GUISIM960:
             dpg.add_text("PID Gains")
             # Proportional
             with dpg.group(horizontal=True):
-                dpg.add_input_float(
-                    label="P Gain", default_value=gain,
-                    # callback=self.cb_set_proportional_gain,
-                    tag=f"p_gain_{self.unique_id}",
-                    format="%.4f", step=0.1, step_fast=1.0
-                )
-                dpg.add_checkbox(
-                    label="", default_value=True,
-                    callback=self.cb_enable_p, tag=f"enable_p_{self.unique_id}"
-                )
+                dpg.add_input_float(label="P Gain", default_value=gain, # callback=self.cb_set_proportional_gain,
+                    tag=f"p_gain_{self.unique_id}", format="%.4f", step=0.1, step_fast=1.0,width=100)
+                dpg.add_checkbox(label="", default_value=True, callback=self.cb_enable_p, tag=f"enable_p_{self.unique_id}")
             # Integral
             with dpg.group(horizontal=True):
-                dpg.add_input_float(
-                    label="I Gain", default_value=self.dev.get_integral_gain(),
-                    # callback=self.cb_set_integral_gain,
-                    tag=f"i_gain_{self.unique_id}",
-                    format="%.6f", step=0.1, step_fast=1.0
-                )
-                dpg.add_checkbox(
-                    label="", default_value=False,
-                    callback=self.cb_enable_i, tag=f"enable_i_{self.unique_id}"
-                )
+                dpg.add_input_float(label="I Gain", default_value=self.dev.get_integral_gain(), # callback=self.cb_set_integral_gain,
+                    tag=f"i_gain_{self.unique_id}", format="%.6f", step=0.1, step_fast=1.0,width=100)
+                dpg.add_checkbox(label="", default_value=False, callback=self.cb_enable_i, tag=f"enable_i_{self.unique_id}")
             # Derivative
             with dpg.group(horizontal=True):
-                dpg.add_input_float(
-                    label="D Gain", default_value=self.dev.get_derivative_gain(),
-                    # callback=self.cb_set_derivative_gain,
-                    tag=f"d_gain_{self.unique_id}",
-                    format="%.6f", step=0.1, step_fast=1.0
-                )
-                dpg.add_checkbox(
-                    label="", default_value=False,
-                    callback=self.cb_enable_d, tag=f"enable_d_{self.unique_id}"
-                )
+                dpg.add_input_float(label="D Gain", default_value=self.dev.get_derivative_gain(), # callback=self.cb_set_derivative_gain,
+                    tag=f"d_gain_{self.unique_id}", format="%.6f", step=0.1, step_fast=1.0,width=100)
+                dpg.add_checkbox(label="", default_value=False, callback=self.cb_enable_d, tag=f"enable_d_{self.unique_id}")
 
             self.dev.enable_proportional(True)
             self.dev.enable_integral(True)            
 
-            dpg.add_button(
-                label="Get PID Gains",
-                callback=self.cb_get_pid_gains,
-                tag=f"get_pid_gains_{self.unique_id}"
-            )
+            dpg.add_button(label="Get PID Gains", callback=self.cb_get_pid_gains, tag=f"get_pid_gains_{self.unique_id}")
 
-            dpg.add_button(
-                label="Set PID Gains",
-                callback=self.cb_set_pid_gains,
-                tag=f"set_pid_gains_{self.unique_id}"
-            )
+            dpg.add_button(label="Set PID Gains", callback=self.cb_set_pid_gains, tag=f"set_pid_gains_{self.unique_id}")
 
             # Read the current setpoint from the device
             try:
@@ -178,37 +149,17 @@ class GUISIM960:
         # # --- The new combo to select an auto-tune method ---
             with dpg.group(horizontal=False):
                 dpg.add_text("Auto-Tune Method:")
-                dpg.add_combo(
-                    label="Method",
-                    items=["ZIEGLER_NICHOLS", "COHEN_COON", "TYREUS_LUYBEN", "OTHER"],  # or any you want
-                    default_value="ZIEGLER_NICHOLS",
-                    tag=f"auto_tune_method_{self.unique_id}",
-                    width=150
-                )
+                dpg.add_combo(label="Method", items=["ZIEGLER_NICHOLS", "COHEN_COON", "TYREUS_LUYBEN", "OTHER"],  # or any you want
+                    default_value="ZIEGLER_NICHOLS", tag=f"auto_tune_method_{self.unique_id}", width=100)
                 # --- Button to run auto-tuning ---
-                dpg.add_button(
-                    label="Auto-Tune PID",
-                    callback=self.cb_run_auto_tune,
-                    user_data=None  # We can pass self here if needed
+                dpg.add_button(label="Auto-Tune PID", callback=self.cb_run_auto_tune, user_data=None  # We can pass self here if needed
                 )
                 # Button to halt auto-tune
-                dpg.add_button(
-                    label="Halt Auto-Tune",
-                    callback=self.cb_halt_auto_tune
-                )
+                dpg.add_button(label="Halt Auto-Tune", callback=self.cb_halt_auto_tune)
 
                 # New setpoint control
-                dpg.add_input_float(
-                    label="Setpoint [V]",
-                    default_value=current_setpoint,
-                    callback=self.cb_set_new_setpoint,
-                    tag=f"setpoint_{self.unique_id}",
-                    format="%.3f"
-                )
-                dpg.add_button(
-                    label="Set New Setpoint",
-                    callback=self.cb_apply_new_setpoint
-                )
+                dpg.add_input_float(label="Setpoint [V]", default_value=current_setpoint, callback=self.cb_set_new_setpoint, tag=f"setpoint_{self.unique_id}", format="%.3f", width=100)
+                dpg.add_button(label="Set New Setpoint", callback=self.cb_apply_new_setpoint)
 
             # A button to reset the device
             dpg.add_button(label="Reset Device", callback=self.cb_reset_device)
@@ -288,7 +239,7 @@ class GUISIM960:
         Create controls for setting the device to manual mode or PID mode,
         and controlling manual output voltage, offset, etc.
         """
-        with dpg.group(horizontal=False, tag=f"manual_controls_{self.unique_id}", width=250):
+        with dpg.group(horizontal=False, tag=f"manual_controls_{self.unique_id}"):
             dpg.add_text("Output Mode")
             # Mode radio: manual or PID
             dpg.add_radio_button(
@@ -299,29 +250,15 @@ class GUISIM960:
 
             # Manual output input
             dpg.add_text("Manual Output")
-            dpg.add_input_float(
-                label="Voltage [V]", default_value=0.0,
-                callback=self.cb_set_manual_output,
-                tag=f"manual_out_{self.unique_id}",
-                format="%.3f"
-                )
+            dpg.add_input_float(label="Voltage", default_value=0.0, callback=self.cb_set_manual_output, tag=f"manual_out_{self.unique_id}", format="%.3f",width=100)
 
             # Output Offset
             dpg.add_text("Output Offset")
-            dpg.add_input_float(
-                label="Offset [V]", default_value=self.dev.get_output_offset(),
-                callback=self.cb_set_output_offset,
-                tag=f"output_offset_{self.unique_id}",
-                format="%.3f"
-                )
+            dpg.add_input_float(label="Offset [V]", default_value=self.dev.get_output_offset(), callback=self.cb_set_output_offset, tag=f"output_offset_{self.unique_id}", format="%.3f",width=100)
 
             dpg.add_text("Step for Max Extinction")
-            dpg.add_input_float(
-                label="Step [V]",
-                default_value=1.5,  # or whatever you prefer
-                tag=f"goto_step_{self.unique_id}",
-                format="%.3f"
-            )
+            dpg.add_input_float(label="Step [V]", default_value=1.5,  # or whatever you prefer
+                tag=f"goto_step_{self.unique_id}", format="%.3f",width=100)
 
             dpg.add_button(label="Stabilize",callback=self.cb_stabilize)
             dpg.add_button(label="Goto max extinction", callback=self.goto_max_ext)
@@ -601,7 +538,7 @@ class GUISIM960:
         """
         Create controls for reading the measured input or output.
         """
-        with dpg.group(horizontal=False, tag=f"monitor_controls_{self.unique_id}", width=250):
+        with dpg.group(horizontal=False, tag=f"monitor_controls_{self.unique_id}"):
             dpg.add_text("Monitoring")
             # We'll show measure input or output
             dpg.add_button(label="Update Readings", callback=self.cb_update_measurement)
@@ -610,35 +547,13 @@ class GUISIM960:
             dpg.add_button(label="Start/Stop Continuous Read", callback=self.cb_toggle_continuous_read)
 
             dpg.add_text("Output Limits")
-            dpg.add_input_float(
-                label="Upper Limit [V]",
-                default_value=self.dev.get_upper_limit(),  # Fetch initial value from device
-                callback=self.cb_set_upper_limit,
-                tag=f"upper_limit_{self.unique_id}",
-                format="%.3f"
-            )
-            dpg.add_button(
-                label="Set Upper",
-                callback=self.cb_apply_upper_limit
-            )
-
-            dpg.add_input_float(
-                label="Lower Limit [V]",
-                default_value=self.dev.get_lower_limit(),  # Fetch initial value from device
-                callback=self.cb_set_lower_limit,
-                tag=f"lower_limit_{self.unique_id}",
-                format="%.3f"
-            )
-            dpg.add_button(
-                label="Set Lower",
-                callback=self.cb_apply_lower_limit
-            )
-
-            # Button to fetch current limits
-            dpg.add_button(
-                label="Get Limits",
-                callback=self.cb_get_limits
-            )
+            dpg.add_input_float(label="Upper Lim", default_value=self.dev.get_upper_limit(),  # Fetch initial value from device
+                callback=self.cb_set_upper_limit, tag=f"upper_limit_{self.unique_id}", format="%.3f",width=100)
+            dpg.add_button(label="Set Upper", callback=self.cb_apply_upper_limit)
+            dpg.add_input_float(label="Lower Lim", default_value=self.dev.get_lower_limit(),  # Fetch initial value from device
+                callback=self.cb_set_lower_limit, tag=f"lower_limit_{self.unique_id}", format="%.3f",width=100)
+            dpg.add_button(label="Set Lower", callback=self.cb_apply_lower_limit)
+            dpg.add_button(label="Get Limits", callback=self.cb_get_limits)
 
     def cb_set_upper_limit(self, sender, app_data):
         """Callback to set the new upper limit."""

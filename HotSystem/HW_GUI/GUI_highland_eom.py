@@ -20,13 +20,13 @@ class GUIHighlandT130:
         self.unique_id:str = self._get_unique_id_from_device()
         self.instrument:Instruments = instrument
         self.range:int = 1  # Default range is 1
-        self.width = 1100
-        self.height = 200
+        self.width = 1000
+        self.height = 170
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
-        self.window_tag = f"HighlandT130Win_{self.unique_id}"
+        self.window_tag = "HighlandT130_Win"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
-                        no_title_bar=False, height=self.height, width=self.width, pos=[0, 0], collapsed=False):
+                        no_title_bar=False, height=self.height, width=self.width, pos=[0, 0], collapsed=True):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_main_controls()
@@ -167,7 +167,7 @@ class GUIHighlandT130:
     def create_save_load_controls(self):
         with dpg.group(horizontal=False, tag=f"column_save_load_{self.unique_id}"):
             dpg.add_text("Configurations")
-            dpg.add_input_text(tag=f"config_name_{self.unique_id}", width=200)
+            dpg.add_input_text(tag=f"config_name_{self.unique_id}", width=150)
             dpg.add_button(label="Save Config", callback=self.save_configuration)
             dpg.add_button(label="Recall Config", callback=self.recall_configuration)
             dpg.add_button(label="List Configs", callback=self.list_configurations)

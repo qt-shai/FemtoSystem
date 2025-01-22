@@ -12,28 +12,33 @@ import sys
 import threading
 import time
 from enum import Enum
-from typing import Union, Optional, Callable, List, Tuple
+from tkinter import filedialog
+from typing import Union, Optional, Callable, List
 import glfw
 import numpy as np
+import tkinter as tk
 
+from gevent.libev.corecext import callback
 from matplotlib import pyplot as plt
 from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
 from qualang_tools.results import progress_counter, fetching_tool
+from functools import partial
 from qualang_tools.units import unit
 from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
+from smaract import ctl
 import matplotlib
 
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from SystemConfig import SystemType, Instruments
-from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, \
-    open_file_dialog, create_gaussian_vector
+from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, open_file_dialog
 import dearpygui.dearpygui as dpg
 from PIL import Image
 import subprocess
 import shutil
 import xml.etree.ElementTree as ET
+import math
 import SystemConfig as configs
 from Utils import OptimizerMethod,find_max_signal
 
@@ -136,6 +141,7 @@ class GUI_OPX():
         # At the end of the init - all values are overwritten from XML!
         # To update values of the parameters - update the XML or the corresponding place in the GUI
         self.map: Optional[Map] = None
+        self.simulation = simulation
         self.click_coord = None
         self.clicked_position = None
         self.map_item_x = 0
@@ -261,7 +267,7 @@ class GUI_OPX():
         self.chkbox_close_all_qm = False
         # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
 
-        # self.ZCalibrationData = np.array([[1274289050, 1099174441, -5215799855],[1274289385, -1900825080, -5239700330],[-1852010640, -1900825498, -5277599782]])
+        dpg.set_frame_callback(1, self.load_pos)
 
         if simulation:
             print("OPX in simulation mode ***********************")
@@ -919,6 +925,104 @@ class GUI_OPX():
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
+
+
+    def save_pos(self):
+        # Define the list of windows to check and save positions for
+        window_names = [
+            "pico_Win", "mcs_Win", "Zelux Window","Wavemeter_Win","HighlandT130_Win","Matisse_Win",
+            "OPX Window", "Map_window", "Scan_Window", "LaserWin","Arduino_Win","SIM960_Win"
+        ]
+
+        # Dictionary to store window positions and dimensions
+        window_positions = {}
+
+        # Iterate through the list of window names and collect their positions and sizes if they exist
+        for win_name in window_names:
+            if dpg.does_item_exist(win_name):
+                win_pos = dpg.get_item_pos(win_name)
+                win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
+                window_positions[win_name] = (win_pos, win_size)
+                print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
+
+        try:
+            # Read existing map_config.txt content, if available
+            try:
+                with open("map_config.txt", "r") as file:
+                    lines = file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Remove any existing window position and size entries
+            new_content = [line for line in lines if not any(win_name in line for win_name in window_positions.keys())]
+
+            # Append the new window positions and dimensions to the content
+            for win_name, (position, size) in window_positions.items():
+                new_content.append(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
+                new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
+
+            # Write back the updated content to the file
+            with open("map_config.txt", "w") as file:
+                file.writelines(new_content)
+
+            print("Window positions and sizes saved successfully to map_config.txt.")
+        except Exception as e:
+            print(f"Error saving window positions and sizes: {e}")
+
+    def load_pos(self):
+        try:
+            # Check if map_config.txt exists and read the contents
+            if not os.path.exists("map_config.txt"):
+                print("map_config.txt not found.")
+                return
+
+            # Dictionaries to store positions and sizes loaded from the file
+            window_positions = {}
+            window_sizes = {}
+
+            with open("map_config.txt", "r") as file:
+                lines = file.readlines()
+                for line in lines:
+                    # Split the line to get key and value
+                    parts = line.split(": ")
+                    if len(parts) != 2:
+                        continue  # Skip lines that don't have the expected format
+
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+
+                    # Check if the key is a window position entry
+                    if "_Pos" in key:
+                        # Extract window name and coordinates
+                        window_name = key.replace("_Pos", "")
+                        x, y = value.split(", ")
+                        window_positions[window_name] = (float(x), float(y))
+
+                    # Check if the key is a window size entry
+                    elif "_Size" in key:
+                        # Extract window name and dimensions
+                        window_name = key.replace("_Size", "")
+                        width, height = value.split(", ")
+                        window_sizes[window_name] = (int(width), int(height))
+
+            # Update window positions and sizes in Dear PyGui if the windows exist
+            for window_name, pos in window_positions.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_pos(window_name, pos)
+                    print(f"Loaded position for {window_name}: {pos}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
+            for window_name, size in window_sizes.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_width(window_name, size[0])
+                    dpg.set_item_height(window_name, size[1])
+                    print(f"Loaded size for {window_name}: {size}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
+        except Exception as e:
+            print(f"Error loading window positions and sizes: {e}")
 
     def btn_z_calibrate(self):
         self.ScanTh = threading.Thread(target=self.z_calibrate)
@@ -2187,8 +2291,8 @@ class GUI_OPX():
             self.f_rf = self.rf_resonance_freq
 
             # length and idx vector
-            self.first_state = 0 # serial number of first initial state
-            self.last_state = 0 # serial number of last initial state
+            self.first_state = 4 # serial number of first initial state
+            self.last_state = 4 # serial number of last initial state
             self.number_of_states = 1 # number of initial states
             self.number_of_measurement = 15 # number of measurements
             self.vectorLength = self.number_of_states*self.number_of_measurement  # total number of measurements
@@ -2231,72 +2335,112 @@ class GUI_OPX():
     def time_bin_entanglement_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
         if generate_params:
             # dummy vectors to be aligned with QUA_PGM convention
-            self.array_length = 1 # time vector size
-            self.idx_vec_ini = np.arange(0, self.array_length, 1) #Index array for QUA_PGM
-            self.f_vec = self.GenVector(min = 0 * self.u.MHz, max = self.mw_freq_scan_range * self.u.MHz, delta= self.mw_df * self.u.MHz, asInt=False) #Don't need it, but QUA_PGM requires it
-
-            #Updated experiment parameters
-            self.MeasProcessTime = 16  # [nsec], time required for measure element to finish process
-            self.TGreenLaser = 5000  # [nsec]
-            self.t_mw = 20  # [nsec]
+            self.array_length = 1
+            self.idx_vec_ini = np.arange(0, self.array_length, 1)
+            self.f_vec = self.GenVector(min = 0 * self.u.MHz, max = self.mw_freq_scan_range * self.u.MHz, delta= self.mw_df * self.u.MHz, asInt=False)
 
             # sequence parameters.
-            self.tLaser = self.time_in_multiples_cycle_time(self.TGreenLaser)
-            self.tMeasure = self.time_in_multiples_cycle_time(self.MeasProcessTime) #Measurement time of the detector
-            self.tWaitTimeGateSuppression = self.time_in_multiples_cycle_time(self.TwaitTimeBin)
+            self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tWait = self.time_in_multiples_cycle_time(self.TwaitTimeBin)
 
             #New red laser parameters:
+            #1. Time of Pulse
+            #check with Boaz
             self.tRed = self.time_in_multiples_cycle_time(self.TRed)#Change
             self.tCollectionWait = self.time_in_multiples_cycle_time(1)
-            self.tStatistics = self.time_in_multiples_cycle_time(self.TRedStatistics)#change to resonant measure
+            self.tStatistics = self.time_in_multiples_cycle_time(self.TRedStatistics)#change to resonantmeasure
 
             # MW parameters
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw)
-            self.tMWPiHalf = self.time_in_multiples_cycle_time(self.t_mw/2)
+            self.tMW2 = self.time_in_multiples_cycle_time(self.t_mw2)
+            self.fMW_1st_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz  # Hz
+            self.verify_insideQUA_FreqValues(self.fMW_1st_res)
+
+            # # frequency scan vector
+            # self.f_vec = self.GenVector(min=0 * self.u.MHz, max=self.mw_freq_scan_range * self.u.MHz,
+            #                             delta=self.mw_df * self.u.MHz, asInt=False)
 
             # length and idx vector
-            self.vectorLength = 10 #Number of measurements, Consider setting in the init
-            self.idx_vec = np.arange(0, self.vectorLength, 1)  # indexes vector for fetch and plot
+            self.vectorLength = 10 #Number of measurmenets, Consider setting in the init
+            self.idx_vec = np.arange(0, self.vectorLength, 1)  # indexes vector
             self.number_of_statistical_measurements = 1000
+            self.jdx_vec = np.arange(0, self.number_of_statistical_measurements, 1)  # indexes vector
+
+
+            # tracking signal
+            self.tSequencePeriod = (self.tMW + self.tRed) * self.array_length #Add new time self.tRedLaser
+            self.tGetTrackingSignalEveryTime_nsec = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
+            self.tTrackingSignaIntegrationTime_usec = int(self.tTrackingSignaIntegrationTime * 1e6)  # []
+            self.tTrackingIntegrationCycles = self.tTrackingSignaIntegrationTime_usec // self.time_in_multiples_cycle_time(
+                self.Tcounter)
+            self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (
+                self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
+
 
         if Generate_QUA_sequance:
-            # align()
-            # Consider perfoming the calculations outside the sequence for reduction of runtime
-            with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
-                # update MW frequency
-                update_frequency("MW", self.f)
-                #Intialization of the state using a Green Laser to |0>
-                play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-                align("MW","Laser")
-                # play MW pi/2 pulse
-                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMWPiHalf) // 4)
-                align("MW","Resonant_Laser")
-                # play Resonant Laser
-                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-                align("Resonant_Laser","Detector_OPD")
-                # Wait to prevent recording laser light
-                wait(self.tWaitTimeGateSuppression //4)
                 # align()
-                # measure signal
-                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_ref_tmp) #Change name to counts
-                align("Detector_OPD","MW")
-                # play MW pi pulse
-                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
-                align("MW","Resonant_Laser")
-                # play Resonant Laser
-                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-                align("Resonant_Laser","Detector_OPD")
-                # Wait to prevent recording laser light
-                wait(self.tWaitTimeGateSuppression // 4)
-                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref2[self.i_idx], self.counts_ref2[self.i_idx] + self.counts_ref_tmp)
-                #Define the wait time between two detectors
-                #Add wait time here
-                align()
-                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref3[self.i_idx], self.counts_ref3[self.i_idx] + self.counts_ref_tmp)
-                align()
+                with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
+                    play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                    wait(self.tWait // 4)
+                    align()
+
+
+                    # play Laser
+                    # with infinite_loop_():
+                    #     #with for_(self.n, 0, self.n < 1, self.n + 1):  # number of averages / total integation time
+                    #     play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+                    #     wait(self.tWait // 4)
+
+                    # update MW frequency
+                    update_frequency("MW", self.f)
+                    # play MW pi/2 pulse
+                    play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMW2) // 4)
+                    align()
+                    # play Resonant Laser
+                    play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
+                    align()
+                    # Wait to prevent recording laser light
+                    wait(self.tWait //4)
+                    # align()
+                    # measure signal
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                    assign(self.counts_ref[self.idx_vec_qua[self.i_idx-1]], self.counts_ref[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                    align()
+                    # play MW pi pulse
+                    play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
+                    align()
+                    # play Resonant Laser
+                    play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
+                    align()
+                    # Wait to prevent recording laser light
+                    wait(self.tWait // 4)
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                    assign(self.counts_ref2[self.idx_vec_qua[self.i_idx-1]], self.counts_ref2[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                    #Define the wait time between two detectors
+                    #Add wait time here
+                    align()
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
+                    assign(self.counts_ref3[self.idx_vec_qua[self.i_idx-1]], self.counts_ref3[self.idx_vec_qua[self.i_idx-1]] + self.counts_ref_tmp)
+                    align()
+
+                # with if_((self.counts_ref[self.idx_vec_qua[self.i_idx]] > 0) | (self.counts_ref2[self.idx_vec_qua[self.i_idx]] > 0) | (self.counts_ref3[self.idx_vec_qua[self.i_idx]] > 0)):
+                #     # play MW pi/2 pulse
+                #     #self.QUA_shuffle(,)
+                #     with if_(self.i_idx & 1):
+                #         a = "xPulse"
+                #     with else_():
+                #         a = "yPulse"
+                #     play(a * amp(self.mw_P_amp2), "MW", duration=self.tMW // 8) #8 instead of 4 because this is pi/2
+                #     align()
+                #     # play Resonant Laser
+                #     play("Turn_ON", "Resonant_Laser", duration=(self.tStatistics) // 4)
+                #     # Measure statistics
+                #     measure("readout", "Detector2_OPD", None,
+                #             time_tagging.digital(self.times_ref, self.tStatistics, self.counts_tmp))
+                #     assign(self.counts[self.idx_vec_qua[self.i_idx]],
+                #            self.counts[self.idx_vec_qua[self.i_idx]] + self.counts_tmp)
+
 
         if execute_qua:
             self.time_bin_entanglement_QUA_PGM(generate_params=True)
@@ -4557,6 +4701,7 @@ class GUI_OPX():
         # time
         tMeasueProcess = self.MeasProcessTime
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
+        tMW = self.t_mw
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW2 = self.time_in_multiples_cycle_time(self.t_mw2)
 
@@ -4572,7 +4717,7 @@ class GUI_OPX():
         idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = (tMW2 + tLaser) * 2 * array_length
+        tSequencePeriod = (tMW + tLaser) * 2 * array_length
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
@@ -5002,8 +5147,8 @@ class GUI_OPX():
             with infinite_loop_():
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
                     play("Turn_ON", "Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
-                    measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
-                    measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.Tcounter * self.u.ns), self.counts))
+                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
                     assign(self.total_counts2, self.total_counts2 + self.counts_ref)  # assign is equal in qua language  # align()
@@ -5030,7 +5175,6 @@ class GUI_OPX():
         single_integration_time = int(self.Tcounter * self.u.ns)
         smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
 
-
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
             counts = declare(int)  # apd1
@@ -5056,7 +5200,7 @@ class GUI_OPX():
                     # pause()
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
                         play("Turn_ON", play_element, duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
+                        measure("readout", "Detector_OPD", None, time_tagging.analog(times, single_integration_time, counts))
                         assign(total_counts, total_counts + counts)
 
                     save(total_counts, counts_st)
@@ -5145,7 +5289,7 @@ class GUI_OPX():
         elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
         elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.results = fetching_tool(self.job, data_list=["counts"], mode="live")
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
         else:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
 
@@ -5230,7 +5374,7 @@ class GUI_OPX():
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="index")
             if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-                #self.SearchPeakIntensity()
+                self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [msec]")
             if self.exp == Experiment.G2:
                 dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, Totalounts = {round(self.g2_totalCounts, 0)}")
@@ -5278,7 +5422,7 @@ class GUI_OPX():
         elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.signal, self.ref_signal = self.results.fetch_all()
+            self.counter_Signal, self.ref_signal = self.results.fetch_all()
         else:
             self.signal, self.ref_signal, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
 
@@ -5391,8 +5535,7 @@ class GUI_OPX():
             self.X_vec = self.GenVector(-self.correlation_width+1,self.correlation_width,True)
             self.Y_vec = self.g2Vec#*self.iteration
 
-        if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            #Add a way for the y vector to include 3 different counters
+        if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:  # freq
             self.X_vec = self.idx_vec #index
             self.Y_vec = self.counts
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
@@ -5743,7 +5886,7 @@ class GUI_OPX():
             else:
                 dpg.enable_item("btnOPX_StartScan")
 
-            if not self.simulation and self.job:
+            if (self.job):
                 self.StopJob(self.job, self.qm)
 
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
@@ -5842,12 +5985,7 @@ class GUI_OPX():
         vec = list(np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
                 np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
-        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength,
-                                read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
-                                get_positions_fn=lambda: self.HW.wavemeter.get_frequency(),
-                                device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE,
-                                UseDisplayDuring=False,check_srs_stability = (self.HW.SRS_PID_list is not None),
-                                meas_continuously=True)
+        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1], get_positions_fn=lambda: self.matisse.get_wavelength_position(scan_device), device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, UseDisplayDuring=False,check_srs_stability=True,)
 
     def StartScan(self):
         if self.positioner:
@@ -5913,7 +6051,7 @@ class GUI_OPX():
             print(f"x_vec: {x_vec}")
             print(f"y_vec: {y_vec}")
             print(f"z_vec: {z_vec}")
-            self.start_scan_general(move_abs_fn=move_axes, read_in_pos_fn=lambda ch: (time.sleep(self.scan_default_sleep_time), True)[1], get_positions_fn=get_positions, device_reset_fn=None, x_vec=x_vec, y_vec=y_vec, z_vec=z_vec, meas_continuously=False)
+            self.start_scan_general(move_abs_fn=move_axes, read_in_pos_fn=lambda ch: (time.sleep(self.scan_default_sleep_time), True)[1], get_positions_fn=get_positions, device_reset_fn=None, x_vec=x_vec, y_vec=y_vec, z_vec=z_vec)
             self.HW.atto_scanner.start_updates()
             self.HW.atto_positioner.start_updates()
         else:
@@ -6293,8 +6431,8 @@ class GUI_OPX():
             self.btnStop()
 
     def start_scan_general(self, move_abs_fn, read_in_pos_fn, get_positions_fn, device_reset_fn, x_vec=None, y_vec=None,
-                           z_vec=None, current_experiment=Experiment.SCAN, UseDisplayDuring=True, meas_continuously=False,
-                           check_srs_stability=False):
+                           z_vec=None, current_experiment=Experiment.SCAN, UseDisplayDuring=True, meas_continuously=True,
+                           check_srs_stability=True):
 
         x_vec = x_vec if x_vec else []
         y_vec = y_vec if y_vec else []
@@ -6367,10 +6505,7 @@ class GUI_OPX():
             current_positions = [current_positions]  # Wrap single float in a list
 
         # Pad with zeros if fewer than expected_axes
-        if self.exp == Experiment.PLE:
-            self.initial_scan_Location = [x_vec[0]] + [0] * (expected_axes - len(current_positions))
-        else:
-            self.initial_scan_Location = list(current_positions) + [0] * (expected_axes - len(current_positions))
+        self.initial_scan_Location = list(current_positions) + [0] * (expected_axes - len(current_positions))
 
         # Build scanning arrays for each axis (like original “V_scan” concept)
         self.V_scan = [
@@ -6400,26 +6535,19 @@ class GUI_OPX():
             self.V_scan[2][-1] if Nz > 1 else self.initial_scan_Location[2]
         ]
 
-        if UseDisplayDuring:
-            self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc,
-                           endLoc=self.endLoc)
-
         # QUA program init (example)
-        if not self.simulation:
+        self.initQUA_gen(
+            n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+            num_measurement_per_array=Nx
+        )
+        res_handles = getattr(self.job, 'result_handles', None)
+        if res_handles is None:
+            print("No results")
+            self.btnStop()
+            return
 
-
-            self.initQUA_gen(
-                n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-                num_measurement_per_array=Nx
-            )
-            res_handles = getattr(self.job, 'result_handles', None)
-            if res_handles is None:
-                print("No results")
-                self.btnStop()
-                return
-
-            self.counts_handle = res_handles.get("counts_scanLine")
-            self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
+        self.counts_handle = res_handles.get("counts_scanLine")
+        self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
 
         # Example: offset for X start
         if Nx > 1:
@@ -6449,15 +6577,14 @@ class GUI_OPX():
         # Initialize the 3D array for intensities
         self.scan_intensities = np.zeros((Nx, Ny, Nz), dtype=float)
         scan_counts = np.zeros_like(self.scan_intensities)
-        self.scan_iterations = 0
+        scan_iterations = np.zeros_like(self.scan_intensities, dtype=int)
 
         def perform_scan_pass(Nx, Ny, Nz, continuous=False,check_srs_stability=True,):
             nonlocal z_correction_previous, previousMeas_idx, meas_idx
 
             # For time estimations
             pass_start_time = time.time()
-            current_positions_array = []
-            data = []
+
             for iz in range(Nz):
                 if self.stopScan:
                     break
@@ -6480,7 +6607,6 @@ class GUI_OPX():
 
                     line_start_time = time.time()
                     # X loop
-                    current_positions_array=[]
                     for ix in range(Nx):
                         if self.stopScan:
                             break
@@ -6509,34 +6635,24 @@ class GUI_OPX():
                         move_abs_fn(0, self.V_scan[0][ix])
                         read_in_pos_fn(0)
 
-                        current_positions = get_positions_fn()
-                        current_positions_array.append(current_positions)
-
                         # Ensure SRS stable
-                        if self.exp == Experiment.PLE and check_srs_stability and not self.simulation:
+                        if check_srs_stability:
                             while not self.HW.SRS_PID_list[0].is_stable:
                                 if self.stopScan:
                                     return False
                                 print("Waiting for SRS to stabilize")
                                 time.sleep(1)
 
-                        if not self.simulation:
-                            # Trigger measurement
-                            self.qm.set_io2_value(self.ScanTrigger)
-                            time.sleep(self.total_integration_time * 1e-3 + 1e-3)
+                        # Trigger measurement
+                        self.qm.set_io2_value(self.ScanTrigger)
+                        time.sleep(self.total_integration_time * 1e-3 + 1e-3)
 
                     # End X loop
                     if self.stopScan:
                         break
 
-                    counts = None
                     # Fetch data from QUA
-                    if self.simulation:
-                        counts = np.concatenate([
-                            create_gaussian_vector(Nx // 2, center=1.5, width=10),
-                            create_gaussian_vector(Nx - Nx // 2, center=3.5, width=10)
-                        ])
-                    elif self.counts_handle.is_processing():
+                    if self.counts_handle.is_processing():
                         # block until at least 1 data chunk is there
                         self.counts_handle.wait_for_values(1)
                         self.meas_idx_handle.wait_for_values(1)
@@ -6544,37 +6660,33 @@ class GUI_OPX():
 
                         meas_idx = self.meas_idx_handle.fetch_all()
                         counts = self.counts_handle.fetch_all()
+
                         self.qmm.clear_all_job_results()
-
-                    if counts is not None:
-                        self.scan_counts_aggregated.append(np.squeeze(counts))
-                        self.scan_frequencies_aggregated.append(np.squeeze(current_positions_array))
-
 
                         # Validate data
                         if counts.size == Nx:
-                            self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
+
+                            if continuous:
+                                for ix, ct in enumerate(counts):
+                                    scan_counts[ix, iy, iz] += ct
+                                    scan_iterations[ix, iy, iz] += 1
+                                    self.scan_intensities[ix, iy, iz] = (
+                                            scan_counts[ix, iy, iz] / scan_iterations[ix, iy, iz]
+                                    )
+                            else:
+                                # Single pass: store the slice
+                                self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
 
                             if UseDisplayDuring:
                                 self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
-                                self.extract_vectors(current_positions_array)
                             else:
-                                # self.X_vec = self.V_scan[0]
-                                half_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
-                                self.X_vec = list((np.array(current_positions_array[:half_length])-current_positions_array[0])*1e-6)
+                                self.X_vec = self.V_scan[0]
                                 data = self.scan_intensities[:, :, iz]
                                 if data.shape[1] == 1:
                                     data = data.squeeze()
                                 self.Y_vec = data.tolist()
-
-                                # Split the data into up scan and down scan
-                                up_scan_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
-                                self.Y_vec = data[:up_scan_length].tolist()  # Data for up scan
-                                self.Y_vec_ref = data[up_scan_length:].tolist()  # Data for down scan
-                                self.V_scan[1] = list(range(self.scan_iterations+1))
+                                # print("Updating graph")
                                 self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
-                                self.Y_vec = list(range(self.scan_iterations+1))
-                                self.Z_vec = list(range(Nz))
                         else:
                             print(
                                 "Warning: counts size mismatch. Possibly partial line or measurement error."
@@ -6582,11 +6694,17 @@ class GUI_OPX():
                             return False
 
                         # Check if line is “complete”
-                        save_partial = True
                         if not continuous:
                             if (meas_idx - previousMeas_idx) % (Nx if Nx > 1 else 1) == 0:
                                 # Good line: increment
                                 iy += 1
+                                # Save partial data
+                                self.prepare_scan_data()
+                                self.save_scan_data(
+                                    Nx=Nx, Ny=Ny, Nz=Nz,
+                                    fileName=self.scanFN,
+                                    to_append=True
+                                )
                             else:
                                 print(
                                     "****** Error: ******\n"
@@ -6594,14 +6712,9 @@ class GUI_OPX():
                                     "Repeating line..."
                                 )
                                 # do not increment iy => repeat line
-                                save_partial = False
                         else:
                             # If continuous, just move to the next line
                             iy += 1
-
-                        # Save partial data
-                        if save_partial:
-                            prepare_and_save_data(Nx, Ny, Nz)
 
                     # End while over iy
                 # End iz loop
@@ -6610,31 +6723,22 @@ class GUI_OPX():
             if not continuous:
                 print(f"Pass time: {pass_end_time - pass_start_time:.2f} s")
             previousMeas_idx = meas_idx
-            return not self.stopScan  # If we got here, presumably okay
-
-        def prepare_and_save_data(Nx, Ny, Nz):
-            self.prepare_scan_data()
-            self.save_scan_data(
-                Nx=Nx, Ny=Ny, Nz=Nz,
-                fileName=self.scanFN,
-                to_append=True
-            )
+            return True  # If we got here, presumably okay
 
         # ----------------------------------------------------------------------
         # Main Scanning Loops
         # ----------------------------------------------------------------------
-        self.scan_counts_aggregated = []
-        self.scan_frequencies_aggregated = []
         if meas_continuously:
+            self.scan_counts_aggregated = []
+            self.scan_frequencies_aggregated = []
             print("Entering infinite averaging mode...")
             while not self.stopScan:
                 success = perform_scan_pass(Nx, Ny, Nz, continuous=True,check_srs_stability=check_srs_stability)
-                self.scan_iterations += success
                 if not success:
-                    print("scanning pass is not complete")
+                    print("Error in scanning pass")
+                    return
         else:
             success = perform_scan_pass(Nx, Ny, Nz, continuous=False,check_srs_stability=check_srs_stability)
-            self.scan_iterations += success
             if not success:
                 print("Error in scanning pass")
                 return
@@ -6655,26 +6759,24 @@ class GUI_OPX():
             read_in_pos_fn(2)
 
         # Final save
+        # Determine the expected number of columns (length of the longest row)
+        max_length = max(len(row) for row in self.scan_frequencies_aggregated)
+        self.scan_frequencies_aggregated = np.array([np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_frequencies_aggregated])
+        self.scan_counts_aggregated = np.array([np.pad(row, (0, max_length - len(row)), constant_values=0) for row in self.scan_counts_aggregated])
+        self.X_vec = np.array([list(positions) for positions in self.scan_frequencies_aggregated])
+        self.scan_intensities = np.array([list(counts) for counts in self.scan_counts_aggregated])[:, :, np.newaxis]
 
-        Nx = self.scan_intensities.shape[0]  # X-axis (number of points per line)
-        Ny = self.scan_intensities.shape[1]  # Y-axis (number of lines in the data)
+        Nx = self.scan_intensities.shape[1]  # X-axis (number of points per line)
+        Ny = self.scan_intensities.shape[0]  # Y-axis (number of lines in the data)
         Nz = 1  # Default Z-axis since no additional layers are specified
 
-        if UseDisplayDuring:
-            self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
-            self.V_scan[2] = [0]  # Keep Z dimension as a single layer
-            self.Y_vec = list(range(Ny))
-            self.Z_vec = list(range(Nz))
-            self.prepare_scan_data()
-        else:
-            self.X_vec = list(np.array(self.scan_frequencies_aggregated).flatten())
-            self.Y_vec = list(range(self.scan_iterations))
-            self.Z_vec = list(range(Nz))
-            self.V_scan[1] = list(range(self.scan_iterations))
-            self.scan_intensities = list(np.array(self.scan_counts_aggregated).flatten())
-            self.prepare_scan_data()
+        self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
+        self.V_scan[2] = [0]  # Keep Z dimension as a single layer
 
+        self.Y_vec = list(range(Ny))
+        self.Z_vec = list(range(Nz))
 
+        self.prepare_scan_data()
         fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
         self.writeParametersToXML(fn + ".xml")
 
@@ -6700,9 +6802,12 @@ class GUI_OPX():
         # Get dimensions
         Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
 
-        # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
-        intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, Nz)
-        Ny = intensities_data.shape[1]
+        # Ensure self.Y_vec matches Ny
+        self.Y_vec = list(range(Ny))
+
+        # Ensure self.Z_vec matches Nz
+        self.Z_vec = list(range(Nz))
+
         # Loop over Z, Y, and X scan coordinates
         for i in range(Nz):  # Z dimension
             for j in range(Ny):  # Y dimension
@@ -6713,17 +6818,17 @@ class GUI_OPX():
                     z_expected = self.V_scan[2][i]
 
                     # Actual positions
-                    x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
+                    x_actual = (self.X_vec[j, k] if self.X_vec is not None and j < self.X_vec.shape[0] and k < self.X_vec.shape[1] else x_expected)
                     y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
                     z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
 
                     # Intensity at the current position
                     intensities = (
-                        intensities_data[k, j, i]
-                        if intensities_data is not None
-                           and k < intensities_data.shape[0]
-                           and j < intensities_data.shape[1]
-                           and i < intensities_data.shape[2]
+                        self.scan_intensities[k, j, i]
+                        if self.scan_intensities is not None
+                           and k < self.scan_intensities.shape[0]
+                           and j < self.scan_intensities.shape[1]
+                           and i < self.scan_intensities.shape[2]
                         else 0
                     )
 
@@ -6896,6 +7001,10 @@ class GUI_OPX():
         if fileName == None:
             fileName = self.create_scan_file_name()
 
+        # parameters + note --- cause crash during scan. no need to update every slice.
+        # self.writeParametersToXML(fileName + ".xml")
+
+        # raw data
         Scan_array = np.array(self.scan_Out)
         if to_append:
             RawData_to_save = {'X': Scan_array[-Nx:, 0].tolist(), 'Y': Scan_array[-Nx:, 1].tolist(), 'Z': Scan_array[-Nx:, 2].tolist(),
@@ -6945,13 +7054,8 @@ class GUI_OPX():
         else:
             folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}'
         if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
-            try:
-                os.makedirs(folder_path)
-            except FileNotFoundError as ex:
-                print(f"An error occurd when trying to create {folder_path}")
-                print("Saving to local folder instead.")
-                return self.create_scan_file_name(local=True)
-        fileName = os.path.join(folder_path, f"{timeStamp}_{self.exp.name}_{self.expNotes}")
+            os.makedirs(folder_path)
+        fileName = os.path.join(folder_path, timeStamp + "scan_" + self.expNotes)
         return fileName
 
     def move_single_step(self, ch, step):
@@ -7383,29 +7487,3 @@ class GUI_OPX():
         alpha_channel = mask_non_zero.astype(float)
 
         return np.dstack((result_array_, alpha_channel))
-
-    def extract_vectors(self, current_positions_array: List[Tuple[float, ...]]) -> None:
-        """
-        Extract X, Y, Z vectors from an array of N-dimensional tuples (up to 3 dimensions).
-
-        :param current_positions_array: A list of tuples, each containing up to 3 coordinates (x, y, z).
-        """
-        # Initialize empty lists
-        self.X_vec, self.Y_vec, self.Z_vec = [], [], []
-
-        for pos in current_positions_array:
-            if len(pos) > 0:  # X coordinate exists
-                self.X_vec.append(pos[0])
-            if len(pos) > 1:  # Y coordinate exists
-                self.Y_vec.append(pos[1])
-            if len(pos) > 2:  # Z coordinate exists
-                self.Z_vec.append(pos[2])
-
-        # Convert empty lists to None if a dimension is missing
-        if not self.X_vec:
-            self.X_vec = None
-        if not self.Y_vec:
-            self.Y_vec = None
-        if not self.Z_vec:
-            self.Z_vec = None
-

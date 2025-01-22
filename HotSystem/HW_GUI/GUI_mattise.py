@@ -26,9 +26,9 @@ class GUIMatisse:
         self.instrument = instrument
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
-        self.window_tag = f"MatisseWin_{self.unique_id}"
+        self.window_tag = "Matisse_Win"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
-                        no_title_bar=False, height=320, width=1800, pos=[0, 0], collapsed=False):
+                        no_title_bar=False, height=320, width=1800, pos=[20, 20], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_diode_power_controls(red_button_theme)
