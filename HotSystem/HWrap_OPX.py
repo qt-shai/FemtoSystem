@@ -762,6 +762,9 @@ class GUI_OPX():
                 dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm,
                                  default_value=self.chkbox_close_all_qm)
 
+                dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
+                dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
+
                 dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
                               horizontal=False)  # parent="Params_Controls",horizontal=False)
                 _width = 300 # was 220
