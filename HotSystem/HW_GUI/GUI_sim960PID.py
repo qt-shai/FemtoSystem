@@ -50,6 +50,7 @@ class GUISIM960:
         self.win_tag = "SIM960_Win"
         self.win_label = f"SRS SIM960, slot {self.dev.slot} ({self.unique_id})"
         self.background_loop = asyncio.new_event_loop()
+        self.lock = threading.Lock()
         t = threading.Thread(
             target=run_asyncio_loop,
             args=(self.background_loop,),
@@ -171,9 +172,10 @@ class GUISIM960:
         """
         try:
             # Fetch PID gains from the device
-            p_gain = self.dev.get_proportional_gain()
-            i_gain = self.dev.get_integral_gain()
-            d_gain = self.dev.get_derivative_gain()
+            with self.lock:
+                p_gain = self.dev.get_proportional_gain()
+                i_gain = self.dev.get_integral_gain()
+                d_gain = self.dev.get_derivative_gain()
 
             # Update the GUI fields
             dpg.set_value(f"p_gain_{self.unique_id}", p_gain)
@@ -643,8 +645,9 @@ class GUISIM960:
                 # In real code, check for self.simulation or device read:
                 if not self.simulation:
                     current_time = time.time() - start_time
-                    output_voltage = self.dev.read_output_voltage()
-                    measurement_input  = self.dev.read_measure_input()
+                    with self.lock:
+                        output_voltage = self.dev.read_output_voltage()
+                        measurement_input  = self.dev.read_measure_input()
 
                     time_values.append(current_time)
                     measurement_inputs.append(measurement_input)
@@ -677,29 +680,31 @@ class GUISIM960:
                     dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {output_voltage:.5f} V")
 
                     if abs(output_voltage) > 10:
-                        print('SRS is not stable.')
-                        sign = 1 if output_voltage > 0 else -1
-                        offset = v_pi * 4 * sign
-                        print(f"jumping to {output_voltage + offset:.3f}")
-                        self.dev.set_manual_output(output_voltage + offset)
-                        self.dev.set_output_mode(True)
+                        with self.lock:
+                            print('SRS is not stable.')
+                            sign = 1 if output_voltage > 0 else -1
+                            offset = v_pi * 4 * sign
+                            print(f"jumping to {output_voltage + offset:.3f}")
+                            self.dev.set_manual_output(output_voltage + offset)
+                            self.dev.set_output_mode(True)
 
-                        print(f"val = {self.dev.read_output_voltage()}")
-                        self.dev.set_manual_output(output_voltage + offset)
-                        await asyncio.sleep(0.5)
-                        self.dev.set_manual_output(output_voltage + offset)
-                        print(f"val = {self.dev.read_output_voltage()}")
-                        await asyncio.sleep(1.0)
-                        self.dev.set_output_mode(False)
-                        # self.dev.mf.flush_output()
-                        self.dev.is_stable = False
-                        self.dev.last_stable_timestamp = datetime.now()
+                            print(f"val = {self.dev.read_output_voltage()}")
+                            self.dev.set_manual_output(output_voltage + offset)
+                            await asyncio.sleep(0.5)
+                            self.dev.set_manual_output(output_voltage + offset)
+                            print(f"val = {self.dev.read_output_voltage()}")
+                            await asyncio.sleep(1.0)
+                            self.dev.set_output_mode(False)
+                            # self.dev.mf.flush_output()
+                            self.dev.is_stable = False
+                            self.dev.last_stable_timestamp = datetime.now()
                     else:
                         if not self.dev.is_stable and datetime.now() > self.dev.last_stable_timestamp + timedelta(seconds=self.dev.stability_recovery_time_seconds):
                             print('SRS is not stable. Trying to recover...')
-                            if np.isclose(self.dev.read_setpoint(), self.dev.read_setpoint(), self.dev.stability_tolerance):
-                                print('SRS is stable.')
-                                self.dev.is_stable = True
+                            with self.lock:
+                                if np.isclose(self.dev.read_setpoint(), self.dev.read_setpoint(), self.dev.stability_tolerance):
+                                    print('SRS is stable.')
+                                    self.dev.is_stable = True
                 else:
                     # In simulation mode, mock data
                     current_time = time.time() - start_time
@@ -805,15 +810,17 @@ class GUISIM960:
         Moves the output by the amount specified in the 'Step for Max Extinction' float input.
         """
         # Read the current output voltage
-        meas_output = self.dev.read_output_voltage()
+        with self.lock:
+            meas_output = self.dev.read_output_voltage()
 
         # Retrieve the user-entered step size
         step_value = dpg.get_value(f"goto_step_{self.unique_id}")
 
         # Now move output by step_value
-        self.dev.set_manual_output(meas_output + step_value)
+        with self.lock:
+            self.dev.set_manual_output(meas_output + step_value)
 
-        self.dev.set_output_mode(True)
+            self.dev.set_output_mode(True)
         dpg.set_value(f"output_mode_{self.unique_id}", True)
 
     def cb_set_output_mode(self, sender, app_data):
@@ -824,11 +831,13 @@ class GUISIM960:
         manual = (mode_str == "Manual")
 
         if manual: # set manual output to the PID value
-            meas_output = self.dev.read_output_voltage()
-            self.dev.set_manual_output(meas_output)
+            with self.lock:
+                meas_output = self.dev.read_output_voltage()
+                self.dev.set_manual_output(meas_output)
 
         if not self.simulation:
-            self.dev.set_output_mode(manual)
+            with self.lock:
+                self.dev.set_output_mode(manual)
 
 
     def cb_set_manual_output(self, sender, app_data):
@@ -837,7 +846,8 @@ class GUISIM960:
         """
         new_val = dpg.get_value(sender)
         if not self.simulation:
-            self.dev.set_manual_output(new_val)
+            with self.lock:
+                self.dev.set_manual_output(new_val)
 
     def cb_set_output_offset(self, sender, app_data):
         """
@@ -845,23 +855,29 @@ class GUISIM960:
         """
         new_val = round(dpg.get_value(sender),3)
         if not self.simulation:
-            self.dev.set_output_offset(new_val)
+            with self.lock:
+                self.dev.set_output_offset(new_val)
 
     def cb_update_measurement(self):
         """
         Read the measure input and output from the device and update the labels.
         """
-        if not self.simulation:
-            meas_input = self.dev.read_measure_input()
-            meas_output = self.dev.read_output_voltage()
-            middle = self.dev.get_output_offset()
-            print(f"Offset = {middle}")
-            dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {meas_input:.5f} V")
-            dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {meas_output:.5f} V")
-        else:
-            # In simulation, just display dummy values
-            dpg.set_value(f"measure_input_{self.unique_id}", "Measure Input: 123.456 (sim)")
-            dpg.set_value(f"output_voltage_{self.unique_id}", "Output Voltage: 3.333 (sim)")
+        try:
+            with self.lock:  # Ensure thread-safe access
+                if not self.simulation:
+                    meas_input = self.dev.read_measure_input()
+                    meas_output = self.dev.read_output_voltage()
+                    middle = self.dev.get_output_offset()
+                    print(f"Offset = {middle}")
+
+                    dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {meas_input:.5f} V")
+                    dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {meas_output:.5f} V")
+                else:
+                    # In simulation, just display dummy values
+                    dpg.set_value(f"measure_input_{self.unique_id}", "Measure Input: 123.456 (sim)")
+                    dpg.set_value(f"output_voltage_{self.unique_id}", "Output Voltage: 3.333 (sim)")
+        except Exception as e:
+            print(f"Error during measurement update: {e}")
 
     def toggle_gui_collapse(self):
         """

@@ -5947,7 +5947,7 @@ class GUI_OPX():
                 np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
         self.start_scan_general(move_abs_fn=self.matisse.move_wavelength,
-                                read_in_pos_fn=lambda ch: (time.sleep(0.2), True)[1],
+                                read_in_pos_fn=lambda ch: (time.sleep(1), True)[1],
                                 get_positions_fn=lambda: self.HW.wavemeter.get_frequency(),
                                 device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE,
                                 UseDisplayDuring=False,check_srs_stability = (self.HW.SRS_PID_list is not None),

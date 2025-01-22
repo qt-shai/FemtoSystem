@@ -103,17 +103,32 @@ class SerialDevice:
                 print(f"TCP/IP connection opened on {self.address}.")
             else:
                 # Handle Serial connections
-                serial_address = (f"ASRL{self.address[3:]}::INSTR"
-                                  if self.address.upper().startswith("COM")
-                                  else self.address)
-                self._connection = self.rm.open_resource(
-                    serial_address,
-                    baud_rate=self.baudrate,
-                    timeout=self.timeout,
-                    read_termination=self.read_terminator,
-                    write_termination=self.write_terminator,
-                )
-                print(f"Serial connection opened on {serial_address}.")
+                try:
+                    # Attempt to connect using the original address
+                    self._connection = self.rm.open_resource(
+                        self.address,
+                        baud_rate=self.baudrate,
+                        timeout=self.timeout,
+                        read_termination=self.read_terminator,
+                        write_termination=self.write_terminator,
+                    )
+                    print(f"Serial connection opened on {self.address}.")
+                except Exception as e:
+                    print(f"Failed to open connection on {self.address}: {e}")
+                    # Fallback to ASRL address if the original attempt fails
+                    serial_address = (
+                        f"ASRL{self.address[3:]}::INSTR"
+                        if self.address.upper().startswith("COM")
+                        else self.address
+                    )
+                    self._connection = self.rm.open_resource(
+                        serial_address,
+                        baud_rate=self.baudrate,
+                        timeout=self.timeout,
+                        read_termination=self.read_terminator,
+                        write_termination=self.write_terminator,
+                    )
+                    print(f"Serial connection opened on {serial_address}.")
         except Exception as e:
             print(f"Error initializing connection: {e}")
             self._connection = None
