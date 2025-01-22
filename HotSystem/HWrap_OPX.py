@@ -235,7 +235,8 @@ class GUI_OPX():
 
         self.TRed = 1 #[nsec]
         self.TRedStatistics = 1  # [nsec]
-        self.TwaitTimeBin = 2 # [nsec]
+        self.TwaitTimeBin = 1 # [nsec]
+        self.TwaitTimeBinMeasure = 25+28  # [nsec]
 
         self.OPX_rf_amp = 0.5  # [V], OPX max amplitude
         self.rf_Pwr = 0.1  # [V], requied OPX amplitude
@@ -1829,6 +1830,7 @@ class GUI_OPX():
             self.n = declare(int)  # iteration variable
             self.n_st = declare_stream()  # stream iteration number
             self.times = declare(int, size=100)
+            self.times2 = declare(int, size=100)
             self.times_ref = declare(int, size=100)
 
             self.f = declare(int)  # frequency variable which we change during scan - here f is according to calibration function
@@ -2280,14 +2282,15 @@ class GUI_OPX():
             self.f_vec = self.GenVector(min = 0 * self.u.MHz, max = self.mw_freq_scan_range * self.u.MHz, delta= self.mw_df * self.u.MHz, asInt=False) #Don't need it, but QUA_PGM requires it
 
             #Updated experiment parameters
-            self.MeasProcessTime = 25  # [nsec], time required for measure element to finish process
+            self.MeasProcessTime = 96  # [nsec], time required for measure element to finish process
             self.tPump = 5000  # [nsec]
             self.t_mw = 20  # [nsec]
 
             # sequence parameters.
             self.tLaser = self.time_in_multiples_cycle_time(self.tPump) //4
             self.tMeasure = self.time_in_multiples_cycle_time(self.MeasProcessTime) //4 #Measurement time of the detector
-            self.tWaitTimeGateSuppression = self.time_in_multiples_cycle_time(self.TwaitTimeBin) //4
+            self.tWaitTimeGateSuppression = self.time_in_multiples_cycle_time(self.TwaitTimeBin) //4 #This returns 16ns
+            self.tWaitDectorMeasure = self.time_in_multiples_cycle_time(self.TwaitTimeBinMeasure) // 4
 
             #New red laser parameters:
             self.tRed = self.time_in_multiples_cycle_time(self.TRed) //4
@@ -2309,50 +2312,76 @@ class GUI_OPX():
             # align()
             # Consider performing the calculations outside the sequence for reduction of runtime
             with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
-                # update MW frequency
-                update_frequency("MW", self.f)
-                #Intialization of the state using a Green Laser to |0>
-                play("Turn_ON", "Laser", duration=self.tLaser)
-                align("Laser","MW")
-                # play MW pi/2 pulse
-                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
-                align("MW","Resonant_Laser")
-                # play Resonant Laser
-                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-                align("Resonant_Laser","Detector_OPD")
-                # Wait to prevent recording laser light
-                wait(self.tWaitTimeGateSuppression)
+                # # update MW frequency
+                # update_frequency("MW", self.f)
+                # #Intialization of the state using a Green Laser to |0>
+                # play("Turn_ON", "Laser", duration=self.tLaser)
+                # align("Laser","MW")
+                # # play MW pi/2 pulse
+                # play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                # align("MW","Resonant_Laser")
+                # # play Resonant Laser
+                # play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                # align("Resonant_Laser","Detector_OPD")
+                # # Wait to prevent recording laser light
+                # wait(self.tWaitTimeGateSuppression)
+                # # measure signal
+                # measure("min_readout", "Detector_OPD", None,time_tagger(self.times, int(self.tMeasure), self.counts_tmp))
+                # assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_tmp) #Change name to counts
+                # align("Detector_OPD","MW") #Causes the distance between two sections
+                # # play MW pi pulse
+                # play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+                # align("MW","Resonant_Laser")
+                # # play Resonant Laser
+                # play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                # align("Resonant_Laser","Detector_OPD")
+                # # Wait to prevent recording laser light
+                # wait(self.tWaitTimeGateSuppression)
+                # measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_tmp))
+                # assign(self.counts_ref2[self.i_idx], self.counts_ref2[self.i_idx] + self.counts_tmp)
+                # #Define the wait time between two detectors
+                # #Add wait time here
                 # align()
-                # measure signal
-                #measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_tmp))
-                measure("min_readout", "Detector_OPD", None,time_tagger(self.times, int(self.tMeasure), self.counts_tmp))
-                #measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.tMeasure), self.counts_tmp))
-                assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_tmp) #Change name to counts
-                align("Detector_OPD","MW") #Causes the distance between two sections
-                # play MW pi pulse
-                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
-                align("MW","Resonant_Laser")
-                # play Resonant Laser
-                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-                align("Resonant_Laser","Detector_OPD")
-                # Wait to prevent recording laser light
-                wait(self.tWaitTimeGateSuppression)
-                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_tmp))
-                assign(self.counts_ref2[self.i_idx], self.counts_ref2[self.i_idx] + self.counts_tmp)
-                #Define the wait time between two detectors
-                #Add wait time here
-                align()
-                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_tmp))
-                assign(self.counts_ref3[self.i_idx], self.counts_ref3[self.i_idx] + self.counts_tmp)
-                align()
+                # measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_tmp))
+                # assign(self.counts_ref3[self.i_idx], self.counts_ref3[self.i_idx] + self.counts_tmp)
+                # align()
                 # with if_((self.counts_ref[self.i_idx] > 0) | (self.counts_ref2[self.i_idx] > 0) | (self.counts_ref3[self.i_idx] > 0)):
                 #     #Create a method that turn on a laser and detector simultaneously and assign a count to a detector
-                #     #If the number is high, you are in one state, it it is low then you are at another.
+                #     #If the number is high, you are in one state, it is low then you are at another.
                 #     play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
                 #     align()
                 #     play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
                 #     measure("min_readout", "Detector_OPD", None,
                 #             time_tagging.analog(self.times, int(self.tStatistics), self.counts_tmp))
+                update_frequency("MW", self.f)
+                play("Turn_ON", "Laser", duration=self.tLaser)
+                align("Laser", "MW")
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                align("MW", "Resonant_Laser")
+                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                align("Resonant_Laser", "Detector_OPD")
+                #wait(self.tWaitTimeGateSuppression)
+                measure("readout", "Detector_OPD", None,
+                        time_tagger(self.times, int(self.tMeasure), self.counts_tmp))
+                align("Resonant_Laser", "MW")
+                wait(self.tWaitDectorMeasure)
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+                align("Resonant_Laser","MW")
+                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_tmp)
+                align()
+                with if_((self.counts_ref[self.i_idx] > 0) | (self.counts_ref2[self.i_idx] > 0) | (self.counts_ref3[self.i_idx] > 0)):
+                    #Create a method that turn on a laser and detector simultaneously and assign a count to a detector
+                    #If the number is high, you are in one state, it is low then you are at another.
+                    play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                    align()
+                    play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
+                    #It might be necessary to create another self.times variable to keep the previous one for separation of photon arrival
+                    measure("min_readout", "Detector_OPD", None,
+                            time_tagger(self.times2, int(self.tStatistics), self.counts_tmp))
+                    assign(self.counts[self.i_idx], self.counts[self.i_idx] + self.counts_tmp)
+
+
 
 
         if execute_qua:
