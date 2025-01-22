@@ -267,7 +267,7 @@ class GUI_OPX():
         self.chkbox_close_all_qm = False
         # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
 
-        # self.ZCalibrationData = np.array([[1274289050, 1099174441, -5215799855],[1274289385, -1900825080, -5239700330],[-1852010640, -1900825498, -5277599782]])
+        dpg.set_frame_callback(1, self.load_pos)
 
         if simulation:
             print("OPX in simulation mode ***********************")
@@ -762,6 +762,9 @@ class GUI_OPX():
                 dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm,
                                  default_value=self.chkbox_close_all_qm)
 
+                dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
+                dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
+
                 dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
                               horizontal=False)  # parent="Params_Controls",horizontal=False)
                 _width = 300 # was 220
@@ -926,6 +929,103 @@ class GUI_OPX():
             del self.map
             dpg.delete_item("Scan_Window")
 
+
+    def save_pos(self):
+        # Define the list of windows to check and save positions for
+        window_names = [
+            "pico_Win", "mcs_Win", "Zelux Window","Wavemeter_Win","HighlandT130_Win","Matisse_Win",
+            "OPX Window", "Map_window", "Scan_Window", "LaserWin","Arduino_Win","SIM960_Win"
+        ]
+
+        # Dictionary to store window positions and dimensions
+        window_positions = {}
+
+        # Iterate through the list of window names and collect their positions and sizes if they exist
+        for win_name in window_names:
+            if dpg.does_item_exist(win_name):
+                win_pos = dpg.get_item_pos(win_name)
+                win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
+                window_positions[win_name] = (win_pos, win_size)
+                print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
+
+        try:
+            # Read existing map_config.txt content, if available
+            try:
+                with open("map_config.txt", "r") as file:
+                    lines = file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Remove any existing window position and size entries
+            new_content = [line for line in lines if not any(win_name in line for win_name in window_positions.keys())]
+
+            # Append the new window positions and dimensions to the content
+            for win_name, (position, size) in window_positions.items():
+                new_content.append(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
+                new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
+
+            # Write back the updated content to the file
+            with open("map_config.txt", "w") as file:
+                file.writelines(new_content)
+
+            print("Window positions and sizes saved successfully to map_config.txt.")
+        except Exception as e:
+            print(f"Error saving window positions and sizes: {e}")
+
+    def load_pos(self):
+        try:
+            # Check if map_config.txt exists and read the contents
+            if not os.path.exists("map_config.txt"):
+                print("map_config.txt not found.")
+                return
+
+            # Dictionaries to store positions and sizes loaded from the file
+            window_positions = {}
+            window_sizes = {}
+
+            with open("map_config.txt", "r") as file:
+                lines = file.readlines()
+                for line in lines:
+                    # Split the line to get key and value
+                    parts = line.split(": ")
+                    if len(parts) != 2:
+                        continue  # Skip lines that don't have the expected format
+
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+
+                    # Check if the key is a window position entry
+                    if "_Pos" in key:
+                        # Extract window name and coordinates
+                        window_name = key.replace("_Pos", "")
+                        x, y = value.split(", ")
+                        window_positions[window_name] = (float(x), float(y))
+
+                    # Check if the key is a window size entry
+                    elif "_Size" in key:
+                        # Extract window name and dimensions
+                        window_name = key.replace("_Size", "")
+                        width, height = value.split(", ")
+                        window_sizes[window_name] = (int(width), int(height))
+
+            # Update window positions and sizes in Dear PyGui if the windows exist
+            for window_name, pos in window_positions.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_pos(window_name, pos)
+                    print(f"Loaded position for {window_name}: {pos}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
+            for window_name, size in window_sizes.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.set_item_width(window_name, size[0])
+                    dpg.set_item_height(window_name, size[1])
+                    print(f"Loaded size for {window_name}: {size}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
+        except Exception as e:
+            print(f"Error loading window positions and sizes: {e}")
 
     def btn_z_calibrate(self):
         self.ScanTh = threading.Thread(target=self.z_calibrate)

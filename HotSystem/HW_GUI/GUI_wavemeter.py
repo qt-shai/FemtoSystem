@@ -47,16 +47,8 @@ class GUIWavemeter:
         # Example: create a button theme (red) just like in GUI_matisse.py
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
-        self.window_tag = f"WavemeterWin_{self.unique_id}"
-        with dpg.window(
-            tag=self.window_tag,
-            label=f"{self.instrument.value}",
-            no_title_bar=False,
-            height=650,
-            width=600,
-            pos=[0, 0],
-            collapsed=False
-        ):
+        self.window_tag = "Wavemeter_Win"
+        with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}", no_title_bar=False, height=650, width=550, pos=[10, 10], collapsed=True):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_wavemeter_controls(red_button_theme)
