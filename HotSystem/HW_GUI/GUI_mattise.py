@@ -158,6 +158,46 @@ class GUIMatisse:
                                 format='%.4f', width=100, callback=self.validate_refcell_position)
             dpg.add_button(label="Set", callback=self.btn_set_refcell_position)
             dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_text("PLE additional controls")
+            dpg.add_checkbox(label="Check Stability", tag=f"RefcellCheckStability_{self.unique_id}",
+                             callback=self.check_stability_callback)
+            dpg.add_text("Waiting Time (seconds):")
+            dpg.add_input_float(default_value=1.0, format="%.2f", width=100,
+                                tag=f"WaitingTime_{self.unique_id}", callback=self.waiting_time_callback)
+
+    def waiting_time_callback(self, sender, app_data, user_data):
+        """
+        Callback for the 'Waiting Time' input field.
+
+        :param sender: The ID of the item that triggered the callback.
+        :param app_data: The value of the input field (waiting time in seconds).
+        :param user_data: Additional user data passed to the callback (not used here).
+        """
+        waiting_time = round(app_data,3)  # Get the entered waiting time value
+        if waiting_time < 0:
+            print("Invalid waiting time. Must be a positive value.")
+            dpg.set_value(sender, 1.0)
+            waiting_time = 1.0
+        else:
+            print(f"Waiting time set to: {waiting_time} seconds")
+
+        self.dev.ple_waiting_time = waiting_time  # Store the waiting time in a class variable
+
+    def check_stability_callback(self, sender, app_data, user_data):
+        """
+        Callback for the 'Check Stability' checkbox.
+
+        :param sender: The ID of the item that triggered the callback.
+        :param app_data: The value of the checkbox (True if checked, False otherwise).
+        :param user_data: Additional user data passed to the callback (not used here).
+        """
+        is_checked = app_data  # True if the checkbox is checked, False otherwise
+        if is_checked:
+            print("Stability check enabled.")
+            self.dev.check_srs_stability=True
+        else:
+            print("Stability check disabled.")
+            self.dev.check_srs_stability = False
 
     def validate_refcell_position(self, sender, app_data, user_data):
         """

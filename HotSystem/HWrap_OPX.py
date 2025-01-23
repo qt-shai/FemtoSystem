@@ -87,6 +87,7 @@ class GUI_OPX():
     def __init__(self, simulation: bool = False):
         # HW
 
+        self.Z_vec = None
         self.counts_handle = None
         self.meas_idx_handle = None
         self.scan_intensities = None
@@ -5941,16 +5942,21 @@ class GUI_OPX():
             print(f"Failed to retrieve initial wavelength position: {e}")
             return
 
+        check_srs_stability=self.matisse.check_srs_stability
+        if self.HW.SRS_PID_list is None and check_srs_stability:
+            print('Cannot check SRS stability, device not found.')
+            check_srs_stability=False
+
         num_points = self.matisse.num_scan_points
         half_length = self.matisse.scan_range / 2
         vec = list(np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
                 np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
         self.start_scan_general(move_abs_fn=self.matisse.move_wavelength,
-                                read_in_pos_fn=lambda ch: (time.sleep(1), True)[1],
+                                read_in_pos_fn=lambda ch: (time.sleep(self.matisse.ple_waiting_time), True)[1],
                                 get_positions_fn=lambda: self.HW.wavemeter.get_frequency(),
                                 device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE,
-                                UseDisplayDuring=False,check_srs_stability = (self.HW.SRS_PID_list is not None),
+                                UseDisplayDuring=False,check_srs_stability = check_srs_stability,
                                 meas_continuously=True)
 
     def StartScan(self):
@@ -6562,6 +6568,10 @@ class GUI_OPX():
             pass_start_time = time.time()
             current_positions_array = []
             data = []
+
+            self.x_expected=[]
+            self.y_expected=[]
+            self.z_expected=[]
             for iz in range(Nz):
                 if self.stopScan:
                     break
@@ -6569,6 +6579,9 @@ class GUI_OPX():
                 if Nz > 1:
                     move_abs_fn(2, self.V_scan[2][iz])
                     read_in_pos_fn(2)
+                    self.z_expected = self.V_scan[2][iz]
+                else:
+                    self.z_expected = -1
 
                 iy = 0
                 while iy < Ny:
@@ -6578,6 +6591,9 @@ class GUI_OPX():
                     if Ny > 1:
                         move_abs_fn(1, self.V_scan[1][iy])
                         read_in_pos_fn(1)
+                        self.y_expected = self.V_scan[1][iy]
+                    else:
+                        self.y_expected = -1
 
                     # Flip direction for S-shape scanning
                     self.dir *= -1
@@ -6606,15 +6622,18 @@ class GUI_OPX():
                                 z_correction_previous = z_correction_new
                                 move_abs_fn(2, new_z_pos)
                                 read_in_pos_fn(2)
+                                self.z_expected = new_z_pos
                             else:
                                 new_z_pos += z_correction_previous
 
                         # Move X
                         move_abs_fn(0, self.V_scan[0][ix])
                         read_in_pos_fn(0)
+                        self.x_expected.append(self.V_scan[0][ix])
 
                         current_positions = get_positions_fn()
                         current_positions_array.append(current_positions)
+                        self.extract_vectors(current_positions_array)
 
                         # Ensure SRS stable
                         if self.exp == Experiment.PLE and check_srs_stability and not self.simulation:
@@ -6653,7 +6672,15 @@ class GUI_OPX():
                     if counts is not None:
                         self.scan_counts_aggregated.append(np.squeeze(counts))
                         self.scan_frequencies_aggregated.append(np.squeeze(current_positions_array))
-
+                        for i in range(len(self.X_vec)):
+                            self.scan_Out.append([self.X_vec[i],  # X coordinate
+                                self.Y_vec[i],  # Y coordinate
+                                self.Z_vec[i],  # Z coordinate
+                                (np.squeeze(counts)[i] / self.total_integration_time),  # Normalized counts
+                                self.x_expected[i],  # Expected X
+                                self.y_expected,  # Expected Y (assumes it's the same for all)
+                                self.z_expected  # Expected Z (assumes it's the same for all)
+                            ])
 
                         # Validate data
                         if counts.size == Nx:
@@ -6661,7 +6688,6 @@ class GUI_OPX():
 
                             if UseDisplayDuring:
                                 self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
-                                self.extract_vectors(current_positions_array)
                             else:
                                 # self.X_vec = self.V_scan[0]
                                 half_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
@@ -6705,7 +6731,8 @@ class GUI_OPX():
 
                         # Save partial data
                         if save_partial:
-                            prepare_and_save_data(Nx, Ny, Nz)
+                            print(f"file : {self.scanFN}.csv")
+                            self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN, to_append=True)
 
                     # End while over iy
                 # End iz loop
@@ -6716,20 +6743,12 @@ class GUI_OPX():
             previousMeas_idx = meas_idx
             return not self.stopScan  # If we got here, presumably okay
 
-        def prepare_and_save_data(Nx, Ny, Nz):
-            self.prepare_scan_data()
-            print(f"file : {self.scanFN}")
-            self.save_scan_data(
-                Nx=Nx, Ny=Ny, Nz=Nz,
-                fileName=self.scanFN,
-                to_append=True
-            )
-
         # ----------------------------------------------------------------------
         # Main Scanning Loops
         # ----------------------------------------------------------------------
         self.scan_counts_aggregated = []
         self.scan_frequencies_aggregated = []
+        self.scan_Out = []
         if meas_continuously:
             print("Entering infinite averaging mode...")
             while not self.stopScan:
@@ -6759,27 +6778,6 @@ class GUI_OPX():
             move_abs_fn(2, self.initial_scan_Location[2])  # Move Z axis back to initial position
             read_in_pos_fn(2)
 
-        # Final save
-
-        Nx = self.scan_intensities.shape[0]  # X-axis (number of points per line)
-        Ny = self.scan_intensities.shape[1]  # Y-axis (number of lines in the data)
-        Nz = 1  # Default Z-axis since no additional layers are specified
-
-        if UseDisplayDuring:
-            self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
-            self.V_scan[2] = [0]  # Keep Z dimension as a single layer
-            self.Y_vec = list(range(Ny))
-            self.Z_vec = list(range(Nz))
-            self.prepare_scan_data()
-        else:
-            self.X_vec = list(np.array(self.scan_frequencies_aggregated).flatten())
-            self.Y_vec = list(range(self.scan_iterations))
-            self.Z_vec = list(range(Nz))
-            self.V_scan[1] = list(range(self.scan_iterations))
-            self.scan_intensities = list(np.array(self.scan_counts_aggregated).flatten())
-            self.prepare_scan_data()
-
-
         fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
         self.writeParametersToXML(fn + ".xml")
 
@@ -6792,88 +6790,6 @@ class GUI_OPX():
             self.btnStop()
 
         return self.scan_intensities
-
-    # def prepare_scan_data(self):
-    #     """
-    #     Prepare scan data with actual positions (X_vec, Y_vec, Z_vec), intensities,
-    #     and expected positions derived from V_scan. If actual positions are None,
-    #     they default to expected positions.
-    #     """
-    #     # Create an object to be saved in Excel
-    #     self.scan_Out = []
-    #
-    #     # Get dimensions
-    #     Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
-    #
-    #     # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
-    #
-    #     intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, 1)
-    #     Ny = intensities_data.shape[1]
-    #
-    #     # Loop over Z, Y, and X scan coordinates
-    #     for i in range(Nz):  # Z dimension
-    #         for j in range(Ny):  # Y dimension
-    #             for k in range(Nx):  # X dimension
-    #                 # Expected positions derived from V_scan
-    #                 x_expected = self.V_scan[0][k]
-    #                 y_expected = self.V_scan[1][j]
-    #                 z_expected = self.V_scan[2][i]
-    #
-    #                 # Actual positions
-    #                 x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
-    #                 y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
-    #                 z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
-    #
-    #                 # Intensity at the current position
-    #                 intensities = (
-    #                     intensities_data[k, j, i]
-    #                     if intensities_data is not None
-    #                        and k < intensities_data.shape[0]
-    #                        and j < intensities_data.shape[1]
-    #                        and i < intensities_data.shape[2]
-    #                     else 0
-    #                 )
-    #
-    #                 # Append data for this point
-    #                 self.scan_Out.append([x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
-
-    def prepare_scan_data(self):
-        """
-        Append the last line of scan data to self.scan_Out, with actual positions (X_vec, Y_vec),
-        intensities, and expected positions derived from V_scan.
-        """
-        # Get dimensions
-        Nx = len(self.V_scan[0])
-        Ny = len(self.V_scan[1])
-
-        # Extract the last line of scan counts from self.scan_counts_aggregated
-        try:
-            last_line_data = np.array(self.scan_counts_aggregated)[-1]
-        except IndexError:
-            print("Error: No data available in scan_counts_aggregated.")
-            return
-
-        # Append data for the last line in Y to self.scan_Out
-        last_line_index = Ny - 1
-        for k in range(Nx):  # X dimension
-            # Expected positions derived from V_scan
-            x_expected = self.V_scan[0][k]
-            y_expected = self.V_scan[1][last_line_index]
-            z_expected = 0
-
-            # Actual positions
-            x_actual = self.X_vec[k] if self.X_vec and k < len(self.X_vec) else x_expected
-            y_actual = self.Y_vec[last_line_index] if self.Y_vec and last_line_index < len(self.Y_vec) else y_expected
-            z_actual = self.Z_vec[-1]
-
-            # Intensity at the current position
-            try:
-                intensities = last_line_data[k]
-            except IndexError:
-                intensities = 0  # Fallback if the intensity data is incomplete
-
-            # Append the current point to scan_Out
-            self.scan_Out.append([x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
@@ -7529,28 +7445,40 @@ class GUI_OPX():
 
         return np.dstack((result_array_, alpha_channel))
 
-    def extract_vectors(self, current_positions_array: List[Tuple[float, ...]]) -> None:
+    def extract_vectors(self, current_positions_array: List[Union[float, Tuple[float, ...]]]) -> None:
         """
-        Extract X, Y, Z vectors from an array of N-dimensional tuples (up to 3 dimensions).
+        Extract X, Y, Z vectors from an array of N-dimensional tuples (up to 3 dimensions)
+        or floats (treated as X coordinates with Y and Z set to 0).
 
-        :param current_positions_array: A list of tuples, each containing up to 3 coordinates (x, y, z).
+        :param current_positions_array: A list containing floats or tuples, 
+                                        each containing up to 3 coordinates (x, y, z).
         """
         # Initialize empty lists
         self.X_vec, self.Y_vec, self.Z_vec = [], [], []
 
         for pos in current_positions_array:
-            if len(pos) > 0:  # X coordinate exists
-                self.X_vec.append(pos[0])
-            if len(pos) > 1:  # Y coordinate exists
-                self.Y_vec.append(pos[1])
-            if len(pos) > 2:  # Z coordinate exists
-                self.Z_vec.append(pos[2])
+            if isinstance(pos, float):  # If pos is a float, treat it as an X coordinate
+                self.X_vec.append(pos)
+                self.Y_vec.append(0.0)  # Append 0 for missing Y
+                self.Z_vec.append(0.0)  # Append 0 for missing Z
+            elif isinstance(pos, tuple):  # If pos is a tuple, process it as coordinates
+                if len(pos) > 0:  # X coordinate exists
+                    self.X_vec.append(pos[0])
+                else:
+                    self.X_vec.append(0.0)
+                if len(pos) > 1:  # Y coordinate exists
+                    self.Y_vec.append(pos[1])
+                else:
+                    self.Y_vec.append(0.0)
+                if len(pos) > 2:  # Z coordinate exists
+                    self.Z_vec.append(pos[2])
+                else:
+                    self.Z_vec.append(0.0)
+            else:
+                raise TypeError(f"Invalid type in current_positions_array: {type(pos)}")
 
-        # Convert empty lists to None if a dimension is missing
-        if not self.X_vec:
-            self.X_vec = None
-        if not self.Y_vec:
-            self.Y_vec = None
-        if not self.Z_vec:
-            self.Z_vec = None
+        # Convert empty lists to None if a dimension is missing (optional)
+        self.X_vec = self.X_vec if self.X_vec else 0
+        self.Y_vec = self.Y_vec if self.Y_vec else 0
+        self.Z_vec = self.Z_vec if self.Z_vec else 0
 

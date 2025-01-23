@@ -26,6 +26,8 @@ class SirahMatisse:
         self.num_scan_points = 10
         self.slow_piezo_to_mhz = 81500.0
         self.ref_cell_to_mhz = 81500.0
+        self.check_srs_stability = False
+        self.ple_waiting_time=1
 
     def __del__(self):
         self.close()
