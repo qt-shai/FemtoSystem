@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 from enum import Enum
+
 from typing import Union, Optional, Callable, List, Tuple
 import glfw
 import numpy as np
@@ -5952,12 +5953,7 @@ class GUI_OPX():
         vec = list(np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
                 np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
-        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength,
-                                read_in_pos_fn=lambda ch: (time.sleep(self.matisse.ple_waiting_time), True)[1],
-                                get_positions_fn=lambda: self.HW.wavemeter.get_frequency(),
-                                device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE,
-                                UseDisplayDuring=False,check_srs_stability = check_srs_stability,
-                                meas_continuously=True)
+        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(self.matisse.ple_waiting_time), True)[1], get_positions_fn=lambda: self.HW.wavemeter.get_frequency(), device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, is_not_ple=False, meas_continuously=True, check_srs_stability=check_srs_stability)
 
     def StartScan(self):
         if self.positioner:
@@ -6403,7 +6399,7 @@ class GUI_OPX():
             self.btnStop()
 
     def start_scan_general(self, move_abs_fn, read_in_pos_fn, get_positions_fn, device_reset_fn, x_vec=None, y_vec=None,
-                           z_vec=None, current_experiment=Experiment.SCAN, UseDisplayDuring=True, meas_continuously=False,
+                           z_vec=None, current_experiment=Experiment.SCAN, is_not_ple=True, meas_continuously=False,
                            check_srs_stability=False):
 
         x_vec = x_vec if x_vec else []
@@ -6510,18 +6506,23 @@ class GUI_OPX():
             self.V_scan[2][-1] if Nz > 1 else self.initial_scan_Location[2]
         ]
 
-        if UseDisplayDuring:
+        if is_not_ple:
             self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc,
                            endLoc=self.endLoc)
 
         # QUA program init (example)
         if not self.simulation:
+            if is_not_ple:
+                self.initQUA_gen(
+                    n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                    num_measurement_per_array=Nx
+                )
+            else:
+                self.initQUA_gen(
+                    n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                    num_measurement_per_array=1
+                )
 
-
-            self.initQUA_gen(
-                n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-                num_measurement_per_array=Nx
-            )
             res_handles = getattr(self.job, 'result_handles', None)
             if res_handles is None:
                 print("No results")
@@ -6601,6 +6602,7 @@ class GUI_OPX():
                     line_start_time = time.time()
                     # X loop
                     current_positions_array=[]
+                    counts=[]
                     for ix in range(Nx):
                         if self.stopScan:
                             break
@@ -6648,6 +6650,23 @@ class GUI_OPX():
                             self.qm.set_io2_value(self.ScanTrigger)
                             time.sleep(self.total_integration_time * 1e-3 + 1e-3)
 
+                        if not is_not_ple:
+                            if self.simulation:
+                                counts.append(np.random.randint(1, 1000))
+                            elif self.counts_handle.is_processing():
+                                # block until at least 1 data chunk is there
+                                self.counts_handle.wait_for_values(1)
+                                self.meas_idx_handle.wait_for_values(1)
+                                time.sleep(0.1)
+
+                                meas_idx = self.meas_idx_handle.fetch_all()
+                                counts.append(self.counts_handle.fetch_all())
+                                self.qmm.clear_all_job_results()
+
+                            self.Y_vec = counts
+                            self.X_vec = current_positions_array
+                            self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
+
                     # End X loop
                     if self.stopScan:
                         break
@@ -6659,7 +6678,7 @@ class GUI_OPX():
                             create_gaussian_vector(Nx // 2, center=1.5, width=10),
                             create_gaussian_vector(Nx - Nx // 2, center=3.5, width=10)
                         ])
-                    elif self.counts_handle.is_processing():
+                    elif is_not_ple and self.counts_handle.is_processing():
                         # block until at least 1 data chunk is there
                         self.counts_handle.wait_for_values(1)
                         self.meas_idx_handle.wait_for_values(1)
@@ -6686,7 +6705,7 @@ class GUI_OPX():
                         if counts.size == Nx:
                             self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
 
-                            if UseDisplayDuring:
+                            if is_not_ple:
                                 self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
                             else:
                                 # self.X_vec = self.V_scan[0]
