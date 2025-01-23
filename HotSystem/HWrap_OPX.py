@@ -5194,10 +5194,7 @@ class GUI_OPX():
             dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal * self.TrackingThreshold: .1f},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
             dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
             if any(self.Y_vec_ref):
-                if self.exp is not Experiment.PLE:
-                    dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
-                else:
-                    dpg.set_value("series_counts_ref", [self.X_vec_ref, self.Y_vec_ref])
+                dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
             if self.exp == Experiment.Nuclear_Fast_Rot:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
             if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
@@ -5214,10 +5211,13 @@ class GUI_OPX():
             self.btnStop()
 
     def generate_x_y_vectors_for_average(self):
+        if len(self.scan_frequencies_aggregated) == 0:
+            print("One or more input arrays are empty")
+            return
 
-        bins = np.array(self.V_scan[0]) * 81500
-        half_length = len(bins) // 2
-        bins = bins[:half_length]
+        # Use bins from X_vec and ensure they are sorted and unique
+        bins = np.array(self.X_vec)
+        bins = np.unique(np.sort(bins))  # Ensure bins are monotonically increasing
 
         counts_aggregated = np.array(self.scan_counts_aggregated)
         freqs_aggregated = np.array(self.scan_frequencies_aggregated)
@@ -5230,19 +5230,16 @@ class GUI_OPX():
         flat_freqs = np.concatenate(freqs_aggregated)
         flat_counts = np.concatenate(counts_aggregated)
 
-        # Compute histogram
-        self.X_vec_ref, bin_edges = np.histogram(flat_freqs, bins=bins, weights=flat_counts)
-        # Calculate mean for non-empty bins
-        self.Y_vec_ref = []
-        for i in range(len(bin_edges) - 1):
-            mask = (flat_freqs >= bin_edges[i]) & (flat_freqs < bin_edges[i + 1])
+        # Initialize Y_vec_ref with NaNs
+        self.Y_vec_ref = np.full(len(bins) - 1, np.nan)
+
+        # Calculate means for each bin based on bins from X_vec
+        for i in range(len(bins) - 1):
+            mask = (flat_freqs >= bins[i]) & (flat_freqs < bins[i + 1])
             if np.any(mask):  # Check if there are any elements in the bin
                 mean_val = np.mean(flat_counts[mask])
-                self.Y_vec_ref.append(mean_val)
-            else:
-                self.Y_vec_ref.append(np.nan)  # Use NaN for empty bins
+                self.Y_vec_ref[i] = mean_val  # Update corresponding bin mean
 
-        self.Y_vec_ref = np.array(self.Y_vec_ref)
 
     def FastScan_updateGraph(self):
         # Update the graph label with the current experiment name, iteration, and last Y value
@@ -6693,7 +6690,7 @@ class GUI_OPX():
                         if not is_not_ple:
                             current_measurement=0
                             if self.simulation:
-                                current_measurement=np.random.randint(1, 1000)
+                                current_measurement=np.array(float(np.random.randint(1, 1000)))
                                 counts.append(current_measurement)
                             elif self.counts_handle.is_processing():
                                 # block until at least 1 data chunk is there
@@ -6703,22 +6700,22 @@ class GUI_OPX():
 
                                 meas_idx = self.meas_idx_handle.fetch_all()
                                 current_measurement=self.counts_handle.fetch_all()
-                                counts.append(current_measurement)
+                                counts.append(current_measurement[0])
                                 self.qmm.clear_all_job_results()
 
                             self.Y_vec = counts
                             self.X_vec = [round(position / 1e6,2) for position in current_positions_array]
                             self.generate_x_y_vectors_for_average()
                             self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
-                            if type(current_measurement) is not list:
-                                current_measurement = [current_measurement]  # Wrap single  in a list
-                            self.scan_Out.append([current_positions_array[0],  -1, -1,current_measurement[0],self.V_scan[0][ix],-1,-1])
+                            if type(current_measurement) == int:
+                                current_measurement=[-1]
 
+                            self.scan_Out.append([current_positions_array[0],  -1, -1,current_measurement[0],self.V_scan[0][ix],-1,-1])
                     # End X loop
                     if self.stopScan:
                         break
 
-                    counts = None
+
                     self.extract_vectors(current_positions_array)
                     # Fetch data from QUA
                     if self.simulation:
@@ -6736,6 +6733,7 @@ class GUI_OPX():
                         counts = self.counts_handle.fetch_all()
                         self.qmm.clear_all_job_results()
 
+
                     if counts is not None:
                         self.scan_counts_aggregated.append(np.squeeze(counts))
                         self.scan_frequencies_aggregated.append(np.squeeze(current_positions_array))
@@ -6751,6 +6749,9 @@ class GUI_OPX():
                                 ])
 
                         # Validate data
+                        if type(counts)==list:
+                            counts = np.array(counts)
+
                         if counts.size == Nx:
                             self.scan_intensities[:, iy, iz] = counts / self.total_integration_time
 
@@ -6768,9 +6769,8 @@ class GUI_OPX():
                                 # Split the data into up scan and down scan
                                 up_scan_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
                                 self.Y_vec = data[:up_scan_length].tolist()  # Data for up scan
-                                self.Y_vec_ref = data[up_scan_length:].tolist()  # Data for down scan
+                                # self.Y_vec_ref = data[up_scan_length:].tolist()  # Data for down scan
                                 self.V_scan[1] = list(range(self.scan_iterations+1))
-
                                 self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
                                 self.Y_vec = list(range(self.scan_iterations+1))
                                 self.Z_vec = list(range(Nz))
