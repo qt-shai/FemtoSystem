@@ -6472,6 +6472,7 @@ class GUI_OPX():
         if isinstance(current_positions, float):
             current_positions = [current_positions]  # Wrap single float in a list
         initial_pos=current_positions
+        initial_pos=[round(initial_pos[0] / 1e12, 0)*1e12]
 
         # Pad with zeros if fewer than expected_axes
         if self.exp == Experiment.PLE:
@@ -6673,6 +6674,8 @@ class GUI_OPX():
                             self.Y_vec = counts
                             self.X_vec = [round(position / 1e6,2) for position in current_positions_array]
                             self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
+                            if type(current_measurement) is not list:
+                                current_measurement = [current_measurement]  # Wrap single  in a list
                             self.scan_Out.append([current_positions_array[0],  -1, -1,current_measurement[0],self.V_scan[0][ix],-1,-1])
 
                     # End X loop

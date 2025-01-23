@@ -92,7 +92,7 @@ class HighFinesseWLM:
         :return: The current wavelength in nm, or None if simulation/not connected.
         """
         if self.simulation or self.dev is None:
-            return np.random.uniform(10,1000)
+            return (np.random.uniform(10,1000)*1e9+4.77e14)
         return self.dev.get_frequency()
 
     def set_exposure(self, exposure_time: int, channel: int = 0):
