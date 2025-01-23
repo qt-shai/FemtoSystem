@@ -3,6 +3,9 @@ from typing import Optional
 import numpy as np
 from pylablib.devices import Sirah
 
+import tkinter as tk
+from tkinter import messagebox
+import time
 
 class SirahMatisse:
     """
@@ -28,6 +31,7 @@ class SirahMatisse:
         self.ref_cell_to_mhz = 81500.0
         self.check_srs_stability = False
         self.ple_waiting_time=1
+        self.last_warning_time = None
 
     def __del__(self):
         self.close()
@@ -312,6 +316,15 @@ class SirahMatisse:
             self.set_refcell_position(position_shift)
         else:
             raise ValueError("Invalid scan device. Choose 0, 1, 'Slow Piezo', or 'Ref Cell'.")
+
+        if position_shift < 0.1 or position_shift > 0.7:
+            current_time = time.time()
+            if self.last_warning_time is None or current_time - self.last_warning_time > 300:
+                root = tk.Tk()
+                root.withdraw()  # Hide the root window
+                messagebox.showwarning("Warning", "Position shift is too close to the edge.")
+                root.destroy()
+                self.last_warning_time = current_time
 
     def get_wavelength_position(self, scan_device):
         if self.simulation:

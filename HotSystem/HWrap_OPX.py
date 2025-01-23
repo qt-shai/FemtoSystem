@@ -88,6 +88,8 @@ class GUI_OPX():
     def __init__(self, simulation: bool = False):
         # HW
 
+        self.Y_vec_ref = None
+        self.X_vec_ref = None
         self.Z_vec = None
         self.counts_handle = None
         self.meas_idx_handle = None
@@ -5191,23 +5193,56 @@ class GUI_OPX():
             # self.lock.acquire()
             dpg.set_item_label("graphXY",f"{self.exp.name}, iteration = {self.iteration}, tracking_ref = {self.tracking_ref: .1f}, ref Threshold = {self.refSignal * self.TrackingThreshold: .1f},shuffle = {self.bEnableShuffle}, Tracking = {self.bEnableSignalIntensityCorrection}")
             dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-            if self.Y_vec_ref:
-                dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+            if any(self.Y_vec_ref):
+                if self.exp is not Experiment.PLE:
+                    dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+                else:
+                    dpg.set_value("series_counts_ref", [self.X_vec_ref, self.Y_vec_ref])
             if self.exp == Experiment.Nuclear_Fast_Rot:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
             if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
                 dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
+                
             dpg.set_item_label("y_axis", _yLabel)
             dpg.set_item_label("x_axis", _xLabel)
             dpg.fit_axis_data('x_axis')
             dpg.fit_axis_data('y_axis')
             # self.lock.release()
-
-
         except Exception as e:
             print(f"{e}")
             self.btnStop()
+
+    def generate_x_y_vectors_for_average(self):
+
+        bins = np.array(self.V_scan[0]) * 81500
+        half_length = len(bins) // 2
+        bins = bins[:half_length]
+
+        counts_aggregated = np.array(self.scan_counts_aggregated)
+        freqs_aggregated = np.array(self.scan_frequencies_aggregated)
+
+        if bins.size == 0 or counts_aggregated.size == 0 or freqs_aggregated.size == 0:
+            print("One or more input arrays are empty")
+            return
+
+        # Flatten and concatenate the arrays
+        flat_freqs = np.concatenate(freqs_aggregated)
+        flat_counts = np.concatenate(counts_aggregated)
+
+        # Compute histogram
+        self.X_vec_ref, bin_edges = np.histogram(flat_freqs, bins=bins, weights=flat_counts)
+        # Calculate mean for non-empty bins
+        self.Y_vec_ref = []
+        for i in range(len(bin_edges) - 1):
+            mask = (flat_freqs >= bin_edges[i]) & (flat_freqs < bin_edges[i + 1])
+            if np.any(mask):  # Check if there are any elements in the bin
+                mean_val = np.mean(flat_counts[mask])
+                self.Y_vec_ref.append(mean_val)
+            else:
+                self.Y_vec_ref.append(np.nan)  # Use NaN for empty bins
+
+        self.Y_vec_ref = np.array(self.Y_vec_ref)
 
     def FastScan_updateGraph(self):
         # Update the graph label with the current experiment name, iteration, and last Y value
@@ -6673,6 +6708,7 @@ class GUI_OPX():
 
                             self.Y_vec = counts
                             self.X_vec = [round(position / 1e6,2) for position in current_positions_array]
+                            self.generate_x_y_vectors_for_average()
                             self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
                             if type(current_measurement) is not list:
                                 current_measurement = [current_measurement]  # Wrap single  in a list
@@ -6721,7 +6757,7 @@ class GUI_OPX():
                             if is_not_ple:
                                 self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
                             else:
-                                # self.X_vec = self.V_scan[0]
+                                self.generate_x_y_vectors_for_average()
                                 half_length = len(self.V_scan[0]) // 2  # Assuming symmetric up and down scan
                                 self.X_vec = list((np.array(current_positions_array[:half_length])-current_positions_array[0])*1e-6)
                                 data = self.scan_intensities[:, :, iz]
@@ -6734,6 +6770,7 @@ class GUI_OPX():
                                 self.Y_vec = data[:up_scan_length].tolist()  # Data for up scan
                                 self.Y_vec_ref = data[up_scan_length:].tolist()  # Data for down scan
                                 self.V_scan[1] = list(range(self.scan_iterations+1))
+
                                 self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
                                 self.Y_vec = list(range(self.scan_iterations+1))
                                 self.Z_vec = list(range(Nz))
