@@ -6471,6 +6471,7 @@ class GUI_OPX():
         current_positions = get_positions_fn()
         if isinstance(current_positions, float):
             current_positions = [current_positions]  # Wrap single float in a list
+        initial_pos=current_positions
 
         # Pad with zeros if fewer than expected_axes
         if self.exp == Experiment.PLE:
@@ -6634,7 +6635,10 @@ class GUI_OPX():
                         self.x_expected.append(self.V_scan[0][ix])
 
                         current_positions = get_positions_fn()
-                        current_positions_array.append(current_positions)
+                        if is_not_ple:
+                            current_positions_array.append(current_positions)
+                        else:
+                            current_positions_array.append(current_positions - initial_pos[0])
                         self.extract_vectors(current_positions_array)
 
                         # Ensure SRS stable
@@ -6651,8 +6655,10 @@ class GUI_OPX():
                             time.sleep(self.total_integration_time * 1e-3 + 1e-3)
 
                         if not is_not_ple:
+                            current_measurement=0
                             if self.simulation:
-                                counts.append(np.random.randint(1, 1000))
+                                current_measurement=np.random.randint(1, 1000)
+                                counts.append(current_measurement)
                             elif self.counts_handle.is_processing():
                                 # block until at least 1 data chunk is there
                                 self.counts_handle.wait_for_values(1)
@@ -6660,18 +6666,21 @@ class GUI_OPX():
                                 time.sleep(0.1)
 
                                 meas_idx = self.meas_idx_handle.fetch_all()
-                                counts.append(self.counts_handle.fetch_all())
+                                current_measurement=self.counts_handle.fetch_all()
+                                counts.append(current_measurement)
                                 self.qmm.clear_all_job_results()
 
                             self.Y_vec = counts
-                            self.X_vec = current_positions_array
+                            self.X_vec = [round(position / 1e6,2) for position in current_positions_array]
                             self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
+                            self.scan_Out.append([current_positions_array[0],  -1, -1,current_measurement[0],self.V_scan[0][ix],-1,-1])
 
                     # End X loop
                     if self.stopScan:
                         break
 
                     counts = None
+                    self.extract_vectors(current_positions_array)
                     # Fetch data from QUA
                     if self.simulation:
                         counts = np.concatenate([
@@ -6691,15 +6700,16 @@ class GUI_OPX():
                     if counts is not None:
                         self.scan_counts_aggregated.append(np.squeeze(counts))
                         self.scan_frequencies_aggregated.append(np.squeeze(current_positions_array))
-                        for i in range(len(self.X_vec)):
-                            self.scan_Out.append([self.X_vec[i],  # X coordinate
-                                self.Y_vec[i],  # Y coordinate
-                                self.Z_vec[i],  # Z coordinate
-                                (np.squeeze(counts)[i] / self.total_integration_time),  # Normalized counts
-                                self.x_expected[i],  # Expected X
-                                self.y_expected,  # Expected Y (assumes it's the same for all)
-                                self.z_expected  # Expected Z (assumes it's the same for all)
-                            ])
+                        if is_not_ple:
+                            for i in range(len(self.X_vec)):
+                                self.scan_Out.append([self.X_vec[i],  # X coordinate
+                                    self.Y_vec[i],  # Y coordinate
+                                    self.Z_vec[i],  # Z coordinate
+                                    (np.squeeze(counts)[i] / self.total_integration_time),  # Normalized counts
+                                    self.x_expected[i],  # Expected X
+                                    self.y_expected,  # Expected Y (assumes it's the same for all)
+                                    self.z_expected  # Expected Z (assumes it's the same for all)
+                                ])
 
                         # Validate data
                         if counts.size == Nx:
