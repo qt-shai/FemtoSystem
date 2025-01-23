@@ -84,21 +84,21 @@ class DanielQuaConfig(configs.QUAConfigBase):
                     1: {"offset": 0.00979, "gain_db": 0, "shareable": False},  # 20db 0.2V electrical # counter1
                     2: {"offset": 0.00979, "gain_db": -12, "shareable": False},  # 6db 1V -->~0.25V # counter2
                 },
-                "digital_inputs": {  # counter 1
-                    1: {
-                        "polarity": "RISING",
-                        "deadtime": 4,
-                        "threshold": self.signal_threshold_OPD,
-                        "shareable": False,
-                    },
-                    2: {  # counter 2
-                        "polarity": "RISING",
-                        "deadtime": 4,
-                        "threshold": self.signal_threshold_OPD,
-                        "shareable": False,
-                    },
+                # "digital_inputs": {  # counter 1
+                #     1: {
+                #         "polarity": "RISING",
+                #         "deadtime": 4,
+                #         "threshold": self.signal_threshold_OPD,
+                #         "shareable": False,
+                #     },
+                #     2: {  # counter 2
+                #         "polarity": "RISING",
+                #         "deadtime": 4,
+                #         "threshold": self.signal_threshold_OPD,
+                #         "shareable": False,
+                #     },
 
-                },
+                # },
             }
         }
         return controllers

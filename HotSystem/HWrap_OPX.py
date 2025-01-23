@@ -34,7 +34,7 @@ from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from SystemConfig import SystemType, Instruments
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, \
-    open_file_dialog, create_gaussian_vector
+    open_file_dialog, create_gaussian_vector, create_counts_vector
 import dearpygui.dearpygui as dpg
 from PIL import Image
 import subprocess
@@ -87,7 +87,7 @@ class Axis(Enum):
 
 class GUI_OPX():
     # init parameters
-    def __init__(self, simulation: bool = False):
+    def __init__(self, simulation: bool = True):
         # HW
 
         self.counts_handle = None
@@ -236,6 +236,7 @@ class GUI_OPX():
         self.TRed = 1 #[nsec]
         self.TRedStatistics = 1  # [nsec]
         self.TwaitTimeBin = 16 # [nsec]
+        self.TwaitTimeBinMeasure = 25+28  # [nsec]
 
         self.OPX_rf_amp = 0.5  # [V], OPX max amplitude
         self.rf_Pwr = 0.1  # [V], requied OPX amplitude
@@ -1742,6 +1743,39 @@ class GUI_OPX():
         array = array to shuffle (QUA variable)
         array_len = size of 'array' [int]
     '''
+
+    def get_detector_input_type(self, detector_name: str) -> str:
+        """
+        Determines the input channel type (analog or digital) of a detector based on its configuration file.
+
+        :param detector_name: The name of the detector (e.g., "Detector_OPD").
+        :param config: The configuration dictionary containing all element configurations.
+        :return: "analog" if the detector uses an analog channel, "digital" if it uses a digital channel,
+                 or "unknown" if the type cannot be determined.
+        """
+        try:
+            # Check if the detector uses a digital channel
+            if "digitalOutputs" in detector_name:
+                return "digital"
+            else:
+                return "analog"
+        except Exception as e:
+            print(f"An error has occurred in finding detector input type: {e}")
+
+    def get_time_tagging_func(self, detector_name):
+        """
+        Return the appropriate time-tagging function (digital or analog)
+        but do not call it yet.
+        """
+        input_type = self.get_detector_input_type(detector_name)
+        dispatch_map = {
+            "digital": time_tagging.digital,
+            "analog": time_tagging.analog,
+        }
+        if input_type not in dispatch_map:
+            raise ValueError(f"Unknown detector input type: {input_type}")
+
+        return dispatch_map[input_type]
     def QUA_shuffle(self, array, array_len):
         temp = declare(int)
         j = declare(int)
@@ -1894,6 +1928,7 @@ class GUI_OPX():
             self.n = declare(int)  # iteration variable
             self.n_st = declare_stream()  # stream iteration number
             self.times = declare(int, size=100)
+            self.times2 = declare(int, size=100)
             self.times_ref = declare(int, size=100)
 
             self.f = declare(int)  # frequency variable which we change during scan - here f is according to calibration function
@@ -1976,8 +2011,8 @@ class GUI_OPX():
                 self.resCalculated_st.buffer(self.vectorLength).average().save("resCalculated")
                 self.n_st.save("iteration")
                 self.tracking_signal_st.save("tracking_ref")
-
-        self.qm, self.job = self.QUA_execute()
+        if not self.simulation:
+            self.qm, self.job = self.QUA_execute()
     def execute_QUA(self):
         if self.exp == Experiment.NUCLEAR_POL_ESR:
             self.Nuclear_Pol_ESR_QUA_PGM(Generate_QUA_sequance = True)
@@ -2010,7 +2045,7 @@ class GUI_OPX():
 
             # length and idx vector
             self.vectorLength = len(self.f_vec) # size of arrays
-            self.array_length = len(self.f_vec)  # frquencies vector size
+            self.array_length = len(self.f_vec)  # frequencies vector size
             self.idx_vec_ini = np.arange(0, self.array_length, 1)  # indexes vector
 
             # tracking signal
@@ -2340,75 +2375,112 @@ class GUI_OPX():
     def time_bin_entanglement_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
         if generate_params:
             # dummy vectors to be aligned with QUA_PGM convention
-            self.array_length = 1 # time vector size
-            self.idx_vec_ini = np.arange(0, self.array_length, 1) #Index array for QUA_PGM
-            self.f_vec = self.GenVector(min = 0 * self.u.MHz, max = self.mw_freq_scan_range * self.u.MHz, delta= self.mw_df * self.u.MHz, asInt=False) #Don't need it, but QUA_PGM requires it
+            self.array_length = 1  # time vector size
+            self.idx_vec_ini = np.arange(0, self.array_length, 1)  # Index array for QUA_PGM
+            self.f_vec = self.GenVector(min=0 * self.u.MHz, max=self.mw_freq_scan_range * self.u.MHz,
+                                        delta=self.mw_df * self.u.MHz,
+                                        asInt=False)  # Don't need it, but QUA_PGM requires it
 
-            #Updated experiment parameters
-            self.MeasProcessTime = 16  # [nsec], time required for measure element to finish process
-            self.TGreenLaser = 5000  # [nsec]
+            # Updated experiment parameters
+            self.MeasProcessTime = 96  # [nsec], time required for measure element to finish process
+            self.tPump = 5000  # [nsec]
             self.t_mw = 20  # [nsec]
 
             # sequence parameters.
-            self.tLaser = self.time_in_multiples_cycle_time(self.TGreenLaser)
-            self.tMeasure = self.time_in_multiples_cycle_time(self.MeasProcessTime) #Measurement time of the detector
-            self.tWaitTimeGateSuppression = self.time_in_multiples_cycle_time(self.TwaitTimeBin)
+            self.tLaser = self.time_in_multiples_cycle_time(self.tPump) // 4
+            self.tMeasure = self.time_in_multiples_cycle_time(
+                self.MeasProcessTime) // 4  # Measurement time of the detector
+            self.tWaitTimeGateSuppression = self.time_in_multiples_cycle_time(
+                self.TwaitTimeBin) // 4  # This returns 16ns
+            self.tWaitDectorMeasure = self.time_in_multiples_cycle_time(self.TwaitTimeBinMeasure) // 4
 
-            #New red laser parameters:
-            self.tRed = self.time_in_multiples_cycle_time(self.TRed)#Change
+            # New red laser parameters:
+            self.tRed = self.time_in_multiples_cycle_time(self.TRed) // 4
             self.tCollectionWait = self.time_in_multiples_cycle_time(1)
-            self.tStatistics = self.time_in_multiples_cycle_time(self.TRedStatistics)#change to resonant measure
+            self.tStatistics = self.time_in_multiples_cycle_time(self.TRedStatistics) // 4  # change to resonant measure
 
             # MW parameters
-            self.tMW = self.time_in_multiples_cycle_time(self.t_mw)
-            self.tMWPiHalf = self.time_in_multiples_cycle_time(self.t_mw/2)
+            self.tMW = self.time_in_multiples_cycle_time(self.t_mw) // 4
+            self.tMWPiHalf = self.time_in_multiples_cycle_time(self.t_mw / 2) // 4
 
             # length and idx vector
-            self.vectorLength = 10 #Number of measurements, Consider setting in the init
+            self.vectorLength = 100  # Length of the counts vector
             self.idx_vec = np.arange(0, self.vectorLength, 1)  # indexes vector for fetch and plot
             self.number_of_statistical_measurements = 1000
 
         if Generate_QUA_sequance:
-            # align()
-            # Consider perfoming the calculations outside the sequence for reduction of runtime
+            time_tagger = self.get_time_tagging_func("Detector_OPD")
             with for_(self.i_idx, 0, self.i_idx < self.vectorLength, self.i_idx + 1):
-                # update MW frequency
                 update_frequency("MW", self.f)
-                #Intialization of the state using a Green Laser to |0>
-                play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
-                align("MW","Laser")
-                # play MW pi/2 pulse
-                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=(self.tMWPiHalf) // 4)
-                align("MW","Resonant_Laser")
-                # play Resonant Laser
-                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-                align("Resonant_Laser","Detector_OPD")
-                # Wait to prevent recording laser light
-                wait(self.tWaitTimeGateSuppression //4)
+                play("Turn_ON", "Laser", duration=self.tLaser)
+                align("Laser", "MW")
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                align("MW", "Resonant_Laser")
+                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                align("Resonant_Laser", "Detector_OPD")
+                # wait(self.tWaitTimeGateSuppression)
+                measure("readout", "Detector_OPD", None,
+                        time_tagger(self.times, int(self.tMeasure), self.counts_tmp))
+                align("Resonant_Laser", "MW")
+                wait(self.tWaitDectorMeasure)
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+                align("Resonant_Laser", "MW")
+                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_tmp)
+                align()
+                with if_((self.counts_ref[self.i_idx] > 0) | (self.counts_ref2[self.i_idx] > 0) | (
+                        self.counts_ref3[self.i_idx] > 0)):
+                    play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                    align()
+                    play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
+                    measure("min_readout", "Detector_OPD", None,
+                            time_tagger(self.times2, int(self.tStatistics), self.counts_tmp))
+                    assign(self.counts[self.i_idx], self.counts[self.i_idx] + self.counts_tmp)
+                # # update MW frequency
+                # update_frequency("MW", self.f)
+                # #Intialization of the state using a Green Laser to |0>
+                # play("Turn_ON", "Laser", duration=self.tLaser)
+                # align("Laser","MW")
+                # # play MW pi/2 pulse
+                # play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                # align("MW","Resonant_Laser")
+                # # play Resonant Laser
+                # play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                # align("Resonant_Laser","Detector_OPD")
+                # # Wait to prevent recording laser light
+                # wait(self.tWaitTimeGateSuppression)
+                # # measure signal
+                # measure("min_readout", "Detector_OPD", None,time_tagger(self.times, int(self.tMeasure), self.counts_tmp))
+                # assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_tmp) #Change name to counts
+                # align("Detector_OPD","MW") #Causes the distance between two sections
+                # # play MW pi pulse
+                # play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+                # align("MW","Resonant_Laser")
+                # # play Resonant Laser
+                # play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                # align("Resonant_Laser","Detector_OPD")
+                # # Wait to prevent recording laser light
+                # wait(self.tWaitTimeGateSuppression)
+                # measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_tmp))
+                # assign(self.counts_ref2[self.i_idx], self.counts_ref2[self.i_idx] + self.counts_tmp)
+                # #Define the wait time between two detectors
+                # #Add wait time here
                 # align()
-                # measure signal
-                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref[self.i_idx], self.counts_ref[self.i_idx] + self.counts_ref_tmp) #Change name to counts
-                align("Detector_OPD","MW")
-                # play MW pi pulse
-                play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW // 4)
-                align("MW","Resonant_Laser")
-                # play Resonant Laser
-                play("Turn_ON", "Resonant_Laser", duration=(self.tRed) // 4)
-                align("Resonant_Laser","Detector_OPD")
-                # Wait to prevent recording laser light
-                wait(self.tWaitTimeGateSuppression // 4)
-                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref2[self.i_idx], self.counts_ref2[self.i_idx] + self.counts_ref_tmp)
-                #Define the wait time between two detectors
-                #Add wait time here
-                align()
-                measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_ref_tmp))
-                assign(self.counts_ref3[self.i_idx], self.counts_ref3[self.i_idx] + self.counts_ref_tmp)
-                align()
+                # measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.tMeasure), self.counts_tmp))
+                # assign(self.counts_ref3[self.i_idx], self.counts_ref3[self.i_idx] + self.counts_tmp)
+                # align()
+                # with if_((self.counts_ref[self.i_idx] > 0) | (self.counts_ref2[self.i_idx] > 0) | (self.counts_ref3[self.i_idx] > 0)):
+                #     #Create a method that turn on a laser and detector simultaneously and assign a count to a detector
+                #     #If the number is high, you are in one state, it is low then you are at another.
+                #     play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                #     align()
+                #     play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
+                #     measure("min_readout", "Detector_OPD", None,
+                #             time_tagging.analog(self.times, int(self.tStatistics), self.counts_tmp))
 
         if execute_qua:
             self.time_bin_entanglement_QUA_PGM(generate_params=True)
+            #counts = create_counts_vector(vector_size=96)
             self.QUA_PGM_No_Tracking()
 
 
@@ -5234,145 +5306,164 @@ class GUI_OPX():
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
 
     def FetchData(self):
-        self.refSignal = 0
-        if self.bEnableSignalIntensityCorrection:  # prepare search maxI thread
-            self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
+        if not self.simulation:
+            self.refSignal = 0
+            if self.bEnableSignalIntensityCorrection:  # prepare search maxI thread
+                self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
 
-        # verify job has started
-        while not self.job._is_job_running:
+            # verify job has started
+            while not self.job._is_job_running:
+                time.sleep(0.1)
             time.sleep(0.1)
-        time.sleep(0.1)
 
-        # fetch right parameters
-        if self.exp == Experiment.COUNTER:
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
-        elif self.exp == Experiment.G2:
-            self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
-        elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
-        elif self.exp == Experiment.Nuclear_Fast_Rot:
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
-        elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.results = fetching_tool(self.job, data_list=["counts"], mode="live")
-        else:
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
-
-        self.reset_data_val()
-
-        dpg.bind_item_theme("series_counts", "LineYellowTheme")
-        dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
-        dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
-        dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
-
-        lastTime = datetime.now().hour * 3600 + datetime.now().minute * 60 + datetime.now().second + datetime.now().microsecond / 1e6
-        while self.results.is_processing():
-            self.GlobalFetchData()
-
-            dpg.set_item_label("series_counts", "counts")
-            dpg.set_item_label("series_counts_ref", "counts_ref")
-
+            # fetch right parameters
             if self.exp == Experiment.COUNTER:
-                dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
+                self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
+            elif self.exp == Experiment.G2:
+                self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
+            elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
+                self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
+            elif self.exp == Experiment.Nuclear_Fast_Rot:
+                self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
+            elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+                self.results = fetching_tool(self.job, data_list=["counts"], mode="live")
+            else:
+                self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
+
+            self.reset_data_val()
+
+            dpg.bind_item_theme("series_counts", "LineYellowTheme")
+            dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+            dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
+            dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
+
+            lastTime = datetime.now().hour * 3600 + datetime.now().minute * 60 + datetime.now().second + datetime.now().microsecond / 1e6
+            while self.results.is_processing():
+                self.GlobalFetchData()
+
+                dpg.set_item_label("series_counts", "counts")
+                dpg.set_item_label("series_counts_ref", "counts_ref")
+
+                if self.exp == Experiment.COUNTER:
+                    dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
+                    dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
+                    dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+                    dpg.set_value("series_counts_ref2", [[], []])
+                    dpg.set_value("series_res_calcualted", [[], []])
+                    dpg.set_item_label("series_counts", "det_1")
+                    dpg.set_item_label("series_counts_ref", "det_2")
+                    dpg.set_item_label("y_axis", "I [kCounts/sec]")
+                    dpg.set_item_label("x_axis", "time [sec]")
+                    dpg.fit_axis_data('x_axis')
+                    dpg.fit_axis_data('y_axis')
+
+                    dpg.bind_item_theme("series_counts", "LineYellowTheme")
+                    dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+                    dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
+                    dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
+                    # self.Counter_updateGraph()
+                if self.exp == Experiment.ODMR_CW:  #freq
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="freq [GHz]")
+                if self.exp == Experiment.RABI:  # time
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [nsec]")
+                if self.exp == Experiment.ODMR_Bfield:  #freq
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="freq [GHz]")
+                if self.exp == Experiment.PULSED_ODMR:  #freq
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="freq [GHz]")
+                if self.exp == Experiment.NUCLEAR_RABI:  # time
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [nsec]")
+                if self.exp == Experiment.NUCLEAR_MR:  # freq
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="freq [MHz]")
+                if self.exp == Experiment.NUCLEAR_POL_ESR:  # freq
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="freq [GHz]")
+                if self.exp == Experiment.Nuclear_spin_lifetimeS0:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [msec]")
+                if self.exp == Experiment.Nuclear_spin_lifetimeS1:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [msec]")
+                if self.exp == Experiment.Nuclear_Ramsay:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [msec]")
+                if self.exp == Experiment.Hahn:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [msec]")
+                if self.exp == Experiment.Electron_lifetime:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [msec]")
+                if self.exp == Experiment.Electron_Coherence:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [msec]")
+                if self.exp == Experiment.Nuclear_Fast_Rot:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="amp [v]")
+                if self.exp == Experiment.POPULATION_GATE_TOMOGRAPHY:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="index")
+                if self.exp == Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="index")
+                if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+                    self.SearchPeakIntensity()
+                    self.Common_updateGraph(_xLabel="time [msec]")
+                if self.exp == Experiment.G2:
+                    dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, Totalounts = {round(self.g2_totalCounts, 0)}")
+                    dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
+                    dpg.set_value("series_counts_ref", [[], []])
+                    dpg.set_value("series_counts_ref2", [[], []])
+                    dpg.set_value("series_res_calcualted", [[], []])
+                    dpg.set_item_label("series_counts", "G2 val")
+                    dpg.set_item_label("series_counts_ref", "_")
+                    dpg.set_item_label("series_counts_ref2", "_")
+                    dpg.set_item_label("series_res_calcualted", "_")
+                    dpg.set_item_label("y_axis", "events")
+                    dpg.set_item_label("x_axis", "dt [nsec]")
+                    dpg.fit_axis_data('x_axis')
+                    dpg.fit_axis_data('y_axis')
+
+                    dpg.bind_item_theme("series_counts", "LineYellowTheme")
+                    dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+                    dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
+                    dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
+
+
+
+                current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
+                if not(self.exp == Experiment.COUNTER) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
+                    folder = "d:/temp/"
+                    if not os.path.exists(folder):
+                        folder = "c:/temp/"
+                    self.btnSave(folder=folder)
+
+                    lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
+
+                if self.StopFetch:
+                    break
+        elif self.simulation:
+            if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+                counts = create_counts_vector(vector_size=96)
+                self.X_vec = self.idx_vec
+                self.Y_vec = counts
+                dpg.set_item_label("graphXY", f"{self.exp.name},  Total Counts = {np.sum(counts)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
-                dpg.set_value("series_counts_ref2", [[], []])
-                dpg.set_value("series_res_calcualted", [[], []])
                 dpg.set_item_label("series_counts", "det_1")
-                dpg.set_item_label("series_counts_ref", "det_2")
-                dpg.set_item_label("y_axis", "I [kCounts/sec]")
+                dpg.set_item_label("y_axis", "Counts")
                 dpg.set_item_label("x_axis", "time [sec]")
                 dpg.fit_axis_data('x_axis')
                 dpg.fit_axis_data('y_axis')
-
                 dpg.bind_item_theme("series_counts", "LineYellowTheme")
-                dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
-                dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
-                dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
-                # self.Counter_updateGraph()
-            if self.exp == Experiment.ODMR_CW:  #freq
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experiment.RABI:  # time
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [nsec]")
-            if self.exp == Experiment.ODMR_Bfield:  #freq
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experiment.PULSED_ODMR:  #freq
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experiment.NUCLEAR_RABI:  # time
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [nsec]")
-            if self.exp == Experiment.NUCLEAR_MR:  # freq
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="freq [MHz]")
-            if self.exp == Experiment.NUCLEAR_POL_ESR:  # freq
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="freq [GHz]")
-            if self.exp == Experiment.Nuclear_spin_lifetimeS0:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experiment.Nuclear_spin_lifetimeS1:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experiment.Nuclear_Ramsay:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experiment.Hahn:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experiment.Electron_lifetime:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experiment.Electron_Coherence:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experiment.Nuclear_Fast_Rot:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="amp [v]")
-            if self.exp == Experiment.POPULATION_GATE_TOMOGRAPHY:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="index")
-            if self.exp == Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY:
-                self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="index")
-            if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-                #self.SearchPeakIntensity()
-                self.Common_updateGraph(_xLabel="time [msec]")
-            if self.exp == Experiment.G2:
-                dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, Totalounts = {round(self.g2_totalCounts, 0)}")
-                dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                dpg.set_value("series_counts_ref", [[], []])
-                dpg.set_value("series_counts_ref2", [[], []])
-                dpg.set_value("series_res_calcualted", [[], []])
-                dpg.set_item_label("series_counts", "G2 val")
-                dpg.set_item_label("series_counts_ref", "_")
-                dpg.set_item_label("series_counts_ref2", "_")
-                dpg.set_item_label("series_res_calcualted", "_")
-                dpg.set_item_label("y_axis", "events")
-                dpg.set_item_label("x_axis", "dt [nsec]")
-                dpg.fit_axis_data('x_axis')
-                dpg.fit_axis_data('y_axis')
 
-                dpg.bind_item_theme("series_counts", "LineYellowTheme")
-                dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
-                dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
-                dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
-
-
-
-            current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
-            if not(self.exp == Experiment.COUNTER) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
-                folder = "d:/temp/"
-                if not os.path.exists(folder):
-                    folder = "c:/temp/"
-                self.btnSave(folder=folder)
-
-                lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
-
-            if self.StopFetch:
-                break
+            folder = "d:/temp/"
+            if not os.path.exists(folder):
+                folder = "c:/temp/"
+            self.btnSave(folder=folder)
 
     def GlobalFetchData(self):
         self.lock.acquire()
@@ -5386,7 +5477,7 @@ class GUI_OPX():
         elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.signal, self.ref_signal = self.results.fetch_all()
+            self.signal = self.results.fetch_all()
         else:
             self.signal, self.ref_signal, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
 
@@ -5500,12 +5591,11 @@ class GUI_OPX():
             self.Y_vec = self.g2Vec#*self.iteration
 
         if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            #Add a way for the y vector to include 3 different counters
-            self.X_vec = self.idx_vec #index
-            self.Y_vec = self.counts
-            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
-            #self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
-
+            if not self.simulation:
+                self.X_vec = self.idx_vec #index, generated at time_bin_QUA_PGM
+                self.Y_vec = self.counts
+                #self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+                #self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
         self.lock.release()
 
     def btnStartG2(self):
@@ -5682,9 +5772,9 @@ class GUI_OPX():
         #calculates the count based on division due to timing limitaiton of the counter
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
-        # if not self.bEnableSimulate:
-        #     self.StartFetch(_target=self.FetchData)
-        #     print("Fetching Data")
+        if not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)
+            print("Fetching Data")
 
     def btnStartNuclearPolESR(self):
         self.exp = Experiment.NUCLEAR_POL_ESR
