@@ -154,6 +154,8 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                     dev.misc = "Cluster_1"
                 elif dev.ip_address == "192.168.101.61":
                     dev.misc = "Cluster_2"
+                elif dev.ip_address == "192.168.101.157":
+                    dev.misc = "Cluster_3"
 
     # Return as a list or None
     if not isinstance(devices, list) and devices:

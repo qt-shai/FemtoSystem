@@ -43,6 +43,7 @@ import xml.etree.ElementTree as ET
 import math
 import SystemConfig as configs
 from Utils import OptimizerMethod,find_max_signal
+import JobTesting_OPX
 
 
 matplotlib.use('qtagg')
@@ -2006,11 +2007,6 @@ class GUI_OPX():
 
             with stream_processing():
                 self.counts_st.buffer(self.vectorLength).average().save("counts")
-                self.counts_ref_st.buffer(self.vectorLength).average().save("counts_ref")
-                self.counts_ref2_st.buffer(self.vectorLength).average().save("counts_ref2")
-                self.resCalculated_st.buffer(self.vectorLength).average().save("resCalculated")
-                self.n_st.save("iteration")
-                self.tracking_signal_st.save("tracking_ref")
         if not self.simulation:
             self.qm, self.job = self.QUA_execute()
     def execute_QUA(self):
@@ -5312,9 +5308,10 @@ class GUI_OPX():
                 self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
 
             # verify job has started
-            while not self.job._is_job_running:
+            if not self.simulation:
+                while not self.job._is_job_running:
+                    time.sleep(0.1)
                 time.sleep(0.1)
-            time.sleep(0.1)
 
             # fetch right parameters
             if self.exp == Experiment.COUNTER:
@@ -5326,7 +5323,11 @@ class GUI_OPX():
             elif self.exp == Experiment.Nuclear_Fast_Rot:
                 self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
             elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-                self.results = fetching_tool(self.job, data_list=["counts"], mode="live")
+                if not self.simulation:
+                    self.results = fetching_tool(self.job, data_list=["counts"], mode="live")
+                else:
+                    counts = create_counts_vector(vector_size=96)
+                    self.results = fetching_tool(job = JobTesting_OPX.MockJob(counts), data_list=["counts"], mode="live")
             else:
                 self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration", "tracking_ref"], mode="live")
 
@@ -5412,7 +5413,7 @@ class GUI_OPX():
                     self.Common_updateGraph(_xLabel="index")
                 if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
                     self.SearchPeakIntensity()
-                    self.Common_updateGraph(_xLabel="time [msec]")
+                    self.Common_updateGraph(_xLabel="time [ns]")
                 if self.exp == Experiment.G2:
                     dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, Totalounts = {round(self.g2_totalCounts, 0)}")
                     dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
@@ -5450,12 +5451,12 @@ class GUI_OPX():
             if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
                 counts = create_counts_vector(vector_size=96)
                 self.X_vec = self.idx_vec
-                self.Y_vec = counts
+                self.Y_vec = counts.tolist()
                 dpg.set_item_label("graphXY", f"{self.exp.name},  Total Counts = {np.sum(counts)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
                 dpg.set_item_label("series_counts", "det_1")
                 dpg.set_item_label("y_axis", "Counts")
-                dpg.set_item_label("x_axis", "time [sec]")
+                dpg.set_item_label("x_axis", "time [ns]")
                 dpg.fit_axis_data('x_axis')
                 dpg.fit_axis_data('y_axis')
                 dpg.bind_item_theme("series_counts", "LineYellowTheme")
@@ -5591,11 +5592,14 @@ class GUI_OPX():
             self.Y_vec = self.g2Vec#*self.iteration
 
         if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+            self.X_vec = self.idx_vec #index, generated at time_bin_QUA_PGM
             if not self.simulation:
-                self.X_vec = self.idx_vec #index, generated at time_bin_QUA_PGM
                 self.Y_vec = self.counts
                 #self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
                 #self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+            elif self.simulation:
+                counts = create_counts_vector(vector_size=96)
+                self.Y_vec = counts
         self.lock.release()
 
     def btnStartG2(self):
