@@ -932,18 +932,20 @@ class GUI_OPX():
             del self.map
             dpg.delete_item("Scan_Window")
 
-
     def save_pos(self):
-        # Dictionary to store window positions and dimensions
-        window_positions = {}
+        # Dictionary to store window positions, sizes, and collapsed states
+        window_data = {}
+
         # Iterate through the list of window names in the Enum
         for window in WindowNames:
             win_name = window.value
             if dpg.does_item_exist(win_name):
                 win_pos = dpg.get_item_pos(win_name)
                 win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
-                window_positions[win_name] = (win_pos, win_size)
-                print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
+                config = dpg.get_item_configuration(win_name)
+                collapsed = config.get("collapsed", False)
+                window_data[win_name] = (win_pos, win_size, collapsed)
+                print(f"Position of {win_name}: {win_pos}, Size: {win_size}, Collapsed: {collapsed}")
 
         try:
             # Read existing map_config.txt content, if available
@@ -953,25 +955,24 @@ class GUI_OPX():
             except FileNotFoundError:
                 lines = []
 
-            # Remove any existing window position and size entries
+            # Remove any existing entries for the windows
             new_content = [
-                line for line in lines if not any(win_name in line for win_name in window_positions.keys())
+                line for line in lines if not any(win_name in line for win_name in window_data.keys())
             ]
 
-            # Append the new window positions and dimensions to the content
-            for win_name, (position, size) in window_positions.items():
+            # Append the new window positions, sizes, and collapsed states
+            for win_name, (position, size, collapsed) in window_data.items():
                 new_content.append(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
                 new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
+                new_content.append(f"{win_name}_Collapsed: {collapsed}\n")
 
             # Write back the updated content to the file
             with open("map_config.txt", "w") as file:
                 file.writelines(new_content)
 
-            print("Window positions and sizes saved successfully to map_config.txt.")
+            print("Window positions, sizes, and collapsed states saved successfully to map_config.txt.")
         except Exception as e:
-            print(f"Error saving window positions and sizes: {e}")
-
-
+            print(f"Error saving window data: {e}")
 
     def load_pos(self):
         try:
@@ -980,9 +981,10 @@ class GUI_OPX():
                 print("map_config.txt not found.")
                 return
 
-            # Dictionaries to store positions and sizes loaded from the file
+            # Dictionaries to store positions, sizes, and collapsed states
             window_positions = {}
             window_sizes = {}
+            window_collapsed = {}
 
             with open("map_config.txt", "r") as file:
                 lines = file.readlines()
@@ -997,19 +999,22 @@ class GUI_OPX():
 
                     # Check if the key is a window position entry
                     if "_Pos" in key:
-                        # Extract window name and coordinates
                         window_name = key.replace("_Pos", "")
                         x, y = value.split(", ")
                         window_positions[window_name] = (float(x), float(y))
 
                     # Check if the key is a window size entry
                     elif "_Size" in key:
-                        # Extract window name and dimensions
                         window_name = key.replace("_Size", "")
                         width, height = value.split(", ")
                         window_sizes[window_name] = (int(width), int(height))
 
-            # Update window positions and sizes in Dear PyGui if the windows exist
+                    # Check if the key is a window collapsed entry
+                    elif "_Collapsed" in key:
+                        window_name = key.replace("_Collapsed", "")
+                        window_collapsed[window_name] = value == "True"
+
+            # Update window positions, sizes, and collapsed states in Dear PyGui if the windows exist
             for window_name, pos in window_positions.items():
                 if dpg.does_item_exist(window_name):
                     dpg.set_item_pos(window_name, pos)
@@ -1025,8 +1030,15 @@ class GUI_OPX():
                 else:
                     print(f"{window_name} does not exist in the current context.")
 
+            for window_name, collapsed in window_collapsed.items():
+                if dpg.does_item_exist(window_name):
+                    dpg.configure_item(window_name, collapsed=collapsed)
+                    print(f"Loaded collapsed state for {window_name}: {collapsed}")
+                else:
+                    print(f"{window_name} does not exist in the current context.")
+
         except Exception as e:
-            print(f"Error loading window positions and sizes: {e}")
+            print(f"Error loading window data: {e}")
 
     def btn_z_calibrate(self):
         self.ScanTh = threading.Thread(target=self.z_calibrate)
@@ -5240,6 +5252,23 @@ class GUI_OPX():
                 mean_val = np.mean(flat_counts[mask])
                 self.Y_vec_ref[i] = mean_val  # Update corresponding bin mean
 
+        # Normalizing mean values
+        try:
+            min_ref = min(self.Y_vec_ref)
+            max_ref = max(self.Y_vec_ref)
+            max_y = max(self.Y_vec)
+
+            if max_ref == min_ref:
+                print("All elements in Y_vec_ref are the same. Normalization cannot be performed.")
+                return
+
+            # Normalize Y_vec_ref to the range [0, max(Y_vec)]
+            self.Y_vec_ref = [
+                (value - min_ref) / (max_ref - min_ref) * max_y for value in self.Y_vec_ref
+            ]
+            print("Y_vec_ref normalized successfully.")
+        except Exception as e:
+            print(f"An error occurred in generate_x_y_vectors_for_average: {e}")
 
     def FastScan_updateGraph(self):
         # Update the graph label with the current experiment name, iteration, and last Y value
@@ -6690,22 +6719,21 @@ class GUI_OPX():
                         if not is_not_ple:
                             current_measurement=0
                             if self.simulation:
-                                current_measurement=np.array(float(np.random.randint(1, 1000)))
-                                counts.append(current_measurement)
+                                current_measurement=[np.array(float(np.random.randint(1, 1000)))]
                             elif self.counts_handle.is_processing():
                                 # block until at least 1 data chunk is there
                                 self.counts_handle.wait_for_values(1)
                                 self.meas_idx_handle.wait_for_values(1)
                                 time.sleep(0.1)
-
                                 meas_idx = self.meas_idx_handle.fetch_all()
                                 current_measurement=self.counts_handle.fetch_all()
-                                counts.append(current_measurement[0])
                                 self.qmm.clear_all_job_results()
 
+                            counts.append(current_measurement[0])
                             self.Y_vec = counts
-                            self.X_vec = [round(position / 1e6,2) for position in current_positions_array]
+                            self.X_vec = current_positions_array
                             self.generate_x_y_vectors_for_average()
+                            self.X_vec = [round(position / 1e6,2) for position in current_positions_array]
                             self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
                             if type(current_measurement) == int:
                                 current_measurement=[-1]

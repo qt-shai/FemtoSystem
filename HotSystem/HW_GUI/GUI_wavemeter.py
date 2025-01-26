@@ -48,7 +48,7 @@ class GUIWavemeter:
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
         self.window_tag = "Wavemeter_Win"
-        with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}", no_title_bar=False, height=650, width=550, pos=[10, 10], collapsed=True):
+        with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}", no_title_bar=False, height=600, width=500, pos=[10, 10], collapsed=True):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_wavemeter_controls(red_button_theme)
@@ -90,50 +90,44 @@ class GUIWavemeter:
         """
         Builds the main wavemeter controls (connect, channel, measure, display).
         """
-        with dpg.group(horizontal=False, tag=f"column_wavemeter_{self.unique_id}", width=400):
+        with dpg.group(horizontal=False, tag=f"column_wavemeter_{self.unique_id}", width=120):
             dpg.add_text("HighFinesse WLM Controls")
 
-            # Connect/Disconnect Buttons
-            dpg.add_button(label="Connect", callback=self.btn_connect)
+            dpg.add_button(label="Connect", callback=self.btn_connect,width=100)
             dpg.bind_item_theme(dpg.last_item(), theme)
-            dpg.add_button(label="Disconnect", callback=self.btn_disconnect)
+            dpg.add_button(label="Disconnect", callback=self.btn_disconnect,width=100)
             dpg.bind_item_theme(dpg.last_item(), theme)
 
-            # Channel selection (if multi-channel device; optional)
-            dpg.add_text("Channel:")
-            dpg.add_input_int(default_value=0, tag=f"WLMChannel_{self.unique_id}", width=80)
+            dpg.add_input_int(default_value=0, tag=f"WLMChannel_{self.unique_id}", width=80,label="Channel")
 
             # Unit Selector
-            dpg.add_text("Frequency Units:")
+            # dpg.add_text("Frequency Units:")
             dpg.add_combo(
                 ["THz", "GHz", "MHz"],
                 default_value="GHz",
                 tag=f"UnitSelector_{self.unique_id}",
-                width=100
+                width=100,label="Units",
             )
-
-            # Wavelength display
+            dpg.add_button(label="Measure Once", callback=self.btn_measure,width=150)
+            dpg.bind_item_theme(dpg.last_item(), theme)
             dpg.add_text("Wavelength (nm):", tag=f"WLM_Wavelength_Label_{self.unique_id}")
-
-            dpg.add_button(label="Measure Once", callback=self.btn_measure)
-            dpg.bind_item_theme(dpg.last_item(), theme)
-            dpg.add_button(label="Continuous Read", callback=self.toggle_continuous_measure)
+            dpg.add_button(label="Continuous Read", callback=self.toggle_continuous_measure,width=150)
             dpg.bind_item_theme(dpg.last_item(), theme)
 
-            with dpg.plot(label="WLM Plot", height=300, width=700):
-                # X-axis
-                x_axis_tag = f"x_axis_{self.unique_id}"
-                dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", tag=x_axis_tag)
-                # Y-axis
-                y_axis_tag = f"y_axis_{self.unique_id}"
-                with dpg.plot_axis(dpg.mvYAxis, label="Frequency", tag=y_axis_tag):
-                    # A line series for wave data
-                    dpg.add_line_series(
-                        [], [], label="WLM Measurements", tag=f"wlm_measurement_series_{self.unique_id}"
-                    )
-            # Enable auto-fit for x and y axes
-            dpg.fit_axis_data(x_axis_tag)
-            dpg.fit_axis_data(y_axis_tag)
+        with dpg.plot(label="WLM Plot", height=300, width=400):
+            # X-axis
+            x_axis_tag = f"x_axis_{self.unique_id}"
+            dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", tag=x_axis_tag)
+            # Y-axis
+            y_axis_tag = f"y_axis_{self.unique_id}"
+            with dpg.plot_axis(dpg.mvYAxis, label="Frequency", tag=y_axis_tag):
+                # A line series for wave data
+                dpg.add_line_series(
+                    [], [], label="WLM Measurements", tag=f"wlm_measurement_series_{self.unique_id}"
+                )
+        # Enable auto-fit for x and y axes
+        dpg.fit_axis_data(x_axis_tag)
+        dpg.fit_axis_data(y_axis_tag)
 
     def toggle_continuous_measure(self):
         """

@@ -28,7 +28,7 @@ class GUIMatisse:
 
         self.window_tag = "Matisse_Win"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
-                        no_title_bar=False, height=320, width=1800, pos=[20, 20], collapsed=False):
+                        no_title_bar=False, height=320, width=1000, pos=[20, 20], collapsed=True):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_diode_power_controls(red_button_theme)
@@ -72,7 +72,7 @@ class GUIMatisse:
             )
 
     def create_diode_power_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_diode_power_{self.unique_id}", width=150):
+        with dpg.group(horizontal=False, tag=f"column_diode_power_{self.unique_id}", width=140):
             dpg.add_text("Diode Power")
             dpg.add_text("Current Power:", tag=f"DiodePower_{self.unique_id}")
             dpg.add_text("Low-level Cutoff:")
@@ -82,7 +82,7 @@ class GUIMatisse:
             dpg.bind_item_theme(dpg.last_item(), theme)
 
     def create_thin_etalon_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_thin_etalon_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_thin_etalon_{self.unique_id}", width=120):
             dpg.add_text("Thin Etalon Motor")
             dpg.add_text("Position:", tag=f"ThinEtalonPosition_{self.unique_id}")
             dpg.add_input_int(default_value=0, tag=f"ThinEtalonMoveTo_{self.unique_id}", width=100)
@@ -97,7 +97,7 @@ class GUIMatisse:
                           callback=self.btn_set_thin_etalon_ctl_status, width=100)
 
     def create_bifi_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_bifi_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_bifi_{self.unique_id}", width=120):
             dpg.add_text("Birefringent Filter Motor")
             dpg.add_text("Position:", tag=f"BifiPosition_{self.unique_id}")
             dpg.add_input_int(default_value=0, tag=f"BifiMoveTo_{self.unique_id}", width=100)
@@ -109,7 +109,7 @@ class GUIMatisse:
             dpg.bind_item_theme(dpg.last_item(), theme)
 
     def create_piezo_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_piezo_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_piezo_{self.unique_id}", width=120):
             dpg.add_text("Piezo Controls")
             dpg.add_text("Slow Piezo Position:", tag=f"SlowPiezoPosition_{self.unique_id}")
             dpg.add_input_float(default_value=0.0, tag=f"SlowPiezoSetPos_{self.unique_id}",
@@ -137,7 +137,7 @@ class GUIMatisse:
                           callback=self.btn_set_fastpiezo_ctl_status, width=100)
 
     def create_scan_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_scan_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_scan_{self.unique_id}", width=120):
             dpg.add_text("Scan Controls")
             dpg.add_text("Scan Status:")
             dpg.add_combo(["run", "stop"], default_value="stop", tag=f"ScanStatus_{self.unique_id}",
@@ -151,7 +151,7 @@ class GUIMatisse:
             dpg.bind_item_theme(dpg.last_item(), theme)
 
     def create_refcell_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_refcell_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_refcell_{self.unique_id}", width=120):
             dpg.add_text("Reference Cell Controls")
             dpg.add_text("Reference cell Position (0-1):", tag=f"RefcellPosition_{self.unique_id}")
             dpg.add_input_float(default_value=0.0, tag=f"RefcellSetPos_{self.unique_id}",
@@ -305,7 +305,7 @@ class GUIMatisse:
             dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} not connected")
 
     def create_scanning_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_scanning_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_scanning_{self.unique_id}", width=120):
             dpg.add_text("Scanning Controls")
 
             # Scan Device Selector
