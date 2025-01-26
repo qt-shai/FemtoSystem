@@ -2,7 +2,7 @@ import numpy as np
 
 class MockJob():
     def __init__(self, counts):
-        self.results = {"counts": counts}  # Mock results
+        self.results = {"counts": counts.tolist()}  # Mock results
         self.result_handles = MockResultHandles(self.results)
 
     # def result_handles(self):
