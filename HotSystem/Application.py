@@ -33,6 +33,7 @@ from HW_GUI.GUI_wavemeter import GUIWavemeter
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
 from HW_GUI.GUI_sim960PID import GUISIM960
+from HW_GUI.GUI_moku import GUIMoku
 from HWrap_OPX import GUI_OPX
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Utils.Common import calculate_z_series
@@ -396,6 +397,7 @@ class PyGuiOverlay(Layer):
         self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
+        self.moku: Optional[GUIMoku] = None
         self.mwGUI = None
         self.system_type: Optional[SystemType] = None
         self.system_config: Optional[SystemConfig] = None
@@ -813,6 +815,9 @@ class PyGuiOverlay(Layer):
                         sim960=matching_device,
                         simulation=device.simulation
                     ))
+
+                elif instrument == Instruments.MOKU:
+                    self.moku_gui = GUIMoku(hw_devices.HW_devices().moku)
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")

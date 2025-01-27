@@ -196,3 +196,4 @@ class WindowNames(Enum):
     SIM960 = "SIM960_Win"
     ATTO_SCANNER = "MotorWin_ANC300"
     ATTO_POSITIONER = "MotorWin_atto_positioner"
+    MOKUGO = "Moku_Win"

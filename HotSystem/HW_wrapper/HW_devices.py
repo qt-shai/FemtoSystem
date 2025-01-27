@@ -11,6 +11,7 @@ from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser
 from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
 from HW_wrapper.wrapper_wavemeter import HighFinesseWLM
+from HW_wrapper.Wrapper_moku import Moku
 
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 from Utils import ObservableField
@@ -36,6 +37,7 @@ class HW_devices:
             self.cobolt:Optional[CoboltLaser] = None
             self.matisse_device: Optional[SirahMatisse] = None
             self.wavemeter:Optional[HighFinesseWLM] = None
+            self.moku: Optional[Moku] = None
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
             self.SRS_PID_list: Optional[list[SRSsim960]] = None
@@ -170,6 +172,9 @@ class HW_devices:
                     if not device.simulation:
                         self.arduino.connect()
                     print(f"Arduino {'(Simulated)' if device.simulation else 'Connected'} at {device.com_port}")
+
+                elif instrument == Instruments.MOKU:
+                    self.moku = Moku(mokugo_ip=InstrumentsAddress.moku_ip.value)
 
                 elif instrument == Instruments.KEYSIGHT_AWG:
                     self.keysight_awg_device = Keysight33500B(address=f'TCPIP::{device.ip_address.replace(":","::")}::SOCKET',
