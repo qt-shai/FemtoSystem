@@ -564,6 +564,18 @@ class GUISIM960:
                 callback=self.cb_set_lower_limit, tag=f"lower_limit_{self.unique_id}", format="%.3f",width=100)
             dpg.add_button(label="Set Lower", callback=self.cb_apply_lower_limit)
             dpg.add_button(label="Get Limits", callback=self.cb_get_limits)
+            dpg.add_input_float(label="Unwind Th", default_value=self.dev.unwind_th,  # Fetch initial value from device
+                                callback=self.cb_update_unwind_th, tag=f"unwind_th_{self.unique_id}", format="%.3f", width=100)
+
+    def cb_update_unwind_th(self, sender, app_data):
+        """
+        Callback to update the upper threshold.
+
+        :param sender: The DPG sender ID.
+        :param app_data: The new value of the input field.
+        """
+        print(f"Upper threshold updated to: {app_data}")
+        self.dev.unwind_th = app_data  # Directly update the device threshold
 
     def cb_set_upper_limit(self, sender, app_data):
         """Callback to set the new upper limit."""

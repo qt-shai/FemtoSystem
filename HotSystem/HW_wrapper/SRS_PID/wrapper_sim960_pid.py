@@ -47,8 +47,7 @@ class SRSsim960:
         self.last_stable_timestamp:datetime = datetime.now() - timedelta(seconds=self.stability_recovery_time_seconds*1e3)
         self.stability_tolerance:float = 0.01
 
-        self.lower_threshold = 0.05
-        self.upper_threshold = 4.95
+        self.unwind_th=9.9
         self.start_time = time.time()
         self.time_values = []
         self.measurement_inputs = []
@@ -80,7 +79,7 @@ class SRSsim960:
                     self.measurement_inputs.pop(0)
                     self.output_voltages.pop(0)
 
-                if abs(output_voltage) > 10:
+                if abs(output_voltage) > self.unwind_th:
                     with self.lock:
                         print('SRS is not stable.')
                         sign = 1 if output_voltage > 0 else -1
@@ -101,7 +100,7 @@ class SRSsim960:
                         self.last_stable_timestamp = datetime.now()
                 else:
                     if not self.is_stable and datetime.now() > self.last_stable_timestamp + timedelta(seconds=self.stability_recovery_time_seconds):
-                        print('SRS is not stable. Trying to recover...')
+                        # print('SRS is not stable. Trying to recover...')
                         with self.lock:
                             if np.isclose(self.read_setpoint(), self.read_setpoint(), self.stability_tolerance):
                                 print('SRS is stable.')

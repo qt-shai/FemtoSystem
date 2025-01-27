@@ -1692,7 +1692,8 @@ class GUI_OPX():
         if self.exp == Experiment.PLE:
             self.bEnableShuffle=False
             # self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger)
-            self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger,play_element=configs.QUAConfigBase.Elements.RESONANT_LASER.value)
+            self.MeasureByTrigger_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger,play_element=configs.QUAConfigBase.Elements.RESONANT_LASER.value,
+                                          use_init_pulse=True)
             # self.MeasureByTrigger_Track_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array),triggerThreshold=self.ScanTrigger)
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
@@ -5142,7 +5143,7 @@ class GUI_OPX():
 
         self.qm, self.job = self.QUA_execute()
     def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1,
-                                 triggerThreshold: int = 1, play_element = configs.QUAConfigBase.Elements.LASER.value):
+                                 triggerThreshold: int = 1, play_element = configs.QUAConfigBase.Elements.LASER.value, use_init_pulse:bool=False):
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
@@ -5161,9 +5162,11 @@ class GUI_OPX():
             meas_idx_st = declare_stream()
 
             pulsesTriggerDelay = 5000000 // 4
+            init_pulse_time = self.tPump // 4
             sequenceState = declare(int, value=0)
             triggerTh = declare(int, value=triggerThreshold)
             assign(IO2, 0)
+            use_init_pulse = declare(bool, value=use_init_pulse)
 
             with infinite_loop_():
                 # wait_for_trigger("Laser") # wait for smaract trigger
@@ -5172,6 +5175,8 @@ class GUI_OPX():
                     assign(IO2, 0)
                     assign(sequenceState, 0)
                     align()
+                    with if_(use_init_pulse):
+                        play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=init_pulse_time)
                     align()
                     # pause()
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):

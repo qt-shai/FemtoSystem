@@ -108,8 +108,8 @@ class GUIMoku:
 
             # Threshold inputs
             dpg.add_text("Unwind Thresholds:")
-            dpg.add_input_float(label="Lower Threshold", default_value=0.05,width=120, tag=f"lower_threshold_{self.unique_id}")
-            dpg.add_input_float(label="Upper Threshold", default_value=4.95,width=120, tag=f"upper_threshold_{self.unique_id}")
+            dpg.add_input_float(label="Lower Threshold", default_value=0.05,width=120, tag=f"lower_threshold_{self.unique_id}",callback=self.update_lower_threshold,)
+            dpg.add_input_float(label="Upper Threshold", default_value=4.95,width=120, tag=f"upper_threshold_{self.unique_id}",callback=self.update_upper_threshold,)
 
             dpg.add_text("", tag=f"results_display_{self.unique_id}")
 
@@ -128,6 +128,26 @@ class GUIMoku:
         # Enable auto-fit for x and y axes
         dpg.fit_axis_data(x_axis_tag)
         dpg.fit_axis_data(y_axis_tag)
+
+    def update_lower_threshold(self, sender, app_data):
+        """
+        Callback to update the lower threshold.
+
+        :param sender: The DPG sender ID.
+        :param app_data: The new value of the input field.
+        """
+        print(f"Lower threshold updated to: {app_data}")
+        self.dev.lower_threshold = round(app_data,3)  # Directly update the device threshold
+
+    def update_upper_threshold(self, sender, app_data):
+        """
+        Callback to update the upper threshold.
+
+        :param sender: The DPG sender ID.
+        :param app_data: The new value of the input field.
+        """
+        print(f"Upper threshold updated to: {app_data}")
+        self.dev.upper_threshold = round(app_data,3)  # Directly update the device threshold
 
     def show_device_info(self):
         """
