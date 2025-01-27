@@ -1,0 +1,159 @@
+import logging
+
+import dearpygui.dearpygui as dpg
+import numpy as np
+from Common import DpgThemes
+from HW_wrapper.Wrapper_moku import Moku
+from SystemConfig import Instruments, load_instrument_images
+
+import threading
+import time
+
+class GUIMoku:
+    def __init__(self, device:Moku, instrument: Instruments = Instruments.MOKU, simulation: bool = False) -> None:
+        """
+        GUI class for Moku Interferometer Stabilizer.
+
+        :param moku_ip: IP address of the Moku device.
+        """
+        self.th_stream = None
+        self.dev = device
+        self.is_collapsed = False
+        self.simulation = simulation
+        self.unique_id = self._get_unique_id_from_device()
+        self.instrument = instrument
+        load_instrument_images()  # If you have an instrument image for the WLM
+
+        # Data lists for real-time plotting
+        self.start_time = time.time()
+        self.time_data = []
+        self.measurement_data = []
+
+        # Flag to indicate if continuous measuring is active
+        self.continuous_stream_active = False
+
+        red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
+
+        self.window_tag = "Moku_Win"
+        with dpg.window(tag=self.window_tag, label="Moku Interferometer Stabilizer", width=700, height=350, pos=[50, 50], collapsed=False):
+            with dpg.group(horizontal=True):
+                self.create_instrument_image()
+                self.create_control_panel()
+
+        # Store references to your main “column” groups, if you wish to hide/show them on collapse
+        self.column_tags = [f"column_moku_{self.unique_id}"]
+
+        # Attempt to connect immediately if not in simulation
+        # if not simulation:
+        #     self.connect()
+
+    def create_instrument_image(self):
+        """
+        Create an image button that toggles collapsing/expanding the GUI.
+        If you have a .png or .jpg for your WLM, ensure `load_instrument_images()`
+        has created a texture with the correct name. Otherwise, remove/replace this method.
+        """
+        with dpg.group(horizontal=False, tag=f"column_instrument_image_{self.unique_id}"):
+            # Use your actual texture tag or remove the image if not available
+            dpg.add_image_button(
+                f"{self.instrument.value}_texture",  # e.g. "WAVEMETER_texture"
+                width=80, height=80,
+                callback=self.toggle_gui_collapse
+            )
+
+    def toggle_gui_collapse(self):
+        """
+        Collapse/expand the GUI, just like in GUIMatisse.
+        """
+        if self.is_collapsed:
+            print(f"Expanding {self.instrument.value} window")
+            for column_tag in self.column_tags:
+                dpg.show_item(column_tag)
+            dpg.set_item_width(self.window_tag, 700)
+            dpg.set_item_height(self.window_tag, 350)
+        else:
+            print(f"Collapsing {self.instrument.value} window")
+            for column_tag in self.column_tags:
+                dpg.hide_item(column_tag)
+            dpg.set_item_width(self.window_tag, 130)
+            dpg.set_item_height(self.window_tag, 130)
+        self.is_collapsed = not self.is_collapsed
+
+    def create_control_panel(self):
+        """
+        Creates the control panel with buttons and input fields.
+        """
+        with dpg.group(horizontal=False,tag=f"column_moku_{self.unique_id}"):
+            dpg.add_text("Device Information:")
+
+            dpg.add_button(label="Show Info", callback=self.show_device_info)
+
+            dpg.add_text("Control Panel:")
+
+            # PID Reset Button
+            dpg.add_button(label="Reset PID Windup", callback=self.reset_pid_windup)
+
+            # Streaming Output
+            dpg.add_button(label="Start Output Stream", callback=self.start_pid_output_stream)
+
+            # Threaded Output
+            dpg.add_button(label="Start Threaded Output", callback=self.start_threaded_output)
+
+
+        with dpg.plot(label="MOKU Plot", height=300, width=400):
+            # X-axis
+            x_axis_tag = f"x_axis_{self.unique_id}"
+            dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)", tag=x_axis_tag)
+            # Y-axis
+            y_axis_tag = f"y_axis_{self.unique_id}"
+            with dpg.plot_axis(dpg.mvYAxis, label="Output (V)", tag=y_axis_tag):
+                # A line series for wave data
+                dpg.add_line_series(
+                    [], [], label="MOKU Measurements", tag=f"moku_measurement_series_{self.unique_id}"
+                )
+        # Enable auto-fit for x and y axes
+        dpg.fit_axis_data(x_axis_tag)
+        dpg.fit_axis_data(y_axis_tag)
+
+    def show_device_info(self):
+        """
+        Display the Moku device information in the console.
+        """
+        self.dev.print_device_info()
+
+    def reset_pid_windup(self):
+        """
+        Reset the PID windup.
+        """
+        self.dev.reset_pid_windup()
+        print("PID windup reset.")
+
+    def start_pid_output_stream(self):
+        """
+        Start streaming PID output data.
+        """
+
+        threading.Thread(target=self.dev.get_pid_output_stream, args=(None,), daemon=True).start()
+        print("Started PID output stream.")
+        if self.continuous_stream_active:
+            # Stop the loop
+            self.continuous_stream_active = False
+            print("Continuous read stopped.")
+        else:
+            # Start the loop
+            self.continuous_stream_active = True
+            print("Continuous stream started.")
+            self.th_stream = threading.Thread(target=self.dev.get_pid_output_stream, args=(None,), daemon=True).start()
+
+    def start_threaded_output(self):
+        """
+        Start a separate thread to fetch PID output data.
+        """
+        threading.Thread(target=self.dev.get_threaded_pid_output_data, daemon=True).start()
+        print("Started threaded PID output.")
+
+
+    def _get_unique_id_from_device(self) -> str:
+        """Generate a unique identifier for the GUI instance based on the device properties."""
+        return str(id(self.dev))
+
