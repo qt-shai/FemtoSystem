@@ -108,23 +108,15 @@ class Moku:
         thread.start()
         # thread.join()
 
-    def get_pid_output_stream(self, stream_duration_in_seconds: Optional[int]) -> None:
+    from typing import List, Dict
 
-        if stream_duration_in_seconds is None:
-            self._pid_controller.start_streaming()
-        else:
-            self._pid_controller.start_streaming(duration=stream_duration_in_seconds)
+    def get_pid_output_value(self) -> List[Dict[str, float]]:
+        """
+        Retrieves a fixed set of PID output stream data.
 
-        while True:
-            data = self._pid_controller.get_stream_data()
+        :return: A list of dictionaries containing the streamed data.
+        """
+        # Start streaming
+        data = self._pid_controller.get_data()
 
-            # Print out the data
-            print(f"Time: {data['time']}")
-            print(f"CH1: {data['ch1']}")
-
-    def get_pid_output_value(self) -> None:
-        while True:
-            data = self._pid_controller.get_data()
-            # Print out the data
-            print(f"Time: {data['time']}")
-            print(f"CH1: {data['ch1']}")
+        return data

@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 import dearpygui.dearpygui as dpg
@@ -6,8 +7,13 @@ from Common import DpgThemes
 from HW_wrapper.Wrapper_moku import Moku
 from SystemConfig import Instruments, load_instrument_images
 
+import asyncio
 import threading
 import time
+
+def run_asyncio_loop(loop: asyncio.AbstractEventLoop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
 
 class GUIMoku:
     def __init__(self, device:Moku, instrument: Instruments = Instruments.MOKU, simulation: bool = False) -> None:
@@ -16,7 +22,6 @@ class GUIMoku:
 
         :param moku_ip: IP address of the Moku device.
         """
-        self.th_stream = None
         self.dev = device
         self.is_collapsed = False
         self.simulation = simulation
@@ -33,6 +38,11 @@ class GUIMoku:
         self.continuous_stream_active = False
 
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
+
+        # --- Create an asyncio loop + thread for background tasks ---
+        self.background_loop = asyncio.new_event_loop()
+        t = threading.Thread(target=run_asyncio_loop, args=(self.background_loop,), daemon=True)
+        t.start()
 
         self.window_tag = "Moku_Win"
         with dpg.window(tag=self.window_tag, label="Moku Interferometer Stabilizer", width=700, height=350, pos=[50, 50], collapsed=False):
@@ -94,10 +104,9 @@ class GUIMoku:
             dpg.add_button(label="Reset PID Windup", callback=self.reset_pid_windup)
 
             # Streaming Output
-            dpg.add_button(label="Start Output Stream", callback=self.start_pid_output_stream)
+            dpg.add_button(label="Start Output Stream", callback=self.start_pid_output)
 
-            # Threaded Output
-            dpg.add_button(label="Start Threaded Output", callback=self.start_threaded_output)
+            dpg.add_text("", tag=f"results_display_{self.unique_id}")
 
 
         with dpg.plot(label="MOKU Plot", height=300, width=400):
@@ -128,13 +137,14 @@ class GUIMoku:
         self.dev.reset_pid_windup()
         print("PID windup reset.")
 
-    def start_pid_output_stream(self):
+    def start_pid_output(self):
         """
         Start streaming PID output data.
         """
+        if not self.background_loop:
+            print("Error: No background loop.")
+            return
 
-        threading.Thread(target=self.dev.get_pid_output_stream, args=(None,), daemon=True).start()
-        print("Started PID output stream.")
         if self.continuous_stream_active:
             # Stop the loop
             self.continuous_stream_active = False
@@ -143,15 +153,44 @@ class GUIMoku:
             # Start the loop
             self.continuous_stream_active = True
             print("Continuous stream started.")
-            self.th_stream = threading.Thread(target=self.dev.get_pid_output_stream, args=(None,), daemon=True).start()
+            future = asyncio.run_coroutine_threadsafe(self.continuous_measure_loop(), self.background_loop)
 
-    def start_threaded_output(self):
-        """
-        Start a separate thread to fetch PID output data.
-        """
-        threading.Thread(target=self.dev.get_threaded_pid_output_data, daemon=True).start()
-        print("Started threaded PID output.")
 
+    async def continuous_measure_loop(self):
+        concatenated_pid_data = []  # Store the collected PID data
+        time_values: list[datetime.time] = []  # Store time values for the graph
+
+        # Tags for the plot series and axes
+        series_tag = f"moku_measurement_series_{self.unique_id}"
+        x_axis_tag = f"x_axis_{self.unique_id}"
+        y_axis_tag = f"y_axis_{self.unique_id}"
+        start_time = time.time()
+
+        while self.continuous_stream_active:
+            try:
+                # Fetch PID data from the stream
+                pid_data = self.dev.get_pid_output_value()
+
+                if pid_data:
+                    # Concatenate the new data
+                    concatenated_pid_data.append(pid_data["ch1"][0])
+
+                    # Calculate new time values
+                    new_time_values = time.time() - start_time
+                    time_values.append(new_time_values)
+
+                    # Update the graph with new data
+                    dpg.set_value(series_tag, [time_values, concatenated_pid_data])
+                    dpg.set_value(f"results_display_{self.unique_id}", f"Graph updated with {len(concatenated_pid_data)} points.")
+                    dpg.fit_axis_data(x_axis_tag)
+                    dpg.fit_axis_data(y_axis_tag)
+                else:
+                    dpg.set_value(f"results_display_{self.unique_id}", "No valid PID data received.")
+            except Exception as exc:
+                dpg.set_value(f"results_display_{self.unique_id}", f"Error: {exc}")
+                break
+
+            await asyncio.sleep(0.5)
 
     def _get_unique_id_from_device(self) -> str:
         """Generate a unique identifier for the GUI instance based on the device properties."""

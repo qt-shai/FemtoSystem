@@ -9,6 +9,7 @@ from SystemConfig import Instruments, InstrumentsAddress
 from .wrapper_sim900_mainframe import SRSsim900
 import time
 from enum import Enum
+import random
 
 class AutoTuneMethod(Enum):
     ZIEGLER_NICHOLS = 1
@@ -100,6 +101,9 @@ class SRSsim960:
 
         :param enable: True to enable, False to disable.
         """
+        if self.simulation:
+            return
+
         val = 1 if enable else 0
         self._write(f"PCTL {val}")
 
@@ -112,6 +116,8 @@ class SRSsim960:
         :param setpoint: Desired setpoint value in volts (-10.000 to +10.000).
         """
         try:
+            if self.simulation:
+                return
             # Ensure the setpoint is within the valid range
             if not -10.000 <= setpoint <= 10.000:
                 raise ValueError("Setpoint must be within the range -10.000 to +10.000 volts.")
@@ -128,6 +134,9 @@ class SRSsim960:
 
         :param gain: Gain in V/V.
         """
+        if self.simulation:
+            return
+
         if not (0.1 <= abs(gain) <= 1000):
             print("Gain out of range.")
         else:
@@ -139,7 +148,12 @@ class SRSsim960:
 
         :return: Gain in V/V.
         """
-        return float(self._query("GAIN?"))
+
+        if self.simulation:  # Check if simulation is enabled
+            return random.uniform(1, 10)  # Return a random float between 1 and 10
+        else:
+            return float(self._query("GAIN?"))  # Query the actual gain
+
 
     def enable_integral(self, enable: bool) -> None:
         """
@@ -147,6 +161,9 @@ class SRSsim960:
 
         :param enable: True to enable, False to disable.
         """
+        if self.simulation:
+            return
+
         val = 1 if enable else 0
         self._write(f"ICTL {val}")
 
@@ -157,6 +174,9 @@ class SRSsim960:
 
         :param gain: Gain in V/(V·s).
         """
+        if self.simulation:
+            return
+
         if not (1e-2 <= gain <= 5e5):
             print("Integral gain out of range.")
         else:
@@ -168,7 +188,10 @@ class SRSsim960:
 
         :return: Gain in V/(V·s).
         """
-        return float(self._query("INTG?"))
+        if self.simulation:  # Check if simulation is enabled
+            return random.uniform(1, 10)  # Return a random float between 1 and 10
+        else:
+            return float(self._query("INTG?"))
 
     def enable_derivative(self, enable: bool) -> None:
         """
@@ -176,6 +199,9 @@ class SRSsim960:
 
         :param enable: True to enable, False to disable.
         """
+        if self.simulation:
+            return
+
         val = 1 if enable else 0
         self._write(f"DCTL {val}")
 
@@ -186,6 +212,9 @@ class SRSsim960:
 
         :param gain: Gain in V/(V/s).
         """
+        if self.simulation:
+            return
+
         if not (1e-6 <= gain <= 10):
             print("Derivative gain out of range.")
         else:
@@ -197,7 +226,10 @@ class SRSsim960:
 
         :return: Gain in V/(V/s).
         """
-        return float(self._query("DERV?"))
+        if self.simulation:  # Check if simulation is enabled
+            return random.uniform(1, 10)  # Return a random float between 1 and 10
+        else:
+            return float(self._query("DERV?"))
 
     def enable_offset(self, enable: bool) -> None:
         """
@@ -205,6 +237,9 @@ class SRSsim960:
 
         :param enable: True to enable offset, False to disable.
         """
+        if self.simulation:
+            return
+
         val = 1 if enable else 0
         self._write(f"OCTL {val}")
 
@@ -215,6 +250,9 @@ class SRSsim960:
 
         :param offset: Offset in volts.
         """
+        if self.simulation:
+            return
+
         if not (-10.0 <= offset <= 10.0):
             raise ValueError("Offset out of range.")
         self._write(f"OFST {offset}")
@@ -225,7 +263,10 @@ class SRSsim960:
 
         :return: Offset in volts.
         """
-        return float(self._query("OFST?"))
+        if self.simulation:  # Check if simulation is enabled
+            return random.uniform(1, 10)  # Return a random float between 1 and 10
+        else:
+            return float(self._query("OFST?"))
 
     # -----------------------------------------------------------------------
     # Control modes: manual or PID
@@ -238,6 +279,9 @@ class SRSsim960:
 
         :param manual: True for manual, False for PID.
         """
+        if self.simulation:
+            return
+
         val = 0 if manual else 1
         self._write(f"AMAN {val}")
 
@@ -247,7 +291,10 @@ class SRSsim960:
 
         :return: Boolean indicating the output mode (True => manual).
         """
-        return self._query("AMAN?").strip() == "0"
+        if self.simulation:  # Check if simulation is enabled
+            return random.randint(0, 1)==0 # Return a random float between 1 and 10
+        else:
+            return self._query("AMAN?").strip() == "0"
 
     def set_manual_output(self, output: float) -> None:
         """
@@ -256,6 +303,9 @@ class SRSsim960:
 
         :param output: Voltage in volts.
         """
+        if self.simulation:
+            return
+
         if not (-10.0 <= output <= 10.0):
             print("Manual output out of range.")
         else:
@@ -270,7 +320,10 @@ class SRSsim960:
         """
         try:
             # Send the query command to read the setpoint
-            response = self._query("SETP?")
+            if self.simulation:  # Check if simulation is enabled
+                return random.uniform(1, 10)  # Return a random float between 1 and 10
+            else:
+                response = self._query("SETP?")
 
             # Convert the response to a float
             setpoint = float(response.strip())
@@ -289,7 +342,10 @@ class SRSsim960:
 
         :return: Manual output in volts.
         """
-        return float(self._query("MOUT?"))
+        if self.simulation:  # Check if simulation is enabled
+            return random.randint(0, 1)==0 # Return a random float between 1 and 10
+        else:
+            return float(self._query("MOUT?"))
 
     # -----------------------------------------------------------------------
     # Measurements
@@ -301,7 +357,10 @@ class SRSsim960:
 
         :return: The measured voltage in volts.
         """
-        return float(self._query("MMON?"))
+        if self.simulation:  # Check if simulation is enabled
+            return random.uniform(1, 10)  # Return a random float between 1 and 10
+        else:
+            return float(self._query("MMON?"))
 
     def read_output_voltage(self) -> float:
         """
@@ -309,7 +368,10 @@ class SRSsim960:
 
         :return: The output voltage in volts.
         """
-        return float(self._query("OMON?"))
+        if self.simulation:  # Check if simulation is enabled
+            return random.uniform(1, 10)  # Return a random float between 1 and 10
+        else:
+            return float(self._query("OMON?"))
 
     def manual_scan_and_find_peak(
         self,
@@ -878,6 +940,9 @@ class SRSsim960:
 
     def set_upper_limit(self, limit: float) -> None:
         """Set the upper limit for output."""
+        if self.simulation:
+            return
+
         if not (-10.0 <= limit <= 10.0):
             print("Upper limit out of range.")
         else:
@@ -885,6 +950,9 @@ class SRSsim960:
 
     def set_lower_limit(self, limit: float) -> None:
         """Set the lower limit for output."""
+        if self.simulation:
+            return
+
         if not (-10.0 <= limit <= 10.0):
             print("Lower limit out of range.")
         else:
@@ -892,11 +960,17 @@ class SRSsim960:
 
     def get_upper_limit(self) -> float:
         """Get the current upper limit."""
-        return float(self._query("ULIM?"))
+        if self.simulation:  # Check if simulation is enabled
+            return random.uniform(1, 10)  # Return a random float between 1 and 10
+        else:
+            return float(self._query("ULIM?"))
 
     def get_lower_limit(self) -> float:
         """Get the current lower limit."""
-        return float(self._query("LLIM?"))
+        if self.simulation:  # Check if simulation is enabled
+            return random.uniform(1, 10)  # Return a random float between 1 and 10
+        else:
+            return float(self._query("LLIM?"))
 
 
 def adjust_pid_for_low_frequency(

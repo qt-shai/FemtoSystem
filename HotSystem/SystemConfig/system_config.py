@@ -35,6 +35,7 @@ class Instruments(Enum):
     CLD1011LP = "CLD1011LP"
     ARDUINO = "ARDUINO"
     WAVEMETER = "wavemeter"
+    MOKU = "moku"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"
@@ -48,6 +49,7 @@ class InstrumentsAddress(Enum):
     # AWG_33500B = "192.168.101.62"
     atto_positioner = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
     atto_scanner = "192.168.101.20"
+    moku_ip = "192.168.101.52"
     opx_hot_system_ip = '192.168.101.56'
     opx_femto_system_ip = '192.168.101.61'
     opx_atto_system_ip = '192.168.101.157'
@@ -55,7 +57,6 @@ class InstrumentsAddress(Enum):
     opx_hot_system_cluster = 'Cluster_1'
     opx_femto_system_cluster = 'Cluster_2'
     opx_atto_system_cluster = 'Cluster_3'
-
     SRS_MAINFRAME = 'COM10'
 
 class Device:

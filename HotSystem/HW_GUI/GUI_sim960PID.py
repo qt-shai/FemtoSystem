@@ -7,6 +7,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from SystemConfig import Instruments, load_instrument_images
 
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960, AutoTuneMethod
 
@@ -28,7 +29,7 @@ class GUISIM960:
     This follows a style similar to the example provided in the prompt.
     """
 
-    def __init__(self, sim960: SRSsim960, simulation: bool = False) -> None:
+    def __init__(self, sim960: SRSsim960, instrument: Instruments = Instruments.SIM960, simulation: bool = False) -> None:
         """
         Create the GUI for an SRSsim960 device.
 
@@ -46,6 +47,7 @@ class GUISIM960:
         self.dev = sim960
         self.simulation = simulation
         self.is_collapsed = False
+        self.instrument = instrument
         self.unique_id = self._get_unique_id_from_device()
         self.win_tag = "SIM960_Win"
         self.win_label = f"SRS SIM960, slot {self.dev.slot} ({self.unique_id})"
@@ -96,8 +98,14 @@ class GUISIM960:
         In a real application, you'd load a texture or an icon. We'll just make a dummy button.
         """
         with dpg.group(horizontal=False, tag=f"column_img_{self.unique_id}"):
-            dpg.add_button(
-                label="SIM960",
+            # dpg.add_button(
+            #     label="SIM960",
+            #     width=80, height=80,
+            #     callback=self.toggle_gui_collapse
+            # )
+            # Use your actual texture tag or remove the image if not available
+            dpg.add_image_button(
+                f"{self.instrument.value}_texture",  # e.g. "WAVEMETER_texture"
                 width=80, height=80,
                 callback=self.toggle_gui_collapse
             )

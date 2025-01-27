@@ -807,10 +807,15 @@ class PyGuiOverlay(Layer):
 
                 elif instrument == Instruments.SIM960:
                     srs_pid_list=hw_devices.HW_devices().SRS_PID_list
-                    matching_device = next(
-                        (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
-                        None  # Default if no match is found
-                    )
+                    if device.simulation:
+                        device.ip_address=0
+                        matching_device=srs_pid_list[0]
+                    else:
+                        matching_device = next(
+                            (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
+                            None  # Default if no match is found
+                        )
+
                     self.srs_pid_gui.append(GUISIM960(
                         sim960=matching_device,
                         simulation=device.simulation

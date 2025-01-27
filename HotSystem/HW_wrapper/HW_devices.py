@@ -153,8 +153,13 @@ class HW_devices:
                     # pdb.set_trace()
                     sim900_config: list[Device] = [x for x in self.config.devices if x.instrument is Instruments.SIM960]
                     mainframe = SRSsim900(sim900_config[0].com_port)
-                    mainframe.connect()
-                    mainframe.initialize()
+                    if sim900_config[0].simulation:
+                        print("SIM960 in simulation mode skipping connection")
+                        sim900_config[0].ip_address = '0'
+                    else:
+                        mainframe.connect()
+                        mainframe.initialize()
+
                     self.SRS_PID_list = [SRSsim960(
                         mainframe = mainframe,
                         slot = int(dev.ip_address),
