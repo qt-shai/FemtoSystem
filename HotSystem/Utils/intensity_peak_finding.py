@@ -274,14 +274,15 @@ def directional_climbing_optimize(
 
     # Try a refinement step by reducing step_size if needed
     # If we see room for improvement, do a finer local scan with smaller steps
-    refined_step = [step/2 for step in step_size]
-    if refined_step >= 100 and (sig_best < global_best_sig * improvement_threshold):
-        if verbose: print("Attempting refinement with smaller step size...")
-        old_step_size = step_size
-        step_size = refined_step
-        x_best, y_best, z_best, sig_best = local_verify((x_best,y_best,z_best), local_step_factor=2)
-        # Restore step_size
-        step_size = old_step_size
+    for axis in range(len(step_size)):
+        refined_step = step_size[axis]/2
+        if refined_step >= 100 and (sig_best < global_best_sig * improvement_threshold):
+            if verbose: print("Attempting refinement with smaller step size...")
+            old_step_size = step_size[axis]
+            step_size[axis] = refined_step
+            x_best, y_best, z_best, sig_best = local_verify((x_best,y_best,z_best), local_step_factor=2)
+            # Restore step_size
+            step_size[axis] = old_step_size
 
     if verbose: print(f"Optimization complete. Best position: ({x_best:.2f}, {y_best:.2f}, {z_best:.2f}) with intensity {sig_best:.4f}")
     if verbose: print(f"Total measurements: {measure_count}")
@@ -517,7 +518,7 @@ def find_max_signal(
             return initial_guess[0], initial_guess[1], initial_guess[2], 1000
 
     if method == OptimizerMethod.DIRECTIONAL:
-        step_size: float = np.abs(bounds[0][1] - bounds[0][0])/10
+        step_size: list[float] = [np.abs(bounds[axis][1] - bounds[axis][0])/10 for axis in range(3)]
         improvement_threshold: float = 1.10
         max_axis_attempts:int = 3
         run_stats:bool = False
