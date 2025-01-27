@@ -650,89 +650,23 @@ class GUISIM960:
 
         while self.continuous_read_active:
             try:
-                # In real code, check for self.simulation or device read:
-                if not self.simulation:
-                    current_time = time.time() - start_time
-                    with self.lock:
-                        output_voltage = self.dev.read_output_voltage()
-                        measurement_input  = self.dev.read_measure_input()
 
-                    time_values.append(current_time)
-                    measurement_inputs.append(measurement_input)
-                    output_voltages.append(output_voltage)
+                # Update the graph
+                if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
+                    dpg.set_value(f"measurement_series_input_{self.unique_id}", [self.dev.time_values, self.dev.measurement_inputs])
+                    x_axis_tag = f"input_x_axis_{self.unique_id}"
+                    y_axis_tag = f"input_y_axis_{self.unique_id}"
+                    dpg.fit_axis_data(x_axis_tag)
+                    dpg.fit_axis_data(y_axis_tag)
+                    dpg.set_value(f"measurement_series_output_{self.unique_id}", [self.dev.time_values, self.dev.output_voltages])
+                    x_axis_tag = f"output_x_axis_{self.unique_id}"
+                    y_axis_tag = f"output_y_axis_{self.unique_id}"
+                    dpg.fit_axis_data(x_axis_tag)
+                    dpg.fit_axis_data(y_axis_tag)
 
-                    # Limit the data to avoid memory overflow (e.g., keep the last 1000 points)
-                    if len(time_values) > 1000:
-                        time_values.pop(0)
-                        measurement_inputs.pop(0)
-                        output_voltages.pop(0)
-
-                    # Update the graph
-                    if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
-                        dpg.set_value(f"measurement_series_input_{self.unique_id}", [time_values, measurement_inputs])
-                        x_axis_tag = f"input_x_axis_{self.unique_id}"
-                        y_axis_tag = f"input_y_axis_{self.unique_id}"
-                        dpg.fit_axis_data(x_axis_tag)
-                        dpg.fit_axis_data(y_axis_tag)
-
-                    if dpg.does_item_exist(f"measurement_series_output_{self.unique_id}"):
-                        dpg.set_value(f"measurement_series_output_{self.unique_id}", [time_values, output_voltages])
-                        x_axis_tag = f"output_x_axis_{self.unique_id}"
-                        y_axis_tag = f"output_y_axis_{self.unique_id}"
-                        dpg.fit_axis_data(x_axis_tag)
-                        dpg.fit_axis_data(y_axis_tag)
-
-
-                    # Update GUI display with current measurement values
-                    dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {measurement_input:.5f} V")
-                    dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {output_voltage:.5f} V")
-
-                    if abs(output_voltage) > 10:
-                        with self.lock:
-                            print('SRS is not stable.')
-                            sign = 1 if output_voltage > 0 else -1
-                            offset = v_pi * 4 * sign
-                            print(f"jumping to {output_voltage + offset:.3f}")
-                            self.dev.set_manual_output(output_voltage + offset)
-                            self.dev.set_output_mode(True)
-
-                            print(f"val = {self.dev.read_output_voltage()}")
-                            self.dev.set_manual_output(output_voltage + offset)
-                            await asyncio.sleep(0.5)
-                            self.dev.set_manual_output(output_voltage + offset)
-                            print(f"val = {self.dev.read_output_voltage()}")
-                            await asyncio.sleep(1.0)
-                            self.dev.set_output_mode(False)
-                            # self.dev.mf.flush_output()
-                            self.dev.is_stable = False
-                            self.dev.last_stable_timestamp = datetime.now()
-                    else:
-                        if not self.dev.is_stable and datetime.now() > self.dev.last_stable_timestamp + timedelta(seconds=self.dev.stability_recovery_time_seconds):
-                            print('SRS is not stable. Trying to recover...')
-                            with self.lock:
-                                if np.isclose(self.dev.read_setpoint(), self.dev.read_setpoint(), self.dev.stability_tolerance):
-                                    print('SRS is stable.')
-                                    self.dev.is_stable = True
-                else:
-                    # In simulation mode, mock data
-                    current_time = time.time() - start_time
-                    simulated_input = np.sin(current_time)  # Example: sine wave data
-                    simulated_output = np.cos(current_time)  # Example: cosine wave data
-
-                    time_values.append(current_time)
-                    measurement_inputs.append(simulated_input)
-                    output_voltages.append(simulated_output)
-
-                    if len(time_values) > 1000:
-                        time_values.pop(0)
-                        measurement_inputs.pop(0)
-                        output_voltages.pop(0)
-
-                    if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
-                        dpg.set_value(f"measurement_series_input_{self.unique_id}", [time_values, measurement_inputs])
-
-                    if dpg.does_item_exist(f"measurement_series_output_{self.unique_id}"):
-                        dpg.set_value(f"measurement_series_output_{self.unique_id}", [time_values, output_voltages])
+                # Update GUI display with current measurement values
+                dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {self.dev.measurement_inputs[-1]:.5f} V")
+                dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {self.dev.output_voltages[-1]:.5f} V")
 
             except Exception as e:
                 # Handle errors gracefully

@@ -106,6 +106,11 @@ class GUIMoku:
             # Streaming Output
             dpg.add_button(label="Start Output Stream", callback=self.start_pid_output)
 
+            # Threshold inputs
+            dpg.add_text("Unwind Thresholds:")
+            dpg.add_input_float(label="Lower Threshold", default_value=0.05,width=120, tag=f"lower_threshold_{self.unique_id}")
+            dpg.add_input_float(label="Upper Threshold", default_value=4.95,width=120, tag=f"upper_threshold_{self.unique_id}")
+
             dpg.add_text("", tag=f"results_display_{self.unique_id}")
 
 
@@ -158,7 +163,7 @@ class GUIMoku:
 
     async def continuous_measure_loop(self):
         concatenated_pid_data = []  # Store the collected PID data
-        time_values: list[datetime.time] = []  # Store time values for the graph
+        time_values: list[float] = []  # Store time values for the graph
 
         # Tags for the plot series and axes
         series_tag = f"moku_measurement_series_{self.unique_id}"
@@ -168,19 +173,9 @@ class GUIMoku:
 
         while self.continuous_stream_active:
             try:
-                # Fetch PID data from the stream
-                pid_data = self.dev.get_pid_output_value()
-
-                if pid_data:
-                    # Concatenate the new data
-                    concatenated_pid_data.append(pid_data["ch1"][0])
-
-                    # Calculate new time values
-                    new_time_values = time.time() - start_time
-                    time_values.append(new_time_values)
-
+                if self.dev.concatenated_pid_data:
                     # Update the graph with new data
-                    dpg.set_value(series_tag, [time_values, concatenated_pid_data])
+                    dpg.set_value(series_tag, [self.dev.time_values, self.dev.concatenated_pid_data])
                     dpg.set_value(f"results_display_{self.unique_id}", f"Graph updated with {len(concatenated_pid_data)} points.")
                     dpg.fit_axis_data(x_axis_tag)
                     dpg.fit_axis_data(y_axis_tag)

@@ -1,11 +1,20 @@
-from threading import Thread
-from typing import Any, Optional
-
+from typing import Any, Optional,List,Dict
 from moku.instruments import MultiInstrument, LockInAmp, PIDController
+
+import asyncio
+import threading
+import time
+
+def run_asyncio_loop(loop: asyncio.AbstractEventLoop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
 
 class Moku:
 
     def __init__(self, mokugo_ip: str) -> None:
+
+        self.time_values:list[float] = []
+        self.concatenated_pid_data = []
 
         self._mokugo_ip = mokugo_ip
 
@@ -21,6 +30,53 @@ class Moku:
 
         # PID Controller config
         self._config_pid_controller(pid_controller=self._pid_controller)
+
+        self.is_stable=False
+
+        self.lower_threshold = 0.05
+        self.upper_threshold = 4.95
+        self.start_time = time.time()
+        self.time_data = []
+        self.measurement_data = []
+        self.background_loop = asyncio.new_event_loop()
+        t = threading.Thread(target=run_asyncio_loop, args=(self.background_loop,), daemon=True)
+        t.start()
+        # Start the loop
+        self.continuous_stream_active = True
+        print("Continuous stream started.")
+        future = asyncio.run_coroutine_threadsafe(self.continuous_measure_loop(), self.background_loop)
+
+
+    async def continuous_measure_loop(self):
+        while self.continuous_stream_active:
+            try:
+                # Fetch PID data from the stream
+                pid_data = self.get_pid_output_value()
+
+                if pid_data:
+                    # Append the new data
+                    current_value = pid_data["ch1"][0]
+                    self.concatenated_pid_data.append(current_value)
+
+                    # Calculate new time values
+                    elapsed_time = time.time() - self.start_time
+                    self.time_values.append(elapsed_time)
+
+                    # Check if the value exceeds thresholds
+                    if current_value < self.lower_threshold or current_value > self.upper_threshold:
+                        self.reset_pid_windup()  # Call the unwind function
+
+                    # Reset data if it exceeds 10,000 points
+                    if len(self.concatenated_pid_data) > 1000:
+                        self.concatenated_pid_data.pop(0)
+                        self.time_values.pop(0)
+
+            except Exception as exc:
+                    print(f"Error: {exc}")
+                    break
+
+            await asyncio.sleep(0.5)
+
 
     def print_device_info(self) -> None:
 
@@ -103,12 +159,7 @@ class Moku:
         instruments = self._mim.get_instruments()
         return instruments
 
-    def get_threaded_pid_output_data(self) -> None:
-        thread = Thread(target=self.get_pid_output_value, args=())
-        thread.start()
-        # thread.join()
 
-    from typing import List, Dict
 
     def get_pid_output_value(self) -> List[Dict[str, float]]:
         """

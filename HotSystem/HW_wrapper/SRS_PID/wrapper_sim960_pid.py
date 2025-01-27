@@ -2,6 +2,7 @@ import math
 from datetime import datetime, timedelta
 from typing import Dict
 
+import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import pyplot as plt
 
@@ -10,6 +11,14 @@ from .wrapper_sim900_mainframe import SRSsim900
 import time
 from enum import Enum
 import random
+
+import asyncio
+import threading
+import time
+
+def run_asyncio_loop(loop: asyncio.AbstractEventLoop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
 
 class AutoTuneMethod(Enum):
     ZIEGLER_NICHOLS = 1
@@ -28,6 +37,7 @@ class SRSsim960:
         :param mainframe: An instance of SRSsim900.
         :param slot: The slot number in the SIM900 mainframe where SIM960 is inserted.
         """
+        self.v_pi = 2.5
         self.stability_recovery_time_seconds = 10
         self.auto_tune_running = None
         self.mf = mainframe
@@ -36,6 +46,72 @@ class SRSsim960:
         self.is_stable:bool = False
         self.last_stable_timestamp:datetime = datetime.now() - timedelta(seconds=self.stability_recovery_time_seconds*1e3)
         self.stability_tolerance:float = 0.01
+
+        self.lower_threshold = 0.05
+        self.upper_threshold = 4.95
+        self.start_time = time.time()
+        self.time_values = []
+        self.measurement_inputs = []
+        self.output_voltages =[]
+        self.background_loop = asyncio.new_event_loop()
+        self.lock = threading.Lock()
+        t = threading.Thread(target=run_asyncio_loop, args=(self.background_loop,), daemon=True)
+        t.start()
+        # Start the loop
+        self.continuous_stream_active = True
+        print("Continuous stream started.")
+        future = asyncio.run_coroutine_threadsafe(self.continuous_measure_loop(), self.background_loop)
+
+    async def continuous_measure_loop(self):
+        while self.continuous_stream_active:
+            try:
+                current_time = time.time() - self.start_time
+                with self.lock:
+                    output_voltage = self.read_output_voltage()
+                    measurement_input = self.read_measure_input()
+
+                self.time_values.append(current_time)
+                self.measurement_inputs.append(measurement_input)
+                self.output_voltages.append(output_voltage)
+
+                # Limit the data to avoid memory overflow (e.g., keep the last 1000 points)
+                if len(self.time_values) > 1000:
+                    self.time_values.pop(0)
+                    self.measurement_inputs.pop(0)
+                    self.output_voltages.pop(0)
+
+                if abs(output_voltage) > 10:
+                    with self.lock:
+                        print('SRS is not stable.')
+                        sign = 1 if output_voltage > 0 else -1
+                        offset = self.v_pi * 4 * sign
+                        print(f"jumping to {output_voltage + offset:.3f}")
+                        self.set_manual_output(output_voltage + offset)
+                        self.set_output_mode(True)
+
+                        print(f"val = {self.read_output_voltage()}")
+                        self.set_manual_output(output_voltage + offset)
+                        await asyncio.sleep(0.5)
+                        self.set_manual_output(output_voltage + offset)
+                        print(f"val = {self.read_output_voltage()}")
+                        await asyncio.sleep(1.0)
+                        self.set_output_mode(False)
+                        # self.dev.mf.flush_output()
+                        self.is_stable = False
+                        self.last_stable_timestamp = datetime.now()
+                else:
+                    if not self.is_stable and datetime.now() > self.last_stable_timestamp + timedelta(seconds=self.stability_recovery_time_seconds):
+                        print('SRS is not stable. Trying to recover...')
+                        with self.lock:
+                            if np.isclose(self.read_setpoint(), self.read_setpoint(), self.stability_tolerance):
+                                print('SRS is stable.')
+                                self.is_stable = True
+
+            except Exception as exc:
+                    print(f"Error: {exc}")
+                    break
+
+            await asyncio.sleep(0.5)
 
     def _write(self, command: str) -> None:
         """
