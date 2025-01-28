@@ -147,7 +147,7 @@ class GUI_OPX():
         self.idx_scan = [0, 0, 0]  # Z Y X
         self.startLoc = [0, 0, 0]
         self.endLoc = [0, 0, 0]
-        self.dir = 1
+        # self.dir = 1
         self.estimatedScanTime = 0.0  # [minutes]
         self.singleStepTime_scan = 0.033  # [sec]
         self.stopScan = True
@@ -4806,7 +4806,8 @@ class GUI_OPX():
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
-        delay = 2000 # 2usec
+        delay = 25000 # 2usec
+        pulsesTriggerDelay = 50000 // 4 # 50 [usec]
         laser_on_duration = int((self.Tcounter+2*delay) * self.u.ns // 4)
         single_integration_time = int(self.Tcounter * self.u.ns)
         # smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
@@ -4824,7 +4825,6 @@ class GUI_OPX():
             counts_st = declare_stream()
             meas_idx_st = declare_stream()
 
-            pulsesTriggerDelay = 1000000 // 4 # 1 [msec]
             sequenceState = declare(int, value=0)
             triggerTh = declare(int, value=triggerThreshold)
             assign(IO2, 0)
@@ -4832,14 +4832,16 @@ class GUI_OPX():
             with infinite_loop_():
                 # wait_for_SW_trigger("Laser")
                 assign(sequenceState, IO2)
-                with if_(sequenceState == self.ScanTrigger):#(sequenceState + 1 > triggerTh) & (sequenceState - 1 < triggerTh)):
+                # wait(pulsesTriggerDelay)
+
+                with if_(sequenceState == self.ScanTrigger):
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
                         play("Turn_ON", "Laser", duration=laser_on_duration)
-                        wait(delay,"Detector_OPD")
+                        wait(delay//4,"Detector_OPD")
                         measure("readout", "Detector_OPD", None, time_tagging.analog(times, single_integration_time, counts))
                         assign(total_counts[i], total_counts[i] + counts)
 
-                    wait(pulsesTriggerDelay)
+                    # wait(pulsesTriggerDelay)
                     assign(meas_idx, meas_idx + 1)
                     assign(i,i+1)
 
@@ -4853,7 +4855,6 @@ class GUI_OPX():
 
                     
                     assign(IO2, self.ScanTrigger-1)
-                    # assign(sequenceState, self.ScanTrigger-1)
 
             with stream_processing():
                 meas_idx_st.save("meas_idx_scanLine")
@@ -5700,54 +5701,10 @@ class GUI_OPX():
         dpg.set_value("Scan_Message", "Auto-focus done")
         print("Auto-focus done")
 
-
-    def StartScan3D(self):  # currently flurascence scan
-        print("start scan steps")
-        start_time = time.time()
-        print(f"start_time: {self.format_time(start_time)}")
-
-        # init
-        self.exp = Experiment.SCAN
-        self.GUI_ParametersControl(isStart=False)
-        self.to_xml()  # save last params to xml
-        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")  # moved near end of scan
-
-        # try:
-        #     # Define the source files and destinations
-        #     file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
-        #         "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
-        #         "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
-        #         {"src": 'C:/WC/HotSystem/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
-        #             "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"}]
-
-        #     # Move each file for both local and remote
-        #     for file_map in file_mappings:
-        #         for dest in [file_map["dest_local"], file_map["dest_remote"]]:
-        #             if os.path.exists(file_map["src"]):
-        #                 shutil.copy(file_map["src"], dest)
-        #                 print(f"File moved to {dest}")
-        #             else:
-        #                 print(f"Source file {file_map['src']} does not exist.")
-        # except Exception as e:
-        #     print(f"Error occurred: {e}")
-
+    def scan_reset_data(self):
         self.stopScan = False
-        isDebug = True
         self.scan_Out = []
         self.scan_intensities = []
-
-        if self.positioner is smaractMCS2 or True:
-            # reset stage motion parameters (stream, motion delays, mav velocity)
-            self.positioner.set_in_position_delay(0, delay=0)  # reset delays yo minimal
-            self.positioner.DisablePositionTrigger(0)  # disable triggers
-            self.positioner.SetVelocity(0, 0)  # set max velocity (ch 0)
-            self.positioner.setIOmoduleEnable(dev=0)
-            self.positioner.set_Channel_Constant_Mode_State(channel=0)
-
-        # GUI - convert Start Scan to Stop scan
-        dpg.disable_item("btnOPX_StartScan")
-
-        # reset res vectors 
         self.X_vec = []
         self.Y_vec = []
         self.Y_vec_ref = []
@@ -5758,60 +5715,87 @@ class GUI_OPX():
         self.Zv = [0]
         self.initial_scan_Location = []
         self.V_scan = []
-        t_wait_motionStart = 0.005
-        N = [1, 1, 1]
-
-        # get current (initial) position
+        self.t_wait_motionStart = 0.005
+        self.N_scan = [1, 1, 1]
+        self.scanFN = self.create_scan_file_name(local=True)
+    def scan_reset_positioner(self):
+        if isinstance(self.positioner, smaractMCS2): # reset stage motion parameters (stream, motion delays, mav velocity)
+            self.positioner.set_in_position_delay(0, delay=0)  # reset delays yo minimal
+            self.positioner.DisablePositionTrigger(0)  # disable triggers
+            self.positioner.SetVelocity(0, 0)  # set max velocity (ch 0)
+            self.positioner.setIOmoduleEnable(dev=0)
+            self.positioner.set_Channel_Constant_Mode_State(channel=0)
+    def scan_get_current_pos(self, _isDebug = False):
+        time.sleep(5e-3)
         for ch in self.positioner.channels:  # verify in postion
             res = self.readInpos(ch)
         self.positioner.GetPosition()
         self.absPosunits = list(self.positioner.AxesPosUnits)
+        if _isDebug:
+            res = list(self.positioner.AxesPositions)
+            for ch in self.positioner.channels:
+                print(f"ch{ch}: in position = {res}, position = {res[ch]} {self.positioner.AxesPosUnits[ch]}")
+    def scan_z_correction(self, i: int, j: int, k:int):
+        new_z_pos = int(self.V_scan[2][i])
+        if self.b_Zcorrection and not self.ZCalibrationData is None:
+            z_correction_new = int(
+                calculate_z_series(self.ZCalibrationData, np.array([int(V[k])]), int(self.V_scan[1][j]))[0] - self.z_calibration_offset)
+            if abs(z_correction_new - self.z_correction_previous) > self.z_correction_threshold:
+                new_z_pos = int(self.V_scan[2][i] + z_correction_new)
+                self.z_correction_previous = z_correction_new
+                self.positioner.MoveABSOLUTE(2, new_z_pos)
+            else:
+                new_z_pos = new_z_pos + self.z_correction_previous
+    def StartScan3D(self):  # currently flurascence scan
+        print("start scan steps")
+        start_time = time.time()
+        print(f"start_time: {self.format_time(start_time)}")
+
+        # init
+        self.exp = Experiment.SCAN
+        self.GUI_ParametersControl(isStart=False)
+        self.to_xml()  # save last params to xml
+        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")  # moved near end of scan
+        # GUI - convert Start Scan to Stop scan
+        dpg.disable_item("btnOPX_StartScan")
+
+        isDebug = True
+        
+        self.scan_reset_data()
+        self.scan_reset_positioner()
+        self.scan_get_current_pos(_isDebug=isDebug)
         self.initial_scan_Location = list(self.positioner.AxesPositions)
-        for ch in self.positioner.channels:
-            if isDebug:
-                print(f"ch{ch}: in position = {res}, position = {self.initial_scan_Location[ch]} {self.positioner.AxesPosUnits[ch]}")
+
+        # Loop over three axes and populate scan coordinates
+        scan_coordinates = []
+        self.N_scan = []
+        for i in range(3):
+            if self.b_Scan[i]:
+                axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i]) * 1e3 + np.array(self.initial_scan_Location[i])).astype(int)
+            else:
+                axis_values = np.array([self.initial_scan_Location[i]]).astype(int)  # Ensure it's an array
+
+            self.N_scan.append(len(axis_values))
+            scan_coordinates.append(axis_values)
+        self.V_scan = scan_coordinates
 
         # goto scan start location
-        ini_scan_pos = [0, 0, 0]
-        for ch in self.positioner.channels:
-            V_scan = []
-            if self.b_Scan[ch]:
-                ini_scan_pos[ch] = self.initial_scan_Location[ch] - self.L_scan[ch] * 1e3 / 2  # [pm]
-                self.positioner.MoveABSOLUTE(ch, int(ini_scan_pos[ch]))  # move absolute to start location
-                N[ch] = (int(self.L_scan[ch] / self.dL_scan[ch]))+1
-                for i in range(N[ch]):
-                    V_scan.append(i * self.dL_scan[ch] * 1e3 + ini_scan_pos[ch])
+        for ch in range(3):
+            self.positioner.MoveABSOLUTE(ch, scan_coordinates[ch][0])
+            time.sleep(self.t_wait_motionStart)  # allow motion to start
+        self.scan_get_current_pos(True)
 
-                time.sleep(t_wait_motionStart)  # allow motion to start
-                res = self.readInpos(ch)  # wait motion ends
-                if isDebug:
-                    print(f"ch{ch} at initial scan position")
-
-            else:
-                ini_scan_pos[ch] = self.initial_scan_Location[ch]
-                V_scan.append(self.initial_scan_Location[ch])
-
-            self.V_scan.append(V_scan)
-        self.positioner.GetPosition()
-        if isDebug:
-            for i in self.positioner.channels:
-                print(f"ch[{i}] Pos = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
-
-        Nx = len(self.V_scan[0])
-        Ny = len(self.V_scan[1])
-        if len(self.V_scan) > 2:
-            Nz = len(self.V_scan[2])
-        else:
-            Nz = 1
-            self.V_scan.append([0])
+        Nx = self.N_scan[0]
+        Ny = self.N_scan[1]
+        Nz = self.N_scan[2]
+            
         self.scan_intensities = np.zeros((Nx, Ny, Nz))
         self.scan_data = self.scan_intensities
-        self.idx_scan = [0, 0, 0]
 
         self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
         self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
 
-        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc, endLoc=self.endLoc)
+        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc, endLoc=self.endLoc) # required review
 
         # Start Qua PGM
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=Nx)
@@ -5819,43 +5803,30 @@ class GUI_OPX():
         self.counts_handle = res_handles.get("counts_scanLine")
         self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
 
-        # offset in X start point from 
-        x_channel = 0
-        scanPx_Start = int(list(self.V_scan[0])[0] - self.dL_scan[x_channel] * 1e3)
-        self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
-        time.sleep(0.005)  # allow motion to start
-        for q in self.positioner.channels:
-            self.readInpos(q)  # wait motion ends
-
-        self.dir = 1
-        self.scanFN = self.create_scan_file_name(local=True)
-
         # init measurements index
         previousMeas_idx = 0  # used as workaround to reapet line if an error occur in number of measurements
         meas_idx = 0
 
         # Calculate the z calibration offset at the origin of the scan
         if self.b_Zcorrection and not self.ZCalibrationData is None:
-            z_calibration_offset = int(
+            self.z_calibration_offset = int(
                 calculate_z_series(self.ZCalibrationData, np.array([self.initial_scan_Location[0]]), self.initial_scan_Location[1])[0])
-        z_correction_previous = 0
-        for i in range(N[2]):  # Z
+        self.z_correction_previous = 0
+        for i in range(self.N_scan[2]):  # Z
             if self.stopScan:
                 break
             if 2 in self.positioner.channels:
                 self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][i]))
 
             j = 0
-            # for j in range(N[1]):  # Y
-            while j < N[1]:  # Y
+            while j < self.N_scan[1]:  # Y
                 if self.stopScan:
                     break
                 self.positioner.MoveABSOLUTE(1, int(self.V_scan[1][j]))
-                self.dir = self.dir * -1  # change direction to create S shape scan
                 V = []
 
                 Line_time_start = time.time()
-                for k in range(N[0]):
+                for k in range(self.N_scan[0]):
                     if self.stopScan:
                         break
 
@@ -5863,42 +5834,25 @@ class GUI_OPX():
                         V = list(self.V_scan[0])
 
                     # Z correction
-                    new_z_pos = int(self.V_scan[2][i])
-                    if self.b_Zcorrection and not self.ZCalibrationData is None:
-                        z_correction_new = int(
-                            calculate_z_series(self.ZCalibrationData, np.array([int(V[k])]), int(self.V_scan[1][j]))[0] - z_calibration_offset)
-                        if abs(z_correction_new - z_correction_previous) > self.z_correction_threshold:
-                            new_z_pos = int(self.V_scan[2][i] + z_correction_new)
-                            z_correction_previous = z_correction_new
-                            self.positioner.MoveABSOLUTE(2, new_z_pos)
-                        else:
-                            new_z_pos = new_z_pos + z_correction_previous
+                    self.scan_z_correction(i,j,k)
 
                     # move to next X - when trigger the OPX will measure and append the results
                     self.positioner.MoveABSOLUTE(0, int(V[k]))
-                    time.sleep(5e-3)
-                    for q in self.positioner.channels:
-                        self.readInpos(q)  # wait motion ends
-                    # self.positioner.MoveABSOLUTE(0, int(V[k]))
-                    # time.sleep(5e-3)
-                    # for q in self.positioner.channels:
-                    #     self.readInpos(q)  # wait motion ends
-                    # time.sleep(50e-3) # ----- test noise at edge -----
+                    self.scan_get_current_pos()
 
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
                     self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
-                    time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
-                    time.sleep(5e-3) # ----- test noise at edge -----
+                    time.sleep(1e-3)  # wait for measurement do occur
+                    # time.sleep(2*self.total_integration_time * 1e-3 + 5e-3)  # wait for measurement do occur
+                    if not self.stopScan:
+                        res = self.qm.get_io2_value()
+                    while ((not self.stopScan) and (res.get('int_value') == self.ScanTrigger)):
+                        res = self.qm.get_io2_value()
 
-                    # fetch X scanned results
                 self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
-                time.sleep(5e-3)
-                for q in self.positioner.channels:
-                    self.readInpos(q)  # wait motion ends
-                # self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
-                # time.sleep(5e-3)
-                # for q in self.positioner.channels:
-                #     self.readInpos(q)  # wait motion ends
+                self.scan_get_current_pos(True)
+                
+                # fetch X scanned results
                 if self.counts_handle.is_processing():
                     print('Waiting for QUA counts')
                     self.counts_handle.wait_for_values(1)
@@ -5915,45 +5869,45 @@ class GUI_OPX():
 
                 if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
                     j = j + 1
-                    self.prepare_scan_data(max_position_x_scan = self.endLoc[0] * 1e6 + self.dL_scan[0] * 1e3, min_position_x_scan = self.startLoc[0] * 1e6,start_pos=ini_scan_pos)
-                    self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
+                    # self.prepare_scan_data(max_position_x_scan = self.V_scan[0][-1], min_position_x_scan = self.V_scan[0][0],start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
+                    # self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
                 else:
                     print("****** error: ******\nNumber of measurements is not consistent with excpected.\nthis line will be repeated.")
                     pass
 
                 previousMeas_idx = meas_idx
 
-                # offset in X start point from 
-                self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
-                time.sleep(0.005)  # allow motion to start
-                for q in self.positioner.channels:
-                    self.readInpos(q)  # wait motion ends
-
+                # eswtimate time left
                 Line_time_End = time.time()
                 elapsed_time = time.time() - start_time
-                delta = (Line_time_End - Line_time_start)
-                estimated_time_left = delta * (N[2] - i) * (N[1] - j) - delta
+                delta = (Line_time_End - Line_time_start) # line time
+                estimated_time_left = delta * ( (self.N_scan[2] - i - 1) * self.N_scan[1] + (self.N_scan[1] - j-1) )
                 estimated_time_left = estimated_time_left if estimated_time_left > 0 else 0
                 dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
 
         # back to start position
         for i in self.positioner.channels:
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
-            res = self.readInpos(i)
-            self.positioner.GetPosition()
-            print(f"ch{i}: in position = {res}, position = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
+        self.scan_get_current_pos(True)
 
+        # save data to csv
+        self.prepare_scan_data(max_position_x_scan = self.V_scan[0][-1], min_position_x_scan = self.V_scan[0][0],start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
 
+
+        # total experiment time
         end_time = time.time()
         print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
-        print(f"number of points ={N[0] * N[1] * N[2]}")
+        print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
+
 
         if not (self.stopScan):
             self.btnStop()
+
+
 
     def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
         # Create object to be saved in excel

@@ -12,6 +12,12 @@ class FemtoQuaConfig(configs.QUAConfigBase):
         self.signal_threshold_OPD = 1 # in voltage (with 20dB attenuation it was 0.1)
         self.system_name = SystemType.FEMTO.value
 
+        # Delays
+        self.detection_delay = 100  # ns
+        self.detection2_delay = 100  # ns
+        self.mw_delay = 0  # ns
+        self.laser_delay = 116 # ns
+
     def get_controllers(self) -> Dict[str, Any]:
         return {
             "con1": {
@@ -56,11 +62,11 @@ class FemtoQuaConfig(configs.QUAConfigBase):
             "Detector_OPD": { # actual analog
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
-                    # "marker": {
-                    #     "port": ("con1", 3),
-                    #     "delay": self.detection_delay,
-                    #     "buffer": 0,
-                    # },
+                    "marker": {
+                        "port": ("con1", 3),
+                        "delay": self.detection_delay,
+                        "buffer": 0,
+                    },
                 },
                 "operations": {
                     "readout": "readout_pulse",
@@ -81,11 +87,11 @@ class FemtoQuaConfig(configs.QUAConfigBase):
             "Detector2_OPD": { # actual analog
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
-                    # "marker": {
-                    #     "port": ("con1", 4),
-                    #     "delay": self.detection_delay,
-                    #     "buffer": 0,
-                    # },
+                    "marker": {
+                        "port": ("con1", 4),
+                        "delay": self.detection2_delay,
+                        "buffer": 0,
+                    },
                 },
                 "operations": {
                     "readout": "readout_pulse",
@@ -99,33 +105,10 @@ class FemtoQuaConfig(configs.QUAConfigBase):
                     "derivativeThreshold": 1023,
                     "derivativePolarity": "below",
                 },
-                "time_of_flight": self.detection_delay,
+                "time_of_flight": self.detection2_delay,
                 "smearing": 0,
             },
 
-            # "Detector_OPD_old": {
-            #     "singleInput": {"port": ("con1", 7)},  # not used, analoge outputs
-            #     "digitalInputs": {
-            #         # "marker": {
-            #         #     "port": ("con1", 8),
-            #         #     "delay": self.detection_delay_OPD,
-            #         #     "buffer": 0,
-            #         # },
-            #     },
-            #     'digitalOutputs': {  # 'digitalOutputs' here is actually 'digital input' of OPD
-            #         'out1': ('con1', 2)
-            #     },
-            #     "outputs": {"out1": ("con1", 1)}, # analoge input
-            #     "operations": {
-            #         "readout": "readout_pulse",
-            #         "min_readout": "min_readout_pulse",
-            #         "long_readout": "long_readout_pulse",
-            #         "very_long_readout": "very_long_readout_pulse",
-            #     },
-            #     "time_of_flight": self.detection_delay_OPD,
-            #     "smearing": 0,
-            # },
-            
             "SmaractTrigger": {  # Send trigger to Smaract to go to next point in motion stream
                 "digitalInputs": {  # for the OPX it is digital outputs
                     "marker": {  # marker is arbitrary name
