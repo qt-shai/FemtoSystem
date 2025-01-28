@@ -59,7 +59,7 @@ class SRSsim960:
         # Start the loop
         self.continuous_stream_active = True
         print("Continuous stream started.")
-        future = asyncio.run_coroutine_threadsafe(self.continuous_measure_loop(), self.background_loop)
+        asyncio.run_coroutine_threadsafe(self.continuous_measure_loop(), self.background_loop)
 
     async def continuous_measure_loop(self):
         while self.continuous_stream_active:

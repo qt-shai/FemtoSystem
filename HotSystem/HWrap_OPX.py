@@ -5203,7 +5203,8 @@ class GUI_OPX():
         laser_on_duration = int(self.Tcounter * self.u.ns // 4)
         single_integration_time = int(self.Tcounter * self.u.ns)
         smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
-
+        init_pulse_time = self.Tpump // 4
+        num_tracking_signal_loops = int((self.Tpump / int(self.Tcounter * self.u.ns))//4)
 
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
@@ -5215,13 +5216,11 @@ class GUI_OPX():
             counts_ref_st = declare_stream()
             meas_idx_st = declare_stream()
 
-            pulsesTriggerDelay = 5000000 // 4
-            init_pulse_time = self.tPump // 4
             sequenceState = declare(int, value=0)
             should_we_track = declare(int, value=0)
             triggerTh = declare(int, value=triggerThreshold)
             assign(IO2, 0)
-
+            assign(IO1, 0)
 
             with infinite_loop_():
                 # wait_for_trigger("Laser")
@@ -5231,27 +5230,22 @@ class GUI_OPX():
                     assign(sequenceState, 0)
                     align()
                     play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=init_pulse_time)
-                    with for_(n, 0, n < int(5e6/int(self.Tcounter * self.u.ns)), n + 1):
-                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
-                        assign(total_counts, total_counts + self.counts)
+                    with for_(n, 0, n < num_tracking_signal_loops, n + 1):
+                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, int(self.Tcounter * self.u.ns), counts))
+                        assign(total_counts, total_counts + counts)
                     save(total_counts, counts_ref_st)
                     assign(total_counts, 0)
                     align()
 
-                    assign(should_we_track, IO1)
+                    # assign(should_we_track, IO1)
                     with if_(should_we_track==0):
+                        play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value, duration=laser_on_duration)
                         with for_(n, 0, n < num_bins_per_measurement, n + 1):
-                            play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value, duration=laser_on_duration)
                             measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
                             assign(total_counts, total_counts + counts)
 
                         save(total_counts, counts_st)
                         assign(total_counts, 0)
-
-                        align()
-                        wait(pulsesTriggerDelay)
-                        # wait(pulsesTriggerDelay, "SmaractTrigger")
-                        # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
 
                         align()
                         assign(meas_idx, meas_idx + 1)
@@ -5332,7 +5326,7 @@ class GUI_OPX():
             self.Y_vec_ref = [
                 (value - min_ref) / (max_ref - min_ref) * max_y for value in self.Y_vec_ref
             ]
-            print("Y_vec_ref normalized successfully.")
+            # print("Y_vec_ref normalized successfully.")
         except Exception as e:
             print(f"An error occurred in generate_x_y_vectors_for_average: {e}")
 
