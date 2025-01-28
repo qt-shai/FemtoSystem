@@ -36,6 +36,8 @@ class GUISIM960:
         :param sim960: An instance of SRSsim960 wrapper (the device to control).
         :param simulation: Whether we are in simulation mode (disables hardware actions).
         """
+        self.lower_limit = -10
+        self.upper_limit = 10
         self.continuous_read_active = False
         self.stabilize_iterations = 1
         self.stabilize_measure_delay = 0.5
@@ -273,6 +275,41 @@ class GUISIM960:
             dpg.add_button(label="Stabilize",callback=self.cb_stabilize)
             dpg.add_button(label="Goto max extinction", callback=self.goto_max_ext)
             dpg.add_button(label="Jump to Zero", callback=self.cb_jump_to_zero)
+
+
+    def cb_apply_pid_preset(self, sender, app_data):
+        """
+        Callback to apply a PID preset when selected from the combo box.
+        """
+        preset = dpg.get_value(sender)
+
+        # Define the presets
+        presets = {
+            "CW": {"P": 2, "I": 1, "D": 0, "enable_p": True, "enable_i": True, "enable_d": False},
+            "Pulsed": {"P": 0.1, "I": 0.5, "D": 0, "enable_p": True, "enable_i": True, "enable_d": False},
+            "No I": {"P": 1, "I": 0, "D": 0, "enable_p": True, "enable_i": False, "enable_d": False}
+        }
+
+        # Apply the selected preset
+        if preset in presets:
+            preset_values = presets[preset]
+            dpg.set_value(f"p_gain_{self.unique_id}", preset_values["P"])
+            dpg.set_value(f"i_gain_{self.unique_id}", preset_values["I"])
+            dpg.set_value(f"d_gain_{self.unique_id}", preset_values["D"])
+            dpg.set_value(f"enable_p_{self.unique_id}", preset_values["enable_p"])
+            dpg.set_value(f"enable_i_{self.unique_id}", preset_values["enable_i"])
+            dpg.set_value(f"enable_d_{self.unique_id}", preset_values["enable_d"])
+
+            # Update device with the preset values (if not in simulation)
+            if not self.simulation:
+                self.dev.set_proportional_gain(preset_values["P"])
+                self.dev.set_integral_gain(preset_values["I"])
+                self.dev.set_derivative_gain(preset_values["D"])
+                self.dev.enable_proportional(preset_values["enable_p"])
+                self.dev.enable_integral(preset_values["enable_i"])
+                self.dev.enable_derivative(preset_values["enable_d"])
+
+            print(f"Applied PID Preset: {preset}")
 
     def create_stabilize_controls(self):
         """
@@ -566,6 +603,15 @@ class GUISIM960:
             dpg.add_button(label="Get Limits", callback=self.cb_get_limits)
             dpg.add_input_float(label="Unwind Th", default_value=self.dev.unwind_th,  # Fetch initial value from device
                                 callback=self.cb_update_unwind_th, tag=f"unwind_th_{self.unique_id}", format="%.3f", width=100)
+            # Preset selection combo
+            with dpg.group(horizontal=False):
+                dpg.add_combo(
+                    label="PID Preset",
+                    items=["CW", "Pulsed", "No I"],
+                    callback=self.cb_apply_pid_preset,
+                    tag=f"pid_preset_{self.unique_id}",
+                    width=100
+                )
 
     def cb_update_unwind_th(self, sender, app_data):
         """
@@ -579,7 +625,10 @@ class GUISIM960:
 
     def cb_set_upper_limit(self, sender, app_data):
         """Callback to set the new upper limit."""
-        self.upper_limit = float(dpg.get_value(sender))
+        if self.simulation:
+            print(f'cannot set limits in simulation mode, setting value would be: {float(dpg.get_value(sender))}')
+        else:
+            self.upper_limit = float(dpg.get_value(sender))
 
     def cb_apply_upper_limit(self):
         """Apply the new upper limit to the device."""
@@ -594,7 +643,10 @@ class GUISIM960:
 
     def cb_set_lower_limit(self, sender, app_data):
         """Callback to set the new lower limit."""
-        self.lower_limit = float(dpg.get_value(sender))
+        if self.simulation:
+            print(f'cannot set limits in simulation mode, setting value would be: {float(dpg.get_value(sender))}')
+        else:
+            self.lower_limit = float(dpg.get_value(sender))
 
     def cb_apply_lower_limit(self):
         """Apply the new lower limit to the device."""
@@ -654,15 +706,8 @@ class GUISIM960:
         """
         Continuously reads the device measurement once per second and prints the result.
         """
-        time_values = []
-        measurement_inputs = []
-        output_voltages = []
-        start_time = time.time()
-        v_pi = 2.5
-
         while self.continuous_read_active:
             try:
-
                 # Update the graph
                 if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
                     dpg.set_value(f"measurement_series_input_{self.unique_id}", [self.dev.time_values, self.dev.measurement_inputs])

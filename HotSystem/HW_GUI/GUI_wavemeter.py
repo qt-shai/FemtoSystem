@@ -147,8 +147,6 @@ class GUIWavemeter:
             self.continuous_measure_active = True
             print("Continuous read started.")
             future = asyncio.run_coroutine_threadsafe(self.continuous_measure_loop(), self.background_loop)
-            
-
     
     async def continuous_measure_loop(self):
         """

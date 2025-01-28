@@ -39,6 +39,7 @@ from SystemConfig import SystemType, SystemConfig, load_system_config, run_syste
 from Utils.Common import calculate_z_series
 from Common import WindowNames
 from Window import Window_singleton
+from Outout_to_gui import DualOutput
 
 
 class Layer:
@@ -671,13 +672,17 @@ class PyGuiOverlay(Layer):
             if dpg.does_item_exist(win_name):
                 current_pos = dpg.get_item_pos(win_name)
                 if win_name not in self.window_positions or self.window_positions[win_name] != current_pos:
-                    print(f"Window '{win_name}' moved. New position: {current_pos}")
+                    # print(f"Window '{win_name}' moved. New position: {current_pos}")
                     self.window_positions[win_name] = current_pos
 
     def on_attach(self):
 
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
         self.setup_instruments()
+        self.create_console_gui()
+        # Redirect stdout and stderr to both the GUI console and the original outputs
+        sys.stdout = DualOutput(self.append_to_console, sys.__stdout__)
+        sys.stderr = DualOutput(self.append_to_console, sys.__stderr__)
 
     def setup_instruments(self) -> None:
         """
@@ -1400,6 +1405,57 @@ class PyGuiOverlay(Layer):
         with dpg.theme(tag="highlighted_header_theme"):
             with dpg.theme_component(dpg.mvText):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 0), category=dpg.mvThemeCat_Core)  # Black text
+
+    def create_console_gui(self):
+        """Creates a console GUI window for displaying logs and user inputs."""
+        with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=800, height=400):
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Clear Console", callback=self.clear_console)
+                dpg.add_button(label="Save Logs", callback=self.save_logs)
+
+            # Console log display
+            with dpg.child_window(tag="console_output", autosize_x=True, height=300):
+                dpg.add_text("Console initialized.", tag="console_log", wrap=800)
+
+            # Input field for sending commands or messages
+            with dpg.group(horizontal=True):
+                dpg.add_input_text(label="Command", tag="console_input", width=600, callback=self.process_console_input)
+                dpg.add_button(label="Send", callback=self.send_console_input)
+
+    def clear_console(self):
+        """Clears the console log."""
+        dpg.set_value("console_log", "")
+
+    def save_logs(self):
+        """Saves the console log to a file."""
+        logs = dpg.get_value("console_log")
+        with open("console_logs.txt", "w") as file:
+            file.write(logs)
+        print("Logs saved to console_logs.txt")
+
+    def process_console_input(self, sender, app_data):
+        """Processes the console input when Enter is pressed."""
+        input_text = app_data
+        if input_text:
+            self.append_to_console(f"User Input: {input_text}")
+
+    def send_console_input(self):
+        """Sends the input text to the console."""
+        input_text = dpg.get_value("console_input")
+        if input_text:
+            self.append_to_console(f"Command Sent: {input_text}")
+            dpg.set_value("console_input", "")  # Clear the input field
+
+    def append_to_console(self, message):
+        """Appends a message to the console."""
+        current_log = dpg.get_value("console_log")
+        updated_log = current_log + "\n" + message
+        dpg.set_value("console_log", updated_log)
+
+    def on_detach(self):
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        dpg.destroy_context()
 
 
 
