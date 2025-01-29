@@ -421,6 +421,8 @@ class PyGuiOverlay(Layer):
         self.CURRENT_KEY = None
         self.window_positions = {}
         self.messages = []
+        self.command_history = []
+        self.MAX_HISTORY = 10  # Store last 5 commands
 
     def on_render(self):
         jobs = dpg.get_callback_queue() # retrieves and clears queue
@@ -1419,6 +1421,7 @@ class PyGuiOverlay(Layer):
         with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Clear Console", callback=self.clear_console)
+                dpg.add_combo(items=[], tag="command_history", width=120, callback=self.fill_input)
                 dpg.add_button(label="Save Logs", callback=self.save_logs)
 
             # Console log display
@@ -1427,7 +1430,7 @@ class PyGuiOverlay(Layer):
 
             # Input field for sending commands or messages
             with dpg.group(horizontal=True):
-                dpg.add_input_text(label="Command", tag="console_input", width=250)
+                dpg.add_input_text(label="", tag="console_input", width=300)
                 dpg.add_button(label="Send", callback=self.send_console_input)
 
     def clear_console(self):
@@ -1462,7 +1465,24 @@ class PyGuiOverlay(Layer):
             except Exception as e:
                 print(f"Evaluation Error: {e}")
 
+            self.update_command_history(input_text)
             dpg.set_value("console_input", "")  # Clear the input field
+
+    def update_command_history(self, command):
+        """Updates the command history combo box."""
+        if command in self.command_history:
+            self.command_history.remove(command)  # Remove duplicate before re-adding
+
+        self.command_history.insert(0, command)  # Insert at the top
+        if len(self.command_history) > self.MAX_HISTORY:
+            self.command_history.pop()  # Remove the oldest entry
+
+        # Update the combo box
+        dpg.configure_item("command_history", items=self.command_history)
+
+    def fill_input(self, sender, app_data):
+        """Fills the input field with the selected command."""
+        dpg.set_value("console_input", app_data)
 
     def on_detach(self):
         sys.stdout = sys.__stdout__
