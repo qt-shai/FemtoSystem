@@ -24,6 +24,7 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_Picomotor import GUI_picomotor
 from HW_GUI.GUI_arduino import GUIArduino
 from HW_GUI.GUI_atto_scanner import GUIAttoScanner
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
@@ -393,6 +394,7 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.picomotorGUI:Optional[GUI_picomotor] = None
         self.arduino_gui: Optional[GUIArduino] = None
         self.srs_pid_gui: list[GUISIM960] = []
         self.atto_scanner_gui: Optional[GUIMotor] = None
@@ -812,7 +814,9 @@ class PyGuiOverlay(Layer):
                     self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
 
                 elif instrument == Instruments.SIM960:
+                    print('Initializing PID HW list')
                     srs_pid_list=hw_devices.HW_devices().SRS_PID_list
+                    print(f'SRS PID list: {srs_pid_list}')
                     if device.simulation:
                         device.ip_address=0
                         matching_device=srs_pid_list[0]
@@ -821,7 +825,7 @@ class PyGuiOverlay(Layer):
                             (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
                             None  # Default if no match is found
                         )
-
+                    print('Initializing PID GUI')
                     self.srs_pid_gui.append(GUISIM960(
                         sim960=matching_device,
                         simulation=device.simulation
@@ -1139,14 +1143,17 @@ class PyGuiOverlay(Layer):
         try:
             if key_data_enum == KeyboardKeys.S_KEY: # Save all even if keyboard disabled
                 #pdb.set_trace()  # Insert a manual breakpoint
-                self.smaractGUI.save_log_points()
-                self.picomotorGUI.save_log_points()
-                self.smaractGUI.save_pos()
+                if self.smaractGUI:
+                    self.smaractGUI.save_log_points()
+                    self.smaractGUI.save_pos()
+                if self.picomotorGUI:
+                    self.picomotorGUI.save_log_points()
+
                 if hasattr(self.opx, 'map') and self.opx.map is not None:
                     self.opx.map.save_map_parameters()
                 return
 
-            if self.smaractGUI.dev.KeyboardEnabled:
+            if self.smaractGUI and self.smaractGUI.dev.KeyboardEnabled:
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
                     self.smaract_log_points()

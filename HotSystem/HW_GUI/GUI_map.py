@@ -101,7 +101,7 @@ class Map:
                 self.is_windows_shrunk = True
 
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error in gui map: {e}")
 
     def create_map_gui(self, win_size, win_pos):
         self.win_size = win_size

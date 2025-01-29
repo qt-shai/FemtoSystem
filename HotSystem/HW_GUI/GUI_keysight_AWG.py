@@ -220,7 +220,7 @@ class GUIKeysight33500B:
             self.dev.set_frequency(frequency)
             print(f"Frequency set to {frequency} Hz")
         except ValueError as e:
-            print(f"Error: {e}")
+            print(f"Error in keysight GUI: {e}")
 
     def btn_set_amplitude(self):
         """
@@ -247,7 +247,7 @@ class GUIKeysight33500B:
             self.dev.set_offset(offset)
             print(f"Offset set to {offset} V")
         except ValueError as e:
-            print(f"Error: {e}")
+            print(f"Error in keysight set offset: {e}")
 
     def btn_set_duty_cycle(self):
         """

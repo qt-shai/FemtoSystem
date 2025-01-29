@@ -37,9 +37,9 @@ class GUIAttoScanner(GUIMotor):
             mode = ANC300Modes(mode_value)
             self.dev.set_mode(ch, mode)
         except ValueError as e:
-            print(f"Error: {e}")
+            print(f"Value Error in gui atto scanner: {e}")
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error in gui atto scanner: {e}")
 
     def btn_get_mode(self, sender, app_data, ch: int) -> None:
         """

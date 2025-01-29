@@ -1,15 +1,17 @@
-from datetime import datetime, timedelta
-import time
-import threading
 import asyncio
+import threading
+import time
+from datetime import datetime
+from typing import List
 
 import dearpygui.dearpygui as dpg
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from SystemConfig import Instruments, load_instrument_images
 
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960, AutoTuneMethod
+from SystemConfig import Instruments
+
 
 def run_asyncio_loop(loop):
     """Helper function to run an asyncio loop in a separate thread."""
@@ -53,14 +55,7 @@ class GUISIM960:
         self.unique_id = self._get_unique_id_from_device()
         self.win_tag = "SIM960_Win"
         self.win_label = f"SRS SIM960, slot {self.dev.slot} ({self.unique_id})"
-        self.background_loop = asyncio.new_event_loop()
         self.lock = threading.Lock()
-        t = threading.Thread(
-            target=run_asyncio_loop,
-            args=(self.background_loop,),
-            daemon=True
-        )
-        t.start()
 
         if self.simulation:
             self.win_label += " [SIMULATION]"
@@ -77,6 +72,7 @@ class GUISIM960:
                 self.create_stabilize_controls()
 
                 # We can start an update loop if needed
+        self.dev.update_thread.start()
         # For example, we might poll the device periodically to update displays:
         # In the real code, you'd start a thread or use a dearpygui timer. For brevity, omitted here.
 
@@ -123,8 +119,8 @@ class GUISIM960:
                 print("Session invalid. Reinitializing the connection...")
                 self.dev.mf.disconnect()
                 self.dev.mf.connect()
+                time.sleep(1)
                 gain = self.dev.get_proportional_gain()
-
 
             dpg.add_text("PID Gains")
             # Proportional
@@ -152,6 +148,7 @@ class GUISIM960:
 
             # Read the current setpoint from the device
             try:
+                self.dev.mf.flush_output()
                 current_setpoint = self.dev.read_setpoint()
             except Exception as e:
                 print(f"Error reading setpoint during initialization: {e}")
@@ -276,7 +273,6 @@ class GUISIM960:
             dpg.add_button(label="Goto max extinction", callback=self.goto_max_ext)
             dpg.add_button(label="Jump to Zero", callback=self.cb_jump_to_zero)
 
-
     def cb_apply_pid_preset(self, sender, app_data):
         """
         Callback to apply a PID preset when selected from the combo box.
@@ -359,6 +355,7 @@ class GUISIM960:
                     with dpg.plot_axis(dpg.mvYAxis, label="Input Voltage (V)", tag=y_axis_tag):
                         dpg.add_line_series([], [], label="Measurement Input", tag=f"measurement_series_input_{self.unique_id}")
 
+
                 # Output Voltage Plot
                 with dpg.plot(label="Output Voltage", height=200, width=400):
                     x_axis_tag = f"output_x_axis_{self.unique_id}"
@@ -367,7 +364,7 @@ class GUISIM960:
                     with dpg.plot_axis(dpg.mvYAxis, label="Output Voltage (V)", tag=y_axis_tag):
                         dpg.add_line_series([], [], label="Output Voltage", tag=f"measurement_series_output_{self.unique_id}")
 
-
+        self.dev.measurement_observable.add_observer(self.on_measurement_update_wrapper)
 
     def cb_update_stabilize_param(self, sender, app_data):
         """
@@ -589,9 +586,9 @@ class GUISIM960:
             dpg.add_text("Monitoring")
             # We'll show measure input or output
             dpg.add_button(label="Update Readings", callback=self.cb_update_measurement)
-            dpg.add_text("Measure Input:", tag=f"measure_input_{self.unique_id}")
+            dpg.add_text("Measure Input:", tag=f"input_voltage_{self.unique_id}")
             dpg.add_text("Output Voltage:", tag=f"output_voltage_{self.unique_id}")
-            dpg.add_button(label="Start/Stop Continuous Read", callback=self.cb_toggle_continuous_read)
+            dpg.add_button(label="Reset Graphs", callback=self.reset_graphs)
 
             dpg.add_text("Output Limits")
             dpg.add_input_float(label="Upper Lim", default_value=self.dev.get_upper_limit(),  # Fetch initial value from device
@@ -671,67 +668,6 @@ class GUISIM960:
             print(f"Current Limits: Upper = {upper:.3f} V, Lower = {lower:.3f} V")
         except Exception as e:
             print(f"Error fetching limits: {e}")
-
-    def cb_toggle_continuous_read(self):
-        """
-        Toggle continuous reading of measurement for the SRS device.
-        Similar logic to the Arduino version: check loop, toggle active flag,
-        and schedule or cancel the background task.
-        """
-
-        # 1) Check if the background loop exists
-        if not self.background_loop:
-            print("Error: No background loop. Cannot schedule continuous read.")
-            return
-
-        # 2) If continuous reading is already active, stop it
-        if self.continuous_read_active:
-            self.continuous_read_active = False
-            print("Stopping continuous read...")
-
-        # 3) Otherwise, start continuous reading
-        else:
-            self.continuous_read_active = True
-            print("Starting continuous read...")
-
-            # 4) Schedule the _continuous_read_task on the background loop
-            # Option A: If your background_loop is an asyncio loop in another thread
-            # you can do run_coroutine_threadsafe():
-            asyncio.run_coroutine_threadsafe(self._continuous_read_task(), self.background_loop)
-
-            # OR Option B: If you're *inside* the same thread running an asyncio loop:
-            # self.background_loop.create_task(self._continuous_read_task())
-
-    async def _continuous_read_task(self):
-        """
-        Continuously reads the device measurement once per second and prints the result.
-        """
-        while self.continuous_read_active:
-            try:
-                # Update the graph
-                if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
-                    dpg.set_value(f"measurement_series_input_{self.unique_id}", [self.dev.time_values, self.dev.measurement_inputs])
-                    x_axis_tag = f"input_x_axis_{self.unique_id}"
-                    y_axis_tag = f"input_y_axis_{self.unique_id}"
-                    dpg.fit_axis_data(x_axis_tag)
-                    dpg.fit_axis_data(y_axis_tag)
-                    dpg.set_value(f"measurement_series_output_{self.unique_id}", [self.dev.time_values, self.dev.output_voltages])
-                    x_axis_tag = f"output_x_axis_{self.unique_id}"
-                    y_axis_tag = f"output_y_axis_{self.unique_id}"
-                    dpg.fit_axis_data(x_axis_tag)
-                    dpg.fit_axis_data(y_axis_tag)
-
-                # Update GUI display with current measurement values
-                dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {self.dev.measurement_inputs[-1]:.5f} V")
-                dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {self.dev.output_voltages[-1]:.5f} V")
-
-            except Exception as e:
-                # Handle errors gracefully
-                dpg.set_value(f"measure_input_{self.unique_id}", f"Error reading input: {e}")
-                break
-
-            # Sleep for 1 second in the asyncio world
-            await asyncio.sleep(1.0)
 
     def cb_jump_to_zero(self):
         """
@@ -869,11 +805,11 @@ class GUISIM960:
                     middle = self.dev.get_output_offset()
                     print(f"Offset = {middle}")
 
-                    dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {meas_input:.5f} V")
+                    dpg.set_value(f"input_voltage_{self.unique_id}", f"Measure Input: {meas_input:.5f} V")
                     dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {meas_output:.5f} V")
                 else:
                     # In simulation, just display dummy values
-                    dpg.set_value(f"measure_input_{self.unique_id}", "Measure Input: 123.456 (sim)")
+                    dpg.set_value(f"input_voltage_{self.unique_id}", "Measure Input: 123.456 (sim)")
                     dpg.set_value(f"output_voltage_{self.unique_id}", "Output Voltage: 3.333 (sim)")
         except Exception as e:
             print(f"Error during measurement update: {e}")
@@ -960,4 +896,21 @@ class GUISIM960:
         """
         dpg.show_item(self.win_tag)
 
+    def on_measurement_update(self,is_input:bool, time_values: List[float],measurement_values: List[float]):
+        dpg.set_value(f"measurement_series_{'input' if is_input else 'output'}_{self.unique_id}",[time_values, measurement_values])
+        x_axis_tag = f"{'input' if is_input else 'output'}_x_axis_{self.unique_id}"
+        y_axis_tag = f"{'input' if is_input else 'output'}_y_axis_{self.unique_id}"
+        dpg.fit_axis_data(x_axis_tag)
+        dpg.fit_axis_data(y_axis_tag)
+        dpg.set_value(f"{'input' if is_input else 'output'}_voltage_{self.unique_id}", f"Measure {'input' if is_input else 'output'}: {measurement_values[-1]:.5f} V")
 
+    def on_measurement_update_wrapper(self, data: List[List[float]] ):
+        time_values: List[float] = data[0]
+        input_values: List[float] = data[1]
+        output_values: List[float] = data[2]
+        self.on_measurement_update(True,time_values,input_values)
+        self.on_measurement_update(False, time_values, output_values)
+
+
+    def reset_graphs(self):
+       pass

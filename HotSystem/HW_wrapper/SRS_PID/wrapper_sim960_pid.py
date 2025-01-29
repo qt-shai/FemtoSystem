@@ -7,6 +7,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import pyplot as plt
 
 from SystemConfig import Instruments, InstrumentsAddress
+from Utils import ObservableField
 from .wrapper_sim900_mainframe import SRSsim900
 import time
 from enum import Enum
@@ -15,10 +16,6 @@ import random
 import asyncio
 import threading
 import time
-
-def run_asyncio_loop(loop: asyncio.AbstractEventLoop):
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
 
 class AutoTuneMethod(Enum):
     ZIEGLER_NICHOLS = 1
@@ -51,17 +48,14 @@ class SRSsim960:
         self.start_time = time.time()
         self.time_values = []
         self.measurement_inputs = []
-        self.output_voltages =[]
-        self.background_loop = asyncio.new_event_loop()
+        self.output_voltages = []
+        self.measurement_observable = ObservableField([[],[],[]])  # lists of time, input, output
         self.lock = threading.Lock()
-        t = threading.Thread(target=run_asyncio_loop, args=(self.background_loop,), daemon=True)
-        t.start()
+        self.update_thread = threading.Thread(target=self.continuous_measure_loop, daemon=True)
         # Start the loop
         self.continuous_stream_active = True
-        print("Continuous stream started.")
-        asyncio.run_coroutine_threadsafe(self.continuous_measure_loop(), self.background_loop)
 
-    async def continuous_measure_loop(self):
+    def continuous_measure_loop(self):
         while self.continuous_stream_active:
             try:
                 current_time = time.time() - self.start_time
@@ -79,6 +73,8 @@ class SRSsim960:
                     self.measurement_inputs.pop(0)
                     self.output_voltages.pop(0)
 
+                self.measurement_observable.set([self.time_values, self.measurement_inputs, self.output_voltages])
+
                 if abs(output_voltage) > self.unwind_th:
                     with self.lock:
                         print('SRS is not stable.')
@@ -90,10 +86,10 @@ class SRSsim960:
 
                         print(f"val = {self.read_output_voltage()}")
                         self.set_manual_output(output_voltage + offset)
-                        await asyncio.sleep(0.5)
+                        time.sleep(0.5)
                         self.set_manual_output(output_voltage + offset)
                         print(f"val = {self.read_output_voltage()}")
-                        await asyncio.sleep(1.0)
+                        time.sleep(1.0)
                         self.set_output_mode(False)
                         # self.dev.mf.flush_output()
                         self.is_stable = False
@@ -107,10 +103,10 @@ class SRSsim960:
                                 self.is_stable = True
 
             except Exception as exc:
-                    print(f"Error: {exc}")
+                    print(f"Error in SIM 960 continuous loop: {exc}")
                     break
 
-            await asyncio.sleep(0.5)
+            time.sleep(0.5)
 
     def _write(self, command: str) -> None:
         """
@@ -120,14 +116,38 @@ class SRSsim960:
         self.mf.write(command)
         self.mf.write("quit")
 
-    def _query(self, command: str) -> str:
+    def _query(self, command: str, timeout = 1, is_float = False) -> str|float:
         """
         Internal helper to query from SIM960 via the mainframe slot.
+
+        :param command: The command to send.
+        :param timeout: The timeout in seconds.
         """
-        self.mf.write(f"CONN {self.slot},'quit'")
-        resp = self.mf.query(command)
-        self.mf.write("quit")
-        return resp
+        start = time.time()
+        while not self.mf.is_connected and time.time() - start < timeout:
+            time.sleep(0.1)
+
+        if self.mf.is_connected:
+            # self.mf._connection.flush(pyvisa.constants.VI_IO_IN_BUF_DISCARD | pyvisa.constants.VI_IO_OUT_BUF_DISCARD)  # Flush both buffers
+            self.mf.write(f"CONN {self.slot},'quit'")
+            resp = self.mf.query(command)
+
+            if is_float:
+                max_retries = 5
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        float_value = float(resp)
+                        break
+                    except ValueError:
+                        print(f"Attempt {attempt}: Invalid response '{resp}' for query {command}, retrying...")
+                        time.sleep(0.1)  # Wait 100ms before retrying
+                        resp = self.mf.query(command) # Remove any extra whitespace
+
+            self.mf.write("quit")
+            return resp
+        else:
+            print(f"Could not process command {command}. SRS mainframe is not connected.")
+            return ""
 
     def reset(self) -> None:
         """
@@ -200,7 +220,7 @@ class SRSsim960:
             self._write(f"SETP {setpoint:.3f}")
 
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error in sim960 wrapper: {e}")
 
     def set_proportional_gain(self, gain: float) -> None:
         """
@@ -227,8 +247,7 @@ class SRSsim960:
         if self.simulation:  # Check if simulation is enabled
             return random.uniform(1, 10)  # Return a random float between 1 and 10
         else:
-            return float(self._query("GAIN?"))  # Query the actual gain
-
+            return float(self._query("GAIN?",is_float=True))
 
     def enable_integral(self, enable: bool) -> None:
         """
@@ -266,7 +285,7 @@ class SRSsim960:
         if self.simulation:  # Check if simulation is enabled
             return random.uniform(1, 10)  # Return a random float between 1 and 10
         else:
-            return float(self._query("INTG?"))
+            return float(self._query(is_float=True, command= "INTG?"))
 
     def enable_derivative(self, enable: bool) -> None:
         """
@@ -304,7 +323,7 @@ class SRSsim960:
         if self.simulation:  # Check if simulation is enabled
             return random.uniform(1, 10)  # Return a random float between 1 and 10
         else:
-            return float(self._query("DERV?"))
+            return float(self._query(is_float=True, command= "DERV?"))
 
     def enable_offset(self, enable: bool) -> None:
         """
@@ -341,7 +360,7 @@ class SRSsim960:
         if self.simulation:  # Check if simulation is enabled
             return random.uniform(1, 10)  # Return a random float between 1 and 10
         else:
-            return float(self._query("OFST?"))
+            return float(self._query(is_float=True, command= "OFST?"))
 
     # -----------------------------------------------------------------------
     # Control modes: manual or PID
@@ -420,7 +439,7 @@ class SRSsim960:
         if self.simulation:  # Check if simulation is enabled
             return random.randint(0, 1)==0 # Return a random float between 1 and 10
         else:
-            return float(self._query("MOUT?"))
+            return float(self._query(is_float=True, command= "MOUT?"))
 
     # -----------------------------------------------------------------------
     # Measurements
@@ -435,7 +454,7 @@ class SRSsim960:
         if self.simulation:  # Check if simulation is enabled
             return random.uniform(1, 10)  # Return a random float between 1 and 10
         else:
-            return float(self._query("MMON?"))
+            return float(self._query(is_float=True, command= "MMON?"))
 
     def read_output_voltage(self) -> float:
         """
@@ -446,7 +465,7 @@ class SRSsim960:
         if self.simulation:  # Check if simulation is enabled
             return random.uniform(1, 10)  # Return a random float between 1 and 10
         else:
-            return float(self._query("OMON?"))
+            return float(self._query(is_float=True, command= "OMON?"))
 
     def manual_scan_and_find_peak(
         self,
@@ -1038,14 +1057,14 @@ class SRSsim960:
         if self.simulation:  # Check if simulation is enabled
             return random.uniform(1, 10)  # Return a random float between 1 and 10
         else:
-            return float(self._query("ULIM?"))
+            return float(self._query(is_float=True, command= "ULIM?"))
 
     def get_lower_limit(self) -> float:
         """Get the current lower limit."""
         if self.simulation:  # Check if simulation is enabled
             return random.uniform(1, 10)  # Return a random float between 1 and 10
         else:
-            return float(self._query("LLIM?"))
+            return float(self._query(is_float=True, command= "LLIM?"))
 
 
 def adjust_pid_for_low_frequency(
