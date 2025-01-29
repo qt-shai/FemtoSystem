@@ -418,6 +418,7 @@ class PyGuiOverlay(Layer):
         self.GetScreenSize()
         self.CURRENT_KEY = None
         self.window_positions = {}
+        self.messages = []
 
     def on_render(self):
         jobs = dpg.get_callback_queue() # retrieves and clears queue
@@ -681,8 +682,8 @@ class PyGuiOverlay(Layer):
         self.setup_instruments()
         self.create_console_gui()
         # Redirect stdout and stderr to both the GUI console and the original outputs
-        sys.stdout = DualOutput(self.append_to_console, sys.__stdout__)
-        sys.stderr = DualOutput(self.append_to_console, sys.__stderr__)
+        sys.stdout = DualOutput(sys.__stdout__)
+        sys.stderr = DualOutput(sys.__stderr__)
 
     def setup_instruments(self) -> None:
         """
@@ -1408,22 +1409,24 @@ class PyGuiOverlay(Layer):
 
     def create_console_gui(self):
         """Creates a console GUI window for displaying logs and user inputs."""
-        with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=800, height=400):
+        with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Clear Console", callback=self.clear_console)
                 dpg.add_button(label="Save Logs", callback=self.save_logs)
 
             # Console log display
-            with dpg.child_window(tag="console_output", autosize_x=True, height=300):
+            with dpg.child_window(tag="console_output", autosize_x=True, height=270):
                 dpg.add_text("Console initialized.", tag="console_log", wrap=800)
 
             # Input field for sending commands or messages
             with dpg.group(horizontal=True):
-                dpg.add_input_text(label="Command", tag="console_input", width=600, callback=self.process_console_input)
+                dpg.add_input_text(label="Command", tag="console_input", width=250)
                 dpg.add_button(label="Send", callback=self.send_console_input)
 
     def clear_console(self):
         """Clears the console log."""
+        if isinstance(sys.stdout, DualOutput):
+            sys.stdout.messages.clear()
         dpg.set_value("console_log", "")
 
     def save_logs(self):
@@ -1433,24 +1436,26 @@ class PyGuiOverlay(Layer):
             file.write(logs)
         print("Logs saved to console_logs.txt")
 
-    def process_console_input(self, sender, app_data):
-        """Processes the console input when Enter is pressed."""
-        input_text = app_data
-        if input_text:
-            self.append_to_console(f"User Input: {input_text}")
-
     def send_console_input(self):
         """Sends the input text to the console."""
         input_text = dpg.get_value("console_input")
         if input_text:
-            self.append_to_console(f"Command Sent: {input_text}")
-            dpg.set_value("console_input", "")  # Clear the input field
+            try:
+                # Check if the command is an expression (like `2+2`)
+                result = eval(input_text)
+                print(f">>> {input_text}")  # Show the executed command
+                print(result)  # Print the result to console (DualOutput will capture it)
+            except SyntaxError:
+                # If it's not an expression, try executing it as a statement
+                try:
+                    exec(input_text, globals(), locals())
+                    print(f">>> {input_text}")  # Show the executed command
+                except Exception as e:
+                    print(f"Execution Error: {e}")
+            except Exception as e:
+                print(f"Evaluation Error: {e}")
 
-    def append_to_console(self, message):
-        """Appends a message to the console."""
-        current_log = dpg.get_value("console_log")
-        updated_log = current_log + "\n" + message
-        dpg.set_value("console_log", updated_log)
+            dpg.set_value("console_input", "")  # Clear the input field
 
     def on_detach(self):
         sys.stdout = sys.__stdout__

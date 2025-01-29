@@ -197,3 +197,4 @@ class WindowNames(Enum):
     ATTO_SCANNER = "MotorWin_ANC300"
     ATTO_POSITIONER = "MotorWin_atto_positioner"
     MOKUGO = "Moku_Win"
+    CONSOL = "console_window"
