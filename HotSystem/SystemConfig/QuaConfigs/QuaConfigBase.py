@@ -15,6 +15,7 @@ class QUAConfigBase(ABC):
         DETECTOR2_OPD = "Detector2_OPD"
         AMPLITUDE_EOM = "Amplitude_EOM"
         RESONANT_LASER = "Resonant_Laser"
+        BLINDING = "Blinding"
         
     def __init__(self):
         # connect     
@@ -31,6 +32,7 @@ class QUAConfigBase(ABC):
         self.minimal_meas_len = 16  # in ns
         self.long_meas_len = 5e3  # in ns
         self.very_long_meas_len = 25e3  # in ns
+        self.blinding_length = 24 # in ns
 
         # MW parameters
         self.mw_amp_NV = 0.5  # in units of volts
@@ -152,6 +154,11 @@ class QUAConfigBase(ABC):
             "switch_ON": {
                 "operation": "control",
                 "length": self.switch_len,
+                "digital_marker": "ON",
+            },
+            "blinding_ON": {
+                "operation": "control",
+                "length": self.blinding_length,
                 "digital_marker": "ON",
             },
             "readout_pulse": {

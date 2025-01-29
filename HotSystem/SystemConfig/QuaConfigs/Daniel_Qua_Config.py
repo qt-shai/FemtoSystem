@@ -44,6 +44,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
         self.rf_delay = 0  # ns
 
         self.resonant_laser_delay = 0  # Todo: change to physical number
+        self.blinding_delay = 0
         self.scannerX_delay = 0
         self.scannerY_delay = 0
         self.phaseEOM_delay = 0
@@ -77,6 +78,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
                     1: {"shareable": False},  # trigger Laser (Cobolt)
                     2: {"shareable": False},  # trigger MW (Rohde Schwarz)
                     3: {"shareable": False},  # Marker for the detector
+                    6: {"shareable": False},  # Trigger for blinding the detector
                     8: {"shareable": False},  # trigger for the Resonant Laser
                 },
                 "analog_inputs": {
@@ -218,6 +220,16 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "time_of_flight": self.detection_delay,
                 "smearing": 0,
             },
+            self.Elements.BLINDING.value:{
+                "digitalInputs": {  # here it is actually outputs
+                    "marker": {
+                        "port": ("con1", 6),  # Digital output 6
+                        "delay": self.blinding_delay,
+                        "buffer": 0,
+                    },
+                },
+                "operations": {"Turn_ON": "blinding_ON"},
+            }
             # self.Elements.DETECTOR_OPD.value: {
             #     "singleInput": {"port": ("con1", 1)},  # analog outputs, not used
             #     "digitalInputs": {
@@ -282,6 +294,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
             "length": 16,  # Minimal pulse length
             "waveforms": {"single": "zero_wf"},
         }
+
         # pulses["gaussian_waveform_pulse"] = {
         #     "operation": "control",
         #     "length": self.gaussian_length,
