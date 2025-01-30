@@ -88,6 +88,8 @@ class GUI_OPX():
     def __init__(self, simulation: bool = False):
         # HW
 
+        self.job = None
+        self.qm = None
         self.Y_vec_ref = None
         self.X_vec_ref = None
         self.Z_vec = None
@@ -1690,7 +1692,7 @@ class GUI_OPX():
             self.time_bin_entanglement_QUA_PGM(execute_qua=True)
         if self.exp == Experiment.PLE:
             self.bEnableShuffle=False
-            self.MeasurePLE_QUA_PGM(num_bins_per_measurement=int(n_count), num_measurement_per_array=int(num_measurement_per_array), triggerThreshold=self.ScanTrigger)
+            self.MeasurePLE_QUA_PGM(trigger_threshold=self.ScanTrigger)
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
         if QuaCFG == None:
@@ -5196,12 +5198,12 @@ class GUI_OPX():
         self.qm, self.job = self.QUA_execute()
 
 
-    def MeasurePLE_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1, triggerThreshold: int = 1):
+    def MeasurePLE_QUA_PGM(self, trigger_threshold: int = 1):
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
         laser_on_duration = int(self.total_integration_time * self.u.ms // 4)
-        single_integration_time = int(self.Tcounter * self.u.ns)
+        #single_integration_time = int(self.Tcounter * self.u.ns)
         init_pulse_time = self.Tpump * self.u.ns // 4
         num_tracking_signal_loops = int((self.Tpump* self.u.ns / int(self.Tcounter * self.u.ns))//4)
 
@@ -5215,18 +5217,18 @@ class GUI_OPX():
             counts_ref_st = declare_stream()
             meas_idx_st = declare_stream()
 
-            sequenceState = declare(int, value=0)
+            sequence_state = declare(int, value=0)
             should_we_track = declare(int, value=0)
-            triggerTh = declare(int, value=triggerThreshold)
+            trigger_threshold = declare(int, value=trigger_threshold)
             assign(IO2, 0)
             assign(IO1, 0)
 
             with infinite_loop_():
                 # wait_for_trigger("Laser")
-                assign(sequenceState, IO2)
-                with if_((sequenceState + 1 > triggerTh) & (sequenceState - 1 < triggerTh)):
+                assign(sequence_state, IO2)
+                with if_((sequence_state + 1 > trigger_threshold) & (sequence_state - 1 < trigger_threshold)):
                     assign(IO2, 0)
-                    assign(sequenceState, 0)
+                    assign(sequence_state, 0)
                     align()
                     play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=init_pulse_time)
                     with for_(n, 0, n < num_tracking_signal_loops, n + 1):
@@ -5251,8 +5253,8 @@ class GUI_OPX():
 
             with stream_processing():
                 meas_idx_st.save("meas_idx_scanLine")
-                counts_st.buffer(num_measurement_per_array).save("counts_scanLine")
-                counts_ref_st.buffer(num_measurement_per_array).save("counts_Ref") # fix
+                counts_st.save("counts_scanLine")
+                counts_ref_st.save("counts_Ref") # fix
         self.qm, self.job = self.QUA_execute()
 
 
@@ -6787,7 +6789,7 @@ class GUI_OPX():
                                 current_measurement=self.counts_handle.fetch_all()
                                 self.qmm.clear_all_job_results()
 
-                            counts.append(current_measurement[0])
+                            counts.append(current_measurement/ self.total_integration_time *1e3) # [counts/s]
                             self.Y_vec = counts
                             self.X_vec = current_positions_array
                             self.generate_x_y_vectors_for_average()
@@ -6796,7 +6798,7 @@ class GUI_OPX():
                             if type(current_measurement) == int:
                                 current_measurement=[-1]
 
-                            self.scan_Out.append([current_positions_array[0],  -1, -1,current_measurement[0],self.V_scan[0][ix],-1,-1])
+                            self.scan_Out.append([current_positions_array[0],  -1, -1,current_measurement,self.V_scan[0][ix],-1,-1])
                     # End X loop
                     if self.stopScan:
                         break

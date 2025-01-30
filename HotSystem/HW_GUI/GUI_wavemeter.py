@@ -158,7 +158,7 @@ class GUIWavemeter:
             # Get initial frequency
             start_freq = self.dev.get_frequency() * 1e-9  # Default in GHz
             print(f"Starting frequency: {start_freq:.6f} GHz")
-            dpg.set_value(f"WLM_Frequency_Label_{self.unique_id}", f"{start_freq*1e-3} [THz]")
+            dpg.set_value(f"WLM_Frequency_Label_{self.unique_id}", f"{start_freq*1e-3:.3f} [THz]")
 
         except Exception as exc:
             logging.error(f"Exception starting WLM measurement: {exc}")
