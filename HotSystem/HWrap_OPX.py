@@ -227,7 +227,7 @@ class GUI_OPX():
         self.Tpump = 500  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
         self.TcounterPulsed = 5000  # [nsec]
-        self.total_integration_time = 5.0  # [msec]
+        self.total_integration_time:float = 5.0  # [msec]
         self.Tsettle = 2000 # [nsec]
         self.t_mw = 20  # [nsec] # from rabi experiment
         self.t_mw2 = 10  # [nsec] # from rabi experiment
@@ -315,10 +315,10 @@ class GUI_OPX():
         return int(val)
 
     def UpdateCounterIntegrationTime(sender, app_data, user_data):
-        sender.total_integration_time = int(user_data)
+        sender.total_integration_time = user_data
         time.sleep(0.001)
         dpg.set_value(item="inDbl_total_integration_time", value=sender.total_integration_time)
-        print("Set total_integration_time to: " + str(sender.total_integration_time) + "usec")
+        print("Set total_integration_time to: " + str(sender.total_integration_time) + "msec")
 
     def UpdateWaitTime(sender, app_data, user_data):
         sender.Twait = user_data
@@ -618,7 +618,7 @@ class GUI_OPX():
                         dpg.add_input_int(label="", tag="inInt_Tsettle", width=item_width, callback=self.UpdateTsettle, default_value=self.Tsettle,
                                           min_value=1, max_value=60000000, step=1)
                         dpg.add_text(default_value="total integration time [msec]", tag="text_total_integration_time")
-                        dpg.add_input_double(label="", tag="inDbl_total_integration_time", width=item_width, callback=self.UpdateCounterIntegrationTime, default_value=self.total_integration_time, min_value=1, max_value=1000, step=1)
+                        dpg.add_input_double(label="", tag="inDbl_total_integration_time", width=item_width, callback=self.UpdateCounterIntegrationTime, default_value=self.total_integration_time, min_value=1e-6, max_value=1000, step=1e-6)
                         dpg.add_text(default_value="Twait [usec]", tag="text_wait_time")
                         dpg.add_input_double(label="", tag="inDbl_wait_time", width=item_width, callback=self.UpdateWaitTime, default_value=self.Twait, min_value=0.001, max_value=10000000000, step=0.001,format="%.5f")
                         dpg.add_text(default_value="Tedge [nsec]", tag="text_edge_time")
@@ -5200,11 +5200,10 @@ class GUI_OPX():
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
-        laser_on_duration = int(self.Tcounter * self.u.ns // 4)
+        laser_on_duration = int(self.total_integration_time * self.u.ms // 4)
         single_integration_time = int(self.Tcounter * self.u.ns)
-        smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
-        init_pulse_time = self.Tpump // 4
-        num_tracking_signal_loops = int((self.Tpump / int(self.Tcounter * self.u.ns))//4)
+        init_pulse_time = self.Tpump * self.u.ns // 4
+        num_tracking_signal_loops = int((self.Tpump* self.u.ns / int(self.Tcounter * self.u.ns))//4)
 
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
@@ -5240,10 +5239,9 @@ class GUI_OPX():
                     # assign(should_we_track, IO1)
                     with if_(should_we_track==0):
                         play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value, duration=laser_on_duration)
-                        with for_(n, 0, n < num_bins_per_measurement, n + 1):
-                            measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
-                            assign(total_counts, total_counts + counts)
-
+                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, laser_on_duration, counts))
+                        assign(total_counts, total_counts + counts)
+                        align()
                         save(total_counts, counts_st)
                         assign(total_counts, 0)
 

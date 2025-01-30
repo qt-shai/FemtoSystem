@@ -113,6 +113,7 @@ class GUIWavemeter:
             dpg.add_text("Wavelength (nm):", tag=f"WLM_Wavelength_Label_{self.unique_id}")
             dpg.add_button(label="Continuous Read", callback=self.toggle_continuous_measure,width=150)
             dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_text("Base Frequency(THz)", tag=f"WLM_Frequency_Label_{self.unique_id}")
 
         with dpg.plot(label="WLM Plot", height=300, width=400):
             # X-axis
@@ -157,6 +158,8 @@ class GUIWavemeter:
             # Get initial frequency
             start_freq = self.dev.get_frequency() * 1e-9  # Default in GHz
             print(f"Starting frequency: {start_freq:.6f} GHz")
+            dpg.set_value(f"WLM_Frequency_Label_{self.unique_id}", f"{start_freq*1e-3} [THz]")
+
         except Exception as exc:
             logging.error(f"Exception starting WLM measurement: {exc}")
             self.continuous_measure_active = False
