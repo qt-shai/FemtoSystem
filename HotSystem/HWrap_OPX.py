@@ -5203,9 +5203,12 @@ class GUI_OPX():
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
         laser_on_duration = int(self.total_integration_time * self.u.ms // 4)
-        #single_integration_time = int(self.Tcounter * self.u.ns)
+        single_integration_time = int(self.total_integration_time * self.u.ms)
         init_pulse_time = self.Tpump * self.u.ns // 4
-        num_tracking_signal_loops = int((self.Tpump* self.u.ns / int(self.Tcounter * self.u.ns))//4)
+        tracking_pulse_time = int(5 * self.u.ms // 4)
+        tracking_measure_time =  int(self.Tcounter*self.u.ns)
+        num_tracking_signal_loops = int((5 * self.u.ms / int(self.Tcounter * self.u.ns)))
+        t_wait_after_init = int(50*self.u.ns//4)
 
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
@@ -5229,24 +5232,28 @@ class GUI_OPX():
                 with if_((sequence_state + 1 > trigger_threshold) & (sequence_state - 1 < trigger_threshold)):
                     assign(IO2, 0)
                     assign(sequence_state, 0)
-                    align()
-                    play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=init_pulse_time)
-                    with for_(n, 0, n < num_tracking_signal_loops, n + 1):
-                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, int(self.Tcounter * self.u.ns), counts))
-                        assign(total_counts, total_counts + counts)
-                    save(total_counts, counts_ref_st)
                     assign(total_counts, 0)
                     align()
+                    # Tracking pulse
+                    play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=tracking_pulse_time)
+                    with for_(n, 0, n < num_tracking_signal_loops, n + 1):
+                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tracking_measure_time, counts))
+                        assign(total_counts, total_counts + counts)
+                    save(total_counts, counts_ref_st)
+                    align()
 
+                    assign(total_counts, 0)
                     # assign(should_we_track, IO1)
                     with if_(should_we_track==0):
-                        play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value, duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, laser_on_duration, counts))
-                        assign(total_counts, total_counts + counts)
-                        align()
+                        with for_(n, 0, n < self.n_avg, n + 1):
+                            play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=init_pulse_time)
+                            align()
+                            wait(t_wait_after_init)
+                            play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value,duration=laser_on_duration)
+                            measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
+                            align()
+                            assign(total_counts, total_counts + counts)
                         save(total_counts, counts_st)
-                        assign(total_counts, 0)
-
                         align()
                         assign(meas_idx, meas_idx + 1)
                         save(meas_idx, meas_idx_st)
@@ -6788,7 +6795,7 @@ class GUI_OPX():
                                 current_measurement=self.counts_handle.fetch_all()
                                 self.qmm.clear_all_job_results()
 
-                            counts.append(current_measurement/ self.total_integration_time *1e3) # [counts/s]
+                            counts.append(current_measurement/ self.total_integration_time *1e3/ self.n_avg) # [counts/s]
 
 
                             self.Y_vec = [0] * len(self.V_scan[0]) # Initialize Y_vec with zeros
@@ -6800,7 +6807,6 @@ class GUI_OPX():
 
                             for i in range(ix + 1): # Override X_vec values for i = 0 up to ix
                                 self.X_vec[i] = round(current_positions_array[i] / 1e6, 2)  # Convert to MHz
-
                             self.generate_x_y_vectors_for_average()
                             self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
                             if type(current_measurement) == int:
