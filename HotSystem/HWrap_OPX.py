@@ -5289,7 +5289,7 @@ class GUI_OPX():
 
         # Use bins from X_vec and ensure they are sorted and unique
         bins = np.array(self.X_vec)
-        bins = np.unique(np.sort(bins))  # Ensure bins are monotonically increasing
+        # bins = np.unique(np.sort(bins))  # Ensure bins are monotonically increasing
 
         counts_aggregated = np.array(self.scan_counts_aggregated)
         freqs_aggregated = np.array(self.scan_frequencies_aggregated)
@@ -5299,18 +5299,17 @@ class GUI_OPX():
             return
 
         # Flatten and concatenate the arrays
-        flat_freqs = np.concatenate(freqs_aggregated)
+        flat_freqs = np.concatenate(freqs_aggregated)/1e6
         flat_counts = np.concatenate(counts_aggregated)
 
-        # Initialize Y_vec_ref with NaNs
-        self.Y_vec_ref = np.full(len(bins) - 1, np.nan)
+        # Initialize Y_vec_ref with NaNs, keeping the same shape as X_vec
+        self.Y_vec_ref = np.full(len(bins), np.nan)
 
-        # Calculate means for each bin based on bins from X_vec
-        for i in range(len(bins) - 1):
-            mask = (flat_freqs >= bins[i]) & (flat_freqs < bins[i + 1])
-            if np.any(mask):  # Check if there are any elements in the bin
-                mean_val = np.mean(flat_counts[mask])
-                self.Y_vec_ref[i] = mean_val  # Update corresponding bin mean
+        # Align Y_vec_ref with X_vec bins
+        for i in range(len(bins)):
+            mask = (flat_freqs >= bins[i]) & (flat_freqs < (bins[i + 1] if i + 1 < len(bins) else float('inf')))
+            if np.any(mask):  # Ensure there's data in this bin
+                self.Y_vec_ref[i] = np.mean(flat_counts[mask])  # Store mean count for this bin
 
         # Normalizing mean values
         try:
@@ -6790,10 +6789,19 @@ class GUI_OPX():
                                 self.qmm.clear_all_job_results()
 
                             counts.append(current_measurement/ self.total_integration_time *1e3) # [counts/s]
-                            self.Y_vec = counts
-                            self.X_vec = current_positions_array
+
+
+                            self.Y_vec = [0] * len(self.V_scan[0]) # Initialize Y_vec with zeros
+
+                            for i in range(ix + 1): # Override Y_vec values for i = 0 up to ix with counts
+                                self.Y_vec[i] = counts[i] if i < len(counts) else 0
+
+                            self.X_vec=self.V_scan[0][:]
+
+                            for i in range(ix + 1): # Override X_vec values for i = 0 up to ix
+                                self.X_vec[i] = round(current_positions_array[i] / 1e6, 2)  # Convert to MHz
+
                             self.generate_x_y_vectors_for_average()
-                            self.X_vec = [round(position / 1e6,2) for position in current_positions_array]
                             self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
                             if type(current_measurement) == int:
                                 current_measurement=[-1]
