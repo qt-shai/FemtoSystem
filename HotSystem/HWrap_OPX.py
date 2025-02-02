@@ -88,6 +88,7 @@ class GUI_OPX():
     def __init__(self, simulation: bool = False):
         # HW
 
+        self.mattise_frequency_offset: float = 0
         self.job = None
         self.qm = None
         self.Y_vec_ref = None
@@ -6066,6 +6067,8 @@ class GUI_OPX():
             # Get initial wavelength position in MHz
             scan_device = self.matisse.scan_device
             initial_position = self.matisse.get_wavelength_position(scan_device)
+            self.mattise_frequency_offset = self.HW.wavemeter.get_frequency() - initial_position*1e6
+
         except Exception as e:
             print(f"Failed to retrieve initial wavelength position: {e}")
             return
@@ -6080,7 +6083,7 @@ class GUI_OPX():
         vec = list(np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
                 np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
-        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(self.matisse.ple_waiting_time), True)[1], get_positions_fn=lambda: self.HW.wavemeter.get_frequency(), device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, is_not_ple=False, meas_continuously=True, check_srs_stability=check_srs_stability)
+        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(self.matisse.ple_waiting_time), True)[1], get_positions_fn=self.HW.wavemeter.get_frequency, device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, is_not_ple=False, meas_continuously=True, check_srs_stability=check_srs_stability)
 
     def StartScan(self):
         if self.positioner:
@@ -6600,6 +6603,7 @@ class GUI_OPX():
             current_positions = [current_positions]  # Wrap single float in a list
         initial_pos=current_positions
         initial_pos=[round(initial_pos[0] / 1e12, 0)*1e12]
+        initial_pos_offset=current_positions[0]-initial_pos[0]
 
         # Pad with zeros if fewer than expected_axes
         if self.exp == Experiment.PLE:
@@ -6795,24 +6799,28 @@ class GUI_OPX():
                                 current_measurement=self.counts_handle.fetch_all()
                                 self.qmm.clear_all_job_results()
 
-                            counts.append(current_measurement/ self.total_integration_time *1e3/ self.n_avg) # [counts/s]
+                            current_measurement = current_measurement / self.total_integration_time * 1e3 / self.n_avg
+                            counts.append(current_measurement) # [counts/s]
 
+                            # Correct mistmatch between wavemeter measurements (actual frequency) and mattise wavenlength
+                            # measurement of the contribution of the slow piezo
 
                             self.Y_vec = [0] * len(self.V_scan[0]) # Initialize Y_vec with zeros
 
                             for i in range(ix + 1): # Override Y_vec values for i = 0 up to ix with counts
                                 self.Y_vec[i] = counts[i] if i < len(counts) else 0
 
-                            self.X_vec=self.V_scan[0][:]
+                            self.X_vec=list((np.array(self.V_scan[0][:])*1e6+self.mattise_frequency_offset-initial_pos)/1e6)
 
                             for i in range(ix + 1): # Override X_vec values for i = 0 up to ix
                                 self.X_vec[i] = round(current_positions_array[i] / 1e6, 2)  # Convert to MHz
+
                             self.generate_x_y_vectors_for_average()
                             self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
-                            if type(current_measurement) == int:
-                                current_measurement=[-1]
+                            # if type(current_measurement) == int:
+                            #     current_measurement=[-1]
 
-                            self.scan_Out.append([current_positions_array[0],  -1, -1,current_measurement,self.V_scan[0][ix],-1,-1])
+                            self.scan_Out.append([current_positions_array[ix],  -1, -1,current_measurement,self.V_scan[0][ix],-1,-1])
                     # End X loop
                     if self.stopScan:
                         break
