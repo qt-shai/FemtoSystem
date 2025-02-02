@@ -1,42 +1,109 @@
 
-# Single QUA script generated at 2025-01-21 11:09:06.362336
-# QUA library version: 1.2.2a2
+# Single QUA script generated at 2025-02-02 14:04:51.902896
+# QUA library version: 1.2.1
 
 from qm import CompilerOptionArguments
 from qm.qua import *
 
 with program() as prog:
-    a1 = declare(int, size=1000)
-    v1 = declare(int, )
-    v2 = declare(int, value=0)
+    v1 = declare(bool, )
+    v2 = declare(int, )
+    a1 = declare(int, size=100)
+    a2 = declare(int, size=100)
+    a3 = declare(int, size=100)
     v3 = declare(int, )
-    v4 = declare(int, value=0)
-    v5 = declare(int, value=0)
-    v6 = declare(int, value=1001)
-    assign(IO2, 0)
-    with infinite_loop_():
-        assign(v5, IO2)
-        with if_(((v6<(v5+1))&(v6>(v5-1)))):
-            assign(IO2, 0)
-            assign(v5, 0)
-            align()
-            align()
-            with for_(v3,0,(v3<500),(v3+1)):
-                play("Turn_ON", "Laser", duration=2500)
-                measure("readout", "Detector_OPD", None, time_tagging.digital(a1, 10000, v1, ""))
-                assign(v2, (v2+v1))
-            r1 = declare_stream()
-            save(v2, r1)
-            assign(v2, 0)
-            align()
-            wait(1250000, )
-            align()
-            assign(v4, (v4+1))
-            r2 = declare_stream()
-            save(v4, r2)
+    v4 = declare(int, )
+    v5 = declare(fixed, )
+    v6 = declare(int, )
+    v7 = declare(int, )
+    v8 = declare(int, )
+    v9 = declare(int, )
+    v10 = declare(int, )
+    v11 = declare(int, )
+    v12 = declare(int, )
+    v13 = declare(int, )
+    v14 = declare(int, )
+    v15 = declare(int, )
+    v16 = declare(int, )
+    v17 = declare(bool, value=True)
+    v18 = declare(int, value=0)
+    v19 = declare(int, )
+    v20 = declare(int, value=0)
+    v21 = declare(int, value=0)
+    a4 = declare(int, size=1)
+    a5 = declare(int, size=1)
+    a6 = declare(int, size=1)
+    a7 = declare(int, value=[0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 1000000, 1100000, 1200000, 1300000, 1400000, 1500000, 1600000, 1700000, 1800000, 1900000, 2000000, 2100000, 2200000, 2300000, 2400000, 2500000, 2600000, 2700000, 2800000, 2900000, 3000000, 3100000, 3200000, 3300000, 3400000, 3500000, 3600000, 3700000, 3800000, 3900000, 4000000, 4100000, 4200000, 4300000, 4400000, 4500000, 4600000, 4700000, 4800000, 4900000, 5000000, 5100000, 5200000, 5300000, 5400000, 5500000, 5600000, 5700000, 5800000, 5900000, 6000000, 6100000, 6200000, 6300000, 6400000, 6500000, 6600000, 6700000, 6800000, 6900000, 7000000, 7100000, 7200000, 7300000, 7400000, 7500000, 7600000, 7700000, 7800000, 7900000, 8000000, 8100000, 8200000, 8300000, 8400000, 8500000, 8600000, 8700000, 8800000, 8900000, 9000000, 9100000, 9200000, 9300000, 9400000, 9500000, 9600000, 9700000, 9800000, 9900000, 10000000])
+    a8 = declare(int, value=[0])
+    v22 = declare(int, )
+    v23 = declare(int, )
+    v24 = declare(int, )
+    v25 = declare(int, )
+    v26 = declare(int, value=111542575)
+    assign(v1, True)
+    with for_(v2,0,(v2<1000000),(v2+1)):
+        with for_(v22,0,(v22<1),(v22+1)):
+            assign(a4[v22], 0)
+            assign(a5[v22], 0)
+            assign(a1[v22], 0)
+        with if_(False):
+            with for_(v25,0,(v25<1),(v25+1)):
+                assign(v24, call_library_function('random', 'rand_int', [v26,(1-v25)]))
+                assign(v23, a8[v24])
+                assign(a8[v24], a8[(0-v25)])
+                assign(a8[(0-v25)], v23)
+        with for_(v22,0,(v22<1),(v22+1)):
+            assign(v21, IO1)
+            with if_((v21==0)):
+                update_frequency("MW", v3, "Hz", False)
+                play("Turn_ON", "Laser", duration=1250)
+                play("Turn_ON", "Blinding", duration=1258)
+                align("Laser", "MW")
+                play("xPulse"*amp(1.0), "MW", duration=4)
+                align("MW", "Resonant_Laser")
+                play("Turn_ON", "Resonant_Laser", duration=4)
+                with if_(v1):
+                    assign(a4[v22], 2)
+                    with for_(v8,0,(v8<a4[v22]),(v8+1)):
+                        assign(a1[v8], (v8*10))
+                    assign(a5[v22], 15)
+                with else_():
+                    align("Resonant_Laser", "Detector_OPD")
+                    measure("readout", "Detector_OPD", None, time_tagging.analog(a1, 24, v13, ""))
+                    assign(a4[v22], (a4[v22]+v13))
+                    align("Resonant_Laser", "Blinding")
+                    wait(18, )
+                    play("Turn_ON", "Blinding", duration=9)
+                    align("Resonant_Laser", "MW")
+                    play("xPulse"*amp(1.0), "MW", duration=5)
+                    align("MW", "Resonant_Laser")
+                    play("Turn_ON", "Resonant_Laser", duration=4)
+                    align()
+                    play("Turn_ON", "Blinding", duration=4)
+                    play("xPulse"*amp(1.0), "MW", duration=4)
+                    align("MW", "Resonant_Laser")
+                    play("Turn_ON", "Resonant_Laser", duration=25)
+                    align("MW", "Detector2_OPD")
+                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(a2, 25, v14, ""))
+                    assign(a5[v22], (a5[v22]+v14))
+        with if_((v21==0)):
+            with for_(v22,0,(v22<1),(v22+1)):
+                r3 = declare_stream()
+                save(a4[v22], r3)
+                r5 = declare_stream()
+                save(a5[v22], r5)
+            with for_(v22,0,(v22<a4[0]),(v22+1)):
+                r4 = declare_stream()
+                save(a1[v22], r4)
+        r1 = declare_stream()
+        save(v2, r1)
+        r2 = declare_stream()
+        save(v20, r2)
     with stream_processing():
-        r2.save("meas_idx_scanLine")
-        r1.buffer(41).save("counts_scanLine")
+        r1.save_all("iteration")
+        r4.save_all("times")
+        r3.save_all("counts")
+        r5.save_all("statistics_counts")
 
 
 config = {
@@ -45,83 +112,66 @@ config = {
         "con1": {
             "type": "opx1",
             "analog_outputs": {
-                "4": {
+                "1": {
                     "offset": 0.0,
                     "delay": 0,
                     "shareable": False,
                 },
-                "5": {
+                "2": {
                     "offset": 0.0,
                     "delay": 0,
                     "shareable": False,
                 },
-                "6": {
-                    "offset": 0.0,
-                    "delay": 8,
-                    "shareable": False,
-                },
-                "9": {
+                "3": {
                     "offset": 0.0,
                     "delay": 0,
                     "shareable": False,
                 },
             },
             "digital_outputs": {
-                "4": {
+                "1": {
                     "shareable": False,
                 },
-                "5": {
+                "2": {
                     "shareable": False,
                 },
-                "7": {
+                "3": {
+                    "shareable": False,
+                },
+                "6": {
+                    "shareable": False,
+                },
+                "8": {
                     "shareable": False,
                 },
             },
             "analog_inputs": {
-                "2": {
+                "1": {
                     "offset": 0.00979,
                     "gain_db": 0,
                     "shareable": False,
                 },
-            },
-            "digital_inputs": {
-                "4": {
-                    "polarity": "RISING",
-                    "deadtime": 4,
-                    "threshold": 1,
-                    "shareable": False,
-                },
-                "5": {
-                    "polarity": "RISING",
-                    "deadtime": 4,
-                    "threshold": 1,
+                "2": {
+                    "offset": 0.00979,
+                    "gain_db": -12,
                     "shareable": False,
                 },
             },
         },
     },
     "elements": {
-        "RF": {
-            "singleInput": {
-                "port": ('con1', 6),
-            },
-            "intermediate_frequency": 3030000.0,
-            "operations": {
-                "const": "const_pulse_single",
-            },
-        },
         "MW": {
             "mixInputs": {
-                "I": ('con1', 4),
-                "Q": ('con1', 5),
+                "I": ('con1', 2),
+                "Q": ('con1', 3),
                 "lo_frequency": 2700000000.0,
                 "mixer": "mixer_NV",
             },
             "intermediate_frequency": 124000000.0,
             "digitalInputs": {
                 "marker": {
-                    "port": ('con1', 5),
-                    "delay": 122,
+                    "port": ('con1', 2),
+                    "delay": 0,
                     "buffer": 0,
                 },
             },
@@ -138,11 +188,11 @@ config = {
                 "y90": "y90_pulse",
             },
         },
-        "Resonant_Laser": {
+        "Laser": {
             "digitalInputs": {
                 "marker": {
-                    "port": ('con1', 7),
-                    "delay": 120,
+                    "port": ('con1', 1),
+                    "delay": 0,
                     "buffer": 0,
                 },
             },
@@ -150,11 +200,11 @@ config = {
                 "Turn_ON": "laser_ON",
             },
         },
-        "Laser": {
+        "Resonant_Laser": {
             "digitalInputs": {
                 "marker": {
-                    "port": ('con1', 4),
-                    "delay": 120,
+                    "port": ('con1', 8),
+                    "delay": 0,
                     "buffer": 0,
                 },
             },
@@ -165,8 +215,8 @@ config = {
         "MW_switch": {
             "digitalInputs": {
                 "marker": {
-                    "port": ('con1', 5),
-                    "delay": 122,
+                    "port": ('con1', 2),
+                    "delay": 0,
                     "buffer": 0,
                 },
             },
@@ -176,43 +226,65 @@ config = {
         },
         "Detector_OPD": {
             "singleInput": {
-                "port": ('con1', 4),
+                "port": ('con1', 1),
             },
-            "digitalInputs": {},
-            "digitalOutputs": {
-                "out1": ('con1', 4),
-            },
-            "outputs": {
-                "out1": ('con1', 2),
+            "digitalInputs": {
+                "marker": {
+                    "port": ('con1', 3),
+                    "delay": 28,
+                    "buffer": 0,
+                },
             },
             "operations": {
                 "readout": "readout_pulse",
                 "min_readout": "min_readout_pulse",
                 "long_readout": "long_readout_pulse",
-                "very_long_readout": "very_long_readout_pulse",
             },
-            "time_of_flight": 308,
+            "outputs": {
+                "out1": ('con1', 1),
+            },
+            "outputPulseParameters": {
+                "signalThreshold": -500,
+                "signalPolarity": "below",
+                "derivativeThreshold": 1023,
+                "derivativePolarity": "below",
+            },
+            "time_of_flight": 28,
             "smearing": 0,
         },
         "Detector2_OPD": {
             "singleInput": {
-                "port": ('con1', 4),
+                "port": ('con1', 1),
             },
             "digitalInputs": {},
-            "digitalOutputs": {
-                "out1": ('con1', 5),
-            },
-            "outputs": {
-                "out1": ('con1', 2),
-            },
             "operations": {
                 "readout": "readout_pulse",
                 "min_readout": "min_readout_pulse",
                 "long_readout": "long_readout_pulse",
-                "very_long_readout": "very_long_readout_pulse",
             },
-            "time_of_flight": 308,
+            "outputs": {
+                "out1": ('con1', 2),
+            },
+            "outputPulseParameters": {
+                "signalThreshold": -350,
+                "signalPolarity": "below",
+                "derivativeThreshold": 1023,
+                "derivativePolarity": "below",
+            },
+            "time_of_flight": 28,
             "smearing": 0,
+        },
+        "Blinding": {
+            "digitalInputs": {
+                "marker": {
+                    "port": ('con1', 6),
+                    "delay": 0,
+                    "buffer": 0,
+                },
+            },
+            "operations": {
+                "Turn_ON": "blinding_ON",
+            },
         },
     },
     "pulses": {
@@ -302,12 +374,17 @@ config = {
         },
         "switch_ON": {
             "operation": "control",
-            "length": 100,
+            "length": 16,
+            "digital_marker": "ON",
+        },
+        "blinding_ON": {
+            "operation": "control",
+            "length": 24,
             "digital_marker": "ON",
         },
         "readout_pulse": {
             "operation": "measurement",
-            "length": 300,
+            "length": 96,
             "digital_marker": "ON",
             "waveforms": {
                 "single": "zero_wf",
@@ -393,7 +470,7 @@ loaded_config = {
         "con1": {
             "type": "opx1",
             "analog_outputs": {
-                "4": {
+                "1": {
                     "offset": 0.0,
                     "delay": 0,
                     "shareable": False,
@@ -403,7 +480,7 @@ loaded_config = {
                     },
                     "crosstalk": {},
                 },
-                "5": {
+                "2": {
                     "offset": 0.0,
                     "delay": 0,
                     "shareable": False,
@@ -413,17 +490,7 @@ loaded_config = {
                     },
                     "crosstalk": {},
                 },
-                "6": {
-                    "offset": 0.0,
-                    "delay": 8,
-                    "shareable": False,
-                    "filter": {
-                        "feedforward": [],
-                        "feedback": [],
-                    },
-                    "crosstalk": {},
-                },
-                "9": {
+                "3": {
                     "offset": 0.0,
                     "delay": 0,
                     "shareable": False,
@@ -435,75 +502,57 @@ loaded_config = {
                 },
             },
             "analog_inputs": {
-                "2": {
+                "1": {
                     "offset": 0.00979,
                     "gain_db": 0,
                     "shareable": False,
                     "sampling_rate": 1000000000.0,
                 },
+                "2": {
+                    "offset": 0.00979,
+                    "gain_db": -12,
+                    "shareable": False,
+                    "sampling_rate": 1000000000.0,
+                },
             },
             "digital_outputs": {
-                "4": {
+                "1": {
                     "shareable": False,
                     "inverted": False,
                     "level": "LVTTL",
                 },
-                "5": {
+                "2": {
                     "shareable": False,
                     "inverted": False,
                     "level": "LVTTL",
                 },
-                "7": {
+                "3": {
+                    "shareable": False,
+                    "inverted": False,
+                    "level": "LVTTL",
+                },
+                "6": {
+                    "shareable": False,
+                    "inverted": False,
+                    "level": "LVTTL",
+                },
+                "8": {
                     "shareable": False,
                     "inverted": False,
                     "level": "LVTTL",
                 },
             },
-            "digital_inputs": {
-                "4": {
-                    "polarity": "RISING",
-                    "deadtime": 4,
-                    "threshold": 1.0,
-                    "shareable": False,
-                },
-                "5": {
-                    "polarity": "RISING",
-                    "deadtime": 4,
-                    "threshold": 1.0,
-                    "shareable": False,
-                },
-            },
+            "digital_inputs": {},
         },
     },
     "oscillators": {},
     "elements": {
-        "RF": {
-            "digitalInputs": {},
-            "digitalOutputs": {},
-            "outputs": {},
-            "operations": {
-                "const": "const_pulse_single",
-            },
-            "hold_offset": {
-                "duration": 0,
-            },
-            "sticky": {
-                "analog": False,
-                "digital": False,
-                "duration": 4,
-            },
-            "thread": "",
-            "singleInput": {
-                "port": ('con1', 1, 6),
-            },
-            "intermediate_frequency": 3030000.0,
-        },
         "MW": {
             "digitalInputs": {
                 "marker": {
-                    "delay": 122,
+                    "delay": 0,
                     "buffer": 0,
-                    "port": ('con1', 1, 5),
+                    "port": ('con1', 1, 2),
                 },
             },
             "digitalOutputs": {},
@@ -530,19 +579,19 @@ loaded_config = {
             },
             "thread": "",
             "mixInputs": {
-                "I": ('con1', 1, 4),
-                "Q": ('con1', 1, 5),
+                "I": ('con1', 1, 2),
+                "Q": ('con1', 1, 3),
                 "mixer": "mixer_NV",
                 "lo_frequency": 2700000000.0,
             },
             "intermediate_frequency": 124000000.0,
         },
-        "Resonant_Laser": {
+        "Laser": {
             "digitalInputs": {
                 "marker": {
-                    "delay": 120,
+                    "delay": 0,
                     "buffer": 0,
-                    "port": ('con1', 1, 7),
+                    "port": ('con1', 1, 1),
                 },
             },
             "digitalOutputs": {},
@@ -560,12 +609,12 @@ loaded_config = {
             },
             "thread": "",
         },
-        "Laser": {
+        "Resonant_Laser": {
             "digitalInputs": {
                 "marker": {
-                    "delay": 120,
+                    "delay": 0,
                     "buffer": 0,
-                    "port": ('con1', 1, 4),
+                    "port": ('con1', 1, 8),
                 },
             },
             "digitalOutputs": {},
@@ -586,9 +635,9 @@ loaded_config = {
         "MW_switch": {
             "digitalInputs": {
                 "marker": {
-                    "delay": 122,
+                    "delay": 0,
                     "buffer": 0,
-                    "port": ('con1', 1, 5),
+                    "port": ('con1', 1, 2),
                 },
             },
             "digitalOutputs": {},
@@ -607,18 +656,21 @@ loaded_config = {
             "thread": "",
         },
         "Detector_OPD": {
-            "digitalInputs": {},
-            "digitalOutputs": {
-                "out1": ('con1', 1, 4),
+            "digitalInputs": {
+                "marker": {
+                    "delay": 28,
+                    "buffer": 0,
+                    "port": ('con1', 1, 3),
+                },
             },
+            "digitalOutputs": {},
             "outputs": {
-                "out1": ('con1', 1, 2),
+                "out1": ('con1', 1, 1),
             },
             "operations": {
                 "readout": "readout_pulse",
                 "min_readout": "min_readout_pulse",
                 "long_readout": "long_readout_pulse",
-                "very_long_readout": "very_long_readout_pulse",
             },
             "hold_offset": {
                 "duration": 0,
@@ -630,16 +682,14 @@ loaded_config = {
             },
             "thread": "",
             "singleInput": {
-                "port": ('con1', 1, 4),
+                "port": ('con1', 1, 1),
             },
             "smearing": 0,
-            "time_of_flight": 308,
+            "time_of_flight": 28,
         },
         "Detector2_OPD": {
             "digitalInputs": {},
-            "digitalOutputs": {
-                "out1": ('con1', 1, 5),
-            },
+            "digitalOutputs": {},
             "outputs": {
                 "out1": ('con1', 1, 2),
             },
@@ -647,7 +697,6 @@ loaded_config = {
                 "readout": "readout_pulse",
                 "min_readout": "min_readout_pulse",
                 "long_readout": "long_readout_pulse",
-                "very_long_readout": "very_long_readout_pulse",
             },
             "hold_offset": {
                 "duration": 0,
@@ -659,10 +708,33 @@ loaded_config = {
             },
             "thread": "",
             "singleInput": {
-                "port": ('con1', 1, 4),
+                "port": ('con1', 1, 1),
             },
             "smearing": 0,
-            "time_of_flight": 308,
+            "time_of_flight": 28,
+        },
+        "Blinding": {
+            "digitalInputs": {
+                "marker": {
+                    "delay": 0,
+                    "buffer": 0,
+                    "port": ('con1', 1, 6),
+                },
+            },
+            "digitalOutputs": {},
+            "outputs": {},
+            "operations": {
+                "Turn_ON": "blinding_ON",
+            },
+            "hold_offset": {
+                "duration": 0,
+            },
+            "sticky": {
+                "analog": False,
+                "digital": False,
+                "duration": 4,
+            },
+            "thread": "",
         },
     },
     "pulses": {
@@ -762,14 +834,21 @@ loaded_config = {
             "digital_marker": "ON",
         },
         "switch_ON": {
-            "length": 100,
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "ON",
+        },
+        "blinding_ON": {
+            "length": 24,
             "waveforms": {},
             "integration_weights": {},
             "operation": "control",
             "digital_marker": "ON",
         },
         "readout_pulse": {
-            "length": 300,
+            "length": 96,
             "waveforms": {
                 "single": "zero_wf",
             },

@@ -91,6 +91,7 @@ class GUI_OPX():
     def __init__(self, simulation: bool = True):
         # HW
 
+        self.list_of_pulse_type = []
         self.times_of_signal = None
         self.counts_handle = None
         self.meas_idx_handle = None
@@ -101,6 +102,7 @@ class GUI_OPX():
         self.scan_default_sleep_time: float = 5e-3
         self.initial_scan_Location: List[float] = []
         self.iteration: int = 0
+        self.iteration_list = []
         self.tracking_function: Callable = None
         self.limit = None
         self.verbose:bool = False
@@ -111,6 +113,7 @@ class GUI_OPX():
         self.max = None
         self.plt_y = None
         self.plt_x = None
+        self.statistics_pulse_type = None
         self.HW = hw_devices.HW_devices()
         self.system_name = self.HW.config.system_type.value
         self.mwModule = self.HW.microwave
@@ -1929,6 +1932,9 @@ class GUI_OPX():
 
     def QUA_PGM_No_Tracking(self):
         with program() as self.quaPGM:
+            self.simulation_flag = declare(bool)
+            assign(self.simulation_flag, self.simulation)
+
             self.n = declare(int)  # iteration variable
             self.n_st = declare_stream()  # stream iteration number
             self.times = declare(int, size=100)
@@ -1944,6 +1950,7 @@ class GUI_OPX():
             self.j_idx = declare(int)  # iteration variable
             self.k_idx = declare(int)  # iteration variable
             self.offset = declare(int) # variables used for iteration assignment
+            self.pulse_type = declare(int)
 
             self.site_state = declare(int)  # site preperation state
             self.m_state = declare(int)  # measure state
@@ -1974,6 +1981,7 @@ class GUI_OPX():
             # stream parameters
             self.counts_st = declare_stream()  # experiment signal
             self.times_st = declare_stream()  # times during experiment signal
+            self.pulse_type_st = declare_stream()
             self.counts_st2 = declare_stream()  # experiment signal for the second detector
             self.counts_ref_st = declare_stream()  # reference signal
             self.counts_ref2_st = declare_stream()  # reference signal
@@ -1981,7 +1989,7 @@ class GUI_OPX():
 
             # with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
             #     assign(self.counts_ref[self.idx], 0)
-
+            self.n_avg = 10
             with for_(self.n, 0, self.n < self.n_avg, self.n + 1):  # AVG loop
                 # reset vectors
                 with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
@@ -1999,26 +2007,35 @@ class GUI_OPX():
                     assign(self.sequenceState, IO1)
                     with if_(self.sequenceState == 0):
                         update_frequency("MW", self.f)
-                        self.statistics_pulse_type = "xPulse"  # pi pulse type for statistics measurement (X ot Y)
+                        # pi pulse type for statistics measurement (X ot Y)
                         self.execute_QUA()
-
+                        if self.statistics_pulse_type == "xPulse":
+                            assign(self.pulse_type, 0)
+                        elif self.statistics_pulse_type == "yPulse":
+                            assign(self.pulse_type, 1)
                 # stream
                 with if_(self.sequenceState == 0):
                     with for_(self.idx, 0, self.idx < self.vectorLength,
                               self.idx + 1):  # in shuffle all elements need to be saved later to send to the stream
-                        save(self.times[self.idx], self.times_st[self.idx])
-                        save(self.counts[self.idx], self.counts_st[self.idx])
-                        save(self.counts2[self.idx], self.counts_st2[self.idx])
+                        save(self.counts[self.idx], self.counts_st)
+                        save(self.counts2[self.idx], self.counts_st2)
+                    with for_(self.idx, 0, self.idx < self.counts[0],self.idx + 1):
+                        save(self.times[self.idx], self.times_st)
                 save(self.n, self.n_st)  # save number of iteration inside for_loop
                 save(self.tracking_signal, self.tracking_signal_st)  # save number of iteration inside for_loop
+                save(self.pulse_type, self.pulse_type_st)
 
             with stream_processing():
-                self.n_st.save("iteration")
+                # It makes sense to use save instead of save_all since stream_processing work parallel to sequence
+                self.n_st.save_all("iteration_list")
                 self.times_st.save_all("times")
                 self.counts_st.save_all("counts")
                 self.counts_st2.save_all("statistics_counts")
+                self.pulse_type_st.save_all("pulse_type")
                 #self.times_st.histogram([[i, i + 1] for i in range(0, self.tMeasure)]).save("times_hist")
         if not self.simulation:
+            self.qm, self.job = self.QUA_execute()
+        elif self.simulation and self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
             self.qm, self.job = self.QUA_execute()
     def execute_QUA(self):
         if self.exp == Experiment.NUCLEAR_POL_ESR:
@@ -2390,19 +2407,18 @@ class GUI_OPX():
 
             # Updated experiment parameters
             self.MeasProcessTime = 96  # [nsec], time required for measure element to finish process
-            self.tPump = 5000  # [nsec]
+            self.Tpump = 5000  # [nsec]
             self.t_mw = 20  # [nsec]
-            self.t_blinding = 24 # [nsec]
+            self.t_blinding_pump = 5000 # First blinding, to cover the detector before the first measure
 
             # sequence parameters.
-            self.tLaser = self.time_in_multiples_cycle_time(self.tPump) // 4
+            self.tLaser = self.time_in_multiples_cycle_time(self.Tpump) // 4
             self.tMeasure = self.time_in_multiples_cycle_time(
                 self.MeasProcessTime) // 4  # Measurement time of the detector
             self.tWaitTimeGateSuppression = self.time_in_multiples_cycle_time(
                 self.TwaitTimeBin) // 4  # This returns 16ns
             self.tWaitDectorMeasure = self.time_in_multiples_cycle_time(self.TwaitTimeBinMeasure) // 4
             self.tWaitfroblinding = self.time_in_multiples_cycle_time(self.TwaitForBlinding) // 4
-            self.tBlinding = self.time_in_multiples_cycle_time(self.t_blinding) // 4
 
             # New red laser parameters:
             self.tRed = self.time_in_multiples_cycle_time(self.TRed) // 4
@@ -2413,44 +2429,57 @@ class GUI_OPX():
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw) // 4
             self.tMWPiHalf = self.time_in_multiples_cycle_time(self.t_mw / 2) // 4
 
+            self.tBlinding_pump = self.tLaser + self.tMWPiHalf + self.tRed
+            self.tBlinding = self.tRed + self.tMW # Second blinding, between the first and second measurement bin
+            self.tBlinding_statistics = self.tMWPiHalf # Third blinding, at the start of statistics part, before measure()
+
             # length and idx vector
             self.vectorLength = 1  # Length of the counts vector
             self.idx_vec = np.arange(0, self.vectorLength, 1)  # indexes vector for fetch and plot
             self.number_of_statistical_measurements = 1000
+            self.statistics_pulse_type = "xPulse"
 
         if Generate_QUA_sequance:
             time_tagger = self.get_time_tagging_func("Detector_OPD")
             # In the first part of the experiment we want information on the timing of the photon arrivals.
             # Only one photon can be recorded at the detector at a time
             play("Turn_ON", "Laser", duration=self.tLaser)
+            play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
             align("Laser", "MW")
             play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
             align("MW", "Resonant_Laser")
             play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-            align("Resonant_Laser", "Detector_OPD")
             # Records #self.times at points where self.counts_tmp is recorded
             # self.times is NOT a vector of length self.tMeasure
             # self.counts_tmp stores the total number of photon arrivals as an integer
-            measure("readout", "Detector_OPD", None,time_tagger(self.times, int(self.tMeasure), self.counts_tmp))
-            assign(self.counts[self.idx],self.counts[self.idx]+self.counts_tmp)
-            align("Resonant_Laser", "Blinding")
-            wait(self.tWaitfroblinding)
-            play("Turn_ON", "Blinding", duration=self.tBlinding)
-            align("Resonant_Laser", "MW")
-            wait(self.tWaitDectorMeasure) # only for simulator
-            play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
-            align("MW", "Resonant_Laser")
-            play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-            align()
-            # In the second half of the experiment we want the number of counts and not their timing
-            play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
-            align("MW", "Resonant_Laser")
-            #Insert an if condition here in the future
-            play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
-            align("MW", "Detector2_OPD")
-            measure("min_readout", "Detector2_OPD", None,
-                    time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
-            assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
+            with if_(self.simulation_flag):
+                assign(self.counts[self.idx], 2)
+                with for_(self.j_idx, 0, self.j_idx < self.counts[self.idx], self.j_idx + 1):
+                    assign(self.times[self.j_idx],self.j_idx*10)
+                assign(self.counts2[self.idx], 15)
+            with else_():
+                align("Resonant_Laser", "Detector_OPD")
+                measure("readout", "Detector_OPD", None,time_tagger(self.times, int(self.tMeasure), self.counts_tmp))
+                assign(self.counts[self.idx],self.counts[self.idx]+self.counts_tmp)
+                align("Resonant_Laser", "Blinding")
+                wait(self.tWaitfroblinding)
+                play("Turn_ON", "Blinding", duration=self.tBlinding)
+                align("Resonant_Laser", "MW")
+                #wait(self.tWaitDectorMeasure) # only for simulator
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+                align("MW", "Resonant_Laser")
+                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                align()
+                # Insert an if condition here in the future
+                # In the second half of the experiment we want the number of counts and not their timing
+                play("Turn_ON", "Blinding", duration=self.tBlinding_statistics)
+                play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                align("MW", "Resonant_Laser")
+                play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
+                align("MW", "Detector2_OPD")
+                measure("min_readout", "Detector2_OPD", None,
+                        time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
+                assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
 
         if execute_qua:
             self.time_bin_entanglement_QUA_PGM(generate_params=True)
@@ -5280,7 +5309,7 @@ class GUI_OPX():
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
 
     def FetchData(self):
-        if not self.simulation:
+        # if not self.simulation:
             self.refSignal = 0
             if self.bEnableSignalIntensityCorrection:  # prepare search maxI thread
                 self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
@@ -5304,7 +5333,9 @@ class GUI_OPX():
                 self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration","tracking_ref"], mode="live")
             elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
                 # if not self.simulation:
-                self.results = fetching_tool(self.job, data_list=["iteration","times","counts","statistics_counts"], mode="live")
+                # if self.simulation:
+                #     self.job = JobTesting_OPX.MockJob()
+                self.results = fetching_tool(self.job, data_list=["iteration_list","times","counts","statistics_counts","pulse_type"], mode="live")
                 # else:
                 #     counts = create_counts_vector(vector_size=96)
                 #     self.results = fetching_tool(job = JobTesting_OPX.MockJob(counts), data_list=["counts"], mode="live")
@@ -5392,20 +5423,21 @@ class GUI_OPX():
                     self.SearchPeakIntensity()
                     self.Common_updateGraph(_xLabel="index")
                 if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-                    # Rewrite everything below
-                    dpg.set_item_label("graphXY",
-                                       f"{self.exp.name}")
-                    dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                    dpg.set_value("series_counts_statistics", [self.X_vec, self.Y_vec_2])
-                    dpg.set_item_label("series_counts", "time_bin val")
-                    dpg.set_item_label("series_counts_statistics", "_")
-                    dpg.set_item_label("y_axis", "events")
-                    dpg.set_item_label("x_axis", "dt [nsec]")
-                    dpg.fit_axis_data('x_axis')
-                    dpg.fit_axis_data('y_axis')
-
-                    dpg.bind_item_theme("series_counts", "LineYellowTheme")
-                    dpg.bind_item_theme("series_counts_statistics", "LineMagentaTheme")
+                    print("14")
+                    # # Rewrite everything below
+                    # dpg.set_item_label("graphXY",
+                    #                    f"{self.exp.name}")
+                    # dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
+                    # dpg.set_value("series_counts_statistics", [self.X_vec, self.Y_vec_2])
+                    # dpg.set_item_label("series_counts", "time_bin val")
+                    # dpg.set_item_label("series_counts_statistics", "_")
+                    # dpg.set_item_label("y_axis", "events")
+                    # dpg.set_item_label("x_axis", "dt [nsec]")
+                    # dpg.fit_axis_data('x_axis')
+                    # dpg.fit_axis_data('y_axis')
+                    #
+                    # dpg.bind_item_theme("series_counts", "LineYellowTheme")
+                    # dpg.bind_item_theme("series_counts_statistics", "LineMagentaTheme")
                 if self.exp == Experiment.G2:
                     dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}, Totalounts = {round(self.g2_totalCounts, 0)}")
                     dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
@@ -5433,34 +5465,36 @@ class GUI_OPX():
                     folder = "d:/temp/"
                     if not os.path.exists(folder):
                         folder = "c:/temp/"
+                        if not os.path.exists(folder):
+                            folder = None
                     self.btnSave(folder=folder)
 
                     lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
 
                 if self.StopFetch:
                     break
-        elif self.simulation:
-            if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-                counts = create_counts_vector(vector_size=96)
-                self.iteration = np.arange(1,)
-                self.X_vec = self.idx_vec.tolist()
-                self.Y_vec = counts.tolist()
-                self.Y_vec_2 = counts.tolist()
-                dpg.set_item_label("graphXY", f"{self.exp.name},  Total Counts = {np.sum(counts)}")
-                dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                dpg.set_item_label("series_counts", "det_1")
-                dpg.set_item_label("y_axis", "Counts")
-                dpg.set_item_label("x_axis", "time [ns]")
-                dpg.fit_axis_data('x_axis')
-                dpg.fit_axis_data('y_axis')
-                dpg.bind_item_theme("series_counts", "LineYellowTheme")
-
-            folder = "d:/temp/"
-            if not os.path.exists(folder):
-                folder = "c:/temp/"
-                if not os.path.exists(folder):
-                    folder = None
-            self.btnSave(folder=folder)
+        # elif self.simulation:
+        #     if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+        #         counts = create_counts_vector(vector_size=96)
+        #         self.iteration = np.arange(1,)
+        #         self.X_vec = self.idx_vec.tolist()
+        #         self.Y_vec = counts.tolist()
+        #         self.Y_vec_2 = counts.tolist()
+        #         dpg.set_item_label("graphXY", f"{self.exp.name},  Total Counts = {np.sum(counts)}")
+        #         dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
+        #         dpg.set_item_label("series_counts", "det_1")
+        #         dpg.set_item_label("y_axis", "Counts")
+        #         dpg.set_item_label("x_axis", "time [ns]")
+        #         dpg.fit_axis_data('x_axis')
+        #         dpg.fit_axis_data('y_axis')
+        #         dpg.bind_item_theme("series_counts", "LineYellowTheme")
+        #
+        #     folder = "d:/temp/"
+        #     if not os.path.exists(folder):
+        #         folder = "c:/temp/"
+        #         if not os.path.exists(folder):
+        #             folder = None
+        #     self.btnSave(folder=folder)
 
     def GlobalFetchData(self):
         self.lock.acquire()
@@ -5474,7 +5508,7 @@ class GUI_OPX():
         elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.iteration, self.times_of_signal, self.signal, self.statistics_signal = self.results.fetch_all()
+            self.iteration_list, self.times_of_signal, self.signal, self.statistics_signal, self.type_of_pulse = self.results.fetch_all()
         else:
             self.signal, self.ref_signal, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
 
@@ -5588,14 +5622,23 @@ class GUI_OPX():
             self.Y_vec = self.g2Vec#*self.iteration
 
         if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.X_vec = self.iteration #index, generated at time_bin_QUA_PGM
-            if not self.simulation:
-                self.Y_vec = self.counts
-                self.Y_vec_2 = self.statistics_signal
-            elif self.simulation:
-                counts = create_counts_vector(vector_size=96)
-                self.Y_vec = counts
-                self.Y_vec_2 = counts
+            offset = 0
+            times_by_measurement = []
+            for i in range(np.size(self.type_of_pulse)):
+                if self.type_of_pulse[i] == 0:
+                    self.list_of_pulse_type.append("xPulse")
+                elif self.type_of_pulse[1] == 1:
+                    self.list_of_pulse_type.append("yPulse")
+            for counts in self.signal:
+                if counts > 0:
+                    relevant_times = self.times_of_signal[offset: offset + counts]
+                    times_by_measurement.append(relevant_times)
+                    offset += counts
+                else:
+                    times_by_measurement.append([])
+            self.X_vec = times_by_measurement
+            self.Y_vec = self.signal
+            self.Y_vec_2 = self.statistics_signal
         self.lock.release()
 
     def btnStartG2(self):
@@ -5760,6 +5803,11 @@ class GUI_OPX():
 
     def btnStartTimeBinEntanglement(self):
         self.exp = Experiment.TIME_BIN_ENTANGLEMENT
+        if self.simulation:
+            self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster,
+                                              timeout=60)  # in seconds
+            time.sleep(1)
+            self.close_qm_jobs()
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         # self.mw_freq = self.mw_freq_resonance-0.001 # [GHz]
@@ -5979,8 +6027,11 @@ class GUI_OPX():
             # raw data
             if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
                 #Modify below to have some pre-post-processed data for further data analysis
-                a = np.array([145])
-                RawData_to_save = {'Iteration':self.iteration, 'Time': self.X_vec, 'Counts': self.Y_vec, 'Counts_stat': self.Y_vec_2, 'AWG_freq[HZ]': a.tolist(), 'Pulse_type': self.statistics_pulse_type.split()}
+                if self.simulation:
+                    a = np.array([145])
+                    RawData_to_save = {'Iteration':self.iteration_list.tolist(), 'Times': self.X_vec, 'Total_Counts': self.Y_vec.tolist(), 'Counts_stat': self.Y_vec_2.tolist(), 'AWG_freq[HZ]': a.tolist(), 'Pulse_type': self.list_of_pulse_type}
+                else:
+                    RawData_to_save = {'Iteration':self.iteration_list, 'Times': self.X_vec, 'Total_Counts': self.Y_vec.tolist(), 'Counts_stat': self.Y_vec_2.tolist(), 'AWG_freq[HZ]': self.awg.get_frequency(), 'Pulse_type': self.statistics_pulse_type.split()}
             else:
                 RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
@@ -5988,7 +6039,7 @@ class GUI_OPX():
             print(f"CSV file saved to {fileName}.csv")
 
             # save data as image (using matplotlib)
-            if folder is None:
+            if folder is None and self.exp != Experiment.TIME_BIN_ENTANGLEMENT:
                 width = 1920  # Set the width of the image
                 height = 1080  # Set the height of the image
                 # Create a blank figure with the specified width and height, Convert width and height to inches
