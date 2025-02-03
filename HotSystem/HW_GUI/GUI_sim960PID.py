@@ -911,6 +911,8 @@ class GUISIM960:
         self.on_measurement_update(True,time_values,input_values)
         self.on_measurement_update(False, time_values, output_values)
 
-
     def reset_graphs(self):
-       pass
+       self.dev.time_values = []
+       self.dev.input_values = []
+       self.dev.output_values = []
+       self.dev.measurement_observable.set([[],[],[]])

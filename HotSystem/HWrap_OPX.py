@@ -5161,7 +5161,6 @@ class GUI_OPX():
             meas_idx_st = declare_stream()
 
             pulsesTriggerDelay = 5000000 // 4
-            init_pulse_time = self.tPump // 4
             sequenceState = declare(int, value=0)
             triggerTh = declare(int, value=triggerThreshold)
             assign(IO2, 0)
@@ -5249,9 +5248,12 @@ class GUI_OPX():
                         with for_(n, 0, n < self.n_avg, n + 1):
                             play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=init_pulse_time)
                             align()
-                            wait(t_wait_after_init)
+                            wait(t_wait_after_init-28//4)
+                            # we have 28ns delay between measure command and actual measure start due to tof delay
+                            measure("readout", "Detector_OPD", None,
+                                    time_tagging.digital(times, single_integration_time+10, counts))
+                            wait(9)
                             play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value,duration=laser_on_duration)
-                            measure("readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
                             align()
                             assign(total_counts, total_counts + counts)
                         save(total_counts, counts_st)
@@ -6784,7 +6786,11 @@ class GUI_OPX():
                         if not self.simulation:
                             # Trigger measurement
                             self.qm.set_io2_value(self.ScanTrigger)
-                            time.sleep(self.total_integration_time * 1e-3 + 1e-3)
+                            if self.exp == Experiment.PLE:
+                                sleep_time = (self.total_integration_time * 1e-3 + self.Tpump*1e-9) * (self.n_avg+1) + self.Tpump*1e-9 + 6e-3
+                            else:
+                                sleep_time = (self.total_integration_time * 1e-3 + self.Tpump * 1e-9) + self.Tpump*1e-9 + 1e-3
+                            time.sleep(sleep_time)
 
                         if not is_not_ple: # Only in PLE
                             current_measurement=0
