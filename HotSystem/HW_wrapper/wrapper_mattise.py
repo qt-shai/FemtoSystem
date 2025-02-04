@@ -24,9 +24,9 @@ class SirahMatisse:
         self.simulation = simulation
 
         self.scan_device = "Slow Piezo"
-        self.scan_range = 200
+        self.scan_range = 9000
         self.scan_speed = 100.0
-        self.num_scan_points = 10
+        self.num_scan_points = 100
         self.slow_piezo_to_mhz = 81500.0
         self.ref_cell_to_mhz = 81500.0
         self.check_srs_stability = False

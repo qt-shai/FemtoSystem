@@ -88,6 +88,7 @@ class GUI_OPX():
     def __init__(self, simulation: bool = False):
         # HW
 
+        self.ref_counts_handle = None
         self.mattise_frequency_offset: float = 0
         self.job = None
         self.qm = None
@@ -6533,6 +6534,7 @@ class GUI_OPX():
     def start_scan_general(self, move_abs_fn, read_in_pos_fn, get_positions_fn, device_reset_fn, x_vec=None, y_vec=None,
                            z_vec=None, current_experiment=Experiment.SCAN, is_not_ple=True, meas_continuously=False,
                            check_srs_stability=False):
+        self.refSignal = 0
 
         x_vec = x_vec if x_vec else []
         y_vec = y_vec if y_vec else []
@@ -6665,6 +6667,7 @@ class GUI_OPX():
                 return
 
             self.counts_handle = res_handles.get("counts_scanLine")
+            self.ref_counts_handle = res_handles.get("counts_Ref")
             self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
 
         # Example: offset for X start
@@ -6699,7 +6702,6 @@ class GUI_OPX():
 
         def perform_scan_pass(Nx, Ny, Nz, continuous=False,check_srs_stability=True,):
             nonlocal z_correction_previous, previousMeas_idx, meas_idx
-
             # For time estimations
             pass_start_time = time.time()
             current_positions_array = []
@@ -6803,6 +6805,9 @@ class GUI_OPX():
                                 time.sleep(0.1)
                                 meas_idx = self.meas_idx_handle.fetch_all()
                                 current_measurement=self.counts_handle.fetch_all()
+                                self.tracking_ref = self.ref_counts_handle.fetch_all()/5
+                                if self.refSignal == 0:
+                                    self.refSignal = self.tracking_ref / self.TrackingThreshold
                                 self.qmm.clear_all_job_results()
 
                             current_measurement = current_measurement / self.total_integration_time * 1e3 / self.n_avg
@@ -6822,11 +6827,11 @@ class GUI_OPX():
                                 self.X_vec[i] = round(current_positions_array[i] / 1e6, 2)  # Convert to MHz
 
                             self.generate_x_y_vectors_for_average()
-                            self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts]")
+                            self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts/s]")
                             # if type(current_measurement) == int:
                             #     current_measurement=[-1]
 
-                            self.scan_Out.append([current_positions_array[ix],  -1, -1,current_measurement,self.V_scan[0][ix],-1,-1])
+                            self.scan_Out.append([current_positions_array[ix],  -1, -1,current_measurement,self.V_scan[0][ix],-1,-1,self.tracking_ref ])
                     # End X loop
                     if self.stopScan:
                         break
@@ -7147,6 +7152,8 @@ class GUI_OPX():
             RawData_to_save = {'X': Scan_array[-Nx:, 0].tolist(), 'Y': Scan_array[-Nx:, 1].tolist(), 'Z': Scan_array[-Nx:, 2].tolist(),
                                'Intensity': Scan_array[-Nx:, 3].tolist(), 'Xexpected': Scan_array[-Nx:, 4].tolist(), 'Yexpected': Scan_array[-Nx:, 5].tolist(),
                                'Zexpected': Scan_array[-Nx:, 6].tolist(), }
+            if np.shape(Scan_array)[1] > 7:
+                RawData_to_save['Ref_signal'] = Scan_array[-Nx:, 7].tolist()
         else:
             RawData_to_save = {'X': Scan_array[:, 0].tolist(), 'Y': Scan_array[:, 1].tolist(), 'Z': Scan_array[:, 2].tolist(),
             'Intensity': Scan_array[:, 3].tolist(), 'Xexpected': Scan_array[:, 4].tolist(), 'Yexpected': Scan_array[:, 5].tolist(),
