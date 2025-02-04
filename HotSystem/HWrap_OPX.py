@@ -2406,15 +2406,14 @@ class GUI_OPX():
                                         asInt=False)  # Don't need it, but QUA_PGM requires it
 
             # Updated experiment parameters
-            self.MeasProcessTime = 96  # [nsec], time required for measure element to finish process
+            self.collection_time = 25 # time of light collection in a single bin in ns
+            self.red_laser_wait = 3 # time to wait after shooting a red laser pulse in ns
             self.Tpump = 5000  # [nsec]
-            self.t_mw = 20  # [nsec]
+            self.t_mw = 32  # [nsec]
             self.t_blinding_pump = 5000 # First blinding, to cover the detector before the first measure
 
             # sequence parameters.
             self.tLaser = self.time_in_multiples_cycle_time(self.Tpump) // 4
-            self.tMeasure = self.time_in_multiples_cycle_time(
-                self.MeasProcessTime) // 4  # Measurement time of the detector
             self.tWaitTimeGateSuppression = self.time_in_multiples_cycle_time(
                 self.TwaitTimeBin) // 4  # This returns 16ns
             self.tWaitDectorMeasure = self.time_in_multiples_cycle_time(self.TwaitTimeBinMeasure) // 4
@@ -2428,51 +2427,58 @@ class GUI_OPX():
             # MW parameters
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw) // 4
             self.tMWPiHalf = self.time_in_multiples_cycle_time(self.t_mw / 2) // 4
+            # Change to time between blidning and MW
+            self.time_to_next_MW = self.time_in_multiples_cycle_time(self.collection_time + self.red_laser_wait)//4
 
-            self.tBlinding_pump = self.tLaser + self.tMWPiHalf + self.tRed
-            self.tBlinding = self.tRed + self.tMW # Second blinding, between the first and second measurement bin
+            self.tBlinding_pump = self.tLaser + self.tMWPiHalf + 1 # +1 to prevent recording laser light
+            self.tBlinding = self.tMW + 1# Second blinding, between the first and second measurement bin
             self.tBlinding_statistics = self.tMWPiHalf # Third blinding, at the start of statistics part, before measure()
 
             # length and idx vector
+            #Move to qua units below
+            self.MeasProcessTime = self.tMWPiHalf + 4 + 28 + self.tMW + 4 + 56# time required of measure, 4 is red laser trigger+2ns wait
+            # self.tMeasure = self.time_in_multiples_cycle_time(
+            #     self.MeasProcessTime) // 4  # Measurement time of the detector
             self.vectorLength = 1  # Length of the counts vector
             self.idx_vec = np.arange(0, self.vectorLength, 1)  # indexes vector for fetch and plot
             self.number_of_statistical_measurements = 1000
             self.statistics_pulse_type = "xPulse"
 
         if Generate_QUA_sequance:
-            time_tagger = self.get_time_tagging_func("Detector_OPD")
-            # In the first part of the experiment we want information on the timing of the photon arrivals.
-            # Only one photon can be recorded at the detector at a time
-            play("Turn_ON", "Laser", duration=self.tLaser)
-            play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
-            align("Laser", "MW")
-            play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
-            align("MW", "Resonant_Laser")
-            play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-            # Records #self.times at points where self.counts_tmp is recorded
-            # self.times is NOT a vector of length self.tMeasure
-            # self.counts_tmp stores the total number of photon arrivals as an integer
             with if_(self.simulation_flag):
                 assign(self.counts[self.idx], 2)
                 with for_(self.j_idx, 0, self.j_idx < self.counts[self.idx], self.j_idx + 1):
                     assign(self.times[self.j_idx],self.j_idx*10)
                 assign(self.counts2[self.idx], 15)
             with else_():
-                align("Resonant_Laser", "Detector_OPD")
-                measure("readout", "Detector_OPD", None,time_tagger(self.times, int(self.tMeasure), self.counts_tmp))
+                time_tagger = self.get_time_tagging_func("Detector_OPD")
+                # In the first part of the experiment we want information on the timing of the photon arrivals.
+                # Only one photon can be recorded at the detector at a time
+                play("Turn_ON", "Laser", duration=self.tLaser)
+                play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
+                align("Laser", "MW")
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                align("MW", "Resonant_Laser")
+                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                # Records #self.times at points where self.counts_tmp is recorded
+                # self.times is NOT a vector of length self.tMeasure
+                # self.counts_tmp stores the total number of photon arrivals as an integer
+                align("Laser", "Detector_OPD")
+                measure("readout", "Detector_OPD", None,time_tagger(self.times, int(self.MeasProcessTime/4), self.counts_tmp))
                 assign(self.counts[self.idx],self.counts[self.idx]+self.counts_tmp)
-                align("Resonant_Laser", "Blinding")
-                wait(self.tWaitfroblinding)
+                align("Laser","MW") # For some reason align does not work properly with Blinding, fix later
+                align("Blinding", "MW")
+                wait(self.time_to_next_MW - 3) # 25ns delay + 3ns to prevent laser light collection. Currently works, no idea why
+                # wait(self.tWaitDectorMeasure) # only for OPX simulator
                 play("Turn_ON", "Blinding", duration=self.tBlinding)
-                align("Resonant_Laser", "MW")
-                #wait(self.tWaitDectorMeasure) # only for simulator
                 play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
                 align("MW", "Resonant_Laser")
                 play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-                align()
+                align("Resonant_Laser", "Blinding")
+                #wait(self.tWaitfroblinding)
+                align("Detector_OPD", "MW")
                 # Insert an if condition here in the future
                 # In the second half of the experiment we want the number of counts and not their timing
-                play("Turn_ON", "Blinding", duration=self.tBlinding_statistics)
                 play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
                 align("MW", "Resonant_Laser")
                 play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)

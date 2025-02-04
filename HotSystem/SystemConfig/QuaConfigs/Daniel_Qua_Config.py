@@ -12,7 +12,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
 
         # Pulses lengths
         self.initialization_len = 5000  # in ns
-        self.meas_len = 96  # in ns
+        self.meas_len = 40  # in ns
         self.minimal_meas_len = 16  # in ns
         self.long_meas_len = 5e3  # in ns
         self.very_long_meas_len = 25e3  # in ns
@@ -176,7 +176,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "digitalInputs": {
                     "marker": {
                         "port": ("con1", 3),
-                        "delay": self.detection_delay,
+                        "delay": 0,
                         "buffer": 0,
                     },
                 },
