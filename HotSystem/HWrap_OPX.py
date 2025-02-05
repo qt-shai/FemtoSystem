@@ -2464,7 +2464,7 @@ class GUI_OPX():
                 # self.times is NOT a vector of length self.tMeasure
                 # self.counts_tmp stores the total number of photon arrivals as an integer
                 align("Laser", "Detector_OPD")
-                measure("readout", "Detector_OPD", None,time_tagger(self.times, int(self.MeasProcessTime/4), self.counts_tmp))
+                measure("readout", "Detector_OPD", None,time_tagger(self.times, int(self.MeasProcessTime), self.counts_tmp))
                 assign(self.counts[self.idx],self.counts[self.idx]+self.counts_tmp)
                 align("Laser","MW") # For some reason align does not work properly with Blinding, fix later
                 align("Blinding", "MW")
@@ -5281,6 +5281,8 @@ class GUI_OPX():
             if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
                 dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
+            if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+                dpg.set_value("Statistical counts", [self.X_vec, self.Y_vec_2])
             dpg.set_item_label("y_axis", _yLabel)
             dpg.set_item_label("x_axis", _xLabel)
             dpg.fit_axis_data('x_axis')
@@ -5429,7 +5431,10 @@ class GUI_OPX():
                     self.SearchPeakIntensity()
                     self.Common_updateGraph(_xLabel="index")
                 if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-                    print("14")
+                    # No MOCU since Shai said it is not yet tested
+                    self.SearchPeakIntensity()
+                    self.check_srs_stability()
+                    self.Common_updateGraph(_xLabel="times",_yLabel="counts")
                     # # Rewrite everything below
                     # dpg.set_item_label("graphXY",
                     #                    f"{self.exp.name}")
@@ -5630,6 +5635,10 @@ class GUI_OPX():
         if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
             offset = 0
             times_by_measurement = []
+            counts_vector = np.ones(np.size(self.signal))
+            self.counts_in_bin1 = []
+            self.counts_in_bin2 = []
+            self.counts_in_bin3 = []
             for i in range(np.size(self.type_of_pulse)):
                 if self.type_of_pulse[i] == 0:
                     self.list_of_pulse_type.append("xPulse")
@@ -5642,8 +5651,16 @@ class GUI_OPX():
                     offset += counts
                 else:
                     times_by_measurement.append([])
+            for time_tag in times_by_measurement:
+                # Timing are according to the blinking in the measure command
+                if 20 <= time_tag < 48:
+                    self.counts_in_bin1.append([1])
+                elif 84 <= time_tag < 112:
+                    self.counts_in_bin2.append([1])
+                elif 112 <= time_tag < 140:
+                    self.counts_in_bin3.append([1])
             self.X_vec = times_by_measurement
-            self.Y_vec = self.signal
+            self.Y_vec = counts_vector
             self.Y_vec_2 = self.statistics_signal
         self.lock.release()
 
@@ -6035,9 +6052,15 @@ class GUI_OPX():
                 #Modify below to have some pre-post-processed data for further data analysis
                 if self.simulation:
                     a = np.array([145])
-                    RawData_to_save = {'Iteration':self.iteration_list.tolist(), 'Times': self.X_vec, 'Total_Counts': self.Y_vec.tolist(), 'Counts_stat': self.Y_vec_2.tolist(), 'AWG_freq[HZ]': a.tolist(), 'Pulse_type': self.list_of_pulse_type}
+                    RawData_to_save = {'Iteration':self.iteration_list.tolist(), 'Times': self.X_vec, 'Total_Counts': self.signal.tolist(),
+                                       'Counts_stat': self.Y_vec_2.tolist(),'Counts_Bin_1':self.counts_in_bin1,'Counts_Bin_2':self.counts_in_bin2,'Counts_Bin_3':self.counts_in_bin3,
+                                       'AWG_freq[HZ]': a.tolist(), 'Pulse_type': self.list_of_pulse_type}
                 else:
-                    RawData_to_save = {'Iteration':self.iteration_list, 'Times': self.X_vec, 'Total_Counts': self.Y_vec.tolist(), 'Counts_stat': self.Y_vec_2.tolist(), 'AWG_freq[HZ]': self.awg.get_frequency(), 'Pulse_type': self.statistics_pulse_type.split()}
+                    RawData_to_save = {'Iteration': self.iteration_list, 'Times': self.X_vec,
+                                       'Total_Counts': self.signal.tolist(),
+                                       'Counts_stat': self.Y_vec_2.tolist(), 'Counts_Bin_1': self.counts_in_bin1,
+                                       'Counts_Bin_2': self.counts_in_bin2, 'Counts_Bin_3': self.counts_in_bin3,
+                                       'AWG_freq[HZ]': [self.awg.get_frequency()], 'Pulse_type': self.statistics_pulse_type.split()}
             else:
                 RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
@@ -7469,6 +7492,14 @@ class GUI_OPX():
                 self.MAxSignalTh.start()
             elif (not (self.MAxSignalTh.is_alive())):
                 self.refSignal = self.refSignal if self.refSignal > self.tracking_ref else self.tracking_ref
+
+    def check_srs_stability(self):
+        if self.bEnableSignalIntensityCorrection:
+            while not self.HW.SRS_PID_list[0].is_stable:
+                if self.stopScan:
+                    return False
+                print("Waiting for SRS to stabilize")
+                time.sleep(1)
 
     def format_time(self, seconds):
         """

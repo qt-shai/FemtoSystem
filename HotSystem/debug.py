@@ -1,5 +1,5 @@
 
-# Single QUA script generated at 2025-02-03 18:19:52.633276
+# Single QUA script generated at 2025-02-05 10:39:51.112341
 # QUA library version: 1.2.1
 
 from qm import CompilerOptionArguments
@@ -26,7 +26,7 @@ with program() as prog:
     v15 = declare(int, )
     v16 = declare(int, )
     v17 = declare(int, )
-    v18 = declare(bool, value=True)
+    v18 = declare(bool, value=False)
     v19 = declare(int, value=0)
     v20 = declare(int, )
     v21 = declare(int, value=0)
@@ -40,7 +40,7 @@ with program() as prog:
     v24 = declare(int, )
     v25 = declare(int, )
     v26 = declare(int, )
-    v27 = declare(int, value=34395265)
+    v27 = declare(int, value=75489443)
     assign(v1, False)
     with for_(v2,0,(v2<10),(v2+1)):
         with for_(v23,0,(v23<1),(v23+1)):
@@ -70,7 +70,7 @@ with program() as prog:
                     align("MW", "Resonant_Laser")
                     play("Turn_ON", "Resonant_Laser", duration=4)
                     align("Laser", "Detector_OPD")
-                    measure("readout", "Detector_OPD", None, time_tagging.analog(a1, 26, v14, ""))
+                    measure("readout", "Detector_OPD", None, time_tagging.analog(a1, 104, v14, ""))
                     assign(a4[v23], (a4[v23]+v14))
                     align("Laser", "MW")
                     align("Blinding", "MW")
@@ -389,7 +389,7 @@ config = {
         },
         "readout_pulse": {
             "operation": "measurement",
-            "length": 40,
+            "length": 140,
             "digital_marker": "ON",
             "waveforms": {
                 "single": "zero_wf",
@@ -853,7 +853,7 @@ loaded_config = {
             "digital_marker": "ON",
         },
         "readout_pulse": {
-            "length": 40,
+            "length": 140,
             "waveforms": {
                 "single": "zero_wf",
             },
