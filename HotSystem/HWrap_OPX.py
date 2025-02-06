@@ -565,7 +565,7 @@ class GUI_OPX():
         pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.4)]
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
 
-        dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1,
+        dpg.add_window(label=self.window_tag, tag=self.window_tag,no_title_bar=True, height=-1, width=-1,
                        pos=[int(pos[0]), int(pos[1])])
         dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
         dpg.add_plot(label="Graph", width=int(win_size[0]), height=int(win_size[1]), crosshairs=True, tag="graphXY",
