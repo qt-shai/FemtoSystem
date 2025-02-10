@@ -33,7 +33,7 @@ from HW_GUI.GUI_wavemeter import GUIWavemeter
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
 from HW_GUI.GUI_sim960PID import GUISIM960
-from HWrap_OPX import GUI_OPX
+from HWrap_OPX import GUI_OPX, Experiment
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Utils.Common import calculate_z_series
 from Window import Window_singleton
@@ -550,6 +550,7 @@ class PyGuiOverlay(Layer):
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
     def Callback_mouse_drag(self,sender,app_data):
+        self.separate_screen_into_parts("OPX Window")
         if False:
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
@@ -660,8 +661,9 @@ class PyGuiOverlay(Layer):
     def on_attach(self):
 
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
-        self.create_focus_buttons()
+        self.setup_main_exp_buttons()
         self.setup_instruments()
+        dpg.focus_item("MainWindow")
 
 
     def setup_instruments(self) -> None:
@@ -748,6 +750,7 @@ class PyGuiOverlay(Layer):
                     self.opx.controls()
                     self.create_bring_window_button(self.opx.window_tag, button_label="OPX", tag="OPX_button",
                                                     parent="focus_group")
+                    self.create_sequencer_button()
                     dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
 
@@ -1425,13 +1428,76 @@ class PyGuiOverlay(Layer):
             kwargs["parent"] = parent
         dpg.add_button(**kwargs)
 
-    def png_sequencer(self):
-        width, height, channels, data = dpg.load_image("Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\slide_2.png")
-        with dpg.texture_registry():
-            dpg.add_static_texture(width, height, data, tag="my_texture_tag")
-        dpg.add_image("my_texture_tag", parent="MainWindow", width = int(540*1.3), height = int(234*1.3))
+    def create_sequencer_button(self, parent: Optional[str] = "sequencer_group"):
+        dpg.add_text("Show current sequence:", parent = parent)
+        dpg.add_button(label="Show Sequence", parent = parent, callback=self.png_sequencer)
 
-    def create_focus_buttons(self):
+    def clamp(self, n, min_n, max_n):
+        return max(min(max_n, n), min_n)
+
+    def separate_screen_into_parts(self, window_tag: str):
+        # If the window is hovered, check and clamp its position.
+        if dpg.is_item_hovered(window_tag):
+            x, y = dpg.get_item_pos(window_tag)
+            w, h = dpg.get_item_rect_size(window_tag)
+            vw, vh = dpg.get_viewport_client_width(), dpg.get_viewport_client_height()
+            min_x, min_y, max_x, max_y = 0, 0, vw//1.3, vh
+            new_x = self.clamp(x, min_x, max_x - w)
+            new_y = self.clamp(y, min_y, max_y - h)
+            if (new_x, new_y) != (x, y):
+                dpg.set_item_pos(window_tag, (new_x, new_y))
+                time.sleep(0.1)
+
+
+    def check_sequence_type(self):
+        """
+        Functions that checks the sequence type and uploads a corresponding image.
+        The image data is hardcoded.
+        """
+        exp_to_path = {
+            #Todo: Add the rest of the experiments.
+            Experiment.COUNTER: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Counter.png",
+            Experiment.ODMR_CW: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\CW_ODMR.png",
+            Experiment.PULSED_ODMR: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Pulsed_ODMR.png",
+            Experiment.ODMR_Bfield: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\ODMR_Bfield.png",
+            Experiment.NUCLEAR_MR: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_MR.png",
+            Experiment.RABI: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Rabi.png",
+            Experiment.NUCLEAR_POL_ESR: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_Pol_ESR.png",
+            Experiment.Nuclear_spin_lifetimeS0: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_spin_lifetime_S0.png",
+            Experiment.Nuclear_spin_lifetimeS1: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_spin_lifetime_S1.png",
+            Experiment.Hahn: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Electron_Hahn.png", #Todo: Update Hahn to actual sequence
+            Experiment.NUCLEAR_RABI: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_Rabi.png",
+            Experiment.Nuclear_Ramsay: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_Ramsay_S0.png", #Todo: Figure out which Ramsay
+            Experiment.Electron_lifetime: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\T1_Electron_lifetime.png",
+            Experiment.Nuclear_Fast_Rot: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\nuclear_fast_rot.png",
+            Experiment.TIME_BIN_ENTANGLEMENT: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Time_bin.png"
+        }
+        if self.opx.exp not in exp_to_path:
+            print(f"Warning: No known image for experiment type: {self.opx.exp}")
+            return None
+        path = exp_to_path[self.opx.exp]
+        try:
+            width, height, channels, data = dpg.load_image(path)
+            return width, height, channels, data
+        except Exception as e:
+            print(f"Failed loading image file at '{path}': {e}")
+            return None
+
+    def png_sequencer(self):
+        image_data = self.check_sequence_type()
+        if image_data is None:
+            print("No valid image data. Check image loading.")
+            return
+        width, height, channels, data = image_data
+        with dpg.texture_registry():
+            if not dpg.does_item_exist("texture_tag"):
+                dpg.add_static_texture(width, height, data, tag="texture_tag")
+        if not dpg.does_item_exist("image_tag"):
+            dpg.add_image("texture_tag", tag = "image_tag",parent="ShowSequence", width = int(540*1.3), height = int(234*1.3))
+        dpg.show_item("ShowSequence")
+        dpg.focus_item("ShowSequence")
+
+    def setup_main_exp_buttons(self):
         with dpg.window(label="Main Buttons Group", tag="MainWindow",
                           autosize=True, no_move=True):
             with dpg.group(label="Main Buttons Group", horizontal=True):
@@ -1439,9 +1505,15 @@ class PyGuiOverlay(Layer):
                 with dpg.group(tag = "focus_group",horizontal=True):
                     pass
             with dpg.group(tag="sequencer_group", horizontal=True):
-                dpg.add_text("Show current sequence:")
-                dpg.add_button(label = "Show Sequence", callback = self.png_sequencer)
-        #Can be used after fixes later
+                pass
+        with dpg.window(label="Sequence", tag="ShowSequence",
+                        autosize=True, no_move=False, show = False):
+            pass
+        with dpg.item_handler_registry(tag="left_region_handler"):
+            pass
+        with dpg.item_handler_registry(tag="right_region_handler"):
+            pass
+    #Can be used after fixes later
         #dpg.set_primary_window("MainWindow", True)
 
 
