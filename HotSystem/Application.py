@@ -390,6 +390,8 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.viewport_h = None
+        self.viewport_w = None
         self.arduino_gui: Optional[GUIArduino] = None
         self.srs_pid_gui: list[GUISIM960] = []
         self.atto_scanner_gui: Optional[GUIMotor] = None
@@ -414,6 +416,8 @@ class PyGuiOverlay(Layer):
         self.GetScreenSize()
         self.CURRENT_KEY = None
         self.main_parent = "MainWindow"
+
+        self.active_instrument_list = []
 
     def on_render(self):
         jobs = dpg.get_callback_queue() # retrieves and clears queue
@@ -550,7 +554,7 @@ class PyGuiOverlay(Layer):
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
     def Callback_mouse_drag(self,sender,app_data):
-        self.separate_screen_into_parts("OPX Window")
+        #self.create_instrument_window_section()
         if False:
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
@@ -559,7 +563,7 @@ class PyGuiOverlay(Layer):
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
     def Callback_mouse_release(self,sender,app_data):
-        dpg.focus_item("MainWindow")
+        dpg.focus_item("Main_Window")
         if False:
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
@@ -655,6 +659,7 @@ class PyGuiOverlay(Layer):
                             resizable=True,
                             vsync=True, decorated=True, clear_color=True,
                             disable_close=False)
+        self.viewport_w, self.viewport_h = dpg.get_viewport_client_width(), dpg.get_viewport_client_height()
         dpg.setup_dearpygui()
         dpg.show_viewport()
         pass
@@ -663,7 +668,7 @@ class PyGuiOverlay(Layer):
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
         self.setup_main_exp_buttons()
         self.setup_instruments()
-        dpg.focus_item("MainWindow")
+        dpg.focus_item("Main_Window")
 
 
     def setup_instruments(self) -> None:
@@ -700,6 +705,7 @@ class PyGuiOverlay(Layer):
                                                               serial_number=device.serial_number)
                     self.create_bring_window_button(self.smaractGUI.window_tag, button_label="Smaract",
                                                     tag="Smaract_button", parent="focus_group")
+                    self.active_instrument_list.append(self.smaractGUI.window_tag)
                     dpg.set_item_pos(self.smaractGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.smaractGUI.window_tag) + vertical_spacing
 
@@ -711,6 +717,7 @@ class PyGuiOverlay(Layer):
                     self.CLD1011LP_gui = gui_CLD1011LP.GUI_CLD1011LP(self.simulation)
                     self.create_bring_window_button(self.CLD1011LP_gui.window_tag, button_label="CLD1011LP",
                                                     tag="CLD1011LP_button", parent="focus_group")
+                    self.active_instrument_list.append(self.CLD1011LP_gui.window_tag)
                     dpg.set_item_pos(self.CLD1011LP_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.CLD1011LP_gui.window_tag) + vertical_spacing
                     if not self.simulation:
@@ -721,6 +728,7 @@ class PyGuiOverlay(Layer):
                     self.coboltGUI = gui_Cobolt.GUI_Cobolt(device.simulation, com_port = device.com_port)
                     self.create_bring_window_button(self.coboltGUI.window_tag, button_label="Cobolt",
                                                     tag="Cobolt_button", parent="focus_group")
+                    self.active_instrument_list.append(self.coboltGUI.window_tag)
                     dpg.set_item_pos(self.coboltGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.coboltGUI.window_tag) + vertical_spacing
                     if not device.simulation:
@@ -731,6 +739,7 @@ class PyGuiOverlay(Layer):
                     self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=device.simulation)
                     self.create_bring_window_button(self.picomotorGUI.window_tag, button_label="picomotor",
                                                     tag="picomotor_button", parent="focus_group")
+                    self.active_instrument_list.append(self.picomotorGUI.window_tag)
                     dpg.set_item_pos(self.picomotorGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.picomotorGUI.window_tag) + vertical_spacing
 
@@ -741,6 +750,7 @@ class PyGuiOverlay(Layer):
                 elif instrument == Instruments.ZELUX:
                     self.cam = gui_Zelux.ZeluxGUI()
                     self.create_bring_window_button(self.cam.window_tag, button_label="Zelux", tag="Zelux_button", parent="focus_group")
+                    self.active_instrument_list.append(self.cam.window_tag)
                     if len(self.cam.cam.available_cameras) > 0:
                         self.cam.Controls()
                         dpg.set_item_pos(self.cam.window_tag, [self.Monitor_width-dpg.get_item_width(self.cam.window_tag)-vertical_spacing, vertical_spacing])
@@ -751,6 +761,7 @@ class PyGuiOverlay(Layer):
                     self.create_bring_window_button(self.opx.window_tag, button_label="OPX", tag="OPX_button",
                                                     parent="focus_group")
                     self.create_sequencer_button()
+                    self.active_instrument_list.append(self.opx.window_tag)
                     dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
 
@@ -762,6 +773,7 @@ class PyGuiOverlay(Layer):
                     )
                     self.create_bring_window_button(self.atto_positioner_gui.window_tag, button_label="ATTO_POSITIONER",
                                                     tag="ATTO_POSITIONER_button", parent="focus_group")
+                    self.active_instrument_list.append(self.atto_positioner_gui.window_tag)
                     dpg.set_item_pos(self.atto_positioner_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.atto_positioner_gui.window_tag) + vertical_spacing
 
@@ -772,6 +784,7 @@ class PyGuiOverlay(Layer):
                     )
                     self.create_bring_window_button(self.highland_gui.window_tag, button_label="Highland",
                                                     tag="Highland_button", parent="focus_group")
+                    self.active_instrument_list.append(self.highland_gui.window_tag)
                     dpg.set_item_pos(self.highland_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.highland_gui.window_tag) + vertical_spacing
 
@@ -782,6 +795,7 @@ class PyGuiOverlay(Layer):
                     )
                     self.create_bring_window_button(self.mattise_gui.window_tag, button_label="MATTISE",
                                                     tag="MATTISE_button", parent="focus_group")
+                    self.active_instrument_list.append(self.mattise_gui.window_tag)
                     dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
                 elif instrument == Instruments.WAVEMETER:
@@ -798,6 +812,7 @@ class PyGuiOverlay(Layer):
                     )
                     self.create_bring_window_button(self.keysight_gui.window_tag, button_label="KEYSIGHT_AWG",
                                                     tag="keysight_button", parent="focus_group")
+                    self.active_instrument_list.append(self.keysight_gui.window_tag)
                     dpg.set_item_pos(self.keysight_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.keysight_gui.window_tag) + vertical_spacing
 
@@ -810,12 +825,14 @@ class PyGuiOverlay(Layer):
                     )
                     self.create_bring_window_button(self.atto_scanner_gui.window_tag, button_label="ATTO_SCANNER",
                                                     tag="ATTO_SCANNER_button", parent="focus_group")
+                    self.active_instrument_list.append(self.atto_scanner_gui.window_tag)
                     dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.ARDUINO:
                     self.create_bring_window_button(self.arduino_gui.window_tag, button_label="Arduino",
                                                     tag="Arduino_button", parent="focus_group")
+                    self.active_instrument_list.append(self.arduino_gui.window_tag)
                     self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
 
                 elif instrument == Instruments.SIM960:
@@ -830,6 +847,7 @@ class PyGuiOverlay(Layer):
                     ))
                     self.create_bring_window_button(self.srs_pid_gui[0].win_tag, button_label="SIM960",
                                                     tag="SIM960_button", parent="focus_group")
+                    self.active_instrument_list.append(self.srs_pid_gui[0].win_tag)
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
@@ -1435,18 +1453,18 @@ class PyGuiOverlay(Layer):
     def clamp(self, n, min_n, max_n):
         return max(min(max_n, n), min_n)
 
-    def separate_screen_into_parts(self, window_tag: str):
-        # If the window is hovered, check and clamp its position.
-        if dpg.is_item_hovered(window_tag):
-            x, y = dpg.get_item_pos(window_tag)
-            w, h = dpg.get_item_rect_size(window_tag)
-            vw, vh = dpg.get_viewport_client_width(), dpg.get_viewport_client_height()
-            min_x, min_y, max_x, max_y = 0, 0, vw//1.3, vh
-            new_x = self.clamp(x, min_x, max_x - w)
-            new_y = self.clamp(y, min_y, max_y - h)
-            if (new_x, new_y) != (x, y):
-                dpg.set_item_pos(window_tag, (new_x, new_y))
-                time.sleep(0.1)
+    def create_instrument_window_section(self):
+        for window in self.active_instrument_list:
+            # If the window is hovered, check and clamp its position.
+            if dpg.is_item_hovered(window):
+                x, y = dpg.get_item_pos(window)
+                w, h = dpg.get_item_rect_size(window)
+                min_x, min_y, max_x, max_y = 0,0, self.viewport_w//1.1, self.viewport_h*1.3
+                new_x = self.clamp(x, min_x, max_x - w)
+                new_y = self.clamp(y, min_y, max_y - h)
+                if (new_x, new_y) != (x, y):
+                    dpg.set_item_pos(window, (new_x, new_y))
+                    time.sleep(0.1)
 
 
     def check_sequence_type(self):
@@ -1498,7 +1516,7 @@ class PyGuiOverlay(Layer):
         dpg.focus_item("ShowSequence")
 
     def setup_main_exp_buttons(self):
-        with dpg.window(label="Main Buttons Group", tag="MainWindow",
+        with dpg.window(label="Main Buttons Group", tag="Main_Window",
                           autosize=True, no_move=True):
             with dpg.group(label="Main Buttons Group", horizontal=True):
                 dpg.add_text("Bring Instrument to front:")
@@ -1506,6 +1524,7 @@ class PyGuiOverlay(Layer):
                     pass
             with dpg.group(tag="sequencer_group", horizontal=True):
                 pass
+
         with dpg.window(label="Sequence", tag="ShowSequence",
                         autosize=True, no_move=False, show = False):
             pass
@@ -1514,6 +1533,10 @@ class PyGuiOverlay(Layer):
         with dpg.item_handler_registry(tag="right_region_handler"):
             pass
     #Can be used after fixes later
-        #dpg.set_primary_window("MainWindow", True)
+        with dpg.window(label="Viewport Window", tag="Viewport_Window", no_resize=True, no_move=True,width = self.viewport_w, height = self.viewport_h):
+            dpg.add_drawlist(tag="full_drawlist", width=800, height=600)
+        dpg.set_primary_window("Viewport_Window", True)
+        dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
+
 
 
