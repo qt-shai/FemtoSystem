@@ -62,7 +62,10 @@ class GUI_smaract():
                             dpg.add_input_float(label="", default_value=1, tag=f"{self.prefix}_ch" + str(ch) + "_Cset",
                                                 indent=-1, format='%.1f', width=150, step=1, step_fast=100,callback=self.ipt_large_step)
                             dpg.add_text("um  ", indent=-10)
-                    dpg.add_button(label="load pos", callback=self.load_pos)
+                    with dpg.group(horizontal=True, tag="group_pos_1"):
+                        dpg.add_button(label="load pos", callback=self.load_pos)
+                        dpg.add_button(label="save pos",callback=self.save_pos)
+
 
                 with dpg.group(horizontal=False, tag="_column 3_"):
                     dpg.add_text("          Fine (nm)")
@@ -80,18 +83,18 @@ class GUI_smaract():
                         dpg.add_button(label="Log", callback=self.btnLogPoint, tag=f"{self.prefix}_Log")
                         dpg.add_button(label="Del", callback=self.btnDelPoint)
                         dpg.add_text(tag=f"{self.prefix}logged_points", label="")
-                with dpg.group(horizontal=False, tag="_column 4_", width=child_width*.8):
+                with dpg.group(horizontal=False, tag="_column 4_", width=child_width):
                     dpg.add_text(" Ref.")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Ref. " + str(ch))
 
-                with dpg.group(horizontal=False, tag="_column 5_", width=child_width*.8):
+                with dpg.group(horizontal=False, tag="_column 5_", width=child_width):
                     dpg.add_text("  Zero   ")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Zero " + str(ch), callback=self.btn_zero, user_data=ch)
                     # dpg.add_button(label="Calc V",tag=f"{self.prefix}_calc_v", callback=self.btn_calc_v)
 
-                with dpg.group(horizontal=False, tag="_column 6_", width=child_width *.8):
+                with dpg.group(horizontal=False, tag="_column 6_", width=child_width):
                     dpg.add_text(" Move UV")
                     for ch in range(2):
                         with dpg.group(horizontal=True):
@@ -103,13 +106,13 @@ class GUI_smaract():
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
                             dpg.add_button(label="+", width=20, callback=self.move_uv, user_data=(ch, 1, True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
-                    with dpg.group(horizontal=True):
-                        dpg.add_button(label="ToText", callback=self.generate_to_text)
-                        dpg.add_button(label="Calc UV", tag=f"{self.prefix}_calc_uv", callback=self.btn_calc_uv)
-                    with dpg.group(horizontal=True):
-                        dpg.add_button(label="AutoFill", callback=self.AutoFill)
-                        dpg.add_button(label="Load", callback=self.load_points)
-                        dpg.bind_item_theme(dpg.last_item(), yellow_theme)
+                    # with dpg.group(horizontal=True):
+                        # dpg.add_button(label="ToText", callback=self.generate_to_text)
+                        # dpg.add_button(label="Calc UV", tag=f"{self.prefix}_calc_uv", callback=self.btn_calc_uv)
+                    # with dpg.group(horizontal=True):
+                    #     # dpg.add_button(label="AutoFill", callback=self.AutoFill)
+                    #     dpg.add_button(label="update table", callback=self.update_table)
+                    #     dpg.bind_item_theme(dpg.last_item(), yellow_theme)
 
                 with dpg.group(horizontal=False, tag="_column 7_", width=child_width+100):
                     dpg.add_text("Move Abs. (um)")
@@ -117,26 +120,25 @@ class GUI_smaract():
                         with dpg.group(horizontal=True):
                             dpg.add_input_float(label="", default_value=0, tag=f"{self.prefix}_ch" + str(ch) + "_ABS", indent=-1,
                                                 format='%.4f', width=250, step=1, step_fast=10) #
-                    dpg.add_button(label="Save", callback=self.save_log_points)
-                    dpg.bind_item_theme(dpg.last_item(), yellow_theme)
+                    # dpg.add_button(label="Save", callback=self.save_log_points)
+                    # dpg.bind_item_theme(dpg.last_item(), yellow_theme)
                             
                 with dpg.group(horizontal=False, tag="_column 8_", width=child_width*.8):
                     dpg.add_text("   GO")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="GO", callback=self.move_absolute, user_data=ch)
-                    dpg.add_button(label = "Backup", callback = self.backup)
+                    # dpg.add_button(label = "Backup", callback = self.backup)
 
                 with dpg.group(horizontal=False, tag="_column 9_", width=child_width):
                     dpg.add_text("    Home")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Home " + str(ch), callback=self.btn_move_to_home, user_data=ch,indent=10)
-                    dpg.add_button(label="Copy latest", callback=self.copy_latest_timestamp_files)
+                    # dpg.add_button(label="Copy latest", callback=self.copy_latest_timestamp_files)
 
                 with dpg.group(horizontal=False, tag="_column 10_", width=child_width):
                     dpg.add_text("Status")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_combo(items=["idle",""], tag="mcs_Status" + str(ch))
-                    dpg.add_button(label="save pos",callback=self.save_pos)
 
             with dpg.group(horizontal=True):
                 dpg.add_combo(label="Devices", items=self.dev.Available_Devices_List, tag=f"{self.prefix}_device_selector",
@@ -145,6 +147,11 @@ class GUI_smaract():
                 dpg.add_text(" Disable keyboard")
                 dpg.add_checkbox(tag="mcs_Disable_Keyboard", callback=self.cbx_disable_keyboard)
             with dpg.group(horizontal=False, tag="table_group"):
+                with dpg.group(horizontal=True, tag="table_group2"):
+                    dpg.add_button(label="update table", callback=self.update_table)
+                    dpg.bind_item_theme(dpg.last_item(), yellow_theme)
+                    dpg.add_button(label="Calc UV", tag=f"{self.prefix}_calc_uv", callback=self.btn_calc_uv)
+                    dpg.bind_item_theme(dpg.last_item(), yellow_theme)
                 with dpg.table(header_row=True, tag=f"{self.prefix}logged_points_table", width=700):
                     dpg.add_table_column(label="Point")
                     dpg.add_table_column(label="X")
@@ -153,9 +160,9 @@ class GUI_smaract():
                     dpg.add_table_column(label="Delete")
                     dpg.add_table_column(label="Go Abs")
 
-        self.load_points()
+        # self.load_points()
         # Set a callback to call load_pos after the first frame is rendered
-        dpg.set_frame_callback(1, self.load_pos)
+        # dpg.set_frame_callback(1, self.load_pos)
 
         if simulation:
             self.dev.AxesKeyBoardLargeStep = []
@@ -179,7 +186,7 @@ class GUI_smaract():
         # Define the list of windows to check and save positions for
         window_names = [
             "pico_Win", "mcs_Win", "Zelux Window",
-            "OPX Window", "Map_window", "Scan_Window", "LaserWin"
+            "OPX Window", "Map_window", "Scan_Window", "LaserWin","CLD1011LP_Win"
         ]
 
         # Dictionary to store window positions and dimensions
@@ -194,14 +201,15 @@ class GUI_smaract():
                 print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
 
         try:
-            # Read existing map_config.txt content, if available
-            try:
-                with open("map_config.txt", "r") as file:
-                    lines = file.readlines()
-            except FileNotFoundError:
-                lines = []
+            # # Read existing map_config.txt content, if available
+            # try:
+            #     with open("win_pos.txt", "r") as file:
+            #         lines = file.readlines()
+            # except FileNotFoundError:
+            #     lines = []
 
             # Remove any existing window position and size entries
+            lines = []
             new_content = [line for line in lines if not any(win_name in line for win_name in window_positions.keys())]
 
             # Append the new window positions and dimensions to the content
@@ -210,7 +218,7 @@ class GUI_smaract():
                 new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
 
             # Write back the updated content to the file
-            with open("map_config.txt", "w") as file:
+            with open("win_pos.txt", "w") as file:
                 file.writelines(new_content)
 
             print("Window positions and sizes saved successfully to map_config.txt.")
@@ -220,15 +228,15 @@ class GUI_smaract():
     def load_pos(self):
         try:
             # Check if map_config.txt exists and read the contents
-            if not os.path.exists("map_config.txt"):
-                print("map_config.txt not found.")
+            if not os.path.exists("win_pos.txt"):
+                print("win_pos.txt not found.")
                 return
 
             # Dictionaries to store positions and sizes loaded from the file
             window_positions = {}
             window_sizes = {}
 
-            with open("map_config.txt", "r") as file:
+            with open("win_pos.txt", "r") as file:
                 lines = file.readlines()
                 for line in lines:
                     # Split the line to get key and value
@@ -272,136 +280,136 @@ class GUI_smaract():
         except Exception as e:
             print(f"Error loading window positions and sizes: {e}")
 
-    def backup(self):
-        """
-            Back up files changed in the last 'days' from the source directory to the backup directory.
-            """
-        source_dir = r'C:\WC\HotSystem'
-        backup_dirs = [r'C:\WC\HotSystem_Backups',  # First backup directory
-            r'Q:\QT-Quantum_Optic_Lab\Shai-OpticsLab'  # Second backup directory
-        ]
-        days = 3  # Modify for how many days you want to look for recent changes
+    # def backup(self):
+    #     """
+    #         Back up files changed in the last 'days' from the source directory to the backup directory.
+    #         """
+    #     source_dir = r'C:\WC\HotSystem'
+    #     backup_dirs = [r'C:\WC\HotSystem_Backups',  # First backup directory
+    #         r'Q:\QT-Quantum_Optic_Lab\Shai-OpticsLab'  # Second backup directory
+    #     ]
+    #     days = 3  # Modify for how many days you want to look for recent changes
 
-        # Get current time and calculate the threshold for recently modified files
-        current_time = time.time()
-        cutoff_time = current_time - (days * 86400)  # Convert days to seconds
+    #     # Get current time and calculate the threshold for recently modified files
+    #     current_time = time.time()
+    #     cutoff_time = current_time - (days * 86400)  # Convert days to seconds
 
-        # Create a timestamp for the backup folder with only the date and hour
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H')
+    #     # Create a timestamp for the backup folder with only the date and hour
+    #     timestamp = datetime.now().strftime('%Y-%m-%d_%H')
 
-        # List of directories and file types to skip
-        skip_dirs = ['__pycache__', '.svn', '.idea', 'Utils','.venv','venv','.vscode']
-        skip_extensions = ['.dll']
+    #     # List of directories and file types to skip
+    #     skip_dirs = ['__pycache__', '.svn', '.idea', 'Utils','.venv','venv','.vscode']
+    #     skip_extensions = ['.dll']
 
-        # Iterate over the list of backup directories
-        for backup_dir_base in backup_dirs:
-            backup_dir = os.path.join(backup_dir_base, f'Backup_{timestamp}')
+    #     # Iterate over the list of backup directories
+    #     for backup_dir_base in backup_dirs:
+    #         backup_dir = os.path.join(backup_dir_base, f'Backup_{timestamp}')
 
-            try:
-                # Create backup directory if it doesn't exist
-                if not os.path.exists(backup_dir):
-                    os.makedirs(backup_dir)
-            except OSError as e:
-                print(f"An error occurred while creating the backup directory: {e}")
-                return
+    #         try:
+    #             # Create backup directory if it doesn't exist
+    #             if not os.path.exists(backup_dir):
+    #                 os.makedirs(backup_dir)
+    #         except OSError as e:
+    #             print(f"An error occurred while creating the backup directory: {e}")
+    #             return
 
-            # Iterate over all files in the source directory
-            for foldername, _, filenames in os.walk(source_dir):
-                # Skip specified directories
-                if any(skip_dir in foldername for skip_dir in skip_dirs):
-                    continue
+    #         # Iterate over all files in the source directory
+    #         for foldername, _, filenames in os.walk(source_dir):
+    #             # Skip specified directories
+    #             if any(skip_dir in foldername for skip_dir in skip_dirs):
+    #                 continue
 
-                for filename in filenames:
-                    # Skip .dll files
-                    if any(filename.endswith(ext) for ext in skip_extensions):
-                        continue
+    #             for filename in filenames:
+    #                 # Skip .dll files
+    #                 if any(filename.endswith(ext) for ext in skip_extensions):
+    #                     continue
 
-                    # Get the full path of the file
-                    file_path = os.path.join(foldername, filename)
+    #                 # Get the full path of the file
+    #                 file_path = os.path.join(foldername, filename)
 
-                    # Get the file's last modified time
-                    file_modified_time = os.path.getmtime(file_path)
+    #                 # Get the file's last modified time
+    #                 file_modified_time = os.path.getmtime(file_path)
 
-                    # If the file was modified within the last 'n' days, back it up
-                    if file_modified_time > cutoff_time:
-                        # Create the corresponding path in the backup directory
-                        relative_path = os.path.relpath(foldername, source_dir)
-                        backup_subdir = os.path.join(backup_dir, relative_path)
+    #                 # If the file was modified within the last 'n' days, back it up
+    #                 if file_modified_time > cutoff_time:
+    #                     # Create the corresponding path in the backup directory
+    #                     relative_path = os.path.relpath(foldername, source_dir)
+    #                     backup_subdir = os.path.join(backup_dir, relative_path)
 
-                        if not os.path.exists(backup_subdir):
-                            os.makedirs(backup_subdir)
+    #                     if not os.path.exists(backup_subdir):
+    #                         os.makedirs(backup_subdir)
 
-                        # Copy the file and overwrite if it already exists
-                        shutil.copy2(file_path, os.path.join(backup_subdir, filename))
-                        print(f"Backed up: {file_path} -> {backup_subdir}")
+    #                     # Copy the file and overwrite if it already exists
+    #                     shutil.copy2(file_path, os.path.join(backup_subdir, filename))
+    #                     print(f"Backed up: {file_path} -> {backup_subdir}")
 
-        print("backup done.")
+    #     print("backup done.")
 
-    def copy_latest_timestamp_files(self) -> None:
-        """
-        Copy all files with the latest timestamp from the source directory to the destination directory.
-        The files will be copied to a folder named with the timestamp and file-specific information (e.g., 'DSM2').
-        The destination folder format is <timestamp>_<file_info>, and the original filenames are retained.
+    # def copy_latest_timestamp_files(self) -> None:
+    #     """
+    #     Copy all files with the latest timestamp from the source directory to the destination directory.
+    #     The files will be copied to a folder named with the timestamp and file-specific information (e.g., 'DSM2').
+    #     The destination folder format is <timestamp>_<file_info>, and the original filenames are retained.
 
-        Source directory is always 'D:\\TempScanData' and the destination directory is always 'Q:\\QT-Quantum_Optic_Lab\\expData\\scan'.
-        """
-        # Define the fixed source and destination directories
-        source_dir = r'D:\TempScanData'
-        # source_dir = r'C:\Users\shai\Downloads\test'
-        base_dest_dir = r'Q:\QT-Quantum_Optic_Lab\expData\scan'
+    #     Source directory is always 'D:\\TempScanData' and the destination directory is always 'Q:\\QT-Quantum_Optic_Lab\\expData\\scan'.
+    #     """
+    #     # Define the fixed source and destination directories
+    #     source_dir = r'D:\TempScanData'
+    #     # source_dir = r'C:\Users\shai\Downloads\test'
+    #     base_dest_dir = r'Q:\QT-Quantum_Optic_Lab\expData\scan'
 
-        # Check if source directory exists
-        if not os.path.exists(source_dir):
-            print(f"Source directory '{source_dir}' does not exist. Aborting operation.")
-            return
+    #     # Check if source directory exists
+    #     if not os.path.exists(source_dir):
+    #         print(f"Source directory '{source_dir}' does not exist. Aborting operation.")
+    #         return
 
-        # Pattern to extract timestamp and file-specific info (e.g., 'DSM2')
-        file_pattern = re.compile(r'(\d{4}_\d{1,2}_\d{1,2}_\d{1,2}_\d{1,2}_\d{1,2})(scan_(\w+))')
+    #     # Pattern to extract timestamp and file-specific info (e.g., 'DSM2')
+    #     file_pattern = re.compile(r'(\d{4}_\d{1,2}_\d{1,2}_\d{1,2}_\d{1,2}_\d{1,2})(scan_(\w+))')
 
-        latest_timestamp = None
-        latest_datetime = None  # Store the latest timestamp as a datetime object
-        files_to_copy = []
+    #     latest_timestamp = None
+    #     latest_datetime = None  # Store the latest timestamp as a datetime object
+    #     files_to_copy = []
 
-        # Iterate over all files in the source directory
-        for filename in os.listdir(source_dir):
-            match = file_pattern.search(filename)
-            if match:
-                timestamp_str = match.group(1)  # Get the timestamp part
-                file_info = match.group(3)  # Get the file-specific info part (e.g., 'DSM2')
+    #     # Iterate over all files in the source directory
+    #     for filename in os.listdir(source_dir):
+    #         match = file_pattern.search(filename)
+    #         if match:
+    #             timestamp_str = match.group(1)  # Get the timestamp part
+    #             file_info = match.group(3)  # Get the file-specific info part (e.g., 'DSM2')
 
-                # Parse the timestamp string into a datetime object for proper comparison
-                try:
-                    timestamp_dt = datetime.strptime(timestamp_str, '%Y_%m_%d_%H_%M_%S')
-                except ValueError:
-                    print(f"Skipping file with invalid timestamp: {filename}")
-                    continue
+    #             # Parse the timestamp string into a datetime object for proper comparison
+    #             try:
+    #                 timestamp_dt = datetime.strptime(timestamp_str, '%Y_%m_%d_%H_%M_%S')
+    #             except ValueError:
+    #                 print(f"Skipping file with invalid timestamp: {filename}")
+    #                 continue
 
-                # Determine if this is the latest timestamp we've found
-                if latest_datetime is None or timestamp_dt > latest_datetime:
-                    latest_timestamp = timestamp_str
-                    latest_datetime = timestamp_dt
-                    latest_file_info = file_info
-                    files_to_copy = [filename]  # Start a new list of files for this timestamp
-                elif timestamp_dt == latest_datetime:
-                    files_to_copy.append(filename)  # Add to the list if the timestamp matches
+    #             # Determine if this is the latest timestamp we've found
+    #             if latest_datetime is None or timestamp_dt > latest_datetime:
+    #                 latest_timestamp = timestamp_str
+    #                 latest_datetime = timestamp_dt
+    #                 latest_file_info = file_info
+    #                 files_to_copy = [filename]  # Start a new list of files for this timestamp
+    #             elif timestamp_dt == latest_datetime:
+    #                 files_to_copy.append(filename)  # Add to the list if the timestamp matches
 
-        if not files_to_copy:
-            print("No matching files found.")
-            return
+    #     if not files_to_copy:
+    #         print("No matching files found.")
+    #         return
 
-        # Create the destination folder with the latest timestamp and file info (e.g., 2024_9_12_19_1_1_DSM2)
-        dest_dir = os.path.join(base_dest_dir, f'{latest_timestamp}_{latest_file_info}')
-        if not os.path.exists(dest_dir):
-            os.makedirs(dest_dir)
+    #     # Create the destination folder with the latest timestamp and file info (e.g., 2024_9_12_19_1_1_DSM2)
+    #     dest_dir = os.path.join(base_dest_dir, f'{latest_timestamp}_{latest_file_info}')
+    #     if not os.path.exists(dest_dir):
+    #         os.makedirs(dest_dir)
 
-        # Copy the files to the destination folder without renaming them
-        for file in files_to_copy:
-            source_path = os.path.join(source_dir, file)
-            dest_path = os.path.join(dest_dir, file)
-            shutil.copy2(source_path, dest_path)
-            print(f"Copied: {source_path} -> {dest_path}")
+    #     # Copy the files to the destination folder without renaming them
+    #     for file in files_to_copy:
+    #         source_path = os.path.join(source_dir, file)
+    #         dest_path = os.path.join(dest_dir, file)
+    #         shutil.copy2(source_path, dest_path)
+    #         print(f"Copied: {source_path} -> {dest_path}")
 
-        print("Done.")
+    #     print("Done.")
 
     def cbx_disable_keyboard(self, app_data, user_data):
         if user_data:
@@ -419,12 +427,12 @@ class GUI_smaract():
         self.dev.AxesKeyBoardSmallStep[ch]=int(user_data*self.dev.StepsIn1mm/1e6)
         print(self.dev.AxesKeyBoardSmallStep[ch])
 
-    def generate_to_text(self):
-        """Generate a formatted string for the logged points."""
-        if self.dev.LoggedPoints:
-            scaled_points = np.round(np.array(self.dev.LoggedPoints) * 1e6, decimals=0).astype(int)
-            array_string = f"self.ZCalibrationData = np.array({scaled_points.tolist()})"
-            print(array_string)
+    # def generate_to_text(self):
+    #     """Generate a formatted string for the logged points."""
+    #     if self.dev.LoggedPoints:
+    #         scaled_points = np.round(np.array(self.dev.LoggedPoints) * 1e6, decimals=0).astype(int)
+    #         array_string = f"self.ZCalibrationData = np.array({scaled_points.tolist()})"
+    #         print(array_string)
 
     def btnLogPoint(self):
 
@@ -444,8 +452,9 @@ class GUI_smaract():
         """Log a point, update the UI, and calculate vectors if applicable."""
         themes = DpgThemes()
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
-
-        self.dev.LoggedPoints.append(position.copy())  # [pm]
+        
+        if len( self.dev.LoggedPoints)<3:
+            self.dev.LoggedPoints.append(position.copy())  # [pm]
         print(self.dev.LoggedPoints)
 
         # Update the UI
@@ -463,13 +472,13 @@ class GUI_smaract():
             self.dev.calc_uv()
             dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
 
-    def AutoFill(self):
-        self.dev.LoggedPoints.append([0, 0, 700000])
-        self.dev.LoggedPoints.append([940000327, 369, -5800002])
-        self.dev.LoggedPoints.append([940000327, -766999940, -22899927])
-        self.dev.calc_uv()
-        dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
-        self.update_table()
+    # def AutoFill(self):
+    #     self.dev.LoggedPoints.append([0, 0, 700000])
+    #     self.dev.LoggedPoints.append([940000327, 369, -5800002])
+    #     self.dev.LoggedPoints.append([940000327, -766999940, -22899927])
+    #     self.dev.calc_uv()
+    #     dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
+    #     self.update_table()
 
     def load_points(self):
         try:
@@ -512,28 +521,28 @@ class GUI_smaract():
         except Exception as e:
             print(f"Error loading logged points: {e}")
 
-    def save_log_points(self):
-        # Read existing content from the file
-        file_path = "map_config.txt"
-        try:
-            with open(file_path, "r") as file:
-                lines = file.readlines()
-        except FileNotFoundError:
-            lines = []  # If the file doesn't exist, start with an empty list
+    # def save_log_points(self):
+    #     # Read existing content from the file
+    #     file_path = "map_config.txt"
+    #     try:
+    #         with open(file_path, "r") as file:
+    #             lines = file.readlines()
+    #     except FileNotFoundError:
+    #         lines = []  # If the file doesn't exist, start with an empty list
 
-        # Filter out old logged points
-        filtered_lines = [line for line in lines if not line.startswith(f"{self.prefix}LoggedPoint:")]
+    #     # Filter out old logged points
+    #     filtered_lines = [line for line in lines if not line.startswith(f"{self.prefix}LoggedPoint:")]
 
-        # Append new logged points
-        with open(file_path, "w") as file:
-            # Write back the filtered lines
-            file.writelines(filtered_lines)
+    #     # Append new logged points
+    #     with open(file_path, "w") as file:
+    #         # Write back the filtered lines
+    #         file.writelines(filtered_lines)
 
-            # Add the new logged points from self.positioner
-            for point in self.dev.LoggedPoints:
-                file.write(f"{self.prefix}LoggedPoint: {point[0]}, {point[1]}, {point[2]}\n")
+    #         # Add the new logged points from self.positioner
+    #         for point in self.dev.LoggedPoints:
+    #             file.write(f"{self.prefix}LoggedPoint: {point[0]}, {point[1]}, {point[2]}\n")
 
-        print("Log points saved.")
+    #     print("Log points saved.")
 
     def update_table(self):
         """Rebuild the table rows to show all logged points."""

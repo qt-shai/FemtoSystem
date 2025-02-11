@@ -235,6 +235,12 @@ class GUI_OPX():
 
         # self.ZCalibrationData = np.array([[1274289050, 1099174441, -5215799855],[1274289385, -1900825080, -5239700330],[-1852010640, -1900825498, -5277599782]])
 
+        if os.path.exists('logged_points.txt'):
+            with open('logged_points.txt', 'r') as f:
+                self.positioner.LoggedPoints = [list(map(int, line.strip().split(','))) for line in f]
+        else:
+            self.positioner.LoggedPoints = []  # Set to an empty list if the file doesn't exist
+
         if simulation:
             print("OPX in simulation mode ***********************")
         else:
@@ -2221,8 +2227,8 @@ class GUI_OPX():
             with for_(n, 0, n < n_avg, n+1):
                 assign(idxN, idxN + 1)
                 play("Turn_ON", "Laser")
-                measure("readout", "Detector_OPD", None, time_tagging.digital(times_1, self.Tcounter, counts_1))
-                measure("readout", "Detector2_OPD", None, time_tagging.digital(times_2, self.Tcounter, counts_2))
+                measure("readout", "Detector_OPD", None, time_tagging.analog(times_1, self.Tcounter, counts_1))
+                measure("readout", "Detector2_OPD", None, time_tagging.analog(times_2, self.Tcounter, counts_2))
 
                 with if_((counts_1 > 0) & (counts_2 > 0)):
                     g2 = self.MZI_g2(g2, times_1, counts_1, times_2, counts_2, correlation_width)
@@ -5172,8 +5178,6 @@ class GUI_OPX():
         if not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
 
-
-
     def StartFetch(self, _target):
         self.to_xml()  # write class parameters to XML
         self.timeStamp = self.getCurrentTimeStamp()
@@ -5726,7 +5730,7 @@ class GUI_OPX():
             self.positioner.setIOmoduleEnable(dev=0)
             self.positioner.set_Channel_Constant_Mode_State(channel=0)
     def scan_get_current_pos(self, _isDebug = False):
-        time.sleep(5e-3)
+        time.sleep(1e-3)
         for ch in self.positioner.channels:  # verify in postion
             res = self.readInpos(ch)
         self.positioner.GetPosition()
@@ -5735,18 +5739,52 @@ class GUI_OPX():
             res = list(self.positioner.AxesPositions)
             for ch in self.positioner.channels:
                 print(f"ch{ch}: in position = {res}, position = {res[ch]} {self.positioner.AxesPosUnits[ch]}")
-    def scan_z_correction(self, i: int, j: int, k:int):
-        new_z_pos = int(self.V_scan[2][i])
-        if self.b_Zcorrection and not self.ZCalibrationData is None:
-            z_correction_new = int(
-                calculate_z_series(self.ZCalibrationData, np.array([int(V[k])]), int(self.V_scan[1][j]))[0] - self.z_calibration_offset)
-            if abs(z_correction_new - self.z_correction_previous) > self.z_correction_threshold:
-                new_z_pos = int(self.V_scan[2][i] + z_correction_new)
-                self.z_correction_previous = z_correction_new
-                self.positioner.MoveABSOLUTE(2, new_z_pos)
-            else:
-                new_z_pos = new_z_pos + self.z_correction_previous
+    # def scan_z_correction(self, i: int, j: int, k:int):
+    #     new_z_pos = int(self.V_scan[2][i])
+    #     if self.b_Zcorrection and not self.ZCalibrationData is None:
+    #         z_correction_new = int(
+    #             calculate_z_series(self.ZCalibrationData, np.array([int(V[k])]), int(self.V_scan[1][j]))[0] - self.z_calibration_offset)
+    #         if abs(z_correction_new - self.z_correction_previous) > self.z_correction_threshold:
+    #             new_z_pos = int(self.V_scan[2][i] + z_correction_new)
+    #             self.z_correction_previous = z_correction_new
+    #             self.positioner.MoveABSOLUTE(2, new_z_pos)
+    #         else:
+    #             new_z_pos = new_z_pos + self.z_correction_previous
+    
+    def Z_correction(self,_refp:list, _point:list):
+        # Define the points (self.positioner.LoggedPoints equivalent)
+        P = np.array(self.positioner.LoggedPoints)
+        refP = np.array(_refp)
+        point = np.array(_point)
+
+        # Vector U and normalization
+        U = P[1,:] - P[0,:]
+        u = U / np.linalg.norm(U)
+
+        # Vector V and normalization
+        V = P[2,:] - P[0,:]
+        v = V / np.linalg.norm(V)
+
+        # Cross product to find the normal vector N
+        N = np.cross(u, v)
+
+        # Calculate D
+        D = -np.dot(refP, N)
+
+        # Calculate the new points Pnew
+        # Pnew = -(point[:, :2] @ N[:2] + D) / N[2]
+        Znew = -(point[:2] @ N[:2] + D) / N[2]
+
+        # print(Znew)
+
+        return Znew
+
     def StartScan3D(self):  # currently flurascence scan
+        # self.positioner.LoggedPoints = [[259999542, 1844999926, 2101285], [259999326, 259999859, -5199534], [1930000049, 1850000121, 5601168]]
+        with open('logged_points.txt', 'w') as f:
+            for point in self.positioner.LoggedPoints:
+                f.write(f"{point[0]},{point[1]},{point[2]}\n")
+
         print("start scan steps")
         start_time = time.time()
         print(f"start_time: {self.format_time(start_time)}")
@@ -5771,9 +5809,9 @@ class GUI_OPX():
         self.N_scan = []
         for i in range(3):
             if self.b_Scan[i]:
-                axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i]) * 1e3 + np.array(self.initial_scan_Location[i])).astype(int)
+                axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i]) * 1e3 + np.array(self.initial_scan_Location[i])).astype(np.int64)
             else:
-                axis_values = np.array([self.initial_scan_Location[i]]).astype(int)  # Ensure it's an array
+                axis_values = np.array([self.initial_scan_Location[i]]).astype(np.int64)  # Ensure it's an array
 
             self.N_scan.append(len(axis_values))
             scan_coordinates.append(axis_values)
@@ -5807,11 +5845,6 @@ class GUI_OPX():
         previousMeas_idx = 0  # used as workaround to reapet line if an error occur in number of measurements
         meas_idx = 0
 
-        # Calculate the z calibration offset at the origin of the scan
-        if self.b_Zcorrection and not self.ZCalibrationData is None:
-            self.z_calibration_offset = int(
-                calculate_z_series(self.ZCalibrationData, np.array([self.initial_scan_Location[0]]), self.initial_scan_Location[1])[0])
-        self.z_correction_previous = 0
         for i in range(self.N_scan[2]):  # Z
             if self.stopScan:
                 break
@@ -5834,7 +5867,13 @@ class GUI_OPX():
                         V = list(self.V_scan[0])
 
                     # Z correction
-                    self.scan_z_correction(i,j,k)
+                    if self.b_Zcorrection and len(self.positioner.LoggedPoints) > 2:
+                        currentP = np.array( [int(V[k]), int(self.V_scan[1][j]), int(self.V_scan[2][i])] )
+                        refP = self.initial_scan_Location
+                        refP[2] = int(self.V_scan[2][i])
+                        p_new = int(self.Z_correction(refP, currentP))
+                        self.positioner.MoveABSOLUTE(2, p_new)
+
 
                     # move to next X - when trigger the OPX will measure and append the results
                     self.positioner.MoveABSOLUTE(0, int(V[k]))

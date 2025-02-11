@@ -3,13 +3,13 @@
         <Identifier>Femto</Identifier>
         <SimulationMode>False</SimulationMode>
         <Devices>
-            <!-- <Device>
-                <Instrument>CLD1011LP</Instrument>
+            <Device>
+                <Instrument>zelux</Instrument>
                 <IPAddress>N/A</IPAddress>
                 <MACAddress>N/A</MACAddress>
-                <SerialNumber>N/A</SerialNumber>
-                <COMPort>0</COMPort>
-            </Device> -->
+                <SerialNumber>22961</SerialNumber>
+                <COMPort>N/A</COMPort>
+            </Device>
             <Device>
                 <Instrument>cobolt</Instrument>
                 <IPAddress>N/A</IPAddress>
@@ -25,19 +25,26 @@
                 <COMPort>N/A</COMPort>
             </Device>
             <Device>
-                <Instrument>zelux</Instrument>
-                <IPAddress>N/A</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>22961</SerialNumber>
-                <COMPort>N/A</COMPort>
-            </Device>
-            <Device>
                 <Instrument>OPX</Instrument>
                 <IPAddress>192.168.101.61</IPAddress>
                 <MACAddress>N/A</MACAddress>
                 <SerialNumber>N/A</SerialNumber>
                 <COMPort>N/A</COMPort>
             </Device>
+            <Device>
+                <Instrument>CLD1011LP</Instrument>
+                <IPAddress>N/A</IPAddress>
+                <MACAddress>N/A</MACAddress>
+                <SerialNumber>N/A</SerialNumber>
+                <COMPort>0</COMPort>
+            </Device>
+            <!-- <Device>
+                <Instrument>rohde_schwarz</Instrument>
+                <IPAddress>N/A</IPAddress>
+                <MACAddress>N/A</MACAddress>
+                <SerialNumber>N/A</SerialNumber>
+                <COMPort>N/A</COMPort>
+            </Device> -->
         </Devices>
     </System>
 </SystemInfo>
