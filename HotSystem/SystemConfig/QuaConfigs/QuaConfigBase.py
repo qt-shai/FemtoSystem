@@ -92,7 +92,7 @@ class QUAConfigBase(ABC):
         pass
 
     def get_pulses(self) -> Dict[str, Any]:
-        return {
+        pulses =  {
             "const_pulse_single": {
                 "operation": "control",
                 "length": self.rf_length,  # in ns
@@ -184,8 +184,11 @@ class QUAConfigBase(ABC):
                 "length": self.very_long_meas_len,
                 "digital_marker": "ON",
                 "waveforms": {"single": "zero_wf"},
-            },                
+            },
         }
+        pulses.update(self.get_extra_pulses_16ns())
+        pulses.update(self.get_extra_pulses_32ns())
+        return pulses
 
     def get_waveforms(self) -> Dict[str, Any]:
         return {
@@ -198,11 +201,14 @@ class QUAConfigBase(ABC):
         }
 
     def get_digital_waveforms(self) -> Dict[str, Any]:
-        return {
+        waveforms = {
             "ON": {"samples": [(1, 0)]},  # [(on/off, ns)]
-            "test": {"samples": [(1, 4), (0, 8), (1, 12)]}, # [(on/off, ns)] arbitrary example digital waveform total length /4 shoult be integer
+            "test": {"samples": [(1, 4), (0, 8), (1, 12)]}, # [(on/off, ns)] arbitrary example digital waveform total length /4 should be integer
             "OFF": {"samples": [(0, 0)]},  # [(on/off, ns)]
         }
+        waveforms.update(self.get_extra_digital_waveforms_16ns())
+        waveforms.update(self.get_extra_digital_waveforms_32ns())
+        return waveforms
 
     def get_mixers(self) -> Dict[str, Any]:
         return {
@@ -222,3 +228,97 @@ class QUAConfigBase(ABC):
             "digital_waveforms": self.get_digital_waveforms(),
             "mixers": self.get_mixers(),
         }
+
+    def get_extra_digital_waveforms_16ns(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(16):
+            wf_key = f"d_wf_{t}"
+            if t == 0:
+                waveform = [(0, 16)]
+            else:
+                # 0 -> (16 - t) at state 0
+                # (16 - t) -> 16 at state 1
+                waveform = [
+                    (0, 16 - t),
+                    (1, 16),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
+    def get_extra_digital_waveforms_32ns(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(4+5):
+            wf_key = f"d_wf2_{t}"
+            if t == 0:
+                waveform = [(0, 32)]
+            else:
+                waveform = [
+                    (0, 32 - t),
+                    (1, 32),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
+    def get_extra_pulses_16ns(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(16):
+            wf_key = f"d_wf_{t}"
+            pulse_key = f"d_pulse_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 16,
+                "digital_marker": wf_key,
+            }
+        return pulses
+
+    def get_extra_pulses_32ns(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(4+5):
+            wf_key = f"d_wf2_{t}"
+            pulse_key = f"d_pulse2_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 32,
+                "digital_marker": wf_key,
+            }
+        return pulses
+
+    # def generate_waveforms_for_single_steps(self):
+    #     #Part 1
+    #     d_wf_list = []
+    #     for t in range(16):
+    #         if t == 0:
+    #             d_wf_list.append([[0, 16 - t]])
+    #         else:
+    #             d_wf_list.append([[0, 16 - t], [1, t]])
+    #
+    #     #Part 2
+    #     d_p_list = []
+    #     for idx in range(len(d_wf_list)):
+    #         config['digital_waveforms'][f'd_wf_{idx}'] = {'samples': d_wf_list[idx]}
+    #         config['pulses'][f'd_pulse_{idx}'] = {
+    #             "operation": "control",
+    #             "length": 16,
+    #             "digital_marker": f'd_wf_{idx}',
+    #         }
+    #         config['elements']["Blinding"]['operations'][f'opr_{idx}'] = f'd_pulse_{idx}'
+    #         d_p_list.append(f'opr_{idx}') # Can be performed separately in the pulses section. Ignore for now
+    #
+    #     #Part 3
+    #     d_wf_list = []
+    #     for t in range(4):
+    #         if t == 0:
+    #             d_wf_list.append([[0, 32 - t]])
+    #         else:
+    #             d_wf_list.append([[0, 32 - t], [1, t]])
+    #
+    #     d_p2_list = []
+    #     for idx in range(len(d_wf_list)):
+    #         config['digital_waveforms'][f'd_wf2_{idx}'] = {'samples': d_wf_list[idx]}
+    #         config['pulses'][f'd_pulse2_{idx}'] = {
+    #             "operation": "control",
+    #             "length": 32,
+    #             "digital_marker": f'd_wf2_{idx}',
+    #         }
+    #         config['elements']["Blinding"]['operations'][f'opr2_{idx}'] = f'd_pulse2_{idx}'
+    #         d_p2_list.append(f'opr2_{idx}')

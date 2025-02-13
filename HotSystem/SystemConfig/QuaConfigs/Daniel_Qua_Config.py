@@ -12,7 +12,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
 
         # Pulses lengths
         self.initialization_len = 5000  # in ns
-        self.meas_len = 140  # in ns
+        self.meas_len = 28*3+16+32+4*2+16  # in ns
         self.minimal_meas_len = 16  # in ns
         self.long_meas_len = 5e3  # in ns
         self.very_long_meas_len = 25e3  # in ns
@@ -280,6 +280,12 @@ class DanielQuaConfig(configs.QUAConfigBase):
             #     "operations": {"set_voltage": "atto_set_voltage_pulse"},
             # },
         }
+        blinding_ops = elements["Blinding"].get("operations", {})
+        ops_16 = self.get_extra_operations_16ns()
+        ops_32 = self.get_extra_operations_32ns()
+        blinding_ops.update(ops_16)
+        blinding_ops.update(ops_32)
+        elements["Blinding"]["operations"] = blinding_ops
         return elements
 
     def get_pulses(self) -> Dict[str, Any]:
@@ -302,11 +308,6 @@ class DanielQuaConfig(configs.QUAConfigBase):
         # }
         return pulses
 
-    # def gauss(self, amplitude, mu, sigma, length):
-    #     t = np.linspace(-length / 2, length / 2, length)
-    #     gauss_wave = amplitude * np.exp(-((t - mu) ** 2) / (2 * sigma ** 2))
-    #     return [float(x) for x in gauss_wave]
-    #
     # def get_waveforms(self) -> Dict[str, Any]:
     #     gaussian_waveform_data = self.gauss(
     #         amplitude=self.gaussian_amplitude,
@@ -321,3 +322,16 @@ class DanielQuaConfig(configs.QUAConfigBase):
     #             'samples': gaussian_waveform_data
     #     }
     #     return waveforms
+
+    def get_extra_operations_16ns(self) -> Dict[str, str]:
+        ops = {}
+        for t in range(16):
+            ops[f"opr_{t}"] = f"d_pulse_{t}"
+        return ops
+
+    def get_extra_operations_32ns(self) -> Dict[str, str]:
+        ops = {}
+        for t in range(4+5):
+            ops[f"opr2_{t}"] = f"d_pulse2_{t}"
+        return ops
+
