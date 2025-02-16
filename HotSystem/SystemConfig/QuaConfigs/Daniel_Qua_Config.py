@@ -331,7 +331,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
 
     def get_extra_operations_32ns(self) -> Dict[str, str]:
         ops = {}
-        for t in range(4+5):
+        for t in range(4):
             ops[f"opr2_{t}"] = f"d_pulse2_{t}"
         return ops
 
