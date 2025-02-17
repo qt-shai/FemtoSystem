@@ -188,6 +188,7 @@ class QUAConfigBase(ABC):
         }
         pulses.update(self.get_extra_pulses_16ns())
         pulses.update(self.get_extra_pulses_32ns())
+        pulses.update(self.get_extra_pulses_left())
         return pulses
 
     def get_waveforms(self) -> Dict[str, Any]:
@@ -208,6 +209,7 @@ class QUAConfigBase(ABC):
         }
         waveforms.update(self.get_extra_digital_waveforms_16ns()) #For pulses smaller than 16ns
         waveforms.update(self.get_extra_digital_waveforms_32ns()) #For pulses longer than 16ns
+        waveforms.update(self.get_extra_digital_waveform_left())
         return waveforms
 
     def get_mixers(self) -> Dict[str, Any]:
@@ -259,6 +261,22 @@ class QUAConfigBase(ABC):
             waveforms[wf_key] = {"samples": waveform}
         return waveforms
 
+    def get_extra_digital_waveform_left(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(16):
+            wf_key = f"d_wf_left_{t}"
+            if t == 0:
+                waveform = [(0, 16)]
+            else:
+                # 0 -> (16 - t) at state 0
+                # (16 - t) -> 16 at state 1
+                waveform = [
+                    (0, 16 - t),
+                    (1, 16),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
     def get_extra_pulses_16ns(self) -> Dict[str, Any]:
         pulses = {}
         for t in range(16):
@@ -279,6 +297,18 @@ class QUAConfigBase(ABC):
             pulses[pulse_key] = {
                 "operation": "control",
                 "length": 32,
+                "digital_marker": wf_key,
+            }
+        return pulses
+
+    def get_extra_pulses_left(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(16):
+            wf_key = f"d_wf_left_{t}"
+            pulse_key = f"d_pulse_left_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 16,
                 "digital_marker": wf_key,
             }
         return pulses

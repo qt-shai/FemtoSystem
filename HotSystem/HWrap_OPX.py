@@ -1943,8 +1943,9 @@ class GUI_OPX():
             # Simulate blocks python until the simulation is done
             job_sim.get_simulated_samples().con1.plot()
             if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-                waveform_report = job_sim.get_simulated_waveform_report()
-                waveform_report.create_plot(plot=True, save_path="./")
+                # waveform_report = job_sim.get_simulated_waveform_report()
+                # waveform_report.create_plot(plot=True, save_path="./")
+                pass
             plt.show()
 
             return None, None
@@ -2712,6 +2713,8 @@ class GUI_OPX():
             self.t_blinding_pump = 5000  # First blinding, to cover the detector before the first measure
             self.tblinding_2_to_3 = 16 # [nsec]
             self.bin_times = [[20, 48], [84, 112], [128, 156]] # Do not change as of 12.02.2025
+            self.tblidning_2_to_3_first_waveform_length = 16 - (self.T_bin - 16) - 1 #To understand, check how waveforms are defined in the config
+            self.tblidning_2_to_3_second_waveform_length = 16 - self.tblidning_2_to_3_first_waveform_length
 
             # sequence parameters.
             self.tLaser = self.time_in_multiples_cycle_time(self.Tpump) // 4
@@ -2729,8 +2732,8 @@ class GUI_OPX():
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw) // 4
             self.tMWPiHalf = self.time_in_multiples_cycle_time(self.t_mw / 2) // 4
             # Change to time between blidning and MW
-            self.time_to_next_MW = self.time_in_multiples_cycle_time(self.collection_time + self.red_laser_wait) // 4
-            self.T_bin_qua = self.time_in_multiples_cycle_time(self.T_bin - 16) // 4
+            self.time_to_next_MW = self.time_in_multiples_cycle_time(self.T_bin) // 4
+            self.T_bin_qua = self.time_in_multiples_cycle_time(self.T_bin) // 4
 
             self.tBlinding_pump = self.tLaser + self.tMWPiHalf # +1 to prevent recording laser light
             self.tBlinding = self.tMW  # Second blinding, between the first and second measurement bin
@@ -2739,7 +2742,7 @@ class GUI_OPX():
 
             # length and idx vector
             # Move to qua units below
-            self.MeasProcessTime = self.tMWPiHalf + self.off_time + self.T_bin + self.tMW + self.off_time + 2*self.T_bin + self.tblinding_2_to_3  # time required of measure, 4 is red laser trigger+2ns wait
+            self.MeasProcessTime = self.tMWPiHalf + (self.off_time+1) + self.T_bin + self.tMW + (self.off_time+1) + 2*self.T_bin + self.tblinding_2_to_3 + 1 # time required of measure, 4 is red laser trigger+2ns wait
             # self.tMeasure = self.time_in_multiples_cycle_time(
             #     self.MeasProcessTime) // 4  # Measurement time of the detector
             self.vectorLength = 1  # Length of the counts vector
@@ -2766,7 +2769,8 @@ class GUI_OPX():
                 align("Laser","Blinding")
                 play("Turn_ON", "Laser", duration=self.tLaser)
                 play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
-                play(f"opr_{self.off_time+1}", "Blinding") #Calibrated to 1ns Laser trigger time
+                play(f"opr_{self.off_time+1}", "Blinding") #Calibrated for 1ns Laser trigger time
+                play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
                 align("Laser", "MW")
                 play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
                 align("MW", "Resonant_Laser")
@@ -2779,20 +2783,20 @@ class GUI_OPX():
                         time_tagger(self.times, int(self.MeasProcessTime), self.counts_tmp))
                 assign(self.counts[self.idx], self.counts[self.idx] + self.counts_tmp)
                 align("Blinding", "MW")  # For some reason align does not work properly with Blinding, fix later
-                align("Blinding")
-                wait(self.time_to_next_MW - 3)  # 25ns delay + 3ns to prevent laser light collection.
+                #align("Blinding")
+                #wait(self.time_to_next_MW - 3)  # 25ns delay + 3ns to prevent laser light collection.
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
                 play("Turn_ON", "Blinding", duration=self.tBlinding)
                 play(f"opr_{self.off_time + 1}", "Blinding")
-                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
                 align("MW", "Resonant_Laser")
                 play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-                align("Resonant_Laser", "MW") #Check the timing correctly
-                wait(self.T_bin_qua+1) #16 is already provided by the length of blinking pulse. Change later to 12ns
-                play("Turn_ON", "Blinding", duration=self.tBlinding_2_to_3)
-                play(f"opr_{self.off_time + 1}", "Blinding")
+                play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
+                # The pulse below is to enforce total length of 16 ns, can be changes to any length above self.tblidning_2_to_3_first_waveform_length
+                play(f"opr_{self.tblidning_2_to_3_second_waveform_length}", "Blinding")
                 # Insert an if condition here in the future
                 # In the second half of the experiment we want the number of counts and not their timing
-                wait(self.wait_before_stat,"Blinking")
+                align("Blinding", "MW") #Check the timing correctly
+                wait(self.T_bin_qua + 1) #+1 to give the pulses some space
                 play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
                 align("MW", "Resonant_Laser")
                 play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)

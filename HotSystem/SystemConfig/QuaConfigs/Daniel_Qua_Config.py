@@ -12,7 +12,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
 
         # Pulses lengths
         self.initialization_len = 5000  # in ns
-        self.meas_len = 28*3+16+32+4*2+16  # in ns
+        self.meas_len = 28*3 + 2*2 + 16+32 + 16  # in ns
         self.minimal_meas_len = 16  # in ns
         self.long_meas_len = 5e3  # in ns
         self.very_long_meas_len = 25e3  # in ns
@@ -283,8 +283,10 @@ class DanielQuaConfig(configs.QUAConfigBase):
         blinding_ops = elements["Blinding"].get("operations", {})
         ops_16 = self.get_extra_operations_16ns()
         ops_32 = self.get_extra_operations_32ns()
+        ops_both_sides = self.get_extra_operations_left_side()
         blinding_ops.update(ops_16)
         blinding_ops.update(ops_32)
+        blinding_ops.update(ops_both_sides)
         elements["Blinding"]["operations"] = blinding_ops
         return elements
 
@@ -335,3 +337,8 @@ class DanielQuaConfig(configs.QUAConfigBase):
             ops[f"opr2_{t}"] = f"d_pulse2_{t}"
         return ops
 
+    def get_extra_operations_left_side(self) -> Dict[str, str]:
+        ops = {}
+        for t in range(16):
+            ops[f"opr_left_{t}"] = f"d_pulse_left_{t}"
+        return ops

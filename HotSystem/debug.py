@@ -1,5 +1,5 @@
 
-# Single QUA script generated at 2025-02-05 10:39:51.112341
+# Single QUA script generated at 2025-02-17 13:33:18.421149
 # QUA library version: 1.2.1
 
 from qm import CompilerOptionArguments
@@ -11,11 +11,12 @@ with program() as prog:
     a1 = declare(int, size=100)
     a2 = declare(int, size=100)
     a3 = declare(int, size=100)
-    v3 = declare(int, )
-    v4 = declare(int, )
-    v5 = declare(fixed, )
+    v3 = declare(fixed, )
+    v4 = declare(fixed, )
+    a4 = declare(fixed, size=10)
+    v5 = declare(int, )
     v6 = declare(int, )
-    v7 = declare(int, )
+    v7 = declare(fixed, )
     v8 = declare(int, )
     v9 = declare(int, )
     v10 = declare(int, )
@@ -26,83 +27,89 @@ with program() as prog:
     v15 = declare(int, )
     v16 = declare(int, )
     v17 = declare(int, )
-    v18 = declare(bool, value=False)
-    v19 = declare(int, value=0)
-    v20 = declare(int, )
+    v18 = declare(int, )
+    v19 = declare(int, )
+    v20 = declare(bool, value=False)
     v21 = declare(int, value=0)
-    v22 = declare(int, value=0)
-    a4 = declare(int, size=1)
+    v22 = declare(int, )
+    v23 = declare(int, value=0)
+    v24 = declare(int, value=0)
     a5 = declare(int, size=1)
     a6 = declare(int, size=1)
-    a7 = declare(int, value=[0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 1000000, 1100000, 1200000, 1300000, 1400000, 1500000, 1600000, 1700000, 1800000, 1900000, 2000000, 2100000, 2200000, 2300000, 2400000, 2500000, 2600000, 2700000, 2800000, 2900000, 3000000, 3100000, 3200000, 3300000, 3400000, 3500000, 3600000, 3700000, 3800000, 3900000, 4000000, 4100000, 4200000, 4300000, 4400000, 4500000, 4600000, 4700000, 4800000, 4900000, 5000000, 5100000, 5200000, 5300000, 5400000, 5500000, 5600000, 5700000, 5800000, 5900000, 6000000, 6100000, 6200000, 6300000, 6400000, 6500000, 6600000, 6700000, 6800000, 6900000, 7000000, 7100000, 7200000, 7300000, 7400000, 7500000, 7600000, 7700000, 7800000, 7900000, 8000000, 8100000, 8200000, 8300000, 8400000, 8500000, 8600000, 8700000, 8800000, 8900000, 9000000, 9100000, 9200000, 9300000, 9400000, 9500000, 9600000, 9700000, 9800000, 9900000, 10000000])
-    a8 = declare(int, value=[0])
-    v23 = declare(int, )
-    v24 = declare(int, )
+    a7 = declare(int, size=1)
+    a8 = declare(int, value=[0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 1000000, 1100000, 1200000, 1300000, 1400000, 1500000, 1600000, 1700000, 1800000, 1900000, 2000000, 2100000, 2200000, 2300000, 2400000, 2500000, 2600000, 2700000, 2800000, 2900000, 3000000, 3100000, 3200000, 3300000, 3400000, 3500000, 3600000, 3700000, 3800000, 3900000, 4000000, 4100000, 4200000, 4300000, 4400000, 4500000, 4600000, 4700000, 4800000, 4900000, 5000000, 5100000, 5200000, 5300000, 5400000, 5500000, 5600000, 5700000, 5800000, 5900000, 6000000, 6100000, 6200000, 6300000, 6400000, 6500000, 6600000, 6700000, 6800000, 6900000, 7000000, 7100000, 7200000, 7300000, 7400000, 7500000, 7600000, 7700000, 7800000, 7900000, 8000000, 8100000, 8200000, 8300000, 8400000, 8500000, 8600000, 8700000, 8800000, 8900000, 9000000, 9100000, 9200000, 9300000, 9400000, 9500000, 9600000, 9700000, 9800000, 9900000, 10000000])
+    a9 = declare(int, value=[0])
     v25 = declare(int, )
     v26 = declare(int, )
-    v27 = declare(int, value=75489443)
+    v27 = declare(int, )
+    v28 = declare(int, )
+    v29 = declare(int, value=190399921)
     assign(v1, False)
-    with for_(v2,0,(v2<10),(v2+1)):
-        with for_(v23,0,(v23<1),(v23+1)):
-            assign(a4[v23], 0)
-            assign(a5[v23], 0)
-            assign(a1[v23], 0)
+    with for_(v2,0,(v2<1),(v2+1)):
+        with for_(v25,0,(v25<1),(v25+1)):
+            assign(a5[v25], 0)
+            assign(a6[v25], 0)
+            assign(a1[v25], 0)
         with if_(False):
-            with for_(v26,0,(v26<1),(v26+1)):
-                assign(v25, call_library_function('random', 'rand_int', [v27,(1-v26)]))
-                assign(v24, a8[v25])
-                assign(a8[v25], a8[(0-v26)])
-                assign(a8[(0-v26)], v24)
-        with for_(v23,0,(v23<1),(v23+1)):
-            assign(v22, IO1)
-            with if_((v22==0)):
-                update_frequency("MW", v3, "Hz", False)
+            with for_(v28,0,(v28<1),(v28+1)):
+                assign(v27, call_library_function('random', 'rand_int', [v29,(1-v28)]))
+                assign(v26, a9[v27])
+                assign(a9[v27], a9[(0-v28)])
+                assign(a9[(0-v28)], v26)
+        with for_(v25,0,(v25<1),(v25+1)):
+            assign(v24, IO1)
+            with if_((v24==0)):
+                update_frequency("MW", v5, "Hz", False)
                 with if_(v1):
-                    assign(a4[v23], 2)
-                    with for_(v8,0,(v8<a4[v23]),(v8+1)):
-                        assign(a1[v8], (v8*10))
-                    assign(a5[v23], 15)
+                    assign(a5[v25], 4)
+                    with for_(v10,0,(v10<a5[v25]),(v10+1)):
+                        assign(a1[v10], (v10*10))
+                    assign(a6[v25], 15)
                 with else_():
+                    align("Laser", "Blinding")
                     play("Turn_ON", "Laser", duration=1250)
-                    play("Turn_ON", "Blinding", duration=1255)
+                    play("Turn_ON", "Blinding", duration=1254)
+                    play("opr_2", "Blinding")
+                    play("opr_left_3", "Blinding")
                     align("Laser", "MW")
                     play("xPulse"*amp(1.0), "MW", duration=4)
                     align("MW", "Resonant_Laser")
                     play("Turn_ON", "Resonant_Laser", duration=4)
                     align("Laser", "Detector_OPD")
-                    measure("readout", "Detector_OPD", None, time_tagging.analog(a1, 104, v14, ""))
-                    assign(a4[v23], (a4[v23]+v14))
-                    align("Laser", "MW")
+                    measure("readout", "Detector_OPD", None, time_tagging.analog(a1, 117, v16, ""))
+                    assign(a5[v25], (a5[v25]+v16))
                     align("Blinding", "MW")
-                    wait(4, )
-                    play("Turn_ON", "Blinding", duration=9)
                     play("xPulse"*amp(1.0), "MW", duration=8)
+                    play("Turn_ON", "Blinding", duration=8)
+                    play("opr_2", "Blinding")
                     align("MW", "Resonant_Laser")
                     play("Turn_ON", "Resonant_Laser", duration=4)
-                    align("Resonant_Laser", "Blinding")
-                    align("Detector_OPD", "MW")
+                    play("opr_left_3", "Blinding")
+                    play("opr_13", "Blinding")
+                    align("Blinding", "MW")
+                    wait(8, )
                     play("xPulse"*amp(1.0), "MW", duration=4)
                     align("MW", "Resonant_Laser")
                     play("Turn_ON", "Resonant_Laser", duration=25)
                     align("MW", "Detector2_OPD")
-                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(a2, 25, v15, ""))
-                    assign(a5[v23], (a5[v23]+v15))
-                assign(v11, 0)
-        with if_((v22==0)):
-            with for_(v23,0,(v23<1),(v23+1)):
+                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(a2, 25, v17, ""))
+                    assign(a6[v25], (a6[v25]+v17))
+                assign(v13, 0)
+        with if_((v24==0)):
+            with for_(v25,0,(v25<1),(v25+1)):
                 r3 = declare_stream()
-                save(a4[v23], r3)
+                save(a5[v25], r3)
                 r6 = declare_stream()
-                save(a5[v23], r6)
-            with for_(v23,0,(v23<a4[0]),(v23+1)):
+                save(a6[v25], r6)
+            with for_(v25,0,(v25<a5[0]),(v25+1)):
                 r4 = declare_stream()
-                save(a1[v23], r4)
+                save(a1[v25], r4)
         r1 = declare_stream()
         save(v2, r1)
         r2 = declare_stream()
-        save(v21, r2)
+        save(v23, r2)
         r5 = declare_stream()
-        save(v11, r5)
+        save(v13, r5)
     with stream_processing():
         r1.save_all("iteration_list")
         r4.save_all("times")
@@ -289,6 +296,42 @@ config = {
             },
             "operations": {
                 "Turn_ON": "blinding_ON",
+                "opr_0": "d_pulse_0",
+                "opr_1": "d_pulse_1",
+                "opr_2": "d_pulse_2",
+                "opr_3": "d_pulse_3",
+                "opr_4": "d_pulse_4",
+                "opr_5": "d_pulse_5",
+                "opr_6": "d_pulse_6",
+                "opr_7": "d_pulse_7",
+                "opr_8": "d_pulse_8",
+                "opr_9": "d_pulse_9",
+                "opr_10": "d_pulse_10",
+                "opr_11": "d_pulse_11",
+                "opr_12": "d_pulse_12",
+                "opr_13": "d_pulse_13",
+                "opr_14": "d_pulse_14",
+                "opr_15": "d_pulse_15",
+                "opr2_0": "d_pulse2_0",
+                "opr2_1": "d_pulse2_1",
+                "opr2_2": "d_pulse2_2",
+                "opr2_3": "d_pulse2_3",
+                "opr_left_0": "d_pulse_left_0",
+                "opr_left_1": "d_pulse_left_1",
+                "opr_left_2": "d_pulse_left_2",
+                "opr_left_3": "d_pulse_left_3",
+                "opr_left_4": "d_pulse_left_4",
+                "opr_left_5": "d_pulse_left_5",
+                "opr_left_6": "d_pulse_left_6",
+                "opr_left_7": "d_pulse_left_7",
+                "opr_left_8": "d_pulse_left_8",
+                "opr_left_9": "d_pulse_left_9",
+                "opr_left_10": "d_pulse_left_10",
+                "opr_left_11": "d_pulse_left_11",
+                "opr_left_12": "d_pulse_left_12",
+                "opr_left_13": "d_pulse_left_13",
+                "opr_left_14": "d_pulse_left_14",
+                "opr_left_15": "d_pulse_left_15",
             },
         },
     },
@@ -389,7 +432,7 @@ config = {
         },
         "readout_pulse": {
             "operation": "measurement",
-            "length": 140,
+            "length": 152,
             "digital_marker": "ON",
             "waveforms": {
                 "single": "zero_wf",
@@ -418,6 +461,186 @@ config = {
             "waveforms": {
                 "single": "zero_wf",
             },
+        },
+        "d_pulse_0": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_0",
+        },
+        "d_pulse_1": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_1",
+        },
+        "d_pulse_2": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_2",
+        },
+        "d_pulse_3": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_3",
+        },
+        "d_pulse_4": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_4",
+        },
+        "d_pulse_5": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_5",
+        },
+        "d_pulse_6": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_6",
+        },
+        "d_pulse_7": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_7",
+        },
+        "d_pulse_8": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_8",
+        },
+        "d_pulse_9": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_9",
+        },
+        "d_pulse_10": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_10",
+        },
+        "d_pulse_11": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_11",
+        },
+        "d_pulse_12": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_12",
+        },
+        "d_pulse_13": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_13",
+        },
+        "d_pulse_14": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_14",
+        },
+        "d_pulse_15": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_15",
+        },
+        "d_pulse2_0": {
+            "operation": "control",
+            "length": 32,
+            "digital_marker": "d_wf2_0",
+        },
+        "d_pulse2_1": {
+            "operation": "control",
+            "length": 32,
+            "digital_marker": "d_wf2_1",
+        },
+        "d_pulse2_2": {
+            "operation": "control",
+            "length": 32,
+            "digital_marker": "d_wf2_2",
+        },
+        "d_pulse2_3": {
+            "operation": "control",
+            "length": 32,
+            "digital_marker": "d_wf2_3",
+        },
+        "d_pulse_left_0": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_0",
+        },
+        "d_pulse_left_1": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_1",
+        },
+        "d_pulse_left_2": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_2",
+        },
+        "d_pulse_left_3": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_3",
+        },
+        "d_pulse_left_4": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_4",
+        },
+        "d_pulse_left_5": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_5",
+        },
+        "d_pulse_left_6": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_6",
+        },
+        "d_pulse_left_7": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_7",
+        },
+        "d_pulse_left_8": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_8",
+        },
+        "d_pulse_left_9": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_9",
+        },
+        "d_pulse_left_10": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_10",
+        },
+        "d_pulse_left_11": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_11",
+        },
+        "d_pulse_left_12": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_12",
+        },
+        "d_pulse_left_13": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_13",
+        },
+        "d_pulse_left_14": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_14",
+        },
+        "d_pulse_left_15": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_15",
         },
         "atto_set_voltage_pulse": {
             "operation": "control",
@@ -462,6 +685,114 @@ config = {
         },
         "OFF": {
             "samples": [(0, 0)],
+        },
+        "d_wf_0": {
+            "samples": [(0, 16)],
+        },
+        "d_wf_1": {
+            "samples": [(1, 1), (0, 16)],
+        },
+        "d_wf_2": {
+            "samples": [(1, 2), (0, 16)],
+        },
+        "d_wf_3": {
+            "samples": [(1, 3), (0, 16)],
+        },
+        "d_wf_4": {
+            "samples": [(1, 4), (0, 16)],
+        },
+        "d_wf_5": {
+            "samples": [(1, 5), (0, 16)],
+        },
+        "d_wf_6": {
+            "samples": [(1, 6), (0, 16)],
+        },
+        "d_wf_7": {
+            "samples": [(1, 7), (0, 16)],
+        },
+        "d_wf_8": {
+            "samples": [(1, 8), (0, 16)],
+        },
+        "d_wf_9": {
+            "samples": [(1, 9), (0, 16)],
+        },
+        "d_wf_10": {
+            "samples": [(1, 10), (0, 16)],
+        },
+        "d_wf_11": {
+            "samples": [(1, 11), (0, 16)],
+        },
+        "d_wf_12": {
+            "samples": [(1, 12), (0, 16)],
+        },
+        "d_wf_13": {
+            "samples": [(1, 13), (0, 16)],
+        },
+        "d_wf_14": {
+            "samples": [(1, 14), (0, 16)],
+        },
+        "d_wf_15": {
+            "samples": [(1, 15), (0, 16)],
+        },
+        "d_wf2_0": {
+            "samples": [(0, 32)],
+        },
+        "d_wf2_1": {
+            "samples": [(1, 1), (0, 32)],
+        },
+        "d_wf2_2": {
+            "samples": [(1, 2), (0, 32)],
+        },
+        "d_wf2_3": {
+            "samples": [(1, 3), (0, 32)],
+        },
+        "d_wf_left_0": {
+            "samples": [(0, 16)],
+        },
+        "d_wf_left_1": {
+            "samples": [(0, 15), (1, 16)],
+        },
+        "d_wf_left_2": {
+            "samples": [(0, 14), (1, 16)],
+        },
+        "d_wf_left_3": {
+            "samples": [(0, 13), (1, 16)],
+        },
+        "d_wf_left_4": {
+            "samples": [(0, 12), (1, 16)],
+        },
+        "d_wf_left_5": {
+            "samples": [(0, 11), (1, 16)],
+        },
+        "d_wf_left_6": {
+            "samples": [(0, 10), (1, 16)],
+        },
+        "d_wf_left_7": {
+            "samples": [(0, 9), (1, 16)],
+        },
+        "d_wf_left_8": {
+            "samples": [(0, 8), (1, 16)],
+        },
+        "d_wf_left_9": {
+            "samples": [(0, 7), (1, 16)],
+        },
+        "d_wf_left_10": {
+            "samples": [(0, 6), (1, 16)],
+        },
+        "d_wf_left_11": {
+            "samples": [(0, 5), (1, 16)],
+        },
+        "d_wf_left_12": {
+            "samples": [(0, 4), (1, 16)],
+        },
+        "d_wf_left_13": {
+            "samples": [(0, 3), (1, 16)],
+        },
+        "d_wf_left_14": {
+            "samples": [(0, 2), (1, 16)],
+        },
+        "d_wf_left_15": {
+            "samples": [(0, 1), (1, 16)],
         },
     },
     "mixers": {
@@ -730,6 +1061,42 @@ loaded_config = {
             "outputs": {},
             "operations": {
                 "Turn_ON": "blinding_ON",
+                "opr_0": "d_pulse_0",
+                "opr_1": "d_pulse_1",
+                "opr_2": "d_pulse_2",
+                "opr_3": "d_pulse_3",
+                "opr_4": "d_pulse_4",
+                "opr_5": "d_pulse_5",
+                "opr_6": "d_pulse_6",
+                "opr_7": "d_pulse_7",
+                "opr_8": "d_pulse_8",
+                "opr_9": "d_pulse_9",
+                "opr_10": "d_pulse_10",
+                "opr_11": "d_pulse_11",
+                "opr_12": "d_pulse_12",
+                "opr_13": "d_pulse_13",
+                "opr_14": "d_pulse_14",
+                "opr_15": "d_pulse_15",
+                "opr2_0": "d_pulse2_0",
+                "opr2_1": "d_pulse2_1",
+                "opr2_2": "d_pulse2_2",
+                "opr2_3": "d_pulse2_3",
+                "opr_left_0": "d_pulse_left_0",
+                "opr_left_1": "d_pulse_left_1",
+                "opr_left_2": "d_pulse_left_2",
+                "opr_left_3": "d_pulse_left_3",
+                "opr_left_4": "d_pulse_left_4",
+                "opr_left_5": "d_pulse_left_5",
+                "opr_left_6": "d_pulse_left_6",
+                "opr_left_7": "d_pulse_left_7",
+                "opr_left_8": "d_pulse_left_8",
+                "opr_left_9": "d_pulse_left_9",
+                "opr_left_10": "d_pulse_left_10",
+                "opr_left_11": "d_pulse_left_11",
+                "opr_left_12": "d_pulse_left_12",
+                "opr_left_13": "d_pulse_left_13",
+                "opr_left_14": "d_pulse_left_14",
+                "opr_left_15": "d_pulse_left_15",
             },
             "hold_offset": {
                 "duration": 0,
@@ -853,7 +1220,7 @@ loaded_config = {
             "digital_marker": "ON",
         },
         "readout_pulse": {
-            "length": 140,
+            "length": 152,
             "waveforms": {
                 "single": "zero_wf",
             },
@@ -887,6 +1254,258 @@ loaded_config = {
             "integration_weights": {},
             "operation": "measurement",
             "digital_marker": "ON",
+        },
+        "d_pulse_0": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_0",
+        },
+        "d_pulse_1": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_1",
+        },
+        "d_pulse_2": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_2",
+        },
+        "d_pulse_3": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_3",
+        },
+        "d_pulse_4": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_4",
+        },
+        "d_pulse_5": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_5",
+        },
+        "d_pulse_6": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_6",
+        },
+        "d_pulse_7": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_7",
+        },
+        "d_pulse_8": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_8",
+        },
+        "d_pulse_9": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_9",
+        },
+        "d_pulse_10": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_10",
+        },
+        "d_pulse_11": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_11",
+        },
+        "d_pulse_12": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_12",
+        },
+        "d_pulse_13": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_13",
+        },
+        "d_pulse_14": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_14",
+        },
+        "d_pulse_15": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_15",
+        },
+        "d_pulse2_0": {
+            "length": 32,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf2_0",
+        },
+        "d_pulse2_1": {
+            "length": 32,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf2_1",
+        },
+        "d_pulse2_2": {
+            "length": 32,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf2_2",
+        },
+        "d_pulse2_3": {
+            "length": 32,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf2_3",
+        },
+        "d_pulse_left_0": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_0",
+        },
+        "d_pulse_left_1": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_1",
+        },
+        "d_pulse_left_2": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_2",
+        },
+        "d_pulse_left_3": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_3",
+        },
+        "d_pulse_left_4": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_4",
+        },
+        "d_pulse_left_5": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_5",
+        },
+        "d_pulse_left_6": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_6",
+        },
+        "d_pulse_left_7": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_7",
+        },
+        "d_pulse_left_8": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_8",
+        },
+        "d_pulse_left_9": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_9",
+        },
+        "d_pulse_left_10": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_10",
+        },
+        "d_pulse_left_11": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_11",
+        },
+        "d_pulse_left_12": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_12",
+        },
+        "d_pulse_left_13": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_13",
+        },
+        "d_pulse_left_14": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_14",
+        },
+        "d_pulse_left_15": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_15",
         },
         "atto_set_voltage_pulse": {
             "length": 16,
@@ -932,6 +1551,114 @@ loaded_config = {
         },
         "OFF": {
             "samples": [(0, 0)],
+        },
+        "d_wf_0": {
+            "samples": [(0, 16)],
+        },
+        "d_wf_1": {
+            "samples": [(1, 1), (0, 16)],
+        },
+        "d_wf_2": {
+            "samples": [(1, 2), (0, 16)],
+        },
+        "d_wf_3": {
+            "samples": [(1, 3), (0, 16)],
+        },
+        "d_wf_4": {
+            "samples": [(1, 4), (0, 16)],
+        },
+        "d_wf_5": {
+            "samples": [(1, 5), (0, 16)],
+        },
+        "d_wf_6": {
+            "samples": [(1, 6), (0, 16)],
+        },
+        "d_wf_7": {
+            "samples": [(1, 7), (0, 16)],
+        },
+        "d_wf_8": {
+            "samples": [(1, 8), (0, 16)],
+        },
+        "d_wf_9": {
+            "samples": [(1, 9), (0, 16)],
+        },
+        "d_wf_10": {
+            "samples": [(1, 10), (0, 16)],
+        },
+        "d_wf_11": {
+            "samples": [(1, 11), (0, 16)],
+        },
+        "d_wf_12": {
+            "samples": [(1, 12), (0, 16)],
+        },
+        "d_wf_13": {
+            "samples": [(1, 13), (0, 16)],
+        },
+        "d_wf_14": {
+            "samples": [(1, 14), (0, 16)],
+        },
+        "d_wf_15": {
+            "samples": [(1, 15), (0, 16)],
+        },
+        "d_wf2_0": {
+            "samples": [(0, 32)],
+        },
+        "d_wf2_1": {
+            "samples": [(1, 1), (0, 32)],
+        },
+        "d_wf2_2": {
+            "samples": [(1, 2), (0, 32)],
+        },
+        "d_wf2_3": {
+            "samples": [(1, 3), (0, 32)],
+        },
+        "d_wf_left_0": {
+            "samples": [(0, 16)],
+        },
+        "d_wf_left_1": {
+            "samples": [(0, 15), (1, 16)],
+        },
+        "d_wf_left_2": {
+            "samples": [(0, 14), (1, 16)],
+        },
+        "d_wf_left_3": {
+            "samples": [(0, 13), (1, 16)],
+        },
+        "d_wf_left_4": {
+            "samples": [(0, 12), (1, 16)],
+        },
+        "d_wf_left_5": {
+            "samples": [(0, 11), (1, 16)],
+        },
+        "d_wf_left_6": {
+            "samples": [(0, 10), (1, 16)],
+        },
+        "d_wf_left_7": {
+            "samples": [(0, 9), (1, 16)],
+        },
+        "d_wf_left_8": {
+            "samples": [(0, 8), (1, 16)],
+        },
+        "d_wf_left_9": {
+            "samples": [(0, 7), (1, 16)],
+        },
+        "d_wf_left_10": {
+            "samples": [(0, 6), (1, 16)],
+        },
+        "d_wf_left_11": {
+            "samples": [(0, 5), (1, 16)],
+        },
+        "d_wf_left_12": {
+            "samples": [(0, 4), (1, 16)],
+        },
+        "d_wf_left_13": {
+            "samples": [(0, 3), (1, 16)],
+        },
+        "d_wf_left_14": {
+            "samples": [(0, 2), (1, 16)],
+        },
+        "d_wf_left_15": {
+            "samples": [(0, 1), (1, 16)],
         },
     },
     "integration_weights": {},
