@@ -2239,6 +2239,10 @@ class GUI_OPX():
             self.idx_vec_qua = declare(int, value=self.idx_vec_ini)  # indexes QUA vector
             self.idx = declare(int)  # index variable to sweep over all indexes
 
+            self.mod4 = declare(bool)
+            self.mod3 = declare(bool)
+            self.mod2 = declare(bool)
+
             # stream parameters
             self.counts_st = declare_stream()  # experiment signal
             self.times_st = declare_stream()  # times during experiment signal
@@ -2250,7 +2254,8 @@ class GUI_OPX():
 
             # with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
             #     assign(self.counts_ref[self.idx], 0)
-            self.n_avg = 1
+            self.n_avg = 10
+            assign(self.mod4,self.n_avg % 4)
             with for_(self.n, 0, self.n < self.n_avg, self.n + 1):  # AVG loop
                 # reset vectors
                 with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
@@ -2270,10 +2275,46 @@ class GUI_OPX():
                         update_frequency("MW", self.f)
                         # pi pulse type for statistics measurement (X ot Y)
                         self.execute_QUA()
-                        if self.statistics_pulse_type == "xPulse":
+                        with if_(self.mod4 == 0):
                             assign(self.pulse_type, 0)
-                        elif self.statistics_pulse_type == "yPulse":
+                            self.statistics_pulse_type = "xPulse"
+                        with if_(self.mod3 == 0):
                             assign(self.pulse_type, 1)
+                            self.statistics_pulse_type = "yPulse"
+                        with if_(self.mod2 == 0):
+                            assign(self.pulse_type, 2)
+                            self.statistics_pulse_type = "xPulse"
+                        with else_():
+                            assign(self.pulse_type, 3)
+                            self.statistics_pulse_type = "yPulse"
+
+                    with else_():
+                        assign(self.tracking_signal, 0)
+                        with for_(self.idx, 0, self.idx < self.tTrackingIntegrationCycles, self.idx + 1):
+                            play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times_ref,
+                                                                                              self.time_in_multiples_cycle_time(
+                                                                                                  self.Tcounter),
+                                                                                              self.tracking_signal_tmp))
+                            assign(self.tracking_signal, self.tracking_signal + self.tracking_signal_tmp)
+                        align()
+
+                # tracking signal
+                with if_(self.runTracking):
+                    assign(self.track_idx, self.track_idx + 1)  # step up tracking counter
+                    with if_(self.track_idx > self.trackingNumRepeatition - 1):
+                        assign(self.tracking_signal, 0)  # shuffle - assign new val from randon index
+                        # reference sequence
+                        with for_(self.idx, 0, self.idx < self.tTrackingIntegrationCycles, self.idx + 1):
+                            play("Turn_ON", "Laser",
+                                 duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
+                            measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times_ref,
+                                                                                              self.time_in_multiples_cycle_time(
+                                                                                                  self.Tcounter),
+                                                                                              self.tracking_signal_tmp))
+                            assign(self.tracking_signal, self.tracking_signal + self.tracking_signal_tmp)
+                        assign(self.track_idx, 0)
+
                 # stream
                 with if_(self.sequenceState == 0):
                     with for_(self.idx, 0, self.idx < self.vectorLength,
@@ -2731,6 +2772,7 @@ class GUI_OPX():
             # MW parameters
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw) // 4
             self.tMWPiHalf = self.time_in_multiples_cycle_time(self.t_mw / 2) // 4
+            self.tMWPiStat = self.tMW
             # Change to time between blidning and MW
             self.time_to_next_MW = self.time_in_multiples_cycle_time(self.T_bin) // 4
             self.T_bin_qua = self.time_in_multiples_cycle_time(self.T_bin) // 4
@@ -2751,73 +2793,83 @@ class GUI_OPX():
             self.number_of_statistical_measurements = 1000
             self.statistics_pulse_type = "xPulse"
 
+            # tracking signal
+            self.tPump = self.time_in_multiples_cycle_time(self.Tpump)
+            self.Npump = self.n_nuc_pump
+            self.tSequencePeriod = ((self.tMW + self.tLaser) * (
+                        self.Npump + 2) * self.Npump) * self.array_length
+            self.tGetTrackingSignalEveryTime_nsec = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
+            self.tTrackingSignaIntegrationTime_usec = int(self.tTrackingSignaIntegrationTime * 1e6)  # []
+            self.tTrackingIntegrationCycles = self.tTrackingSignaIntegrationTime_usec // self.time_in_multiples_cycle_time(
+                self.Tcounter)
+            self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (
+                self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
+
         if Generate_QUA_sequance:
-            with if_(self.simulation_flag):
-                #rand = Random()
-                #assign(self.r,rand.rand_fixed())
-                #assign(self.ln_to_int,-1.2 * Math.ln(1.0 - self.r))
-                assign(self.counts[self.idx], 4)
-                with for_(self.j_idx, 0, self.j_idx < self.counts[self.idx], self.j_idx + 1):
-                    assign(self.times[self.j_idx], self.j_idx*10)
-                    #assign(self.times[self.j_idx], Cast.to_int(-1.2 * Math.ln(1.0 - self.r)))
-                    #assign(self.assign_input[self.j_idx], -1.2 * Math.ln(1.0 - self.r)) #Despite declared as a fixed array, takes int
-                assign(self.counts2[self.idx], 15)
-            with else_():
-                time_tagger = self.get_time_tagging_func("Detector_OPD")
-                # In the first part of the experiment we want information on the timing of the photon arrivals.
-                # Only one photon can be recorded at the detector at a time
-                align("Laser","Blinding")
-                play("Turn_ON", "Laser", duration=self.tLaser)
-                play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
-                play(f"opr_{self.off_time+1}", "Blinding") #Calibrated for 1ns Laser trigger time
-                play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
-                align("Laser", "MW")
-                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
-                align("MW", "Resonant_Laser")
-                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-                # Records #self.times at points where self.counts_tmp is recorded
-                # self.times is NOT a vector of length self.tMeasure
-                # self.counts_tmp stores the total number of photon arrivals as an integer
-                align("Laser", "Detector_OPD")
-                measure("readout", "Detector_OPD", None,
-                        time_tagger(self.times, int(self.MeasProcessTime), self.counts_tmp))
-                assign(self.counts[self.idx], self.counts[self.idx] + self.counts_tmp)
-                align("Blinding", "MW")  # For some reason align does not work properly with Blinding, fix later
-                #align("Blinding")
-                #wait(self.time_to_next_MW - 3)  # 25ns delay + 3ns to prevent laser light collection.
-                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
-                play("Turn_ON", "Blinding", duration=self.tBlinding)
-                play(f"opr_{self.off_time + 1}", "Blinding")
-                align("MW", "Resonant_Laser")
-                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-                play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
-                # The pulse below is to enforce total length of 16 ns, can be changes to any length above self.tblidning_2_to_3_first_waveform_length
-                play(f"opr_{self.tblidning_2_to_3_second_waveform_length}", "Blinding")
-                # Insert an if condition here in the future
-                # In the second half of the experiment we want the number of counts and not their timing
-                align("Blinding", "MW") #Check the timing correctly
-                wait(self.T_bin_qua + 1) #+1 to give the pulses some space
-                play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
-                align("MW", "Resonant_Laser")
-                play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
-                align("MW", "Detector2_OPD")
-                measure("min_readout", "Detector2_OPD", None,
-                        time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
-                assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
+            # with if_(self.simulation_flag):
+            #     #rand = Random()
+            #     #assign(self.r,rand.rand_fixed())
+            #     #assign(self.ln_to_int,-1.2 * Math.ln(1.0 - self.r))
+            #     assign(self.counts[self.idx], 4)
+            #     with for_(self.j_idx, 0, self.j_idx < self.counts[self.idx], self.j_idx + 1):
+            #         assign(self.times[self.j_idx], self.j_idx*10)
+            #         #assign(self.times[self.j_idx], Cast.to_int(-1.2 * Math.ln(1.0 - self.r)))
+            #         #assign(self.assign_input[self.j_idx], -1.2 * Math.ln(1.0 - self.r)) #Despite declared as a fixed array, takes int
+            #     assign(self.counts2[self.idx], 15)
+            # with else_():
+            #     time_tagger = self.get_time_tagging_func("Detector_OPD")
+            #     # In the first part of the experiment we want information on the timing of the photon arrivals.
+            #     # Only one photon can be recorded at the detector at a time
+            #     align("Laser","Blinding")
+            #     play("Turn_ON", "Laser", duration=self.tLaser)
+            #     play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
+            #     play(f"opr_{self.off_time+1}", "Blinding") #Calibrated for 1ns Laser trigger time
+            #     play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
+            #     align("Laser", "MW")
+            #     play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+            #     align("MW", "Resonant_Laser")
+            #     play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+            #     # Records #self.times at points where self.counts_tmp is recorded
+            #     # self.times is NOT a vector of length self.tMeasure
+            #     # self.counts_tmp stores the total number of photon arrivals as an integer
+            #     align("Laser", "Detector_OPD")
+            #     measure("readout", "Detector_OPD", None,
+            #             time_tagger(self.times, int(self.MeasProcessTime), self.counts_tmp))
+            #     assign(self.counts[self.idx], self.counts[self.idx] + self.counts_tmp)
+            #     align("Blinding", "MW")  # For some reason align does not work properly with Blinding, fix later
+            #     play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+            #     play("Turn_ON", "Blinding", duration=self.tBlinding)
+            #     play(f"opr_{self.off_time + 1}", "Blinding")
+            #     align("MW", "Resonant_Laser")
+            #     play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+            #     play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
+            #     # The pulse below is to enforce total length of 16 ns, can be changes to any length above self.tblidning_2_to_3_first_waveform_length
+            #     play(f"opr_{self.tblidning_2_to_3_second_waveform_length}", "Blinding")
+            #     # Insert an if condition here in the future
+            #     # In the second half of the experiment we want the number of counts and not their timing
+            #     align("Blinding", "MW") #Check the timing correctly
+            #     wait(self.T_bin_qua + 1) #+1 to give the pulses some space
+            #     play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiStat) #Equal to Pi pulse
+            #     align("MW", "Resonant_Laser")
+            #     play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
+            #     align("MW", "Detector2_OPD")
+            #     measure("min_readout", "Detector2_OPD", None,
+            #             time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
+            #     assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
 
             ## The code below simulates 20 pulses with increasing pulse length by 1ns.
-            # with for_(self.k_idx, 0, self.k_idx < 20+5, self.k_idx + 1):
-            #     with if_(self.k_idx < 16):
-            #         with switch_(self.k_idx, unsafe=True):
-            #             for jdx in range(16):
-            #                 with case_(jdx):
-            #                     play(f"opr_{jdx}", "Blinding")
-            #     with else_():
-            #         with switch_(self.k_idx, unsafe=True):
-            #             for jdx in range(4+5):
-            #                 with case_(jdx + 16):
-            #                     play(f"opr2_{jdx}", "Blinding")
-            #                     play('Turn_ON', 'Blinding', duration=4)#Required for pulses longer than 16ns
+            with for_(self.k_idx, 0, self.k_idx < 20+5, self.k_idx + 1):
+                with if_(self.k_idx < 16):
+                    with switch_(self.k_idx, unsafe=True):
+                        for jdx in range(16):
+                            with case_(jdx):
+                                play(f"opr_{jdx}", "Blinding")
+                with else_():
+                    with switch_(self.k_idx, unsafe=True):
+                        for jdx in range(4):
+                            with case_(jdx + 16):
+                                play(f"opr2_{jdx}", "Blinding")
+                                play('Turn_ON', 'Blinding', duration=4)#Required for pulses longer than 16ns
 
                 ##Below is testing of playing of a single command
                 # play(f"opr2_{3}", "Blinding") # Length is n-1, where opr2_n
@@ -6088,7 +6140,11 @@ class GUI_OPX():
             for i in range(np.size(self.type_of_pulse)):
                 if self.type_of_pulse[i] == 0:
                     self.list_of_pulse_type.append("xPulse")
-                elif self.type_of_pulse[1] == 1:
+                elif self.type_of_pulse[i] == 1:
+                    self.list_of_pulse_type.append("yPulse")
+                elif self.type_of_pulse[i] == 2:
+                    self.list_of_pulse_type.append("xPulse")
+                elif self.type_of_pulse[i] == 3:
                     self.list_of_pulse_type.append("yPulse")
             for counts in self.signal:
                 if counts > 0:
