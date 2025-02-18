@@ -1,5 +1,5 @@
 
-# Single QUA script generated at 2025-02-17 17:02:05.596190
+# Single QUA script generated at 2025-02-18 14:17:21.667429
 # QUA library version: 1.2.1
 
 from qm import CompilerOptionArguments
@@ -46,7 +46,7 @@ with program() as prog:
     v29 = declare(int, )
     v30 = declare(int, )
     v31 = declare(int, )
-    v32 = declare(int, value=48261082)
+    v32 = declare(int, value=50753211)
     assign(v1, False)
     assign(v26, 2)
     with for_(v2,0,(v2<10),(v2+1)):
@@ -64,53 +64,6 @@ with program() as prog:
             assign(v24, IO1)
             with if_((v24==0)):
                 update_frequency("MW", v5, "Hz", False)
-                with for_(v11,0,(v11<25),(v11+1)):
-                    with if_((v11<16)):
-                        with if_((v11==0), unsafe=True):
-                            play("opr_0", "Blinding")
-                        with elif_((v11==1)):
-                            play("opr_1", "Blinding")
-                        with elif_((v11==2)):
-                            play("opr_2", "Blinding")
-                        with elif_((v11==3)):
-                            play("opr_3", "Blinding")
-                        with elif_((v11==4)):
-                            play("opr_4", "Blinding")
-                        with elif_((v11==5)):
-                            play("opr_5", "Blinding")
-                        with elif_((v11==6)):
-                            play("opr_6", "Blinding")
-                        with elif_((v11==7)):
-                            play("opr_7", "Blinding")
-                        with elif_((v11==8)):
-                            play("opr_8", "Blinding")
-                        with elif_((v11==9)):
-                            play("opr_9", "Blinding")
-                        with elif_((v11==10)):
-                            play("opr_10", "Blinding")
-                        with elif_((v11==11)):
-                            play("opr_11", "Blinding")
-                        with elif_((v11==12)):
-                            play("opr_12", "Blinding")
-                        with elif_((v11==13)):
-                            play("opr_13", "Blinding")
-                        with elif_((v11==14)):
-                            play("opr_14", "Blinding")
-                        with elif_((v11==15)):
-                            play("opr_15", "Blinding")
-                    with else_():
-                        with if_((v11==16), unsafe=True):
-                            play("opr2_0", "Blinding")
-                            play("Turn_ON", "Blinding", duration=4)
-                        with elif_((v11==17)):
-                            play("opr2_1", "Blinding")
-                            play("Turn_ON", "Blinding", duration=4)
-                        with elif_((v11==18)):
-                            play("opr2_2", "Blinding")
-                            play("Turn_ON", "Blinding", duration=4)
-                        with elif_((v11==19)):
-                            play("opr2_3", "Blinding")
-                            play("Turn_ON", "Blinding", duration=4)
                 with if_((v26==0)):
                     assign(v13, 0)
                 with if_((v27==0)):
@@ -119,6 +72,40 @@ with program() as prog:
                     assign(v13, 2)
                 with else_():
                     assign(v13, 3)
+                with if_(v1):
+                    assign(a5[v25], 4)
+                    with for_(v10,0,(v10<a5[v25]),(v10+1)):
+                        assign(a1[v10], (v10*10))
+                    assign(a6[v25], 15)
+                with else_():
+                    align("Laser", "Blinding")
+                    play("Turn_ON", "Laser", duration=1250)
+                    play("Turn_ON", "Blinding", duration=1254)
+                    play("opr_2", "Blinding")
+                    play("opr_left_3", "Blinding")
+                    align("Laser", "MW")
+                    play("xPulse"*amp(1.0), "MW", duration=4)
+                    align("MW", "Resonant_Laser")
+                    play("Turn_ON", "Resonant_Laser", duration=4)
+                    align("Laser", "Detector_OPD")
+                    measure("readout", "Detector_OPD", None, time_tagging.analog(a1, 117, v16, ""))
+                    assign(a5[v25], (a5[v25]+v16))
+                    align("Blinding", "MW")
+                    play("xPulse"*amp(1.0), "MW", duration=8)
+                    play("Turn_ON", "Blinding", duration=8)
+                    play("opr_2", "Blinding")
+                    align("MW", "Resonant_Laser")
+                    play("Turn_ON", "Resonant_Laser", duration=4)
+                    play("opr_left_3", "Blinding")
+                    play("opr_13", "Blinding")
+                    align("Blinding", "MW")
+                    wait(8, )
+                    play("yPulse"*amp(1.0), "MW", duration=4)
+                    align("MW", "Laser")
+                    play("Turn_ON", "Laser", duration=25)
+                    align("MW", "Detector2_OPD")
+                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(a2, 25, v17, ""))
+                    assign(a6[v25], (a6[v25]+v17))
             with else_():
                 assign(v23, 0)
                 with for_(v25,0,(v25<5000),(v25+1)):

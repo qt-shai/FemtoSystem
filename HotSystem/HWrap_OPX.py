@@ -18,6 +18,7 @@ import numpy as np
 import tkinter as tk
 import functools
 from collections import Counter
+from qm_saas import QmSaas, QoPVersion
 
 from gevent.libev.corecext import callback
 from matplotlib import pyplot as plt
@@ -97,6 +98,7 @@ class GUI_OPX():
     def __init__(self, simulation: bool = True):
         # HW
 
+        self.is_green = False
         self.times_by_measurement = []
         self.AWG_switch_thread = None
         self.current_awg_freq = None
@@ -219,6 +221,7 @@ class GUI_OPX():
 
         # common parameters
         self.exp = Experiment.COUNTER
+        self.connect_to_QM_OPX = True
 
         self.mw_Pwr = -20.0  # [dBm]
         self.mw_freq = 2.177  # [GHz], base frequency. Both start freq for scan and base frequency
@@ -300,10 +303,18 @@ class GUI_OPX():
         else:
             try:
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
-                self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster,
-                                                  timeout=60)  # in seconds
-                time.sleep(1)
-                self.close_qm_jobs()
+                if not self.connect_to_QM_OPX:
+                    # Currently does not work
+                    client = QmSaas(email="daniel@quantumtransistors.com", password="oNv9Uk4B6gL3")
+                    with client.simulator(version = QoPVersion.v2_4_0) as instance:
+                        self.qmm = QuantumMachinesManager(host=instance.host,
+                                                     port=instance.port,
+                                                     connection_headers=instance.default_connection_headers)
+                else:
+                    self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster,
+                                                      timeout=60)  # in seconds
+                    time.sleep(1)
+                    self.close_qm_jobs()
 
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
@@ -539,6 +550,19 @@ class GUI_OPX():
         dpg.set_value(item="inInt_scan_t_start", value=sender.scan_t_start)
         print("Set scan_t_start to: " + str(sender.scan_t_start))
 
+    def on_off_slider_callback(self, sender, app_data):
+        # app_data is the new slider value (0 or 1)
+        if app_data == 1:
+            self.is_green = True
+            dpg.configure_item(sender, format="GREEN")
+            dpg.bind_item_theme(sender, "OnTheme")
+            print("Laser is Green!")
+        else:
+            self.is_green = False
+            dpg.configure_item(sender, format="RED")
+            dpg.bind_item_theme(sender, "OffTheme")
+            print("Laser is Red!")
+
     def UpdateTsettle(sender, app_data, user_data):
         sender.Tsettle = sender.time_in_multiples_cycle_time(int(user_data))
         time.sleep(0.001)
@@ -618,10 +642,30 @@ class GUI_OPX():
         self.viewport_height = dpg.get_viewport_client_height()
         self.window_scale_factor = width / 3840
 
+    def set_all_themes(self):
+        with dpg.theme(tag="OnTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 180, 0))  # handle when pressed
+                # Optionally color the track:
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (50, 70, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (60, 80, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 90, 70))
+
+        # OFF Theme: keep the slider handle red in all states.
+        with dpg.theme(tag="OffTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (180, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (70, 50, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))
+
     def controls(self, _width=1600, _Height=1000):
         self.GetWindowSize()
         pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.4)]
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
+        self.set_all_themes()
 
         dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1,
                        pos=[int(pos[0]), int(pos[1])])
@@ -654,6 +698,7 @@ class GUI_OPX():
         item_width = int(270 * self.window_scale_factor)
         dpg.delete_item("Params_Controls")
         dpg.delete_item("Buttons_Controls")
+
 
         if isStart:
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=False)
@@ -935,6 +980,13 @@ class GUI_OPX():
                 dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
                 dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
 
+                dpg.add_slider_int(label="Laser Type",
+                                   tag="on_off_slider", width = 80,
+                                   default_value=0, parent="chkbox_group",
+                                   min_value=0, max_value=1,
+                                   callback=self.on_off_slider_callback,indent = -1,
+                                   format="RED")
+
                 dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
                               horizontal=False)  # parent="Params_Controls",horizontal=False)
                 _width = 300  # was 220
@@ -1006,6 +1058,8 @@ class GUI_OPX():
             dpg.bind_item_theme(item="btnOPX_StartNuclearRABI", theme="btnBlueTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearMR", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearPolESR", theme="btnGreenTheme")
+            dpg.bind_item_theme("on_off_slider", "OffTheme")
+
         else:
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=True)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1)
@@ -2274,19 +2328,23 @@ class GUI_OPX():
                     with if_(self.sequenceState == 0):
                         update_frequency("MW", self.f)
                         # pi pulse type for statistics measurement (X ot Y)
-                        self.execute_QUA()
                         with if_(self.mod4 == 0):
                             assign(self.pulse_type, 0)
                             self.statistics_pulse_type = "xPulse"
+                            self.tMWPiStat = self.tMW
                         with if_(self.mod3 == 0):
                             assign(self.pulse_type, 1)
                             self.statistics_pulse_type = "yPulse"
+                            self.tMWPiStat = self.tMW
                         with if_(self.mod2 == 0):
                             assign(self.pulse_type, 2)
                             self.statistics_pulse_type = "xPulse"
+                            self.tMWPiStat = self.tMWPiHalf
                         with else_():
                             assign(self.pulse_type, 3)
                             self.statistics_pulse_type = "yPulse"
+                            self.tMWPiStat = self.tMWPiHalf
+                        self.execute_QUA()
 
                     with else_():
                         assign(self.tracking_signal, 0)
@@ -2805,71 +2863,77 @@ class GUI_OPX():
             self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (
                 self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
 
+            #Defining the type of laser to use in the second half of the experiment
+            if self.is_green:
+                self.laser_type_stat = "Laser"
+            else:
+                self.laser_type_stat = "Resonant_Laser"
+
         if Generate_QUA_sequance:
-            # with if_(self.simulation_flag):
-            #     #rand = Random()
-            #     #assign(self.r,rand.rand_fixed())
-            #     #assign(self.ln_to_int,-1.2 * Math.ln(1.0 - self.r))
-            #     assign(self.counts[self.idx], 4)
-            #     with for_(self.j_idx, 0, self.j_idx < self.counts[self.idx], self.j_idx + 1):
-            #         assign(self.times[self.j_idx], self.j_idx*10)
-            #         #assign(self.times[self.j_idx], Cast.to_int(-1.2 * Math.ln(1.0 - self.r)))
-            #         #assign(self.assign_input[self.j_idx], -1.2 * Math.ln(1.0 - self.r)) #Despite declared as a fixed array, takes int
-            #     assign(self.counts2[self.idx], 15)
-            # with else_():
-            #     time_tagger = self.get_time_tagging_func("Detector_OPD")
-            #     # In the first part of the experiment we want information on the timing of the photon arrivals.
-            #     # Only one photon can be recorded at the detector at a time
-            #     align("Laser","Blinding")
-            #     play("Turn_ON", "Laser", duration=self.tLaser)
-            #     play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
-            #     play(f"opr_{self.off_time+1}", "Blinding") #Calibrated for 1ns Laser trigger time
-            #     play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
-            #     align("Laser", "MW")
-            #     play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
-            #     align("MW", "Resonant_Laser")
-            #     play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-            #     # Records #self.times at points where self.counts_tmp is recorded
-            #     # self.times is NOT a vector of length self.tMeasure
-            #     # self.counts_tmp stores the total number of photon arrivals as an integer
-            #     align("Laser", "Detector_OPD")
-            #     measure("readout", "Detector_OPD", None,
-            #             time_tagger(self.times, int(self.MeasProcessTime), self.counts_tmp))
-            #     assign(self.counts[self.idx], self.counts[self.idx] + self.counts_tmp)
-            #     align("Blinding", "MW")  # For some reason align does not work properly with Blinding, fix later
-            #     play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
-            #     play("Turn_ON", "Blinding", duration=self.tBlinding)
-            #     play(f"opr_{self.off_time + 1}", "Blinding")
-            #     align("MW", "Resonant_Laser")
-            #     play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-            #     play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
-            #     # The pulse below is to enforce total length of 16 ns, can be changes to any length above self.tblidning_2_to_3_first_waveform_length
-            #     play(f"opr_{self.tblidning_2_to_3_second_waveform_length}", "Blinding")
-            #     # Insert an if condition here in the future
-            #     # In the second half of the experiment we want the number of counts and not their timing
-            #     align("Blinding", "MW") #Check the timing correctly
-            #     wait(self.T_bin_qua + 1) #+1 to give the pulses some space
-            #     play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiStat) #Equal to Pi pulse
-            #     align("MW", "Resonant_Laser")
-            #     play("Turn_ON", "Resonant_Laser", duration=self.tStatistics)
-            #     align("MW", "Detector2_OPD")
-            #     measure("min_readout", "Detector2_OPD", None,
-            #             time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
-            #     assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
+            with if_(self.simulation_flag):
+                #rand = Random()
+                #assign(self.r,rand.rand_fixed())
+                #assign(self.ln_to_int,-1.2 * Math.ln(1.0 - self.r))
+                assign(self.counts[self.idx], 4)
+                with for_(self.j_idx, 0, self.j_idx < self.counts[self.idx], self.j_idx + 1):
+                    assign(self.times[self.j_idx], self.j_idx*10)
+                    #assign(self.times[self.j_idx], Cast.to_int(-1.2 * Math.ln(1.0 - self.r)))
+                    #assign(self.assign_input[self.j_idx], -1.2 * Math.ln(1.0 - self.r)) #Despite declared as a fixed array, takes int
+                assign(self.counts2[self.idx], 15)
+            with else_():
+                time_tagger = self.get_time_tagging_func("Detector_OPD")
+                # In the first part of the experiment we want information on the timing of the photon arrivals.
+                # Only one photon can be recorded at the detector at a time
+                align("Laser","Blinding")
+                play("Turn_ON", "Laser", duration=self.tLaser)
+                play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
+                play(f"opr_{self.off_time+1}", "Blinding") #Calibrated for 1ns Laser trigger time
+                play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
+                align("Laser", "MW")
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                align("MW", "Resonant_Laser")
+                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                # Records #self.times at points where self.counts_tmp is recorded
+                # self.times is NOT a vector of length self.tMeasure
+                # self.counts_tmp stores the total number of photon arrivals as an integer
+                align("Laser", "Detector_OPD")
+                measure("readout", "Detector_OPD", None,
+                        time_tagger(self.times, int(self.MeasProcessTime), self.counts_tmp))
+                assign(self.counts[self.idx], self.counts[self.idx] + self.counts_tmp)
+                align("Blinding", "MW")  # For some reason align does not work properly with Blinding, fix later
+                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+                play("Turn_ON", "Blinding", duration=self.tBlinding)
+                play(f"opr_{self.off_time + 1}", "Blinding")
+                align("MW", "Resonant_Laser")
+                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+                play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
+                # The pulse below is to enforce total length of 16 ns, can be changes to any length above self.tblidning_2_to_3_first_waveform_length
+                play(f"opr_{self.tblidning_2_to_3_second_waveform_length}", "Blinding")
+                # Insert an if condition here in the future
+                # In the second half of the experiment we want the number of counts and not their timing
+                align("Blinding", "MW") #Check the timing correctly
+                wait(self.T_bin_qua + 1) #+1 to give the pulses some space
+                play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiStat) #Equal to Pi pulse
+                align("MW", self.laser_type_stat)
+                play("Turn_ON", self.laser_type_stat, duration=self.tStatistics)
+                align("MW", "Detector2_OPD")
+                measure("min_readout", "Detector2_OPD", None,
+                        time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
+                assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
 
             ## The code below simulates 20 pulses with increasing pulse length by 1ns.
-            with for_(self.k_idx, 0, self.k_idx < 20+5, self.k_idx + 1):
-                with if_(self.k_idx < 16):
-                    with switch_(self.k_idx, unsafe=True):
-                        for jdx in range(16):
-                            with case_(jdx):
-                                play(f"opr_{jdx}", "Blinding")
-                with else_():
-                    with switch_(self.k_idx, unsafe=True):
-                        for jdx in range(4):
-                            with case_(jdx + 16):
-                                play(f"opr2_{jdx}", "Blinding")
-                                play('Turn_ON', 'Blinding', duration=4)#Required for pulses longer than 16ns
+            # with for_(self.k_idx, 0, self.k_idx < 20+5, self.k_idx + 1):
+            #     with if_(self.k_idx < 16):
+            #         with switch_(self.k_idx, unsafe=True):
+            #             for jdx in range(16):
+            #                 with case_(jdx):
+            #                     play(f"opr_{jdx}", "Blinding")
+            #     with else_():
+            #         with switch_(self.k_idx, unsafe=True):
+            #             for jdx in range(4):
+            #                 with case_(jdx + 16):
+            #                     play(f"opr2_{jdx}", "Blinding")
+            #                     play('Turn_ON', 'Blinding', duration=4)#Required for pulses longer than 16ns
 
                 ##Below is testing of playing of a single command
                 # play(f"opr2_{3}", "Blinding") # Length is n-1, where opr2_n
