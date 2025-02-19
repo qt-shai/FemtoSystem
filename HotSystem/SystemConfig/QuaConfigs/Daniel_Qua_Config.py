@@ -281,13 +281,16 @@ class DanielQuaConfig(configs.QUAConfigBase):
             # },
         }
         blinding_ops = elements["Blinding"].get("operations", {})
+        #MW_ops = elements["MW"].get("operations", {})
         ops_16 = self.get_extra_operations_16ns()
         ops_32 = self.get_extra_operations_32ns()
         ops_both_sides = self.get_extra_operations_left_side()
         blinding_ops.update(ops_16)
         blinding_ops.update(ops_32)
         blinding_ops.update(ops_both_sides)
+        #MW_ops.update()
         elements["Blinding"]["operations"] = blinding_ops
+        #elements["MW"]["operations"] = blinding_ops
         return elements
 
     def get_pulses(self) -> Dict[str, Any]:

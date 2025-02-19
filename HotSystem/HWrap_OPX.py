@@ -25,7 +25,7 @@ from matplotlib import pyplot as plt
 from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, \
     elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger, counting, Math, Cast, case_, \
-    switch_
+    switch_, strict_timing_
 from qualang_tools.results import progress_counter, fetching_tool
 from functools import partial
 from qualang_tools.units import unit
@@ -221,7 +221,7 @@ class GUI_OPX():
 
         # common parameters
         self.exp = Experiment.COUNTER
-        self.connect_to_QM_OPX = True
+        self.connect_to_QM_OPX = False
 
         self.mw_Pwr = -20.0  # [dBm]
         self.mw_freq = 2.177  # [GHz], base frequency. Both start freq for scan and base frequency
@@ -306,10 +306,11 @@ class GUI_OPX():
                 if not self.connect_to_QM_OPX:
                     # Currently does not work
                     client = QmSaas(email="daniel@quantumtransistors.com", password="oNv9Uk4B6gL3")
-                    with client.simulator(version = QoPVersion.v2_4_0) as instance:
-                        self.qmm = QuantumMachinesManager(host=instance.host,
-                                                     port=instance.port,
-                                                     connection_headers=instance.default_connection_headers)
+                    self.instance = client.simulator(version = QoPVersion.v2_4_0)
+                    self.instance.spawn()
+                    self.qmm = QuantumMachinesManager(host=self.instance.host,
+                                                     port=self.instance.port,
+                                                     connection_headers=self.instance.default_connection_headers)
                 else:
                     self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster,
                                                       timeout=60)  # in seconds
@@ -414,31 +415,31 @@ class GUI_OPX():
         sender.off_time = (float(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inDbl_f1", value=sender.off_time)
-        print("Set mw_Pamp to: " + str(sender.off_time))
+        print("Set off_time to: " + str(sender.off_time))
 
     def Update_T_bin(sender, app_data, user_data):
         sender.T_bin = (float(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inDbl_f1", value=sender.T_bin)
-        print("Set mw_Pamp to: " + str(sender.T_bin))
+        print("Set T_bin to: " + str(sender.T_bin))
 
     def Update_AWG_interval(sender, app_data, user_data):
         sender.AWG_interval = (float(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inDbl_f1", value=sender.AWG_interval)
-        print("Set mw_Pamp to: " + str(sender.AWG_interval))
+        print("Set AWG_interval to: " + str(sender.AWG_interval))
 
     def Update_AWG_f_1(sender, app_data, user_data):
         sender.AWG_f_1 = (float(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inDbl_f1", value=sender.AWG_f_1)
-        print("Set mw_Pamp to: " + str(sender.AWG_f_1))
+        print("Set AWG_f_1 to: " + str(sender.AWG_f_1))
 
     def Update_AWG_f_2(sender, app_data, user_data):
         sender.AWG_f_2 = (float(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inDbl_f2", value=sender.AWG_f_2)
-        print("Set mw_Pamp to: " + str(sender.AWG_f_2))
+        print("Set AWG_f_2 to: " + str(sender.AWG_f_2))
 
     def Update_mw_2ndfreq_resonance(sender, app_data, user_data):
         sender.mw_2ndfreq_resonance = (float(user_data))
@@ -947,7 +948,7 @@ class GUI_OPX():
                 dpg.add_input_double(label="", tag="inDbl_T_bin", indent=-1, parent="Time_bin_parameters",
                                      format="%.6f",
                                      width=item_width, callback=self.Update_T_bin, default_value=self.T_bin,
-                                     min_value=0, max_value=28, step=4)
+                                     min_value=16, max_value=28, step=1)
                 dpg.add_text(default_value="off_time", parent="Time_bin_parameters", tag="off_time", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_off_time", indent=-1, parent="Time_bin_parameters",
                                      format="%.6f",
@@ -1996,6 +1997,8 @@ class GUI_OPX():
             job_sim = self.qmm.simulate(QuaCFG, self.quaPGM, simulation_config)
             # Simulate blocks python until the simulation is done
             job_sim.get_simulated_samples().con1.plot()
+            if not self.connect_to_QM_OPX:
+                self.instance.close()
             if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
                 # waveform_report = job_sim.get_simulated_waveform_report()
                 # waveform_report.create_plot(plot=True, save_path="./")
@@ -2266,6 +2269,7 @@ class GUI_OPX():
             self.k_idx = declare(int)  # iteration variable
             self.offset = declare(int)  # variables used for iteration assignment
             self.pulse_type = declare(int)
+            self.bool_condition = declare(bool)
 
             self.site_state = declare(int)  # site preperation state
             self.m_state = declare(int)  # measure state
@@ -2293,9 +2297,10 @@ class GUI_OPX():
             self.idx_vec_qua = declare(int, value=self.idx_vec_ini)  # indexes QUA vector
             self.idx = declare(int)  # index variable to sweep over all indexes
 
-            self.mod4 = declare(bool)
-            self.mod3 = declare(bool)
-            self.mod2 = declare(bool)
+            self.mod4 = declare(int)
+            self.stat_pulse_type_qua = declare(fixed)
+            self.tMWPiStat = declare(int)
+            self.awg_freq_qua = declare(int)
 
             # stream parameters
             self.counts_st = declare_stream()  # experiment signal
@@ -2305,12 +2310,14 @@ class GUI_OPX():
             self.counts_ref_st = declare_stream()  # reference signal
             self.counts_ref2_st = declare_stream()  # reference signal
             self.resCalculated_st = declare_stream()  # reference signal
+            self.awg_st = declare_stream()
 
             # with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
             #     assign(self.counts_ref[self.idx], 0)
-            self.n_avg = 10
-            assign(self.mod4,self.n_avg % 4)
+            self.n_avg = 5
+            assign(self.bool_condition, False)
             with for_(self.n, 0, self.n < self.n_avg, self.n + 1):  # AVG loop
+                assign(self.mod4, ((self.n+1) & 3))
                 # reset vectors
                 with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
                     assign(self.counts[self.idx], 0)  # shuffle - assign new val from randon index
@@ -2327,23 +2334,20 @@ class GUI_OPX():
                     assign(self.sequenceState, IO1)
                     with if_(self.sequenceState == 0):
                         update_frequency("MW", self.f)
-                        # pi pulse type for statistics measurement (X ot Y)
-                        with if_(self.mod4 == 0):
-                            assign(self.pulse_type, 0)
-                            self.statistics_pulse_type = "xPulse"
-                            self.tMWPiStat = self.tMW
-                        with if_(self.mod3 == 0):
-                            assign(self.pulse_type, 1)
-                            self.statistics_pulse_type = "yPulse"
-                            self.tMWPiStat = self.tMW
-                        with if_(self.mod2 == 0):
-                            assign(self.pulse_type, 2)
-                            self.statistics_pulse_type = "xPulse"
-                            self.tMWPiStat = self.tMWPiHalf
-                        with else_():
-                            assign(self.pulse_type, 3)
-                            self.statistics_pulse_type = "yPulse"
-                            self.tMWPiStat = self.tMWPiHalf
+                        assign(self.awg_freq_qua, self.current_awg_freq)
+                        # # pi pulse type for statistics measurement (X ot Y)
+                        # with if_(self.mod4 == 0):
+                        #     # Group of 4
+                        #     assign(self.pulse_type, 4)
+                        # with if_(self.mod4 == 3):
+                        #     # Group of 3
+                        #     assign(self.pulse_type, 3)
+                        # with if_(self.mod4 == 2):
+                        #     # Group of 2
+                        #     assign(self.pulse_type, 2)
+                        # with if_(self.mod4 == 1):
+                        #     # Group of 1
+                        #     assign(self.pulse_type, 1)
                         self.execute_QUA()
 
                     with else_():
@@ -2384,6 +2388,7 @@ class GUI_OPX():
                 save(self.n, self.n_st)  # save number of iteration inside for_loop
                 save(self.tracking_signal, self.tracking_signal_st)  # save number of iteration inside for_loop
                 save(self.pulse_type, self.pulse_type_st)
+                save(self.awg_freq_qua,self.awg_st)
 
             with stream_processing():
                 # It makes sense to use save instead of save_all since stream_processing work parallel to sequence
@@ -2392,6 +2397,7 @@ class GUI_OPX():
                 self.counts_st.save_all("counts")
                 self.counts_st2.save_all("statistics_counts")
                 self.pulse_type_st.save_all("pulse_type")
+                self.awg_st.save_all("awg_freq")
                 # self.times_st.histogram([[i, i + 1] for i in range(0, self.tMeasure)]).save("times_hist")
         if not self.simulation:
             self.qm, self.job = self.QUA_execute()
@@ -2795,6 +2801,49 @@ class GUI_OPX():
             self.Entanglement_gate_tomography_QUA_PGM(generate_params=True)
             self.QUA_PGM()
 
+    def repeated_time_bin_qua_sequence_start(self):
+        time_tagger = self.get_time_tagging_func("Detector_OPD")
+        # In the first part of the experiment we want information on the timing of the photon arrivals.
+        # Only one photon can be recorded at the detector at a time
+        align("Laser", "Blinding")
+        play("Turn_ON", "Laser", duration=self.tLaser)
+        play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
+        play(f"opr_{int(self.off_time + 1)}", "Blinding")  # Calibrated for 1ns Laser trigger time
+        play(f"opr_left_{int(self.tblidning_2_to_3_first_waveform_length)}", "Blinding")
+        align("Laser", "MW")
+        play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+        align("MW", "Resonant_Laser")
+        play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+        # Records #self.times at points where self.counts_tmp is recorded
+        # self.times is NOT a vector of length self.tMeasure
+        # self.counts_tmp stores the total number of photon arrivals as an integer
+        align("Laser", "Detector_OPD")
+        measure("readout", "Detector_OPD", None,
+                time_tagger(self.times, int(self.MeasProcessTime), self.counts_tmp))
+        assign(self.counts[self.idx], self.counts[self.idx] + self.counts_tmp)
+        align("Blinding", "MW")
+        play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+        play("Turn_ON", "Blinding", duration=self.tBlinding)
+        play(f"opr_{int(self.off_time + 1)}", "Blinding")
+        align("MW", "Resonant_Laser")
+        play("Turn_ON", "Resonant_Laser", duration=self.tRed)
+        play(f"opr_left_{int(self.tblidning_2_to_3_first_waveform_length)}", "Blinding")
+        # The pulse below is to enforce total length of 16 ns, can be changes to any length above self.tblidning_2_to_3_first_waveform_length
+        play(f"opr_{int(self.tblidning_2_to_3_second_waveform_length)}", "Blinding")
+        # Insert an if condition here in the future
+        # In the second half of the experiment we want the number of counts and not their timing
+        align("Blinding", "MW")  # Check the timing correctly
+        wait(self.T_bin_qua)  # +1 to give the pulses some space
+
+    def repeated_time_bin_qua_sequence_end(self):
+        time_tagger = self.get_time_tagging_func("Detector_OPD")
+        align("MW", self.laser_type_stat)
+        play("Turn_ON", self.laser_type_stat, duration=self.tStatistics)
+        align("MW", "Detector2_OPD")
+        measure("min_readout", "Detector2_OPD", None,
+                time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
+        assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
+
     def time_bin_entanglement_QUA_PGM(self, generate_params=False, Generate_QUA_sequance=False, execute_qua=False):
         if generate_params:
             # dummy vectors to be aligned with QUA_PGM convention
@@ -2811,9 +2860,9 @@ class GUI_OPX():
             self.t_mw = 32  # [nsec]
             self.t_blinding_pump = 5000  # First blinding, to cover the detector before the first measure
             self.tblinding_2_to_3 = 16 # [nsec]
-            self.bin_times = [[20, 48], [84, 112], [128, 156]] # Do not change as of 12.02.2025
-            self.tblidning_2_to_3_first_waveform_length = 16 - (self.T_bin - 16) - 1 #To understand, check how waveforms are defined in the config
-            self.tblidning_2_to_3_second_waveform_length = 16 - self.tblidning_2_to_3_first_waveform_length
+            #self.bin_times = [[20, 48], [84, 112], [128, 156]] # Does not change as of 12.02.2025
+            self.tblidning_2_to_3_first_waveform_length = self.tblinding_2_to_3 - (self.T_bin - self.tblinding_2_to_3) - 1 #To understand, check how waveforms are defined in the config
+            self.tblidning_2_to_3_second_waveform_length = self.tblinding_2_to_3 - self.tblidning_2_to_3_first_waveform_length
 
             # sequence parameters.
             self.tLaser = self.time_in_multiples_cycle_time(self.Tpump) // 4
@@ -2830,7 +2879,7 @@ class GUI_OPX():
             # MW parameters
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw) // 4
             self.tMWPiHalf = self.time_in_multiples_cycle_time(self.t_mw / 2) // 4
-            self.tMWPiStat = self.tMW
+            #self.tMWPiStat = self.tMW
             # Change to time between blidning and MW
             self.time_to_next_MW = self.time_in_multiples_cycle_time(self.T_bin) // 4
             self.T_bin_qua = self.time_in_multiples_cycle_time(self.T_bin) // 4
@@ -2869,6 +2918,12 @@ class GUI_OPX():
             else:
                 self.laser_type_stat = "Resonant_Laser"
 
+            start_bin_1 = self.t_mw // 2 + 1 + self.off_time  # +1 [ns] is red laser trigger time
+            start_bin_2 = start_bin_1 + self.T_bin + self.t_mw + 1 + self.off_time
+            start_bin_3 = start_bin_2 + self.T_bin + self.tblinding_2_to_3
+            self.bin_times = [[start_bin_1, start_bin_1 + self.T_bin], [start_bin_2, start_bin_2 + self.T_bin],
+                              [start_bin_3, start_bin_3 + self.T_bin]]
+
         if Generate_QUA_sequance:
             with if_(self.simulation_flag):
                 #rand = Random()
@@ -2881,45 +2936,32 @@ class GUI_OPX():
                     #assign(self.assign_input[self.j_idx], -1.2 * Math.ln(1.0 - self.r)) #Despite declared as a fixed array, takes int
                 assign(self.counts2[self.idx], 15)
             with else_():
-                time_tagger = self.get_time_tagging_func("Detector_OPD")
-                # In the first part of the experiment we want information on the timing of the photon arrivals.
-                # Only one photon can be recorded at the detector at a time
-                align("Laser","Blinding")
-                play("Turn_ON", "Laser", duration=self.tLaser)
-                play("Turn_ON", "Blinding", duration=self.tBlinding_pump)
-                play(f"opr_{self.off_time+1}", "Blinding") #Calibrated for 1ns Laser trigger time
-                play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
-                align("Laser", "MW")
-                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
-                align("MW", "Resonant_Laser")
-                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-                # Records #self.times at points where self.counts_tmp is recorded
-                # self.times is NOT a vector of length self.tMeasure
-                # self.counts_tmp stores the total number of photon arrivals as an integer
-                align("Laser", "Detector_OPD")
-                measure("readout", "Detector_OPD", None,
-                        time_tagger(self.times, int(self.MeasProcessTime), self.counts_tmp))
-                assign(self.counts[self.idx], self.counts[self.idx] + self.counts_tmp)
-                align("Blinding", "MW")  # For some reason align does not work properly with Blinding, fix later
-                play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
-                play("Turn_ON", "Blinding", duration=self.tBlinding)
-                play(f"opr_{self.off_time + 1}", "Blinding")
-                align("MW", "Resonant_Laser")
-                play("Turn_ON", "Resonant_Laser", duration=self.tRed)
-                play(f"opr_left_{self.tblidning_2_to_3_first_waveform_length}", "Blinding")
-                # The pulse below is to enforce total length of 16 ns, can be changes to any length above self.tblidning_2_to_3_first_waveform_length
-                play(f"opr_{self.tblidning_2_to_3_second_waveform_length}", "Blinding")
-                # Insert an if condition here in the future
-                # In the second half of the experiment we want the number of counts and not their timing
-                align("Blinding", "MW") #Check the timing correctly
-                wait(self.T_bin_qua + 1) #+1 to give the pulses some space
-                play(self.statistics_pulse_type * amp(self.mw_P_amp), "MW", duration=self.tMWPiStat) #Equal to Pi pulse
-                align("MW", self.laser_type_stat)
-                play("Turn_ON", self.laser_type_stat, duration=self.tStatistics)
-                align("MW", "Detector2_OPD")
-                measure("min_readout", "Detector2_OPD", None,
-                        time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
-                assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
+                with switch_(self.mod4, unsafe=True):
+                    with case_(0):
+                        self.repeated_time_bin_qua_sequence_start()
+                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                        self.repeated_time_bin_qua_sequence_end()
+                        assign(self.pulse_type, 4)
+
+                    with case_(3):
+                        self.repeated_time_bin_qua_sequence_start()
+                        play("yPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf)
+                        self.repeated_time_bin_qua_sequence_end()
+                        assign(self.pulse_type, 3)
+
+                    with case_(2):
+                        self.repeated_time_bin_qua_sequence_start()
+                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.tMW)
+                        self.repeated_time_bin_qua_sequence_end()
+                        assign(self.pulse_type, 2)
+
+
+                    with case_(1):
+                        self.repeated_time_bin_qua_sequence_start()
+                        play("yPulse" * amp(self.mw_P_amp), "MW", duration=self.tMWPiHalf, condition = self.bool_condition)
+                        self.repeated_time_bin_qua_sequence_end()
+                        assign(self.pulse_type, 1)
+
 
             ## The code below simulates 20 pulses with increasing pulse length by 1ns.
             # with for_(self.k_idx, 0, self.k_idx < 20+5, self.k_idx + 1):
@@ -5914,7 +5956,7 @@ class GUI_OPX():
             # if self.simulation:
             #     self.job = JobTesting_OPX.MockJob()
             self.results = fetching_tool(self.job, data_list=["iteration_list", "times", "counts", "statistics_counts",
-                                                              "pulse_type"], mode="live")
+                                                              "pulse_type", "awg_freq"], mode="live")
             # else:
             #     counts = create_counts_vector(vector_size=96)
             #     self.results = fetching_tool(job = JobTesting_OPX.MockJob(counts), data_list=["counts"], mode="live")
@@ -6079,7 +6121,7 @@ class GUI_OPX():
         elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.iteration_list, self.times_of_signal, self.signal, self.statistics_signal, self.type_of_pulse = self.results.fetch_all()
+            self.iteration_list, self.times_of_signal, self.signal, self.statistics_signal, self.type_of_pulse, self.awg_freq_from_stream = self.results.fetch_all()
         else:
             self.signal, self.ref_signal, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
 
@@ -6202,14 +6244,14 @@ class GUI_OPX():
             self.counts_in_bin2 = []
             self.counts_in_bin3 = []
             for i in range(np.size(self.type_of_pulse)):
-                if self.type_of_pulse[i] == 0:
-                    self.list_of_pulse_type.append("xPulse")
-                elif self.type_of_pulse[i] == 1:
-                    self.list_of_pulse_type.append("yPulse")
-                elif self.type_of_pulse[i] == 2:
-                    self.list_of_pulse_type.append("xPulse")
+                if self.type_of_pulse[i] == 4:
+                    self.list_of_pulse_type.append("xPulse_Pi")
                 elif self.type_of_pulse[i] == 3:
-                    self.list_of_pulse_type.append("yPulse")
+                    self.list_of_pulse_type.append("yPulse_Pi")
+                elif self.type_of_pulse[i] == 2:
+                    self.list_of_pulse_type.append("xPulse_Pi_Half")
+                elif self.type_of_pulse[i] == 1:
+                    self.list_of_pulse_type.append("yPulse_Pi_Half")
             for counts in self.signal:
                 if counts > 0:
                     relevant_times = self.times_of_signal[offset: offset + counts]
@@ -6633,19 +6675,20 @@ class GUI_OPX():
             if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
                 # Modify below to have some pre-post-processed data for further data analysis
                 if self.simulation:
-                    a = np.array([145])
                     RawData_to_save = {'Iteration': self.iteration_list.tolist(), 'Times': self.times_by_measurement,
                                        'Total_Counts': self.signal.tolist(),
                                        'Counts_stat': self.Y_vec_2.tolist(), f'Counts_Bin_1_{self.bin_times[0][0]}:{self.bin_times[0][1]}': self.counts_in_bin1,
                                        f'Counts_Bin_2_{self.bin_times[1][0]}:{self.bin_times[1][1]}': self.counts_in_bin2, f'Counts_Bin_3_{self.bin_times[2][0]}:{self.bin_times[2][1]}': self.counts_in_bin3,
-                                       'AWG_freq[HZ]': a.tolist(), 'Pulse_type': self.list_of_pulse_type}
+                                       'AWG_freq[HZ]': self.awg_freq_from_stream.tolist(), 'Pulse_type': self.list_of_pulse_type}
                 else:
-                    RawData_to_save = {'Iteration': self.iteration_list, 'Times': self.X_vec,
+                    RawData_to_save = {'Iteration': self.iteration_list.tolist(), 'Times': self.times_by_measurement,
                                        'Total_Counts': self.signal.tolist(),
-                                       'Counts_stat': self.Y_vec_2.tolist(), "Counts_Bin_1": self.counts_in_bin1,
-                                       'Counts_Bin_2': self.counts_in_bin2, 'Counts_Bin_3': self.counts_in_bin3,
-                                       'AWG_freq[HZ]': [self.awg.get_frequency()],
-                                       'Pulse_type': self.statistics_pulse_type.split()}
+                                       'Counts_stat': self.Y_vec_2.tolist(),
+                                       f'Counts_Bin_1_{self.bin_times[0][0]}:{self.bin_times[0][1]}': self.counts_in_bin1,
+                                       f'Counts_Bin_2_{self.bin_times[1][0]}:{self.bin_times[1][1]}': self.counts_in_bin2,
+                                       f'Counts_Bin_3_{self.bin_times[2][0]}:{self.bin_times[2][1]}': self.counts_in_bin3,
+                                       'AWG_freq[HZ]': self.awg_freq_from_stream.tolist(),
+                                       'Pulse_type': self.list_of_pulse_type}
             else:
                 RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,
                                    'Y_resCalc': self.Y_resCalculated}
