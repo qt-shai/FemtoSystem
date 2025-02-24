@@ -84,7 +84,6 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "analog_inputs": {
                     #Not used, so can be in everyone configuration file
                     1: {"offset": 0.00979, "gain_db": 0, "shareable": False},  # 20db 0.2V electrical # counter1
-                    2: {"offset": 0.00979, "gain_db": -12, "shareable": False},  # 6db 1V -->~0.25V # counter2
                 },
                 # "digital_inputs": {  # counter 1
                 #     1: {
@@ -196,30 +195,30 @@ class DanielQuaConfig(configs.QUAConfigBase):
                 "smearing": 0,
             },
 
-            self.Elements.DETECTOR2_OPD.value: {  # actual analog
-                "singleInput": {"port": ("con1", 1)},
-                "digitalInputs": {
-                    # "marker": {
-                    #     "port": ("con1", 4),
-                    #     "delay": self.detection_delay,
-                    #     "buffer": 0,
-                    # },
-                },
-                "operations": {
-                    "readout": "readout_pulse",
-                    "min_readout": "min_readout_pulse",
-                    "long_readout": "long_readout_pulse",
-                },
-                "outputs": {"out1": ("con1", 2)},
-                "outputPulseParameters": {
-                    "signalThreshold": self.signal_threshold_2,
-                    "signalPolarity": "below",
-                    "derivativeThreshold": 1023,
-                    "derivativePolarity": "below",
-                },
-                "time_of_flight": self.detection_delay,
-                "smearing": 0,
-            },
+            # self.Elements.DETECTOR2_OPD.value: {  # actual analog
+            #     "singleInput": {"port": ("con1", 1)},
+            #     "digitalInputs": {
+            #         # "marker": {
+            #         #     "port": ("con1", 4),
+            #         #     "delay": self.detection_delay,
+            #         #     "buffer": 0,
+            #         # },
+            #     },
+            #     "operations": {
+            #         "readout": "readout_pulse",
+            #         "min_readout": "min_readout_pulse",
+            #         "long_readout": "long_readout_pulse",
+            #     },
+            #     "outputs": {"out1": ("con1", 2)},
+            #     "outputPulseParameters": {
+            #         "signalThreshold": self.signal_threshold_2,
+            #         "signalPolarity": "below",
+            #         "derivativeThreshold": 1023,
+            #         "derivativePolarity": "below",
+            #     },
+            #     "time_of_flight": self.detection_delay,
+            #     "smearing": 0,
+            # },
             self.Elements.BLINDING.value:{
                 "digitalInputs": {  # here it is actually outputs
                     "marker": {

@@ -25,7 +25,7 @@ from matplotlib import pyplot as plt
 from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, \
     elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger, counting, Math, Cast, case_, \
-    switch_, strict_timing_
+    switch_, strict_timing_, declare_input_stream
 from qualang_tools.results import progress_counter, fetching_tool
 from functools import partial
 from qualang_tools.units import unit
@@ -98,10 +98,12 @@ class GUI_OPX():
     def __init__(self, simulation: bool = True):
         # HW
 
-        self.is_green = False
+        self.n_pause = 1
+        self.is_green = True
         self.times_by_measurement = []
         self.AWG_switch_thread = None
-        self.current_awg_freq = None
+        self.current_awg_freq = 0
+        self.awg_freq_list = []
         self.list_of_pulse_type = []
         self.times_of_signal = None
         self.counts_handle = None
@@ -237,6 +239,7 @@ class GUI_OPX():
         self.AWG_interval = 1000  # [ns]
         self.T_bin = 28  # [ns]
         self.off_time = 1  # [ns] Can not be lower than 4
+        self.n_of_awg_changes = 10
 
         self.n_avg = int(1000000)  # number of averages
         self.n_nuc_pump = 4  # number of times to try nuclear pumping
@@ -303,7 +306,7 @@ class GUI_OPX():
         else:
             try:
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
-                if not self.connect_to_QM_OPX:
+                if self.connect_to_QM_OPX:
                     # Currently does not work
                     client = QmSaas(email="daniel@quantumtransistors.com", password="oNv9Uk4B6gL3")
                     self.instance = client.simulator(version = QoPVersion.v2_4_0)
@@ -983,10 +986,10 @@ class GUI_OPX():
 
                 dpg.add_slider_int(label="Laser Type",
                                    tag="on_off_slider", width = 80,
-                                   default_value=0, parent="chkbox_group",
+                                   default_value=1, parent="chkbox_group",
                                    min_value=0, max_value=1,
                                    callback=self.on_off_slider_callback,indent = -1,
-                                   format="RED")
+                                   format="Green")
 
                 dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
                               horizontal=False)  # parent="Params_Controls",horizontal=False)
@@ -1059,7 +1062,7 @@ class GUI_OPX():
             dpg.bind_item_theme(item="btnOPX_StartNuclearRABI", theme="btnBlueTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearMR", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearPolESR", theme="btnGreenTheme")
-            dpg.bind_item_theme("on_off_slider", "OffTheme")
+            dpg.bind_item_theme("on_off_slider", "OnTheme")
 
         else:
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=True)
@@ -1997,7 +2000,7 @@ class GUI_OPX():
             job_sim = self.qmm.simulate(QuaCFG, self.quaPGM, simulation_config)
             # Simulate blocks python until the simulation is done
             job_sim.get_simulated_samples().con1.plot()
-            if not self.connect_to_QM_OPX:
+            if self.connect_to_QM_OPX:
                 self.instance.close()
             if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
                 # waveform_report = job_sim.get_simulated_waveform_report()
@@ -2031,6 +2034,9 @@ class GUI_OPX():
             with open('qua_jobs.txt', 'w') as f:
                 for _job in self.my_qua_jobs:
                     f.write(f"{_job['qm_id']},{_job['job_id']}\n")
+
+            if self.connect_to_QM_OPX:
+                self.instance.close()
 
             return qm, job
 
@@ -2270,6 +2276,7 @@ class GUI_OPX():
             self.offset = declare(int)  # variables used for iteration assignment
             self.pulse_type = declare(int)
             self.bool_condition = declare(bool)
+            self.n_pause_qua = declare(int)
 
             self.site_state = declare(int)  # site preperation state
             self.m_state = declare(int)  # measure state
@@ -2302,6 +2309,16 @@ class GUI_OPX():
             self.tMWPiStat = declare(int)
             self.awg_freq_qua = declare(int)
 
+            #Variables for output simulation
+            self.time_of_distributed_simulation_value = declare(fixed)
+            self.exp_a_simulated = declare(fixed)
+            self.exp_b_simulated = declare(fixed)
+            assign(self.exp_a_simulated, self.lower_simulation_bound)
+            assign(self.exp_b_simulated, self.higher_simulation_bound)
+
+            #Input stream
+            #awg_freq_qua = declare_input_stream(fixed, name = 'awg_freq')
+
             # stream parameters
             self.counts_st = declare_stream()  # experiment signal
             self.times_st = declare_stream()  # times during experiment signal
@@ -2314,7 +2331,9 @@ class GUI_OPX():
 
             # with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
             #     assign(self.counts_ref[self.idx], 0)
-            self.n_avg = 5
+            self.n_avg = 30
+            self.n_pause = 8
+            assign(self.n_pause_qua, self.n_pause)
             assign(self.bool_condition, False)
             with for_(self.n, 0, self.n < self.n_avg, self.n + 1):  # AVG loop
                 assign(self.mod4, ((self.n+1) & 3))
@@ -2334,7 +2353,7 @@ class GUI_OPX():
                     assign(self.sequenceState, IO1)
                     with if_(self.sequenceState == 0):
                         update_frequency("MW", self.f)
-                        assign(self.awg_freq_qua, self.current_awg_freq)
+                        #assign(self.awg_freq_qua, self.current_awg_freq)
                         # # pi pulse type for statistics measurement (X ot Y)
                         # with if_(self.mod4 == 0):
                         #     # Group of 4
@@ -2348,7 +2367,11 @@ class GUI_OPX():
                         # with if_(self.mod4 == 1):
                         #     # Group of 1
                         #     assign(self.pulse_type, 1)
-                        self.execute_QUA()
+                        with if_((self.n - (self.n//self.n_pause_qua) * self.n_pause_qua) == 0):
+                            pause()
+                            self.execute_QUA()
+                        with else_():
+                            self.execute_QUA()
 
                     with else_():
                         assign(self.tracking_signal, 0)
@@ -2388,7 +2411,7 @@ class GUI_OPX():
                 save(self.n, self.n_st)  # save number of iteration inside for_loop
                 save(self.tracking_signal, self.tracking_signal_st)  # save number of iteration inside for_loop
                 save(self.pulse_type, self.pulse_type_st)
-                save(self.awg_freq_qua,self.awg_st)
+                #save(self.awg_freq_qua,self.awg_st)
 
             with stream_processing():
                 # It makes sense to use save instead of save_all since stream_processing work parallel to sequence
@@ -2397,12 +2420,14 @@ class GUI_OPX():
                 self.counts_st.save_all("counts")
                 self.counts_st2.save_all("statistics_counts")
                 self.pulse_type_st.save_all("pulse_type")
-                self.awg_st.save_all("awg_freq")
+                #self.awg_st.save_all("awg_freq")
                 # self.times_st.histogram([[i, i + 1] for i in range(0, self.tMeasure)]).save("times_hist")
         if not self.simulation:
             self.qm, self.job = self.QUA_execute()
         elif self.simulation and self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
             self.qm, self.job = self.QUA_execute()
+        #self.change_AWG_freq(channel=1)
+        #self.job.resume()
 
     def execute_QUA(self):
         if self.exp == Experiment.NUCLEAR_POL_ESR:
@@ -2412,7 +2437,13 @@ class GUI_OPX():
         if self.exp == Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY:
             self.Entanglement_gate_tomography_QUA_PGM(Generate_QUA_sequance=True)
         if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.time_bin_entanglement_QUA_PGM(Generate_QUA_sequance=True)
+            # for i in range(self.n_of_awg_changes):
+            #     self.change_AWG_freq(channel = 1)
+            #     if self.simulation:
+            #         self.awg_freq_list.append(self.current_awg_freq)
+            #     else:
+            #         self.awg_freq_list.append(self.awg.get_frequency())
+                self.time_bin_entanglement_QUA_PGM(Generate_QUA_sequance=True)
 
     def Nuclear_Pol_ESR_QUA_PGM(self, generate_params=False, Generate_QUA_sequance=False,
                                 execute_qua=False):  # NUCLEAR_POL_ESR
@@ -2837,12 +2868,12 @@ class GUI_OPX():
 
     def repeated_time_bin_qua_sequence_end(self):
         time_tagger = self.get_time_tagging_func("Detector_OPD")
-        align("MW", self.laser_type_stat)
-        play("Turn_ON", self.laser_type_stat, duration=self.tStatistics)
-        align("MW", "Detector2_OPD")
-        measure("min_readout", "Detector2_OPD", None,
-                time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
-        assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
+        # align("MW", self.laser_type_stat)
+        # play("Turn_ON", self.laser_type_stat, duration=self.tStatistics)
+        # align("MW", "Detector2_OPD")
+        # measure("min_readout", "Detector2_OPD", None,
+        #         time_tagger(self.times2, int(self.tStatistics), self.counts_tmp2))
+        # assign(self.counts2[self.idx], self.counts2[self.idx] + self.counts_tmp2)
 
     def time_bin_entanglement_QUA_PGM(self, generate_params=False, Generate_QUA_sequance=False, execute_qua=False):
         if generate_params:
@@ -2924,16 +2955,23 @@ class GUI_OPX():
             self.bin_times = [[start_bin_1, start_bin_1 + self.T_bin], [start_bin_2, start_bin_2 + self.T_bin],
                               [start_bin_3, start_bin_3 + self.T_bin]]
 
+            #Variables for simulation
+            a = 20
+            b = 48
+            self.tau = 1.2
+            self.lower_simulation_bound = np.exp(-a / self.tau)
+            self.higher_simulation_bound = np.exp(-b / self.tau)
+
         if Generate_QUA_sequance:
             with if_(self.simulation_flag):
                 #rand = Random()
                 #assign(self.r,rand.rand_fixed())
-                #assign(self.ln_to_int,-1.2 * Math.ln(1.0 - self.r))
+                #assign(self.times[self.n_avg], -self.tau * Math.ln(self.exp_a_simulated - self.r * (self.exp_a_simulated - self.exp_b_simulated)))
                 assign(self.counts[self.idx], 4)
                 with for_(self.j_idx, 0, self.j_idx < self.counts[self.idx], self.j_idx + 1):
-                    assign(self.times[self.j_idx], self.j_idx*10)
-                    #assign(self.times[self.j_idx], Cast.to_int(-1.2 * Math.ln(1.0 - self.r)))
-                    #assign(self.assign_input[self.j_idx], -1.2 * Math.ln(1.0 - self.r)) #Despite declared as a fixed array, takes int
+                     assign(self.times[self.j_idx], self.j_idx*10)
+                #     #assign(self.times[self.j_idx], Cast.to_int(-1.2 * Math.ln(1.0 - self.r)))
+                #     #assign(self.assign_input[self.j_idx], -1.2 * Math.ln(1.0 - self.r)) #Despite declared as a fixed array, takes int
                 assign(self.counts2[self.idx], 15)
             with else_():
                 with switch_(self.mod4, unsafe=True):
@@ -5763,7 +5801,7 @@ class GUI_OPX():
             total_counts_tracking = declare(int, value=0)
             counts_tracking_st = declare_stream()  # stream for counts
 
-            pause()
+            #pause()
             with infinite_loop_():
                 assign(total_counts_tracking, 0)
                 with for_(n, 0, n < n_count, n + 1):  # number of averages / total integation time
@@ -5953,10 +5991,10 @@ class GUI_OPX():
                                          mode="live")
         elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
             # if not self.simulation:
+            self.results = fetching_tool(self.job, data_list=["iteration_list", "times", "counts", "statistics_counts",
+                                                              "pulse_type"], mode="live")
             # if self.simulation:
             #     self.job = JobTesting_OPX.MockJob()
-            self.results = fetching_tool(self.job, data_list=["iteration_list", "times", "counts", "statistics_counts",
-                                                              "pulse_type", "awg_freq"], mode="live")
             # else:
             #     counts = create_counts_vector(vector_size=96)
             #     self.results = fetching_tool(job = JobTesting_OPX.MockJob(counts), data_list=["counts"], mode="live")
@@ -6048,7 +6086,7 @@ class GUI_OPX():
                 # No MOCU since Shai said it is not yet tested
                 self.SearchPeakIntensity()
                 self.check_srs_stability()
-                self.change_AWG_freq(channel = 1)
+                #self.change_AWG_freq(channel = 1)
                 self.Common_updateGraph(_xLabel="times", _yLabel="counts")
             if self.exp == Experiment.G2:
                 dpg.set_item_label("graphXY",
@@ -6121,7 +6159,7 @@ class GUI_OPX():
         elif self.exp == Experiment.Nuclear_Fast_Rot:
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            self.iteration_list, self.times_of_signal, self.signal, self.statistics_signal, self.type_of_pulse, self.awg_freq_from_stream = self.results.fetch_all()
+            self.iteration_list, self.times_of_signal, self.signal, self.statistics_signal, self.type_of_pulse = self.results.fetch_all()
         else:
             self.signal, self.ref_signal, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
 
@@ -6237,21 +6275,26 @@ class GUI_OPX():
             self.Y_vec = self.g2Vec  # *self.iteration
 
         if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+            print(4)
             offset = 0
             all_times = []
             counts_vector = np.ones(np.size(self.signal))
+            self.awg_freq_list = self.repeat_elements(self.awg_freq_list,self.n_avg)
             self.counts_in_bin1 = []
             self.counts_in_bin2 = []
             self.counts_in_bin3 = []
             for i in range(np.size(self.type_of_pulse)):
-                if self.type_of_pulse[i] == 4:
-                    self.list_of_pulse_type.append("xPulse_Pi")
-                elif self.type_of_pulse[i] == 3:
-                    self.list_of_pulse_type.append("yPulse_Pi")
-                elif self.type_of_pulse[i] == 2:
-                    self.list_of_pulse_type.append("xPulse_Pi_Half")
-                elif self.type_of_pulse[i] == 1:
-                    self.list_of_pulse_type.append("yPulse_Pi_Half")
+                if self.type_of_pulse is not None:
+                    if self.type_of_pulse[i] == 4:
+                        self.list_of_pulse_type.append("xPulse_Pi")
+                    elif self.type_of_pulse[i] == 3:
+                        self.list_of_pulse_type.append("yPulse_Pi")
+                    elif self.type_of_pulse[i] == 2:
+                        self.list_of_pulse_type.append("xPulse_Pi_Half")
+                    elif self.type_of_pulse[i] == 1:
+                        self.list_of_pulse_type.append("yPulse_Pi_Half")
+                else:
+                    self.list_of_pulse_type.append("Simulation")
             for counts in self.signal:
                 if counts > 0:
                     relevant_times = self.times_of_signal[offset: offset + counts]
@@ -6304,6 +6347,9 @@ class GUI_OPX():
         self.StopFetch = False
         self.fetchTh = threading.Thread(target=_target)
         self.fetchTh.start()
+
+    def repeat_elements(self, lst, k):
+        return [item for item in lst for _ in range(k)]
 
     def btnStartCounterLive(self, b_startFetch=True):
         self.exp = Experiment.COUNTER
@@ -6679,7 +6725,7 @@ class GUI_OPX():
                                        'Total_Counts': self.signal.tolist(),
                                        'Counts_stat': self.Y_vec_2.tolist(), f'Counts_Bin_1_{self.bin_times[0][0]}:{self.bin_times[0][1]}': self.counts_in_bin1,
                                        f'Counts_Bin_2_{self.bin_times[1][0]}:{self.bin_times[1][1]}': self.counts_in_bin2, f'Counts_Bin_3_{self.bin_times[2][0]}:{self.bin_times[2][1]}': self.counts_in_bin3,
-                                       'AWG_freq[HZ]': self.awg_freq_from_stream.tolist(), 'Pulse_type': self.list_of_pulse_type}
+                                       'Pulse_type': self.list_of_pulse_type, 'awg_freq': self.awg_freq_list}
                 else:
                     RawData_to_save = {'Iteration': self.iteration_list.tolist(), 'Times': self.times_by_measurement,
                                        'Total_Counts': self.signal.tolist(),
@@ -6687,8 +6733,22 @@ class GUI_OPX():
                                        f'Counts_Bin_1_{self.bin_times[0][0]}:{self.bin_times[0][1]}': self.counts_in_bin1,
                                        f'Counts_Bin_2_{self.bin_times[1][0]}:{self.bin_times[1][1]}': self.counts_in_bin2,
                                        f'Counts_Bin_3_{self.bin_times[2][0]}:{self.bin_times[2][1]}': self.counts_in_bin3,
-                                       'AWG_freq[HZ]': self.awg_freq_from_stream.tolist(),
                                        'Pulse_type': self.list_of_pulse_type}
+
+                # RawData_to_save = {'Iteration': self.iteration_list.tolist(), 'Times': self.times_by_measurement,
+                #                    'Total_Counts': self.signal.tolist(),
+                #                    'Counts_stat': self.Y_vec_2.tolist(),
+                #                    f'Counts_Bin_1_{self.bin_times[0][0]}:{self.bin_times[0][1]}': self.counts_in_bin1,
+                #                    f'Counts_Bin_2_{self.bin_times[1][0]}:{self.bin_times[1][1]}': self.counts_in_bin2,
+                #                    f'Counts_Bin_3_{self.bin_times[2][0]}:{self.bin_times[2][1]}': self.counts_in_bin3,
+                #                    'AWG_freq[HZ]': a.tolist(), 'Pulse_type': self.list_of_pulse_type}
+                # else:
+                # RawData_to_save = {'Iteration': self.iteration_list, 'Times': self.X_vec,
+                #                    'Total_Counts': self.signal.tolist(),
+                #                    'Counts_stat': self.Y_vec_2.tolist(), "Counts_Bin_1": self.counts_in_bin1,
+                #                    'Counts_Bin_2': self.counts_in_bin2, 'Counts_Bin_3': self.counts_in_bin3,
+                #                    'AWG_freq[HZ]': [self.awg.get_frequency()],
+                #                    'Pulse_type': self.statistics_pulse_type.split()}
             else:
                 RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,
                                    'Y_resCalc': self.Y_resCalculated}
@@ -8181,8 +8241,19 @@ class GUI_OPX():
 
                 # Update the last change time.
                 self.last_change_time = current_time
-            else:
-                print("Passed change_AWG_freq succesfully")
+        else:
+            current_time = time.time()
+            if not hasattr(self, 'last_change_time'):
+                self.last_change_time = current_time
+            if current_time - self.last_change_time >= 0.00001:
+                self.current_awg_freq = 5
+                if self.current_awg_freq == 5:
+                    self.current_awg_freq = 7
+                elif self.current_awg_freq == 7:
+                    self.current_awg_freq = 5
+                self.awg_freq_list.append(self.current_awg_freq)
+            #self.job.push_to_input_stream('awg_freq', self.current_awg_freq)
+            print("Passed change_AWG_freq successfully")
 
     def format_time(self, seconds):
         """
