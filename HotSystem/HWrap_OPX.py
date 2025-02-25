@@ -72,6 +72,7 @@ class Experiment(Enum):
     Nuclear_Fast_Rot = 19
     TIME_BIN_ENTANGLEMENT = 20
     PLE = 21 # Photoluminescence excitation
+    EXTERNAL_FREQUENCY_SCAN = 22
 
 class queried_plane(Enum):
     XY = 0
@@ -87,7 +88,8 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
-
+        self.csv_file: Optional[str] = None
+        self.is_green = False
         self.ref_counts_handle = None
         self.mattise_frequency_offset: float = 0
         self.job = None
@@ -488,6 +490,19 @@ class GUI_OPX():
         dpg.set_value(item="inInt_scan_t_start", value=sender.scan_t_start)
         print("Set scan_t_start to: " + str(sender.scan_t_start))
 
+    def on_off_slider_callback(self, sender, app_data):
+        # app_data is the new slider value (0 or 1)
+        if app_data == 1:
+            self.is_green = True
+            dpg.configure_item(sender, format="GREEN")
+            dpg.bind_item_theme(sender, "OnTheme")
+            print("Laser is Green!")
+        else:
+            self.is_green = False
+            dpg.configure_item(sender, format="RED")
+            dpg.bind_item_theme(sender, "OffTheme")
+            print("Laser is Red!")
+
     def UpdateTsettle(sender, app_data, user_data):
         sender.Tsettle = sender.time_in_multiples_cycle_time(int(user_data))
         time.sleep(0.001)
@@ -567,10 +582,30 @@ class GUI_OPX():
         self.viewport_height = dpg.get_viewport_client_height()
         self.window_scale_factor = width / 3840
 
+    def set_all_themes(self):
+        with dpg.theme(tag="OnTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 180, 0))  # handle when pressed
+                # Optionally color the track:
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (50, 70, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (60, 80, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 90, 70))
+
+        # OFF Theme: keep the slider handle red in all states.
+        with dpg.theme(tag="OffTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (180, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (70, 50, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))
+
     def controls(self, _width=1600, _Height=1000):
         self.GetWindowSize()
         pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.4)]
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
+        self.set_all_themes()
 
         dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1,
                        pos=[int(pos[0]), int(pos[1])])
@@ -772,6 +807,13 @@ class GUI_OPX():
                 dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
                 dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
 
+                dpg.add_slider_int(label="Laser Type",
+                                   tag="on_off_slider", width = 80,
+                                   default_value=0, parent="chkbox_group",
+                                   min_value=0, max_value=1,
+                                   callback=self.on_off_slider_callback,indent = -1,
+                                   format="RED")
+
                 dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
                               horizontal=False)  # parent="Params_Controls",horizontal=False)
                 _width = 300 # was 220
@@ -783,6 +825,8 @@ class GUI_OPX():
                 dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
                 dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
                 dpg.add_button(label="PLE", parent="Buttons_Controls", tag="btnPLE", callback=self.btnStartPLE, indent=-1, width=_width)
+                dpg.add_button(label="Ext. Frequency Scan", parent="Buttons_Controls", tag="btnExternalFrequencyScan", callback=self.btnStartExternalFrequencyScan,
+                               indent=-1, width=_width)
                 dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
                                callback=self.btnStartNuclearRABI, indent=-1, width=_width)
@@ -828,6 +872,8 @@ class GUI_OPX():
             dpg.bind_item_theme(item="btnOPX_StartNuclearRABI", theme="btnBlueTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearMR", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearPolESR", theme="btnGreenTheme")
+            dpg.bind_item_theme("on_off_slider", "OffTheme")
+
         else:
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=True)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1)
@@ -1653,6 +1699,8 @@ class GUI_OPX():
     def initQUA_gen(self, n_count=1, num_measurement_per_array=1):
         self.reset_data_val()
         if self.exp == Experiment.COUNTER:
+            self.counter_QUA_PGM(n_count=int(n_count))
+        if self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN:
             self.counter_QUA_PGM(n_count=int(n_count))
         if self.exp == Experiment.ODMR_CW:
             self.ODMR_CW_QUA_PGM()
@@ -5109,6 +5157,12 @@ class GUI_OPX():
 
         self.qmTracking, self.job_Tracking = self.QUA_execute(closeQM=False, quaPGM=self.quaTrackingPGM)
     def counter_QUA_PGM(self, n_count=1):
+
+        if self.is_green:
+            self.laser_type = "Laser"
+        else:
+            self.laser_type = "Resonant_Laser"
+
         with program() as self.quaPGM:
             self.times = declare(int, size=1000)
             self.times_ref = declare(int, size=1000)
@@ -5122,7 +5176,7 @@ class GUI_OPX():
             self.n_st = declare_stream()  # stream for number of iterations
             with infinite_loop_():
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
-                    play("Turn_ON", "Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
+                    play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
                     measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
                     measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
@@ -5204,12 +5258,13 @@ class GUI_OPX():
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
         laser_on_duration = int(self.total_integration_time * self.u.ms // 4)
-        single_integration_time = int(self.total_integration_time * self.u.ms)
+        single_integration_time = int(self.Tcounter * self.u.ns)
         init_pulse_time = self.Tpump * self.u.ns // 4
         tracking_pulse_time = int(5 * self.u.ms // 4)
         tracking_measure_time =  int(self.Tcounter*self.u.ns)
         num_tracking_signal_loops = int((5 * self.u.ms / int(self.Tcounter * self.u.ns)))
-        t_wait_after_init = int(50*self.u.ns//4)
+        t_wait_after_init = int(500*self.u.ns//4)
+        n_count = int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns)
 
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
@@ -5247,18 +5302,17 @@ class GUI_OPX():
                     # assign(should_we_track, IO1)
                     with if_(should_we_track==0):
                         with for_(n, 0, n < self.n_avg, n + 1):
+                            wait(500//4)
+                            wait(t_wait_after_init - 28 // 4)
                             play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=init_pulse_time)
-                            align()
                             wait(t_wait_after_init-28//4)
-                            # we have 28ns delay between measure command and actual measure start due to tof delay
-                            measure("readout", "Detector_OPD", None,
-                                    time_tagging.digital(times, single_integration_time+10, counts))
-                            wait(9)
-                            play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value,duration=laser_on_duration)
                             align()
-                            assign(total_counts, total_counts + counts)
+                            # we have 28ns delay between measure command and actual measure start due to tof delay
+                            with for_(n, 0, n < n_count, n + 1):
+                                play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value,duration=single_integration_time//4)
+                                measure("readout", "Detector_OPD", None,time_tagging.digital(times, single_integration_time, counts))
+                                assign(total_counts,total_counts + counts)
                         save(total_counts, counts_st)
-                        align()
                         assign(meas_idx, meas_idx + 1)
                         save(meas_idx, meas_idx_st)
 
@@ -5373,7 +5427,7 @@ class GUI_OPX():
         time.sleep(0.1)
 
         # fetch right parameters
-        if self.exp == Experiment.COUNTER:
+        if self.exp in [Experiment.COUNTER, Experiment.EXTERNAL_FREQUENCY_SCAN]:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
         elif self.exp == Experiment.G2:
             self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
@@ -5400,23 +5454,26 @@ class GUI_OPX():
             dpg.set_item_label("series_counts", "counts")
             dpg.set_item_label("series_counts_ref", "counts_ref")
 
-            if self.exp == Experiment.COUNTER:
-                dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
-                dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
-                dpg.set_value("series_counts_ref2", [[], []])
-                dpg.set_value("series_res_calcualted", [[], []])
-                dpg.set_item_label("series_counts", "det_1")
-                dpg.set_item_label("series_counts_ref", "det_2")
-                dpg.set_item_label("y_axis", "I [kCounts/sec]")
-                dpg.set_item_label("x_axis", "time [sec]")
-                dpg.fit_axis_data('x_axis')
-                dpg.fit_axis_data('y_axis')
+            if self.exp in [Experiment.COUNTER, Experiment.EXTERNAL_FREQUENCY_SCAN]:
+                try:
+                    dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
+                    dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
+                    dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+                    dpg.set_value("series_counts_ref2", [[], []])
+                    dpg.set_value("series_res_calcualted", [[], []])
+                    dpg.set_item_label("series_counts", "det_1")
+                    dpg.set_item_label("series_counts_ref", "det_2")
+                    dpg.set_item_label("y_axis", "I [kCounts/sec]")
+                    dpg.set_item_label("x_axis", "time [sec]" if self.exp == Experiment.COUNTER else "Frequency [GHz]")
+                    dpg.fit_axis_data('x_axis')
+                    dpg.fit_axis_data('y_axis')
 
-                dpg.bind_item_theme("series_counts", "LineYellowTheme")
-                dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
-                dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
-                dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
+                    dpg.bind_item_theme("series_counts", "LineYellowTheme")
+                    dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+                    dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
+                    dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
+                except:
+                    print('Failed updaitng graph')
                 # self.Counter_updateGraph()
             if self.exp == Experiment.ODMR_CW:  #freq
                 self.SearchPeakIntensity()
@@ -5492,7 +5549,7 @@ class GUI_OPX():
 
 
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
-            if not(self.exp == Experiment.COUNTER) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
+            if not(self.exp in [Experiment.COUNTER, Experiment.EXTERNAL_FREQUENCY_SCAN]) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
                 folder = "d:/temp/"
                 if not os.path.exists(folder):
                     folder = "c:/temp/"
@@ -5506,7 +5563,7 @@ class GUI_OPX():
     def GlobalFetchData(self):
         self.lock.acquire()
 
-        if self.exp == Experiment.COUNTER:
+        if self.exp in [Experiment.COUNTER, Experiment.EXTERNAL_FREQUENCY_SCAN]:
             self.counter_Signal, self.ref_signal = self.results.fetch_all()
         elif self.exp == Experiment.G2:
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
@@ -5528,6 +5585,24 @@ class GUI_OPX():
             self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
             self.Y_vec_ref.append(self.ref_signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
             self.X_vec.append(self.counter_Signal[1] / self.u.s)  # Convert timestamps to seconds
+
+        if self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN:
+            if len(self.X_vec) > self.NumOfPoints:
+                self.save_to_cvs(file_name = self.csv_file, data = {"Frequency[GHz]": self.X_vec,"Intensity[KCounts/sec]":self.Y_vec},to_append= True)
+                print(f"Saved data to {self.csv_file}.")
+                self.Y_vec = []  # get last NumOfPoint elements from end
+                self.Y_vec_ref = []  # get last NumOfPoint elements from end
+                self.X_vec = []
+
+            self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
+            self.Y_vec_ref.append(self.ref_signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
+            with self.HW.wavemeter.lock:
+                y1 = self.HW.wavemeter.measured_wavelength[-2]
+                y2 = self.HW.wavemeter.measured_wavelength[-1]
+                dx1 = self.HW.wavemeter.measurement_times[-1] - self.HW.wavemeter.measurement_times[-2] # time interval for frequency measurements
+                dx2 = time.time() - self.HW.wavemeter.measurement_times[-1]
+                # TODO: Fix wrong values at frequency turning points
+            self.X_vec.append(y2 + (y2 - y1) * dx2 / dx1) # Linear extrapolation from last point.
 
         if self.exp == Experiment.ODMR_CW:  # freq
             self.X_vec = self.f_vec / self.u.MHz / 1e3 + self.mw_freq  # [GHz]
@@ -5991,8 +6066,16 @@ class GUI_OPX():
                     if self.mwModule.RFstate:
                         self.mwModule.Turn_RF_OFF()
 
-            if self.exp not in [Experiment.COUNTER, Experiment.SCAN, Experiment.PLE]:
+            if self.exp not in [Experiment.COUNTER, Experiment.SCAN, Experiment.PLE, Experiment.EXTERNAL_FREQUENCY_SCAN]:
                 self.btnSave()
+            if self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN:
+                print('Scan finished. Copying files.')
+                folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + self.exp.name + '/'
+                destination_csv = os.path.join(folder_path, os.path.basename(self.csv_file))
+                print(f"Copying file {self.csv_file} to {destination_csv}.")
+                shutil.copy(self.csv_file, destination_csv)
+
+
         except Exception as e:
             print(f"An error occurred in btnStop: {e}")
 
@@ -6062,6 +6145,22 @@ class GUI_OPX():
         self.ScanTh = threading.Thread(target=self.StartPLE)
         self.ScanTh.start()
 
+    def btnStartExternalFrequencyScan(self, b_startFetch=True):
+        self.exp = Experiment.EXTERNAL_FREQUENCY_SCAN
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+
+        self.timeStamp = self.getCurrentTimeStamp()
+        folder_path = 'C:/temp/' + self.exp.name + '/'
+        if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
+            os.makedirs(folder_path)
+        self.csv_file = os.path.join(folder_path, self.timeStamp + self.exp.name + ".csv")
+        # TODO: Boaz - Check for edge cases in number of measurements per array
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                         num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
+
+        if b_startFetch and not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)
+
     def StartPLE(self):
         self.exp = Experiment.PLE
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
@@ -6086,7 +6185,17 @@ class GUI_OPX():
         vec = list(np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
                 np.linspace(initial_position + half_length, initial_position - half_length, num_points)[1:])))
 
-        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength, read_in_pos_fn=lambda ch: (time.sleep(self.matisse.ple_waiting_time), True)[1], get_positions_fn=self.HW.wavemeter.get_frequency, device_reset_fn=None, x_vec=vec, y_vec=None, z_vec=None, current_experiment=Experiment.PLE, is_not_ple=False, meas_continuously=True, check_srs_stability=check_srs_stability)
+        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength,
+                                read_in_pos_fn=lambda ch: (time.sleep(self.matisse.ple_waiting_time), True)[1],
+                                get_positions_fn=self.HW.wavemeter.get_frequency,
+                                device_reset_fn=None,
+                                x_vec=vec,
+                                y_vec=None,
+                                z_vec=None,
+                                current_experiment=Experiment.PLE,
+                                is_not_ple=False,
+                                meas_continuously=True,
+                                check_srs_stability=check_srs_stability)
 
     def StartScan(self):
         if self.positioner:
@@ -6810,7 +6919,7 @@ class GUI_OPX():
                                     self.refSignal = self.tracking_ref / self.TrackingThreshold
                                 self.qmm.clear_all_job_results()
 
-                            current_measurement = current_measurement / self.total_integration_time * 1e3 / self.n_avg
+                            current_measurement = current_measurement / int(self.total_integration_time*self.u.ms) *1e9 /1e3 / self.n_avg # [KCounts/s]
                             counts.append(current_measurement) # [counts/s]
 
                             # Correct mistmatch between wavemeter measurements (actual frequency) and mattise wavenlength
@@ -6827,7 +6936,7 @@ class GUI_OPX():
                                 self.X_vec[i] = round(current_positions_array[i] / 1e6, 2)  # Convert to MHz
 
                             self.generate_x_y_vectors_for_average()
-                            self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[counts/s]")
+                            self.Common_updateGraph(_xLabel="Frequency[MHz]", _yLabel="I[KCounts/s]")
                             # if type(current_measurement) == int:
                             #     current_measurement=[-1]
 

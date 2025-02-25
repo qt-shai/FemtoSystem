@@ -59,9 +59,8 @@ class SRSsim960:
         while self.continuous_stream_active:
             try:
                 current_time = time.time() - self.start_time
-                with self.lock:
-                    output_voltage = self.read_output_voltage()
-                    measurement_input = self.read_measure_input()
+                output_voltage = self.read_output_voltage()
+                measurement_input = self.read_measure_input()
 
                 self.time_values.append(current_time)
                 self.measurement_inputs.append(measurement_input)
@@ -72,35 +71,34 @@ class SRSsim960:
                     self.time_values.pop(0)
                     self.measurement_inputs.pop(0)
                     self.output_voltages.pop(0)
-
-                self.measurement_observable.set([self.time_values, self.measurement_inputs, self.output_voltages])
+                with self.lock:
+                    self.measurement_observable.set([self.time_values, self.measurement_inputs, self.output_voltages])
 
                 if abs(output_voltage) > self.unwind_th:
-                    with self.lock:
-                        print('SRS is not stable.')
-                        sign = 1 if output_voltage > 0 else -1
-                        offset = self.v_pi * 4 * sign
-                        print(f"jumping to {output_voltage + offset:.3f}")
-                        self.set_manual_output(output_voltage + offset)
-                        self.set_output_mode(True)
 
-                        print(f"val = {self.read_output_voltage()}")
-                        self.set_manual_output(output_voltage + offset)
-                        time.sleep(0.5)
-                        self.set_manual_output(output_voltage + offset)
-                        print(f"val = {self.read_output_voltage()}")
-                        time.sleep(1.0)
-                        self.set_output_mode(False)
-                        # self.dev.mf.flush_output()
-                        self.is_stable = False
-                        self.last_stable_timestamp = datetime.now()
+                    print('SRS is not stable.')
+                    sign = 1 if output_voltage > 0 else -1
+                    offset = self.v_pi * 4 * sign
+                    print(f"jumping to {output_voltage + offset:.3f}")
+                    self.set_manual_output(output_voltage + offset)
+                    self.set_output_mode(True)
+
+                    print(f"val = {self.read_output_voltage()}")
+                    self.set_manual_output(output_voltage + offset)
+                    time.sleep(0.5)
+                    self.set_manual_output(output_voltage + offset)
+                    print(f"val = {self.read_output_voltage()}")
+                    time.sleep(1.0)
+                    self.set_output_mode(False)
+                    # self.dev.mf.flush_output()
+                    self.is_stable = False
+                    self.last_stable_timestamp = datetime.now()
                 else:
                     if not self.is_stable and datetime.now() > self.last_stable_timestamp + timedelta(seconds=self.stability_recovery_time_seconds):
                         # print('SRS is not stable. Trying to recover...')
-                        with self.lock:
-                            if np.isclose(self.read_setpoint(), self.read_setpoint(), self.stability_tolerance):
-                                print('SRS is stable.')
-                                self.is_stable = True
+                        if np.isclose(self.read_setpoint(), self.read_setpoint(), self.stability_tolerance):
+                            print('SRS is stable.')
+                            self.is_stable = True
 
             except Exception as exc:
                     print(f"Error in SIM 960 continuous loop: {exc}")
@@ -112,9 +110,10 @@ class SRSsim960:
         """
         Internal helper to write a command to SIM960 via the mainframe slot.
         """
-        self.mf.write(f"CONN {self.slot},'quit'")
-        self.mf.write(command)
-        self.mf.write("quit")
+        with self.lock:
+            self.mf.write(f"CONN {self.slot},'quit'")
+            self.mf.write(command)
+            self.mf.write("quit")
 
     def _query(self, command: str, timeout = 1, is_float = False) -> str|float:
         """
@@ -123,31 +122,31 @@ class SRSsim960:
         :param command: The command to send.
         :param timeout: The timeout in seconds.
         """
-        start = time.time()
-        while not self.mf.is_connected and time.time() - start < timeout:
-            time.sleep(0.1)
+        with self.lock:
+            start = time.time()
+            while not self.mf.is_connected and time.time() - start < timeout:
+                time.sleep(0.1)
 
-        if self.mf.is_connected:
-            # self.mf._connection.flush(pyvisa.constants.VI_IO_IN_BUF_DISCARD | pyvisa.constants.VI_IO_OUT_BUF_DISCARD)  # Flush both buffers
-            self.mf.write(f"CONN {self.slot},'quit'")
-            resp = self.mf.query(command)
+            if self.mf.is_connected:
+                # self.mf._connection.flush(pyvisa.constants.VI_IO_IN_BUF_DISCARD | pyvisa.constants.VI_IO_OUT_BUF_DISCARD)  # Flush both buffers
+                self.mf.write(f"CONN {self.slot},'quit'")
+                resp = self.mf.query(command)
 
-            if is_float:
-                max_retries = 5
-                for attempt in range(1, max_retries + 1):
-                    try:
-                        float_value = float(resp)
-                        break
-                    except ValueError:
-                        print(f"Attempt {attempt}: Invalid response '{resp}' for query {command}, retrying...")
-                        time.sleep(0.1)  # Wait 100ms before retrying
-                        resp = self.mf.query(command) # Remove any extra whitespace
-
-            self.mf.write("quit")
-            return resp
-        else:
-            print(f"Could not process command {command}. SRS mainframe is not connected.")
-            return ""
+                if is_float:
+                    max_retries = 5
+                    for attempt in range(1, max_retries + 1):
+                        try:
+                            float_value = float(resp)
+                            break
+                        except ValueError:
+                            print(f"Attempt {attempt}: Invalid response '{resp}' for query {command}, retrying...")
+                            time.sleep(0.1)  # Wait 100ms before retrying
+                            resp = self.mf.query(command) # Remove any extra whitespace
+                self.mf.write("quit")
+                return resp
+            else:
+                print(f"Could not process command {command}. SRS mainframe is not connected.")
+                return ""
 
     def reset(self) -> None:
         """

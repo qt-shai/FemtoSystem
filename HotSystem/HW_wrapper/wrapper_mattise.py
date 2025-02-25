@@ -30,7 +30,7 @@ class SirahMatisse:
         self.slow_piezo_to_mhz = 81500.0
         self.ref_cell_to_mhz = 81500.0
         self.check_srs_stability = False
-        self.ple_waiting_time=1
+        self.ple_waiting_time=0.2
         self.last_warning_time = None
 
     def __del__(self):

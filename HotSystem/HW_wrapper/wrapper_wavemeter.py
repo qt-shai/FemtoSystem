@@ -1,3 +1,4 @@
+import threading
 from typing import Optional
 
 import numpy as np
@@ -19,6 +20,9 @@ class HighFinesseWLM:
         self.index = index
         self.simulation = simulation
         self.dev: Optional[wlm.WLM] = None
+        self.measurement_times:Optional[list[float]] = []
+        self.measured_wavelength: Optional[list[float]] = []
+        self.lock = threading.Lock()
 
     def __del__(self):
         """

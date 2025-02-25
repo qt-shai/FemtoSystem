@@ -188,8 +188,13 @@ class GUIWavemeter:
                     y_label = "Frequency (GHz)"
 
                 concatenated_measurements.append(freq_converted)
-                elapsed_time_s = time.time() - self.start_time
+
+                measurement_time = time.time()
+                elapsed_time_s = measurement_time - self.start_time
                 concatenated_times.append(elapsed_time_s)
+                with self.dev.lock:
+                    self.dev.measured_wavelength.append(freq_ghz + start_freq)
+                    self.dev.measurement_times.append(measurement_time)
 
                 # Update the plot
                 dpg.set_value(
