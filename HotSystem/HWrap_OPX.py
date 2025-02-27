@@ -258,7 +258,7 @@ class GUI_OPX():
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
         # Graph parameters
-        self.NumOfPoints = 800  # to include in counter Graph
+        self.NumOfPoints = 5000  # to include in counter Graph
         self.reset_data_val()
 
         self.Xv = []
@@ -1755,6 +1755,8 @@ class GUI_OPX():
             simulation_config = SimulationConfig(duration=28000)  # clock cycles
             job_sim = self.qmm.simulate(QuaCFG, self.quaPGM, simulation_config)
             # Simulate blocks python until the simulation is done
+            waveform_report = job_sim.get_simulated_waveform_report()
+            waveform_report.create_plot(plot=True, save_path="./")
             job_sim.get_simulated_samples().con1.plot()
             plt.show()
 
@@ -5174,9 +5176,16 @@ class GUI_OPX():
             self.counts_st = declare_stream()
             self.counts_ref_st = declare_stream()  # stream for counts
             self.n_st = declare_stream()  # stream for number of iterations
+            scan_freq_experiment = self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN
             with infinite_loop_():
                 with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
-                    play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
+                    if(scan_freq_experiment):
+                        play("Turn_ON", "Laser", duration=int(self.Tpump * self.u.ns // 4))  #
+                        wait(50)
+                        align()
+                        play("Turn_ON", "Resonant_Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
+                    else:
+                        play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
                     measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
                     measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
@@ -5458,7 +5467,7 @@ class GUI_OPX():
                 try:
                     dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
                     dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                    dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+                    # dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
                     dpg.set_value("series_counts_ref2", [[], []])
                     dpg.set_value("series_res_calcualted", [[], []])
                     dpg.set_item_label("series_counts", "det_1")
@@ -5588,14 +5597,16 @@ class GUI_OPX():
 
         if self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN:
             if len(self.X_vec) > self.NumOfPoints:
-                self.save_to_cvs(file_name = self.csv_file, data = {"Frequency[GHz]": self.X_vec,"Intensity[KCounts/sec]":self.Y_vec},to_append= True)
+                data_to_save = {"Frequency[GHz]": self.X_vec,"Intensity[KCounts/sec]":self.Y_vec, "Resonant Laser Power Reading [V]": self.Y_vec_ref}
+                self.save_to_cvs(file_name = self.csv_file, data = data_to_save,to_append= True)
                 print(f"Saved data to {self.csv_file}.")
                 self.Y_vec = []  # get last NumOfPoint elements from end
                 self.Y_vec_ref = []  # get last NumOfPoint elements from end
                 self.X_vec = []
 
             self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
-            self.Y_vec_ref.append(self.ref_signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
+            with self.HW.arduino.lock:
+                self.Y_vec_ref.append(self.HW.arduino.last_measured_value)  # counts/second
             with self.HW.wavemeter.lock:
                 y1 = self.HW.wavemeter.measured_wavelength[-2]
                 y2 = self.HW.wavemeter.measured_wavelength[-1]
@@ -6069,6 +6080,10 @@ class GUI_OPX():
             if self.exp not in [Experiment.COUNTER, Experiment.SCAN, Experiment.PLE, Experiment.EXTERNAL_FREQUENCY_SCAN]:
                 self.btnSave()
             if self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN:
+                data_to_save = {"Frequency[GHz]": self.X_vec, "Intensity[KCounts/sec]": self.Y_vec,
+                                "Resonant Laser Power Reading [V]": self.Y_vec_ref}
+                self.save_to_cvs(file_name=self.csv_file, data=data_to_save, to_append=True)
+                print(f"Saved data to {self.csv_file}.")
                 print('Scan finished. Copying files.')
                 folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + self.exp.name + '/'
                 destination_csv = os.path.join(folder_path, os.path.basename(self.csv_file))

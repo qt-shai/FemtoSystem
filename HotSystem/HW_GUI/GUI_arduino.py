@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+from typing import Optional, List
 
 import dearpygui.dearpygui as dpg
 from HW_wrapper import ArduinoController  # Import the modified ArduinoController
@@ -24,6 +25,7 @@ class GUIArduino:
         self.unique_id = "arduino_gui"
         self.continuous_read_active = False
         self.arduino = arduino
+        self.measurement_data: Optional[List[float]] = None
         if arduino is None:
             arduino = ArduinoController(address="COM7")
             self.arduino = arduino
@@ -63,6 +65,9 @@ class GUIArduino:
                 dpg.add_input_float(label="Spacing", default_value=1000.0, tag="pulse_spacing", format="%.1f",width=100)
                 dpg.add_button(label="Set",callback=self.set_pulse,width=50)
                 dpg.add_button(label="Stop",callback=self.stop_pulse,width=50)
+                # Response Display
+                dpg.add_text("Results:", tag="results_label")
+                dpg.add_text("", tag="results_display", wrap=450)
 
             with dpg.plot(label="Measurement Plot", height=300, width=400):
                 x_axis_tag = f"x_axis_{self.unique_id}"
@@ -125,6 +130,8 @@ class GUIArduino:
             try:
                 data_str = measurement_data_raw.split(":", maxsplit=1)[1]  # e.g., "123,456,789"
                 self.measurement_data = list(map(int, data_str.split(",")))
+                with self.arduino.lock:
+                    self.arduino.last_measured_value = self.measurement_data[-1]
             except (ValueError, IndexError) as parse_exc:
                 dpg.set_value("results_display", f"Data parse error: {parse_exc}")
                 return
@@ -174,6 +181,8 @@ class GUIArduino:
                     # Parse and concatenate measurement data
                     new_data = list(map(int, measurement_data_raw.split(":")[1].split(",")))
                     concatenated_measurements.extend(new_data)
+                    with self.arduino.lock:
+                        self.arduino.last_measured_value = new_data[-1]
 
                     # Update the graph
                     time_interval = self.arduino.time_interval_us.get()

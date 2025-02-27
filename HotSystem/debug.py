@@ -1,5 +1,5 @@
 
-# Single QUA script generated at 2025-01-21 11:09:06.362336
+# Single QUA script generated at 2025-02-25 15:31:07.990880
 # QUA library version: 1.2.2a2
 
 from qm import CompilerOptionArguments
@@ -7,36 +7,31 @@ from qm.qua import *
 
 with program() as prog:
     a1 = declare(int, size=1000)
+    a2 = declare(int, size=1000)
     v1 = declare(int, )
-    v2 = declare(int, value=0)
-    v3 = declare(int, )
+    v2 = declare(int, )
+    v3 = declare(int, value=0)
     v4 = declare(int, value=0)
-    v5 = declare(int, value=0)
-    v6 = declare(int, value=1001)
-    assign(IO2, 0)
+    v5 = declare(int, )
     with infinite_loop_():
-        assign(v5, IO2)
-        with if_(((v6<(v5+1))&(v6>(v5-1)))):
-            assign(IO2, 0)
-            assign(v5, 0)
+        with for_(v5,0,(v5<5000),(v5+1)):
+            play("Turn_ON", "Laser", duration=500)
+            wait(50, )
             align()
-            align()
-            with for_(v3,0,(v3<500),(v3+1)):
-                play("Turn_ON", "Laser", duration=2500)
-                measure("readout", "Detector_OPD", None, time_tagging.digital(a1, 10000, v1, ""))
-                assign(v2, (v2+v1))
-            r1 = declare_stream()
-            save(v2, r1)
-            assign(v2, 0)
-            align()
-            wait(1250000, )
-            align()
-            assign(v4, (v4+1))
-            r2 = declare_stream()
-            save(v4, r2)
+            play("Turn_ON", "Resonant_Laser", duration=2500)
+            measure("min_readout", "Detector_OPD", None, time_tagging.digital(a1, 10000, v1, ""))
+            measure("min_readout", "Detector2_OPD", None, time_tagging.digital(a2, 10000, v2, ""))
+            assign(v3, (v3+v1))
+            assign(v4, (v4+v2))
+        r1 = declare_stream()
+        save(v3, r1)
+        r2 = declare_stream()
+        save(v4, r2)
+        assign(v3, 0)
+        assign(v4, 0)
     with stream_processing():
-        r2.save("meas_idx_scanLine")
-        r1.buffer(41).save("counts_scanLine")
+        r1.with_timestamps().save("counts")
+        r2.with_timestamps().save("counts_ref")
 
 
 config = {
