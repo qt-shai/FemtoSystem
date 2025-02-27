@@ -24,6 +24,7 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_NI_DAQ import GUIDAQ
 from HW_GUI.GUI_Picomotor import GUI_picomotor
 from HW_GUI.GUI_arduino import GUIArduino
 from HW_GUI.GUI_atto_scanner import GUIAttoScanner
@@ -35,6 +36,7 @@ from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
 from HW_GUI.GUI_sim960PID import GUISIM960
 from HW_GUI.GUI_moku import GUIMoku
+from HW_wrapper.Wrapper_moku import Moku
 from HWrap_OPX import GUI_OPX
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Utils.Common import calculate_z_series
@@ -394,6 +396,8 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.moku_gui: Optional[Moku] = None
+        self.DAQ_gui: Optional[GUIDAQ] = None
         self.picomotorGUI:Optional[GUI_picomotor] = None
         self.arduino_gui: Optional[GUIArduino] = None
         self.srs_pid_gui: list[GUISIM960] = []
@@ -835,6 +839,12 @@ class PyGuiOverlay(Layer):
 
                 elif instrument == Instruments.MOKU:
                     self.moku_gui = GUIMoku(hw_devices.HW_devices().moku)
+
+                elif instrument == Instruments.NI_DAQ:
+                    self.DAQ_gui = GUIDAQ(daq=hw_devices.HW_devices().ni_daq_controller)
+
+                else:
+                    print(f"Unknown instrument {instrument} ")
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")

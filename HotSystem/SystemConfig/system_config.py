@@ -36,6 +36,7 @@ class Instruments(Enum):
     ARDUINO = "ARDUINO"
     WAVEMETER = "wavemeter"
     MOKU = "moku"
+    NI_DAQ = "ni_daq"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"

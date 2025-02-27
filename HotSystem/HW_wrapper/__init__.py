@@ -15,6 +15,7 @@ from .SRS_PID.wrapper_sim960_pid import SRSsim960
 from .SRS_PID.wrapper_sim900_mainframe import SRSsim900
 from .NovatechDDS.wrapper_novatech_dds import NovatechDDS426A
 from .Arduino.arduino_wrapper import ArduinoController
+from .wrapper_ni_daq import NI_DAQ_Controller
 
 
 __all__ = [
@@ -39,5 +40,6 @@ __all__ = [
     'SRSsim960',
     'SRSsim900',
     'NovatechDDS426A',
-    'ArduinoController'
+    'ArduinoController',
+    'NI_DAQ_Controller'
 ]

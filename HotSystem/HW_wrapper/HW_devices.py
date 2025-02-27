@@ -4,7 +4,7 @@ import threading
 
 from Common import KeyboardKeys
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B, ArduinoController
+    SirahMatisse, Keysight33500B, ArduinoController, NI_DAQ_Controller
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
@@ -44,6 +44,7 @@ class HW_devices:
             self.arduino: Optional[ArduinoController] = None  # Add Arduino
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
+            self.ni_daq_controller: Optional[NI_DAQ_Controller]= None
             self._initialize()
 
     def __new__(cls) -> 'HW_devices':
@@ -185,6 +186,21 @@ class HW_devices:
                     self.keysight_awg_device = Keysight33500B(address=f'TCPIP::{device.ip_address.replace(":","::")}::SOCKET',
                                                               simulation=device.simulation)
                     self.keysight_awg_device.connect()
+
+                elif instrument == Instruments.NI_DAQ:
+                    config = {
+                        "apd_input": f"{device.com_port}/ai0",
+                        "sample_clk": "PFI1",
+                        "start_trig": "PFI0",
+                        "max_samp_rate": 50e3,
+                        "min_voltage": -10.0,
+                        "max_voltage": 10.0,
+                        "number_measurements": 10,
+                        "time_interval_us": 1000,
+                        "pulse_width_us": 1000,
+                        "pulse_spacing_us": 5000,
+                    }
+                    self.ni_daq_controller = NI_DAQ_Controller(configuration=config)
 
 
                 else:
