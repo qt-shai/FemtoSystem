@@ -122,11 +122,7 @@ class GUI_Survey_Interface:
                         dpg.add_button(label="Show Image", callback=self.add_image_graphics)
                         dpg.add_button(label="Start Selecting Points", callback=self.select_points, tag = "btnSelect")
                         dpg.add_button(label="Return all points", callback=self.return_all_clicks)
-                    with dpg.group(tag = "heatmap_group", horizontal=True):
-                        with dpg.child_window(tag="heatmap_child", label="Heatmap",
-                                              width=self.plot_size[0] * 1.56, height=self.plot_size[1] * 1.56,
-                                              autosize_x=False, autosize_y=False, border=True):
-                            pass
+                    dpg.add_group(tag = "heatmap_group", horizontal=True)
 
                 with dpg.child_window(label="Options", width=200, height=self.plot_size[1],
                                       border=True, autosize_x=False, autosize_y=False):
@@ -152,7 +148,7 @@ class GUI_Survey_Interface:
                                 tag="textureXY_tag",
                                 parent="texture_reg")
 
-        dpg.add_plot(parent="heatmap_child", tag="plotImage", width=self.plot_size[0]*1.5, height=self.plot_size[1]*1.5, equal_aspects=True,
+        dpg.add_plot(parent="heatmap_group", tag="plotImage", width=self.plot_size[0]*1.5, height=self.plot_size[1]*1.5, equal_aspects=True,
                      crosshairs=True,
                      query=True, callback=self.queryXY_callback)
         dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.im_arr_z[0]),
@@ -210,7 +206,7 @@ class GUI_Survey_Interface:
         print(f"mouse_pos: {mouse_pos}")
         # Get the plot widget's screen position and size
         window_pos = [0,0]
-        plot_min = dpg.get_item_pos("textureXY_tag")
+        plot_min = dpg.get_item_rect_min("plotImage")
         plot_max = dpg.get_item_rect_max("plotImage")
         print(f"plot_min: {plot_min}")
         print(f"plot_max: {plot_max}")
