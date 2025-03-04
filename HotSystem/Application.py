@@ -13,6 +13,7 @@ import numpy as np
 from OpenGL.GL import glGetString
 from imgui.integrations.glfw import GlfwRenderer
 from pyglet.gl import GL_VERSION, glClearColor, glClear, GL_COLOR_BUFFER_BIT
+from PIL import Image
 
 import HW_wrapper.HW_devices as hw_devices
 from Common import Common_Counter_Singletone, KeyboardKeys
@@ -391,7 +392,9 @@ class PyGuiOverlay(Layer):
         """
         super().__init__()
         self.viewport_h = None
+        self.allow_bring_to_front = 1
         self.viewport_w = None
+        self.selected_points = []
         self.arduino_gui: Optional[GUIArduino] = None
         self.srs_pid_gui: list[GUISIM960] = []
         self.atto_scanner_gui: Optional[GUIMotor] = None
@@ -542,6 +545,47 @@ class PyGuiOverlay(Layer):
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
     def Callback_mouse_click(self,sender,app_data):
+        if hasattr(self, 'point_selection_active') and self.point_selection_active and dpg.does_item_exist(
+                "scan_image"):
+            print("Point selection is active and scan_image exists")
+
+            # Get the scan_image position
+            image_pos = dpg.get_item_pos("scan_image")
+            mouse_pos = dpg.get_mouse_pos(local=False)
+
+            print(f"Image position: {image_pos}, Mouse position: {mouse_pos}")
+
+            # Check if click is within the image boundaries
+            image_width, image_height = dpg.get_item_rect_size("scan_image")
+            print(f"Image dimensions: {image_width}x{image_height}")
+
+            if (image_pos[0] <= mouse_pos[0] <= image_pos[0] + image_width and
+                    image_pos[1] <= mouse_pos[1] <= image_pos[1] + image_height):
+
+                print("Click is within image boundaries")
+
+                # Calculate local position relative to image
+                local_pos = [mouse_pos[0] - image_pos[0], mouse_pos[1] - image_pos[1]]
+                print(f"Clicked on scan_image at local coords: {local_pos}")
+
+                # Add point to selected points list
+                self.selected_points.append(local_pos)
+
+                # Update coordinates text display
+                coords_text = "Coordinates: " + ", ".join([f"({x:.1f}, {y:.1f})" for x, y in self.selected_points])
+                dpg.set_value("coordinates_text", coords_text)
+
+                # Draw a small circle marker on the draw layer
+                dpg.draw_circle(
+                    center=local_pos,
+                    radius=4,
+                    color=(255, 0, 0, 255),
+                    fill=(255, 0, 0, 150),
+                    parent="survey_draw_layer"
+                )
+                print("Circle drawn at", local_pos)
+            else:
+                print("Click is outside image boundaries")
         if False:
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             # print(f"app_data: {app_data}")
@@ -563,7 +607,8 @@ class PyGuiOverlay(Layer):
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
     def Callback_mouse_release(self,sender,app_data):
-        dpg.focus_item("Main_Window")
+        if self.allow_bring_to_front == 1:
+            dpg.focus_item("Main_Window")
         if False:
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
@@ -636,7 +681,7 @@ class PyGuiOverlay(Layer):
 
         dpg.handler_registry()
 
-        with dpg.handler_registry():
+        with dpg.handler_registry(tag="survey_handler_registry"):
             dpg.add_mouse_down_handler(callback=self.Callback_mouse_down)
             dpg.add_mouse_click_handler(callback=self.Callback_mouse_click)
             dpg.add_mouse_double_click_handler(callback=self.Callback_mouse_double_click)
@@ -761,6 +806,7 @@ class PyGuiOverlay(Layer):
                     self.create_bring_window_button(self.opx.window_tag, button_label="OPX", tag="OPX_button",
                                                     parent="focus_group")
                     self.create_sequencer_button()
+                    self.create_survey_button()
                     self.active_instrument_list.append(self.opx.window_tag)
                     dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
@@ -1450,6 +1496,10 @@ class PyGuiOverlay(Layer):
         dpg.add_text("Show current sequence:", parent = parent)
         dpg.add_button(label="Show Sequence", parent = parent, callback=self.png_sequencer)
 
+    def create_survey_button(self, parent: Optional[str] = "survey_group"):
+        dpg.add_text("Perform Survey:", parent = parent)
+        dpg.add_button(label="Survey", parent = parent, callback=self.survey_callback)
+
     def clamp(self, n, min_n, max_n):
         return max(min(max_n, n), min_n)
 
@@ -1502,18 +1552,116 @@ class PyGuiOverlay(Layer):
             return None
 
     def png_sequencer(self):
-        image_data = self.check_sequence_type()
-        if image_data is None:
-            print("No valid image data. Check image loading.")
+        try:
+            image_data = self.check_sequence_type()
+            if image_data is None:
+                print("No valid image data. Check image loading.")
+                return
+            width, height, channels, data = image_data
+            with dpg.texture_registry():
+                if not dpg.does_item_exist("texture_tag"):
+                    dpg.add_static_texture(width, height, data, tag="texture_tag")
+            if not dpg.does_item_exist("image_tag"):
+                dpg.add_image("texture_tag", tag = "image_tag",parent="ShowSequence", width = int(540*1.3), height = int(234*1.3))
+            dpg.show_item("ShowSequence")
+            dpg.focus_item("ShowSequence")
+        except Exception as e:
+            print("Exception occurred:", e)
+
+    def survey_callback(self):
+        dpg.add_window(label="Survey", tag="Survey_window",
+                       pos=[550, 150],
+                       height = -1, width = -1, autosize = False)
+        dpg.add_group(tag="Survey_window_buttons", parent="Survey_window", horizontal=True)
+        dpg.add_button(label="Load picture", callback=self.load_button_callback, tag="btnLoadPicture", parent="Survey_window")
+        dpg.add_button(label="Choose points", callback=self.toggle_point_selection, tag="btnChoosePoints",
+                       parent="Survey_window_buttons")
+        dpg.add_button(label="Clear points", callback=self.clear_points, tag="btnClearPoints",
+                       parent="Survey_window_buttons")
+
+    def load_button_callback(self):
+        self.allow_bring_to_front = 0
+        dpg.show_item("survey_file_dialog")
+
+    def on_file_select(self, sender, app_data):
+        file_path = app_data["file_path_name"]
+        print(f"Selected file: {file_path}")
+
+        # --- Load the PNG file with PIL ---
+        try:
+            img = Image.open(file_path).convert("RGBA")
+        except Exception as e:
+            print(f"Could not open image: {e}")
             return
-        width, height, channels, data = image_data
-        with dpg.texture_registry():
-            if not dpg.does_item_exist("texture_tag"):
-                dpg.add_static_texture(width, height, data, tag="texture_tag")
-        if not dpg.does_item_exist("image_tag"):
-            dpg.add_image("texture_tag", tag = "image_tag",parent="ShowSequence", width = int(540*1.3), height = int(234*1.3))
-        dpg.show_item("ShowSequence")
-        dpg.focus_item("ShowSequence")
+
+        im_width, im_height = img.size
+        # Convert image bytes to a float32 [0..1] array
+        texture_data = np.frombuffer(img.tobytes(), dtype=np.uint8).astype(np.float32) / 255.0
+
+        # --- Create or reuse a texture registry (here we do it inline) ---
+        # If the texture already exists, remove it (unlikely unless you re-select an image)
+        if dpg.does_item_exist("texture_tag"):
+            dpg.delete_item("texture_tag")
+
+        # Create a new static texture for the loaded PNG
+        with dpg.texture_registry(show=False):
+            dpg.add_static_texture(
+                width=im_width,
+                height=im_height,
+                default_value=texture_data.tolist(),
+                tag="texture_tag"
+            )
+        print(im_width, im_height)
+        dpg.configure_item("Survey_window", width = (im_width+50), height = (im_height+100))
+
+        # --- Create the image widget & draw layer (only if not already present) ---
+        if not dpg.does_item_exist("scan_image"):
+            dpg.add_image("texture_tag", tag="scan_image", parent="Survey_window")
+            dpg.add_draw_layer(tag="survey_draw_layer", parent="Survey_window")
+            print("Survey window image and draw layer created.")
+        else:
+            print("scan_image already exists.")
+        self.allow_bring_to_front = 1
+
+    def toggle_point_selection(self, sender, app_data, user_data):
+        if dpg.get_item_label("btnChoosePoints") == "Stop choosing points":
+            # Disable point selection mode
+            dpg.configure_item("btnChoosePoints", label="Choose points")
+            # Remove the click handler
+            self.point_selection_active = False
+            print("Point selection mode disabled.")
+        else:
+            # Enable point selection mode
+            dpg.configure_item("btnChoosePoints", label="Stop choosing points")
+            print("Point selection mode enabled.")
+            self.point_selection_active = True
+
+    def clear_points(self, sender=None, app_data=None, user_data=None):
+        # Clear the points list
+        self.selected_points = []
+        # Clear the draw layer
+        if dpg.does_item_exist("survey_draw_layer"):
+            dpg.delete_item("survey_draw_layer")
+            dpg.add_draw_layer(tag="survey_draw_layer", parent="Survey_window")
+        # Reset coordinates display
+        dpg.set_value("coordinates_text", "Coordinates: ")
+        print("Points cleared.")
+
+    def on_image_click(self):
+        local_pos = dpg.get_mouse_pos(local=True)
+        print(f"Clicked on scan_image at local coords: {local_pos}")
+        self.selected_points.append(local_pos)
+        # Draw a small circle marker on the draw layer.
+        dpg.draw_circle(
+            center=local_pos,
+            radius=4,
+            color=(255, 0, 0, 255),
+            fill=(255, 0, 0, 150),
+            parent="survey_draw_layer"
+        )
+
+
+
 
     def setup_main_exp_buttons(self):
         with dpg.window(label="Main Buttons Group", tag="Main_Window",
@@ -1524,8 +1672,13 @@ class PyGuiOverlay(Layer):
                     pass
             with dpg.group(tag="sequencer_group", horizontal=True):
                 pass
+            with dpg.group(tag="survey_group", horizontal=True):
+                pass
 
         with dpg.window(label="Sequence", tag="ShowSequence",
+                        autosize=True, no_move=False, show = False):
+            pass
+        with dpg.window(label="Survey", tag="Survey",
                         autosize=True, no_move=False, show = False):
             pass
         with dpg.item_handler_registry(tag="left_region_handler"):
@@ -1535,6 +1688,20 @@ class PyGuiOverlay(Layer):
     #Can be used after fixes later
         with dpg.window(label="Viewport Window", tag="Viewport_Window", no_resize=True, no_move=True,width = self.viewport_w, height = self.viewport_h):
             dpg.add_drawlist(tag="full_drawlist", width=800, height=600)
+        with dpg.file_dialog(
+                directory_selector=False,
+                show=False,
+                callback=self.on_file_select,
+                tag="survey_file_dialog",
+                modal=True,
+                file_count=1,
+                default_path="Q://QT-Quantum_Optic_Lab//Lab notebook//Test_data_for_survey",
+                width=700,
+                height=400
+        ):
+            # Limit selection to .png (and allow any file)
+            dpg.add_file_extension(".png", color=(150, 255, 150, 255))
+            dpg.add_file_extension(".*")
         dpg.set_primary_window("Viewport_Window", True)
         dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
 

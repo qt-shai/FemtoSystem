@@ -31,7 +31,7 @@ class GUI_Survey_Interface:
 
     def GetWindowSize(self) -> None:
         win_size = [self.win_w, self.win_h]
-        self.win_pos = [0, 100]
+        self.win_pos = [100, 50]
         item_width = int(200)
 
     def on_file_select_csv(self, sender, app_data) -> None:
@@ -114,12 +114,26 @@ class GUI_Survey_Interface:
 
     def set_main_interface(self):
         # Add a child window for displaying the images in the future
-        with dpg.window(label="Survey Window", tag="Survey_Window", no_title_bar=True, height=-1, width=1200, pos=self.win_pos):
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Load Data", callback=self.get_data_from_csv)
-                dpg.add_button(label="Show Image", callback=self.add_image_graphics)
-                dpg.add_button(label="Start Selecting Points", callback=self.select_points, tag = "btnSelect")
-                dpg.add_button(label="Return all points", callback=self.return_all_clicks)
+        with dpg.window(label="Survey Window", tag="Survey_Window", no_title_bar=True, width=-1, height = -1, pos=self.win_pos):
+            with dpg.group(tag = "plot_group", horizontal=True):
+                with dpg.group(tag = "general_group"):
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Load Data", callback=self.get_data_from_csv)
+                        dpg.add_button(label="Show Image", callback=self.add_image_graphics)
+                        dpg.add_button(label="Start Selecting Points", callback=self.select_points, tag = "btnSelect")
+                        dpg.add_button(label="Return all points", callback=self.return_all_clicks)
+                    with dpg.group(tag = "heatmap_group", horizontal=True):
+                        with dpg.child_window(tag="heatmap_child", label="Heatmap",
+                                              width=self.plot_size[0] * 1.56, height=self.plot_size[1] * 1.56,
+                                              autosize_x=False, autosize_y=False, border=True):
+                            pass
+
+                with dpg.child_window(label="Options", width=200, height=self.plot_size[1],
+                                      border=True, autosize_x=False, autosize_y=False):
+                    dpg.add_text("Select an Option:")
+                    dpg.add_button(label="Option 1", callback=None)
+                    dpg.add_button(label="Option 2", callback=None)
+                    dpg.add_button(label="Option 3", callback=None)
 
             dpg.add_texture_registry(show=False, tag="texture_reg")
 
@@ -130,7 +144,6 @@ class GUI_Survey_Interface:
                              width=700, height=400):
             dpg.add_file_extension(".csv")
 
-        dpg.add_group(horizontal=True, tag="survey_group", parent="Survey_Window")
 
     def add_image_graphics(self):
         #You can put the height and width to regular numbers for now
@@ -139,7 +152,7 @@ class GUI_Survey_Interface:
                                 tag="textureXY_tag",
                                 parent="texture_reg")
 
-        dpg.add_plot(parent="survey_group", tag="plotImage", width=self.plot_size[0], height=self.plot_size[1], equal_aspects=True,
+        dpg.add_plot(parent="heatmap_child", tag="plotImage", width=self.plot_size[0]*1.5, height=self.plot_size[1]*1.5, equal_aspects=True,
                      crosshairs=True,
                      query=True, callback=self.queryXY_callback)
         dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.im_arr_z[0]),
@@ -147,8 +160,8 @@ class GUI_Survey_Interface:
         dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImage", tag="plotImage_Y")
         dpg.add_image_series("textureXY_tag", bounds_min=[self.startLoc[0], self.startLoc[1]],
                              bounds_max=[self.endLoc[0], self.endLoc[1]],
-                             label="Survey data", parent="plotImage_Y")
-        dpg.add_colormap_scale(show=True, parent="survey_group", tag="colormapXY", min_scale=np.min(self.arrXY),
+                             label="Survey data", parent="plotImage_Y", tag = "image_series")
+        dpg.add_colormap_scale(show=True, parent="heatmap_group", tag="colormapXY", min_scale=np.min(self.arrXY),
                                max_scale=np.max(self.arrXY),
                                colormap=dpg.mvPlotColormap_Jet)
 
@@ -160,6 +173,7 @@ class GUI_Survey_Interface:
 
     def configure_handler(self):
         with dpg.item_handler_registry(tag="handler_registry"):
+            #dpg.add_item_clicked_handler(callback=self.item_clicked_callback)
             dpg.add_item_clicked_handler(callback=self.get_mouse_plot_coordinates)
 
     def select_points(self):
@@ -176,18 +190,40 @@ class GUI_Survey_Interface:
             self.selected_points = []
         self.selection_mode = not self.selection_mode
 
+    def item_clicked_callback(sender, app_data, user_data):
+        # 'sender' will typically be the item handler registry, not the clicked item
+        # 'app_data' will be the mouse button (e.g. 0 for left click, 1 for right click, etc.)
+
+        clicked_item = dpg.last_item()
+        print(f"Clicked item: {clicked_item}")
+
+        # If you want detailed info about the clicked item, you can do:
+        info = dpg.get_item_info(clicked_item)
+        print("Item info:", info)
+
     def get_mouse_plot_coordinates(self, sender, app_data):
         """
         Callback to convert the mouse click's screen position into plot data coordinates.
         """
         # Get the current global mouse position (in screen coordinates)
-        mouse_pos = dpg.get_mouse_pos()
+        mouse_pos = dpg.get_mouse_pos(local = False)
         print(f"mouse_pos: {mouse_pos}")
         # Get the plot widget's screen position and size
-        plot_min = dpg.get_item_rect_min("plotImage")
+        window_pos = [0,0]
+        plot_min = dpg.get_item_pos("textureXY_tag")
         plot_max = dpg.get_item_rect_max("plotImage")
         print(f"plot_min: {plot_min}")
         print(f"plot_max: {plot_max}")
+        print(f"window_pos: {window_pos}")
+
+        relative_plot_top_left = [plot_min[0] - window_pos[0], plot_min[1] - window_pos[1]]
+        relative_plot_bottom_right = [plot_max[0] - window_pos[0], plot_max[1] - window_pos[1]]
+        print(f"relative_plot_top_left: {relative_plot_top_left}")
+        print(f"relative_plot_bottom_right: {relative_plot_bottom_right}")
+
+        clicked_item = dpg.last_item()
+        info = dpg.get_item_info(clicked_item)
+        print("Item info:", info)
 
         if plot_min is None or plot_max is None:
             print("Plot bounds not available.")
@@ -205,8 +241,8 @@ class GUI_Survey_Interface:
         print(f"axis_y_lim: {axis_y_lim}")
 
         # Determine the relative position of the mouse inside the plot area (0-1)
-        rel_x = mouse_pos[0]/ plot_width * ((axis_x_lim[1]) - (axis_x_lim[0])) #Update this according to whiteboard
-        rel_y = mouse_pos[1]/ plot_height * abs(axis_y_lim[1] - axis_y_lim[0]) #Update this according to whiteboard
+        rel_x = (mouse_pos[0]-69)/ (597-69) * (axis_x_lim[1] - axis_x_lim[0]) #Update this according to whiteboard
+        rel_y = (1-(mouse_pos[1]-23)/ (565-23)) * (axis_y_lim[1] - axis_y_lim[0]) #Update this according to whiteboard
 
         print(f"self.startLoc: {self.startLoc}")
         print(f"self.endLoc: {self.endLoc}")
@@ -214,8 +250,10 @@ class GUI_Survey_Interface:
         # Use your plot's data bounds (startLoc and endLoc) to map the relative position to data coordinates.
         # Assuming startLoc[0] is the left bound (min x) and endLoc[0] is the right bound (max x)
         # and similarly for y.
-        data_x = axis_x_lim[0] + rel_x * (axis_x_lim[1] - axis_x_lim[0])
-        data_y = axis_y_lim[0] + (1 - rel_y) * (axis_y_lim[1] - axis_y_lim[0])
+        # data_x = axis_x_lim[0] + rel_x * (axis_x_lim[1] - axis_x_lim[0])
+        # data_y = axis_y_lim[0] + (1 - rel_y) * (axis_y_lim[1] - axis_y_lim[0])
+        data_x = axis_x_lim[0] + rel_x
+        data_y = axis_y_lim[0] + rel_y
 
         print(f"Mouse clicked at data coordinates: ({data_x}, {data_y})")
         self.last_clicked = (data_x, data_y)
