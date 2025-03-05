@@ -151,9 +151,9 @@ class GUI_Survey_Interface:
         dpg.add_plot(parent="heatmap_group", tag="plotImage", width=self.plot_size[0]*1.5, height=self.plot_size[1]*1.5, equal_aspects=True,
                      crosshairs=True,
                      query=True, callback=self.queryXY_callback)
-        dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.im_arr_z[0]),
-                          parent="plotImage",tag="plotImage_X")
-        dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImage", tag="plotImage_Y")
+        dpg.add_plot_axis(dpg.mvXAxis, no_label = True,
+                          parent="plotImage",tag="plotImage_X", no_tick_labels = True)
+        dpg.add_plot_axis(dpg.mvYAxis, no_label = True, parent="plotImage", tag="plotImage_Y", no_tick_labels = True)
         dpg.add_image_series("textureXY_tag", bounds_min=[self.startLoc[0], self.startLoc[1]],
                              bounds_max=[self.endLoc[0], self.endLoc[1]],
                              label="Survey data", parent="plotImage_Y", tag = "image_series")
@@ -205,7 +205,7 @@ class GUI_Survey_Interface:
         mouse_pos = dpg.get_mouse_pos(local = False)
         print(f"mouse_pos: {mouse_pos}")
         # Get the plot widget's screen position and size
-        window_pos = [0,0]
+        window_pos = [dpg.get_item_width("plotImage"),dpg.get_item_height("colormapXY")]
         plot_min = dpg.get_item_rect_min("plotImage")
         plot_max = dpg.get_item_rect_max("plotImage")
         print(f"plot_min: {plot_min}")
@@ -237,8 +237,14 @@ class GUI_Survey_Interface:
         print(f"axis_y_lim: {axis_y_lim}")
 
         # Determine the relative position of the mouse inside the plot area (0-1)
-        rel_x = (mouse_pos[0]-69)/ (597-69) * (axis_x_lim[1] - axis_x_lim[0]) #Update this according to whiteboard
-        rel_y = (1-(mouse_pos[1]-23)/ (565-23)) * (axis_y_lim[1] - axis_y_lim[0]) #Update this according to whiteboard
+        # rel_x = (mouse_pos[0]-69)/ (597-69) * (axis_x_lim[1] - axis_x_lim[0]) #Update this according to whiteboard
+        # rel_y = (1-(mouse_pos[1]-23)/ (565-23)) * (axis_y_lim[1] - axis_y_lim[0]) #Update this according to whiteboard
+        mouse_position_in_plot_units_x = (mouse_pos[0] - plot_min[0]) # 70 is the width of x axis
+        mouse_position_in_plot_units_y = (mouse_pos[1] - plot_min[1])
+        width_of_plot_in_mouse_units = plot_width
+        height_of_plot_in_mouse_units = plot_height
+        rel_x = mouse_position_in_plot_units_x * (axis_x_lim[1] - axis_x_lim[0]) / width_of_plot_in_mouse_units
+        rel_y = ((1 - mouse_position_in_plot_units_y / height_of_plot_in_mouse_units) * (axis_y_lim[1] - axis_y_lim[0]))
 
         print(f"self.startLoc: {self.startLoc}")
         print(f"self.endLoc: {self.endLoc}")
