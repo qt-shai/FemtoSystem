@@ -4,14 +4,16 @@ from Utils.Common import loadFromCSV
 from Utils import open_file_dialog
 import matplotlib.pyplot as plt
 import os
+from HWrap_OPX import GUI_OPX, Experiment
 from scipy import stats
 
 class GUI_Survey_Interface:
     def __init__(self):
+        self.current_text = ""
         self.total_selected_points = []
         self.endLoc = None
         self.startLoc = None
-        self.file_path = "C://users//daniel//Work Folders//Documents//"
+        self.file_path = "C://users//Daniel//Work Folders//Documents//data"
         self.win_pos = None
         self.win_w = 1200
         self.win_h = 800
@@ -28,6 +30,7 @@ class GUI_Survey_Interface:
         self.selection_mode = True
         self.selected_points = []
         self.image_id = None
+        self.opx = None
 
     def GetWindowSize(self) -> None:
         win_size = [self.win_w, self.win_h]
@@ -113,7 +116,10 @@ class GUI_Survey_Interface:
             self.queried_plane = None
 
     def set_main_interface(self):
-        # Add a child window for displaying the images in the future
+
+        self.opx = GUI_OPX()
+        self.opx.bEnableSimulate = True
+
         with dpg.window(label="Survey Window", tag="Survey_Window", no_title_bar=True, width=-1, height = -1, pos=self.win_pos):
             with dpg.group(tag = "plot_group", horizontal=True):
                 with dpg.group(tag = "general_group"):
@@ -124,12 +130,18 @@ class GUI_Survey_Interface:
                         dpg.add_button(label="Return all points", callback=self.return_all_clicks)
                     dpg.add_group(tag = "heatmap_group", horizontal=True)
 
-                with dpg.child_window(label="Options", width=200, height=self.plot_size[1],
-                                      border=True, autosize_x=False, autosize_y=False):
+                with dpg.child_window(label="Options", width=200,
+                                      border=True, autosize_x=False, autosize_y=True):
                     dpg.add_text("Select an Option:")
-                    dpg.add_button(label="Option 1", callback=None)
-                    dpg.add_button(label="Option 2", callback=None)
-                    dpg.add_button(label="Option 3", callback=None)
+                    dpg.add_button(label="Counter", width = -1, callback=self.exp_callback(exp = Experiment.COUNTER))
+                    dpg.add_button(label="CW ODMR", width = -1, callback=self.exp_callback(exp = Experiment.ODMR_CW))
+                    dpg.add_button(label="Rabi", width = -1, callback=self.exp_callback(exp = Experiment.RABI))
+                    dpg.add_button(label="Nuclear Rabi", width=-1, callback=self.exp_callback(exp=Experiment.NUCLEAR_RABI))
+                    dpg.add_button(label="Scan", width=-1, callback=self.exp_callback(exp=Experiment.SCAN))
+
+                    with dpg.child_window(label="Selected points"):
+                        dpg.add_text("Selected Points:")
+                        dpg.add_input_text(default_value=self.current_text, tag="output_text", multiline=True, readonly=True, width = -1, height = -1)
 
             dpg.add_texture_registry(show=False, tag="texture_reg")
 
@@ -139,6 +151,19 @@ class GUI_Survey_Interface:
                              default_path=self.file_path,
                              width=700, height=400):
             dpg.add_file_extension(".csv")
+
+    def add_text_callback(self):
+        if self.current_text == "":
+            self.current_text = f"\n{self.last_clicked}"
+        else:
+            self.current_text += f"\n{self.last_clicked}"
+            # Update the value of the input text widget.
+        dpg.set_value("output_text", self.current_text)
+
+    def exp_callback(self, exp):
+        if self.opx is not None:
+            self.opx.exp = exp
+            self.opx.initQUA_gen(n_count=int(self.opx.total_integration_time * self.opx.u.ms) / int(self.opx.Tcounter * self.opx.u.ns))
 
 
     def add_image_graphics(self):
@@ -151,9 +176,9 @@ class GUI_Survey_Interface:
         dpg.add_plot(parent="heatmap_group", tag="plotImage", width=self.plot_size[0]*1.5, height=self.plot_size[1]*1.5, equal_aspects=True,
                      crosshairs=True,
                      query=True, callback=self.queryXY_callback)
-        dpg.add_plot_axis(dpg.mvXAxis, no_label = True,
-                          parent="plotImage",tag="plotImage_X", no_tick_labels = True)
-        dpg.add_plot_axis(dpg.mvYAxis, no_label = True, parent="plotImage", tag="plotImage_Y", no_tick_labels = True)
+        dpg.add_plot_axis(dpg.mvXAxis, no_label = False, label = "x [micro meter]",
+                          parent="plotImage",tag="plotImage_X")
+        dpg.add_plot_axis(dpg.mvYAxis, no_label = False, label = "y [micro meter]",parent="plotImage", tag="plotImage_Y")
         dpg.add_image_series("textureXY_tag", bounds_min=[self.startLoc[0], self.startLoc[1]],
                              bounds_max=[self.endLoc[0], self.endLoc[1]],
                              label="Survey data", parent="plotImage_Y", tag = "image_series")
@@ -258,8 +283,9 @@ class GUI_Survey_Interface:
         data_y = axis_y_lim[0] + rel_y
 
         print(f"Mouse clicked at data coordinates: ({data_x}, {data_y})")
-        self.last_clicked = (data_x, data_y)
+        self.last_clicked = (round(data_x,2), round(data_y,2))
         self.total_selected_points.append(self.last_clicked)
+        self.add_text_callback()
 
     def return_all_clicks(self):
         print(self.total_selected_points)

@@ -5,6 +5,7 @@ from qualang_tools.units import unit
 from enum import Enum
 from typing import Dict, Any
 
+
 class QUAConfigBase(ABC):
     class Elements(Enum):
         RF = "RF"
@@ -15,12 +16,13 @@ class QUAConfigBase(ABC):
         DETECTOR2_OPD = "Detector2_OPD"
         AMPLITUDE_EOM = "Amplitude_EOM"
         RESONANT_LASER = "Resonant_Laser"
-        
+        BLINDING = "Blinding"
+
     def __init__(self):
         # connect     
         self.system_name: Optional[str] = None
         self.u = unit()
-        
+
         # Frequencies
         self.NV_IF_freq = 124e6  # in units of Hz
         self.NV_LO_freq = 2.7e9  # in units of Hz
@@ -31,6 +33,7 @@ class QUAConfigBase(ABC):
         self.minimal_meas_len = 16  # in ns
         self.long_meas_len = 5e3  # in ns
         self.very_long_meas_len = 25e3  # in ns
+        self.blinding_length = 24  # in ns
 
         # MW parameters
         self.mw_amp_NV = 0.5  # in units of volts
@@ -49,10 +52,10 @@ class QUAConfigBase(ABC):
 
         # Readout parameters
         self.signal_threshold = -400  # in ADC units 
-        self.signal_threshold_OPD = 1 # in voltage (with 20dB attenuation it was 0.1)
+        self.signal_threshold_OPD = 1  # in voltage (with 20dB attenuation it was 0.1)
 
         # Delays
-        self.detection_delay = 28 # ns
+        self.detection_delay = 28  # ns
         self.detection_delay_OPD = 308
         self.mw_delay = 0  # ns
         self.laser_delay = 120  # ns
@@ -62,7 +65,6 @@ class QUAConfigBase(ABC):
         self.rf_amp = 0.5
         self.rf_length = 1000
         self.rf_delay = 8  # ns
-
 
     @staticmethod
     def iq_imbalance(g, phi):
@@ -90,7 +92,7 @@ class QUAConfigBase(ABC):
         pass
 
     def get_pulses(self) -> Dict[str, Any]:
-        return {
+        pulses = {
             "const_pulse_single": {
                 "operation": "control",
                 "length": self.rf_length,  # in ns
@@ -148,10 +150,15 @@ class QUAConfigBase(ABC):
                 "operation": "control",
                 "length": self.initialization_len,
                 "digital_marker": "ON",
-            },                
+            },
             "switch_ON": {
                 "operation": "control",
                 "length": self.switch_len,
+                "digital_marker": "ON",
+            },
+            "blinding_ON": {
+                "operation": "control",
+                "length": self.blinding_length,
                 "digital_marker": "ON",
             },
             "readout_pulse": {
@@ -177,8 +184,12 @@ class QUAConfigBase(ABC):
                 "length": self.very_long_meas_len,
                 "digital_marker": "ON",
                 "waveforms": {"single": "zero_wf"},
-            },                
+            },
         }
+        pulses.update(self.get_extra_pulses_16ns())
+        pulses.update(self.get_extra_pulses_32ns())
+        pulses.update(self.get_extra_pulses_left())
+        return pulses
 
     def get_waveforms(self) -> Dict[str, Any]:
         return {
@@ -191,17 +202,22 @@ class QUAConfigBase(ABC):
         }
 
     def get_digital_waveforms(self) -> Dict[str, Any]:
-        return {
+        waveforms = {
             "ON": {"samples": [(1, 0)]},  # [(on/off, ns)]
-            "test": {"samples": [(1, 4), (0, 8), (1, 12)]}, # [(on/off, ns)] arbitrary example digital waveform total length /4 shoult be integer
+            "test": {"samples": [(1, 4), (0, 8), (1, 12)]},
+            # [(on/off, ns)] arbitrary example digital waveform total length /4 should be integer
             "OFF": {"samples": [(0, 0)]},  # [(on/off, ns)]
         }
+        waveforms.update(self.get_extra_digital_waveforms_16ns())  # For pulses smaller than 16ns
+        waveforms.update(self.get_extra_digital_waveforms_32ns())  # For pulses longer than 16ns
+        waveforms.update(self.get_extra_digital_waveform_left())
+        return waveforms
 
     def get_mixers(self) -> Dict[str, Any]:
         return {
             "mixer_NV": [
                 {"intermediate_frequency": self.NV_IF_freq, "lo_frequency": self.NV_LO_freq,
-                    "correction": self.iq_imbalance(0.0, 0.0)},
+                 "correction": self.iq_imbalance(0.0, 0.0)},
             ],
         }
 
@@ -215,3 +231,85 @@ class QUAConfigBase(ABC):
             "digital_waveforms": self.get_digital_waveforms(),
             "mixers": self.get_mixers(),
         }
+
+    def get_extra_digital_waveforms_16ns(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(16):
+            wf_key = f"d_wf_{t}"
+            if t == 0:
+                waveform = [(0, 16)]
+            else:
+                # 0 -> (16 - t) at state 0
+                # (16 - t) -> 16 at state 1
+                waveform = [
+                    (1, t),
+                    (0, 16),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
+    def get_extra_digital_waveforms_32ns(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(4):
+            wf_key = f"d_wf2_{t}"
+            if t == 0:
+                waveform = [(0, 32)]
+            else:
+                waveform = [
+                    (1, t),
+                    (0, 32),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
+    def get_extra_digital_waveform_left(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(16):
+            wf_key = f"d_wf_left_{t}"
+            if t == 0:
+                waveform = [(0, 16)]
+            else:
+                # 0 -> (16 - t) at state 0
+                # (16 - t) -> 16 at state 1
+                waveform = [
+                    (0, 16 - t),
+                    (1, 16),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
+    def get_extra_pulses_16ns(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(16):
+            wf_key = f"d_wf_{t}"
+            pulse_key = f"d_pulse_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 16,
+                "digital_marker": wf_key,
+            }
+        return pulses
+
+    def get_extra_pulses_32ns(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(4):
+            wf_key = f"d_wf2_{t}"
+            pulse_key = f"d_pulse2_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 32,
+                "digital_marker": wf_key,
+            }
+        return pulses
+
+    def get_extra_pulses_left(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(16):
+            wf_key = f"d_wf_left_{t}"
+            pulse_key = f"d_pulse_left_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 16,
+                "digital_marker": wf_key,
+            }
+        return pulses
