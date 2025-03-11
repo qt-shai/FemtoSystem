@@ -60,6 +60,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                     "xPulse": "x_pulse",
                     "-xPulse": "-x_pulse",
                     "yPulse": "y_pulse",
+                    "-yPulse": "-y_pulse",
                     "cw": "const_pulse",
                     "pi": "x180_pulse",
                     "pi_half": "x90_pulse",

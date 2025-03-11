@@ -104,6 +104,12 @@ class QUAConfigBase(ABC):
                 "waveforms": {"I": "zero_wf", "Q": "cw_wf"},  # 'cw_wf' is analog waveform name
                 "digital_marker": "ON",  # 'ON' is digital waveform name
             },
+            "-y_pulse": {
+                "operation": "control",
+                "length": self.mw_len_NV,
+                "waveforms": {"I": "zero_wf", "Q": "-cw_wf"},  # 'cw_wf' is analog waveform name
+                "digital_marker": "ON",  # 'ON' is digital waveform name
+            },
             "const_pulse": {
                 "operation": "control",
                 "length": self.mw_len_NV,
