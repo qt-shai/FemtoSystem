@@ -5,6 +5,7 @@ import dearpygui.demo as DPGdemo
 import imgui
 from OpenGL.GL import glGetString
 from imgui.integrations.glfw import GlfwRenderer
+from numba.core.utils import benchmark
 from pyglet.gl import GL_VERSION, glClearColor, glClear, GL_COLOR_BUFFER_BIT
 from Common import Common_Counter_Singletone, KeyboardKeys
 from EventDispatcher import EventDispatcher
@@ -102,7 +103,9 @@ class ImGuiOverlay(Layer):
         if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
             simulation = True
         self.exSeq = ExpSequenceGui()
-        self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
+        benchmark = True #Put False if not benchmark experiment
+        if not benchmark:
+            self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
         # self.opxGUI = GUI_OPX(simulation)
     m_Time = 0.0
 
@@ -115,7 +118,8 @@ class ImGuiOverlay(Layer):
             self.guiID = Common_Counter_Singletone()
             self.guiID.Reset()
             self.exSeq.controls()
-            self.mwGUI.controls()
+            if not benchmark:
+                self.mwGUI.controls()
             # self.smaractGUI.controls()
             # self.picomotorGUI.controls()
 

@@ -22,6 +22,7 @@ from gevent.libev.corecext import callback
 from matplotlib import pyplot as plt
 from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, while_, assign, elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
+from qm_saas import QmSaas, QoPVersion
 from qualang_tools.results import progress_counter, fetching_tool
 from functools import partial
 from qualang_tools.units import unit
@@ -68,6 +69,7 @@ class Experiment(Enum):
     ODMR_Bfield = 18
     Nuclear_Fast_Rot = 19
     testCrap = 20
+    RandomBenchmark = 21
     test_electron_spinPump = 1001
     test_electron_spinMeasure = 1002
 
@@ -157,7 +159,7 @@ class GUI_OPX():
         self.scanFN = ""
 
         self.bEnableShuffle = True
-        self.bEnableSimulate = False
+        self.bEnableSimulate = True
         # tracking ref
         self.bEnableSignalIntensityCorrection = True
         self.trackingPeriodTime = 10000000  # [nsec]
@@ -231,6 +233,7 @@ class GUI_OPX():
 
         # load class parameters from XML
         self.update_from_xml()
+        self.connect_to_QM_OPX = True
         self.bScanChkbox = False
 
         self.chkbox_close_all_qm = False
@@ -243,8 +246,20 @@ class GUI_OPX():
         else:
             try:
                 # self.qmm = QuantumMachinesManager(self.HW.config.opx_ip, self.HW.config.opx_port)
-                self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip, cluster_name=self.HW.config.opx_cluster, timeout=60)  # in seconds
-                time.sleep(1)
+                if self.connect_to_QM_OPX:
+                    # Currently does not work
+                    client = QmSaas(email="daniel@quantumtransistors.com", password="oNv9Uk4B6gL3")
+                    self.instance = client.simulator(version=QoPVersion.v2_4_0)
+                    self.instance.spawn()
+                    self.qmm = QuantumMachinesManager(host=self.instance.host,
+                                                      port=self.instance.port,
+                                                      connection_headers=self.instance.default_connection_headers)
+                else:
+                    self.qmm = QuantumMachinesManager(host=self.HW.config.opx_ip,
+                                                      cluster_name=self.HW.config.opx_cluster,
+                                                      timeout=60)  # in seconds
+                    time.sleep(1)
+                    self.close_qm_jobs()
 
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
@@ -756,6 +771,8 @@ class GUI_OPX():
                                callback=self.btnStartG2, indent=-1, width=_width)
                 dpg.add_button(label="Eilon's", parent="Buttons_Controls", tag="btnOPX_Eilons",
                                callback=self.btnStartEilons, indent=-1, width=_width)
+                dpg.add_button(label="Random Benchmark", parent="Buttons_Controls", tag="btnOPX_RandomBenchmark",
+                               callback=self.btnStartRandomBenchmark, indent=-1, width=_width)
 
                 # save exp data
                 dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
@@ -1523,7 +1540,9 @@ class GUI_OPX():
         if self.exp == Experiment.G2:
             self.g2_raw_QUA()
         if self.exp == Experiment.testCrap:
-            self.Test_Crap_QUA_PGM()            
+            self.Test_Crap_QUA_PGM()
+        if self.exp == Experiment.RandomBenchmark:
+            self.Random_Benchmark_QUA_PGM(execute_qua=True)
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
         if QuaCFG == None:
@@ -1537,6 +1556,8 @@ class GUI_OPX():
             job_sim = self.qmm.simulate(QuaCFG, self.quaPGM, simulation_config)
             # Simulate blocks python until the simulation is done
             job_sim.get_simulated_samples().con1.plot()
+            if self.connect_to_QM_OPX:
+                self.instance.close()
             plt.show()
 
             return None, None
@@ -1553,6 +1574,9 @@ class GUI_OPX():
 
             newQM = self.qmm.list_open_quantum_machines()
             print(f"before close: {newQM}")
+
+            if self.connect_to_QM_OPX:
+                self.instance.close()
 
             return qm, job
         
@@ -1732,6 +1756,81 @@ class GUI_OPX():
             self.Entanglement_gate_tomography_QUA_PGM(Generate_QUA_sequance = True)
         if self.exp == Experiment.testCrap:
             self.Test_Crap_QUA_PGM(Generate_QUA_sequance = True)
+        if self.exp == Experiment.RandomBenchmark:
+            self.Random_Benchmark_QUA_PGM(Generate_QUA_sequance = True)
+
+    def Random_Benchmark_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
+        if generate_params:
+            # sequence parameters
+            self.tMeasureProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)
+            self.tPump = self.time_in_multiples_cycle_time(self.Tpump)
+            self.tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
+            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tMW = self.t_mw
+            self.tMW2 = self.t_mw2
+            self.tWait = self.time_in_multiples_cycle_time(self.Twait * 1e3)  # [nsec]
+            self.fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz  # Hz
+            self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz  # Hz
+            self.verify_insideQUA_FreqValues(self.fMW_res)
+            self.tRF = self.rf_pulse_time
+            self.Npump = self.n_nuc_pump
+
+            # frequency scan vector
+            self.scan_param_vec = self.GenVector(min=0 * self.u.MHz, max=self.mw_freq_scan_range * self.u.MHz,
+                                                 delta=self.mw_df * self.u.MHz, asInt=False)
+
+            # length and idx vector
+            self.vectorLength = len(self.scan_param_vec)  # size of arrays
+            self.array_length = len(self.scan_param_vec)  # frquencies vector size
+            self.idx_vec_ini = np.arange(0, self.array_length, 1)  # indexes vector
+
+            # tracking signal
+            self.tSequencePeriod = ((self.tMW + self.tLaser) * (
+                        self.Npump + 2) + self.tRF * self.Npump) * self.array_length
+            self.tGetTrackingSignalEveryTime_nsec = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
+            self.tTrackingSignaIntegrationTime_usec = int(self.tTrackingSignaIntegrationTime * 1e6)  # []
+            self.tTrackingIntegrationCycles = self.tTrackingSignaIntegrationTime_usec // self.time_in_multiples_cycle_time(
+                self.Tcounter)
+            self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (
+                self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
+        if Generate_QUA_sequance:
+            assign(self.f, self.val_vec_qua[self.idx_vec_qua[self.idx]])  # shuffle - assign new val from randon index
+
+            with for_(self.m, 0, self.m < self.Npump, self.m + 1):
+                self.QUA_Pump(t_pump=self.tPump, t_mw=self.tMW, t_rf=self.tRF, f_mw=self.fMW_res,
+                              f_rf=self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp,
+                              p_rf=self.rf_proportional_pwr, t_wait=0)  # self.tWait)
+            align()
+
+            # update MW frequency
+            update_frequency("MW", self.f)
+            # play MW
+            play("xPulse" * amp(self.mw_P_amp2), "MW", duration=self.tMW2 // 4)
+            # play Laser
+            align()
+            play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+            # measure signal
+            measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, self.tMeasure, self.counts_tmp))
+            assign(self.counts[self.idx_vec_qua[self.idx]], self.counts[self.idx_vec_qua[self.idx]] + self.counts_tmp)
+            align()
+
+            # reference
+            with for_(self.m, 0, self.m < self.Npump, self.m + 1):
+                self.QUA_Pump(t_pump=self.tPump, t_mw=self.tMW, t_rf=self.tRF, f_mw=self.fMW_res,
+                              f_rf=self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp,
+                              p_rf=self.rf_proportional_pwr, t_wait=0)  # self.tWait)
+            align()
+            wait((self.tMW2 + self.tMW) // 4)  # don't Play MW
+            # Play laser
+            play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
+            # Measure ref
+            measure("readout", "Detector_OPD", None,
+                    time_tagging.digital(self.times_ref, self.tMeasure, self.counts_ref_tmp))
+            assign(self.counts_ref[self.idx_vec_qua[self.idx]],
+                   self.counts_ref[self.idx_vec_qua[self.idx]] + self.counts_ref_tmp)
+        if execute_qua:
+            self.Nuclear_Pol_ESR_QUA_PGM(generate_params=True)
+            self.QUA_PGM()
 
     def Test_Crap_QUA_PGM(self):
         if self.test_type == Experiment.test_electron_spinPump:
@@ -5525,6 +5624,9 @@ class GUI_OPX():
             if self.exp == Experiment.testCrap:  # freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="time [nsec]")
+            if self.exp == Experiment.NUCLEAR_POL_ESR:  # freq
+                self.SearchPeakIntensity()
+                self.Common_updateGraph(_xLabel="freq [GHz]")
 
             
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
@@ -5657,6 +5759,12 @@ class GUI_OPX():
         if self.exp == Experiment.G2:
             self.X_vec = self.GenVector(-self.correlation_width+1,self.correlation_width,True)
             self.Y_vec = self.g2Vec#*self.iteration
+
+        if self.exp == Experiment.RandomBenchmark:  # freq
+            self.X_vec = self.scan_param_vec / float(1e9) + self.mw_freq  # [GHz]
+            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
         if self.exp == Experiment.testCrap:  # freq or time oe something else
             ## todo add switch per test for correct normalization
@@ -5823,6 +5931,23 @@ class GUI_OPX():
         self.mwModule.Set_PulseModulation_ON()
         if not self.bEnableSimulate:
             self.mwModule.Turn_RF_ON()
+
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
+
+        if not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)
+
+    def btnStartRandomBenchmark(self):
+        self.exp = Experiment.RandomBenchmark
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+        print("reached button callback")
+        if self.mwModule is not None:
+            self.mwModule.Set_freq(self.mw_freq_resonance)
+            self.mwModule.Set_power(self.mw_Pwr)
+            self.mwModule.Set_IQ_mode_OFF()
+            self.mwModule.Set_PulseModulation_ON()
+            if not self.bEnableSimulate:
+                self.mwModule.Turn_RF_ON()
 
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms) / int(self.Tcounter * self.u.ns))
 
