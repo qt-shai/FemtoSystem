@@ -4,6 +4,7 @@
 # actually we need to split to OPX wrapper and OPX GUI          *
 # ***************************************************************
 import csv
+import random
 import pdb
 import traceback
 from datetime import datetime
@@ -237,6 +238,7 @@ class GUI_OPX():
         # load class parameters from XML
         self.update_from_xml()
         self.connect_to_QM_OPX = False
+        self.simulation_flag = False
         self.bScanChkbox = False
 
         self.chkbox_close_all_qm = False
@@ -1659,7 +1661,6 @@ class GUI_OPX():
                 self.t = declare(int)         # [cycles] time variable which we change during scan
                 self.p = declare(fixed)       # [unit less] proportional amp factor which we change during scan
 
-                
                 self.m = declare(int)             # number of pumping iterations
                 self.i_idx = declare(int)         # iteration variable
                 self.j_idx = declare(int)         # iteration variable
@@ -1667,6 +1668,10 @@ class GUI_OPX():
 
                 self.site_state = declare(int)  # site preperation state
                 self.m_state = declare(int)     # measure state
+
+                self.simulation_random_integer = declare(int, size = 100)
+                with for_(self.i_idx, 0, self.i_idx < 100, self.i_idx + 1):
+                    assign(self.simulation_random_integer, self.random_int)
 
                 self.counts_tmp = declare(int)                    # temporary variable for number of counts
                 self.counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
@@ -1815,6 +1820,9 @@ class GUI_OPX():
             self.array_length = len(self.scan_param_vec)  # frquencies vector size
             self.idx_vec_ini = np.arange(0, self.array_length, 1)  # indexes vector
 
+            #Simulation
+            self.random_int = random.randint(0, 100)
+
             # tracking signal
             self.tSequencePeriod = ((self.tMW + self.tLaser) * (
                         self.Npump + 2) + self.tRF * self.Npump) * self.array_length
@@ -1825,23 +1833,27 @@ class GUI_OPX():
             self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (
                 self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
         if Generate_QUA_sequance:
-            play("Turn_ON", "Laser", duration=self.tLaser // 4)
-            # Pumping: MW + RF + Laser (In that order)
-            self.QUA_Pump(t_pump = self.tLaser, t_mw = self.tMW/2, t_rf = self.tRF, f_mw = self.fMW_1,
-                          f_rf = self.rf_resonance_freq * self.u.MHz,
-                          p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=self.t_wait)
-            # First set of pi/2 half pulses with frequency f_2
-            update_frequency("MW",self.fMW_2)
-            self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
-            # Second set of pi/2 half pulses with frequency f_1
-            update_frequency("MW", self.fMW_1)
-            self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
-            # Implementing all the gates
-            self.benchmark_play_list_of_gates()
-            play("Turn_ON", "Laser", duration=self.tLaser // 4)
-            align("Laser","MW")
-            self.benchmark_measure_nuclear_spin()
-            align()
+            if not self.simulation_flag:
+                play("Turn_ON", "Laser", duration=self.tLaser // 4)
+                # Pumping: MW + RF + Laser (In that order)
+                self.QUA_Pump(t_pump = self.tLaser, t_mw = self.tMW/2, t_rf = self.tRF, f_mw = self.fMW_1,
+                              f_rf = self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=self.t_wait)
+                # First set of pi/2 half pulses with frequency f_2
+                update_frequency("MW",self.fMW_2)
+                self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
+                # Second set of pi/2 half pulses with frequency f_1
+                update_frequency("MW", self.fMW_1)
+                self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
+                # Implementing all the gates
+                self.benchmark_play_list_of_gates()
+                play("Turn_ON", "Laser", duration=self.tLaser // 4)
+                align("Laser","MW")
+                self.benchmark_measure_nuclear_spin()
+                align()
+            else:
+                with for_(self.i_idx, 0, self.i_idx < 100, self.i_idx + 1):
+                    assign(self.total_counts, self.simulation_random_integer[self.i_idx])
 
         if execute_qua:
             self.Random_Benchmark_QUA_PGM(generate_params=True)
@@ -5530,6 +5542,9 @@ class GUI_OPX():
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
         elif self.exp == Experiment.G2:
             self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
+        elif self.exp == Experiment.RandomBenchmark:
+            #If nothing else get added you can put it in with counter
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -5642,6 +5657,23 @@ class GUI_OPX():
             if self.exp == Experiment.NUCLEAR_POL_ESR:  # freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
+            if self.exp == Experiment.RandomBenchmark:
+                dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
+                dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
+                dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+                dpg.set_value("series_counts_ref2", [[], []])
+                dpg.set_value("series_res_calcualted", [[], []])
+                dpg.set_item_label("series_counts", "det_1")
+                dpg.set_item_label("series_counts_ref", "det_2")
+                dpg.set_item_label("y_axis", "I [kCounts/sec]")
+                dpg.set_item_label("x_axis", "time [sec]")
+                dpg.fit_axis_data('x_axis')
+                dpg.fit_axis_data('y_axis')
+
+                dpg.bind_item_theme("series_counts", "LineYellowTheme")
+                dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+                dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
+                dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
 
             
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
@@ -5659,6 +5691,8 @@ class GUI_OPX():
             self.counter_Signal, self.ref_signal = self.results.fetch_all()
         elif self.exp == Experiment.G2:
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
+        elif self.exp == Experiment.RandomBenchmark:
+            self.counter_Signal, self.ref_signal = self.results.fetch_all()
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -5774,6 +5808,16 @@ class GUI_OPX():
         if self.exp == Experiment.G2:
             self.X_vec = self.GenVector(-self.correlation_width+1,self.correlation_width,True)
             self.Y_vec = self.g2Vec#*self.iteration
+
+        if self.exp == Experiment.RandomBenchmark:
+            if len(self.X_vec) > self.NumOfPoints:
+                self.Y_vec = self.Y_vec[-self.NumOfPoints:]  # get last NumOfPoint elements from end
+                self.Y_vec_ref = self.Y_vec_ref[-self.NumOfPoints:]  # get last NumOfPoint elements from end
+                self.X_vec = self.X_vec[-self.NumOfPoints:]
+
+            self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
+            self.Y_vec_ref.append(self.ref_signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
+            self.X_vec.append(self.counter_Signal[1] / self.u.s)  # Convert timestamps to seconds
 
         if self.exp == Experiment.RandomBenchmark:  # freq
             self.X_vec = self.scan_param_vec / float(1e9) + self.mw_freq  # [GHz]
