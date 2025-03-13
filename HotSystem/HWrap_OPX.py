@@ -239,7 +239,7 @@ class GUI_OPX():
 
         # load class parameters from XML
         self.update_from_xml()
-        self.connect_to_QM_OPX = True
+        self.connect_to_QM_OPX = False
         self.benchmark_switch_flag = True
         self.bScanChkbox = False
 
