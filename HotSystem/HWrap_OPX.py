@@ -1783,11 +1783,17 @@ class GUI_OPX():
                         
                     # stream
                     with if_(self.sequenceState == 0):
-                        with for_(self.idx, 0, self.idx < self.vectorLength,self.idx + 1):  # in shuffle all elements need to be saved later to send to the stream
-                            save(self.counts[self.idx], self.counts_st)
+                        if self.exp == Experiment.RandomBenchmark:
+                            save(self.total_counts, self.counts_st)
                             save(self.counts_ref[self.idx], self.counts_ref_st)
                             save(self.counts_ref2[self.idx], self.counts_ref2_st)
                             save(self.resCalculated[self.idx], self.resCalculated_st)
+                        else:
+                            with for_(self.idx, 0, self.idx < self.vectorLength,self.idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                                save(self.counts[self.idx], self.counts_st)
+                                save(self.counts_ref[self.idx], self.counts_ref_st)
+                                save(self.counts_ref2[self.idx], self.counts_ref2_st)
+                                save(self.resCalculated[self.idx], self.resCalculated_st)
 
                     save(self.n, self.n_st)  # save number of iteration inside for_loop
                     save(self.tracking_signal, self.tracking_signal_st)  # save number of iteration inside for_loop
@@ -5704,7 +5710,7 @@ class GUI_OPX():
             if self.exp == Experiment.RandomBenchmark:
                 dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                dpg.set_value("series_counts_ref", [, ])
+                dpg.set_value("series_counts_ref", [[],[] ])
                 dpg.set_value("series_counts_ref2", [[], []])
                 dpg.set_value("series_res_calcualted", [[], []])
                 dpg.set_item_label("series_counts", "det_1")
