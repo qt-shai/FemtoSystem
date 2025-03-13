@@ -4,44 +4,39 @@
 # actually we need to split to OPX wrapper and OPX GUI          *
 # ***************************************************************
 import csv
-import pdb
-import traceback
-from datetime import datetime
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import time
+import traceback
+import xml.etree.ElementTree as ET
+from datetime import datetime
 from enum import Enum
-
 from typing import Union, Optional, Callable, List, Tuple
+
+import dearpygui.dearpygui as dpg
 import glfw
-import numpy as np
-
-from matplotlib import pyplot as plt
-from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare_stream, declare, program, for_, assign, elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
-    save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger
-from qualang_tools.results import progress_counter, fetching_tool
-from functools import partial
-from qualang_tools.units import unit
-from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
-from smaract import ctl
 import matplotlib
+import numpy as np
+from PIL import Image
+from matplotlib import pyplot as plt
+from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
+from qm.qua import update_frequency, frame_rotation_2pi, declare_stream, declare, program, for_, assign, elif_, if_, \
+    IO1, IO2, time_tagging, measure, play, wait, align, else_, \
+    save, stream_processing, amp, Random, fixed, pause, infinite_loop_
+from qualang_tools.results import fetching_tool
+from qualang_tools.units import unit
 
+import SystemConfig as configs
+from Common import WindowNames
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
-from SystemConfig import SystemType, Instruments
+from SystemConfig import SystemType
+from Utils import OptimizerMethod, find_max_signal
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, \
     open_file_dialog, create_gaussian_vector
-import dearpygui.dearpygui as dpg
-from PIL import Image
-import subprocess
-import shutil
-import xml.etree.ElementTree as ET
-import math
-import SystemConfig as configs
-from Utils import OptimizerMethod,find_max_signal
-from Common import WindowNames
-
 
 matplotlib.use('qtagg')
 
@@ -232,6 +227,7 @@ class GUI_OPX():
         self.MeasProcessTime = 300  # [nsec], time required for measure element to finish process
         self.Tpump = 500  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
+        self.TOPX_delay = 474 # [nsec]
         self.TcounterPulsed = 5000  # [nsec]
         self.total_integration_time:float = 5.0  # [msec]
         self.Tsettle = 2000 # [nsec]
@@ -5176,18 +5172,26 @@ class GUI_OPX():
             self.counts_st = declare_stream()
             self.counts_ref_st = declare_stream()  # stream for counts
             self.n_st = declare_stream()  # stream for number of iterations
+            pump_pulse = declare(bool,value=False)
             scan_freq_experiment = self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN
+
+
             with infinite_loop_():
-                with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
-                    if(scan_freq_experiment):
+                if scan_freq_experiment:
+                    assign(pump_pulse, IO2)
+                    with if_(pump_pulse):
                         play("Turn_ON", "Laser", duration=int(self.Tpump * self.u.ns // 4))  #
-                        wait(50)
+                        wait(250)
                         align()
+                        assign(IO2,False)
+                with for_(self.n, 0, self.n < n_count, self.n + 1):  # number of averages / total integation time
+                    if scan_freq_experiment:
                         play("Turn_ON", "Resonant_Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
                     else:
                         play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
                     measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
-                    measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    # measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
                     assign(self.total_counts2, self.total_counts2 + self.counts_ref)  # assign is equal in qua language  # align()
@@ -5467,7 +5471,7 @@ class GUI_OPX():
                 try:
                     dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
                     dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                    # dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+                    dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
                     dpg.set_value("series_counts_ref2", [[], []])
                     dpg.set_value("series_res_calcualted", [[], []])
                     dpg.set_item_label("series_counts", "det_1")
@@ -5481,6 +5485,7 @@ class GUI_OPX():
                     dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
                     dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
                     dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
+
                 except:
                     print('Failed updaitng graph')
                 # self.Counter_updateGraph()
@@ -5555,7 +5560,14 @@ class GUI_OPX():
                 dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
                 dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
 
-
+            if self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN:
+                wavelengths = self.HW.wavemeter.measured_wavelength[-30:]
+                if len(wavelengths) == 30 and any(
+                    sum(wavelengths[i] < wavelengths[i-1] for i in range(j, j+5)) == 5 and
+                    sum(wavelengths[i] > wavelengths[i-1] for i in range(j+5, j+10)) == 5
+                    for j in range(21) ):
+                    self.qm.set_io2_value(True)
+                    print("Green repump pulse")
 
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
             if not(self.exp in [Experiment.COUNTER, Experiment.EXTERNAL_FREQUENCY_SCAN]) and (current_time-lastTime)>self.tGetTrackingSignalEveryTime:
@@ -5605,8 +5617,9 @@ class GUI_OPX():
                 self.X_vec = []
 
             self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
-            with self.HW.arduino.lock:
-                self.Y_vec_ref.append(self.HW.arduino.last_measured_value)  # counts/second
+            if self.HW.arduino:
+                with self.HW.arduino.lock:
+                    self.Y_vec_ref.append(self.HW.arduino.last_measured_value)  # counts/second
             with self.HW.wavemeter.lock:
                 y1 = self.HW.wavemeter.measured_wavelength[-2]
                 y2 = self.HW.wavemeter.measured_wavelength[-1]

@@ -46,7 +46,7 @@ class AttoQuaConfig(QUAConfigBase):
                     7: {"shareable": False},  # trigger Resonant Laser
                 },
                 "analog_inputs": {
-                    2: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # QM: why? because
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # QM: why? because
                 },
                 "digital_inputs": { # counter 1
                     4: {
@@ -157,7 +157,7 @@ class AttoQuaConfig(QUAConfigBase):
                     # },
                 },
                 "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
-                "outputs": {"out1": ("con1", 2)},
+                "outputs": {"out1": ("con1", 1)},
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
@@ -176,8 +176,8 @@ class AttoQuaConfig(QUAConfigBase):
                     #     "buffer": 0,
                     # },
                 },
-                "digitalOutputs": {"out1": ("con1", 5)},  # 'digitalOutputs' here is actually 'digital input' of OPD
-                "outputs": {"out1": ("con1", 2)},
+                # "digitalOutputs": {"out1": ("con1", 5)},  # 'digitalOutputs' here is actually 'digital input' of OPD
+                "outputs": {"out1": ("con1", 1)},
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",

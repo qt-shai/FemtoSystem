@@ -1,5 +1,5 @@
 
-# Single QUA script generated at 2025-02-25 15:31:07.990880
+# Single QUA script generated at 2025-03-13 16:57:19.936331
 # QUA library version: 1.2.2a2
 
 from qm import CompilerOptionArguments
@@ -13,16 +13,12 @@ with program() as prog:
     v3 = declare(int, value=0)
     v4 = declare(int, value=0)
     v5 = declare(int, )
+    v6 = declare(bool, value=False)
     with infinite_loop_():
-        with for_(v5,0,(v5<5000),(v5+1)):
-            play("Turn_ON", "Laser", duration=500)
-            wait(50, )
-            align()
+        with for_(v5,0,(v5<500),(v5+1)):
             play("Turn_ON", "Resonant_Laser", duration=2500)
             measure("min_readout", "Detector_OPD", None, time_tagging.digital(a1, 10000, v1, ""))
-            measure("min_readout", "Detector2_OPD", None, time_tagging.digital(a2, 10000, v2, ""))
-            assign(v3, (v3+v1))
-            assign(v4, (v4+v2))
+            measure("min_readout", "Detector2_OPD", None, time_tagging.analog(a2, 10000, v2, ""))
         r1 = declare_stream()
         save(v3, r1)
         r2 = declare_stream()
@@ -73,7 +69,7 @@ config = {
                 },
             },
             "analog_inputs": {
-                "2": {
+                "1": {
                     "offset": 0.00979,
                     "gain_db": 0,
                     "shareable": False,
@@ -178,7 +174,7 @@ config = {
                 "out1": ('con1', 4),
             },
             "outputs": {
-                "out1": ('con1', 2),
+                "out1": ('con1', 1),
             },
             "operations": {
                 "readout": "readout_pulse",
@@ -194,11 +190,8 @@ config = {
                 "port": ('con1', 4),
             },
             "digitalInputs": {},
-            "digitalOutputs": {
-                "out1": ('con1', 5),
-            },
             "outputs": {
-                "out1": ('con1', 2),
+                "out1": ('con1', 1),
             },
             "operations": {
                 "readout": "readout_pulse",
@@ -430,7 +423,7 @@ loaded_config = {
                 },
             },
             "analog_inputs": {
-                "2": {
+                "1": {
                     "offset": 0.00979,
                     "gain_db": 0,
                     "shareable": False,
@@ -607,7 +600,7 @@ loaded_config = {
                 "out1": ('con1', 1, 4),
             },
             "outputs": {
-                "out1": ('con1', 1, 2),
+                "out1": ('con1', 1, 1),
             },
             "operations": {
                 "readout": "readout_pulse",
@@ -632,11 +625,9 @@ loaded_config = {
         },
         "Detector2_OPD": {
             "digitalInputs": {},
-            "digitalOutputs": {
-                "out1": ('con1', 1, 5),
-            },
+            "digitalOutputs": {},
             "outputs": {
-                "out1": ('con1', 1, 2),
+                "out1": ('con1', 1, 1),
             },
             "operations": {
                 "readout": "readout_pulse",
