@@ -88,6 +88,8 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.n_measure = 4
+        self.MW_dif = 3 # [MHz]
         self.t_wait = None
         self.fMW_1 = None
         self.limit = None
@@ -181,7 +183,7 @@ class GUI_OPX():
         self.exp = Experiment.COUNTER
 
         self.mw_Pwr = -20.0  # [dBm]
-        self.mw_freq = 2.177  # [GHz], base frequency. Both start freq for scan and base frequency
+        self.mw_freq = 0  # [GHz], base frequency. Both start freq for scan and base frequency
         self.mw_freq_2 = 3.2 # [GHz]
         self.mw_freq_scan_range = 10.0  # [MHz]
         self.mw_df = float(0.1)  # [MHz]
@@ -190,8 +192,8 @@ class GUI_OPX():
         self.mw_P_amp = 1.0    # proportional amplitude
         self.mw_P_amp2 = 1.0   # proportional amplitude
 
-        self.n_avg = int(1000000)  # number of averages
-        self.n_nuc_pump = 4  # number of times to try nuclear pumping
+        self.n_avg = int(3)  # number of averages
+        self.n_nuc_pump = 1  # number of times to try nuclear pumping
         self.n_CPMG = 1  # CPMG repeatetions
         self.N_p_amp = 20
 
@@ -237,8 +239,8 @@ class GUI_OPX():
 
         # load class parameters from XML
         self.update_from_xml()
-        self.connect_to_QM_OPX = False
-        self.simulation_flag = False
+        self.connect_to_QM_OPX = True
+        self.benchmark_switch_flag = True
         self.bScanChkbox = False
 
         self.chkbox_close_all_qm = False
@@ -399,6 +401,18 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_n_avg", value=sender.n_avg)
         print("Set n_avg to: " + str(sender.n_avg))
+
+    def UpdateN_measure(sender, app_data, user_data):
+        sender.n_measure = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="inInt_n_avg", value=sender.n_measure)
+        print("Set n_avg to: " + str(sender.n_measure))
+
+    def UpdateMW_dif(sender, app_data, user_data):
+        sender.MW_dif = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="inInt_n_avg", value=sender.MW_dif)
+        print("Set n_avg to: " + str(sender.MW_dif))
 
     def UpdateN_tracking_search(sender, app_data, user_data):
         sender.N_tracking_search = (int(user_data))
@@ -724,6 +738,19 @@ class GUI_OPX():
                 dpg.add_text(default_value="MW P_amp2", parent="MW_amplitudes", tag="text_mwP_amp2", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_mwP_amp2", indent=-1, parent="MW_amplitudes", format="%.6f", width=item_width, callback=self.Update_mwP_amp2, default_value=self.mw_P_amp2, min_value=0.0, max_value=1.0, step=0.001)
 
+                dpg.add_child_window(label="", tag="child_benchmark", parent="Parameter_Controls_Header",
+                                     horizontal_scrollbar=True,
+                                     width=child_width, height=child_height)
+                dpg.add_group(tag="Benchmark_group", parent="child_benchmark",
+                              horizontal=True)  # , before="Graph_group")
+                dpg.add_text(default_value="N measure", parent="Benchmark_group", tag="text_n_measure", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_n_measure", indent=-1, parent="Benchmark_group",
+                                  width=item_width, callback=self.UpdateN_measure,
+                                  default_value=self.n_measure, min_value=0, max_value=50000, step=1)
+                dpg.add_text(default_value="MW_dif", parent="Benchmark_group", tag="text_MW_dif", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_MW_dif", indent=-1, parent="Benchmark_group",
+                                  width=item_width, callback=self.UpdateMW_dif,
+                                  default_value=self.MW_dif, min_value=0, max_value=50000, step=1)
 
                 dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
                 dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
@@ -736,6 +763,9 @@ class GUI_OPX():
                                  default_value=self.bScanChkbox)
                 dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm,
                                  default_value=self.chkbox_close_all_qm)
+                dpg.add_checkbox(label="No Gate Benchmark", tag="chkbox_no_gate_benchmark", parent="chkbox_group", indent=-1,
+                                 callback=self.Update_benchmark_switch_flag,
+                                 default_value=self.benchmark_switch_flag)
 
                 dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
                               horizontal=False)  # parent="Params_Controls",horizontal=False)
@@ -1392,6 +1422,12 @@ class GUI_OPX():
         dpg.set_value(item="chkbox_close_all_qm", value=sender.chkbox_close_all_qm)
         print("Set chkbox_close_all_qm to: " + str(sender.chkbox_close_all_qm))
 
+    def Update_benchmark_switch_flag(sender, app_data, user_data):
+        sender.benchmark_switch_flag = user_data
+        time.sleep(0.001)
+        dpg.set_value(item="chkbox_no_gate_benchmark", value=sender.benchmark_switch_flag)
+        print("Set chkbox_no_gate_benchmark to: " + str(sender.benchmark_switch_flag))
+
     def Update_bX_Scan(sender, app_data, user_data):
         sender.b_Scan[0] = user_data
         time.sleep(0.001)
@@ -1670,8 +1706,7 @@ class GUI_OPX():
                 self.m_state = declare(int)     # measure state
 
                 self.simulation_random_integer = declare(int, size = 100)
-                with for_(self.i_idx, 0, self.i_idx < 100, self.i_idx + 1):
-                    assign(self.simulation_random_integer, self.random_int)
+                # assign(self.simulation_random_integer, self.random_int)
 
                 self.counts_tmp = declare(int)                    # temporary variable for number of counts
                 self.counts_ref_tmp = declare(int)                # temporary variable for number of counts reference
@@ -1702,7 +1737,12 @@ class GUI_OPX():
                 self.counts_ref_st = declare_stream()  # reference signal
                 self.counts_ref2_st = declare_stream()  # reference signal
                 self.resCalculated_st = declare_stream()  # reference signal
-                
+
+                if self.benchmark_switch_flag:
+                    self.QUA_Pump(t_pump=self.tLaser, t_mw=self.tMW / 2, t_rf=self.tRF,
+                              f_mw=self.mw_freq * self.u.MHz,
+                              f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=self.t_wait)
                 with for_(self.n, 0, self.n < self.n_avg, self.n + 1): # AVG loop
                     # reset vectors
                     with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
@@ -1782,9 +1822,11 @@ class GUI_OPX():
         frame_rotation_2pi(0.5, "RF")
         align("RF", "Laser")
 
-    def benchmark_measure_nuclear_spin(self):
+    def benchmark_measure_nuclear_spin(self, t_wait):
         #Change N_pump to a new N parameter that is resposible for this
-        with for_(self.m, 0, self.m < self.Npump, self.m + 1):
+        if t_wait>16:
+            wait(t_wait//4)
+        with for_(self.m, 0, self.m < self.n_measure, self.m + 1):
             self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
             align("MW","Laser")
             align("MW","Detector_OPD")
@@ -1799,9 +1841,8 @@ class GUI_OPX():
             self.tMeasureProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime) //4
             #self.tPump = self.time_in_multiples_cycle_time(self.Tpump) //4
             self.tLaser = self.time_in_multiples_cycle_time(self.Tpump)
-            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
+            self.tMeasure = self.tLaser // 4
             #self.tMeasure = 50
-            self.fMW_1 = self.time_in_multiples_cycle_time(self.mw_freq)
             self.fMW_2 = self.time_in_multiples_cycle_time(self.mw_freq_2)
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw)
             self.tMW2 = self.time_in_multiples_cycle_time(self.t_mw2) //4
@@ -1809,11 +1850,13 @@ class GUI_OPX():
             self.rf_pulse_time = 1000
             self.tRF = self.time_in_multiples_cycle_time(self.rf_pulse_time)
             self.Npump = self.n_nuc_pump
-            self.t_wait = self.time_in_multiples_cycle_time(self.Twait) // 4
+            self.t_wait = self.time_in_multiples_cycle_time(self.Twait *1000) // 4
+            self.mw_dif_freq_2 = self.MW_dif # [MHz] to [GHz]
 
             # frequency scan vector
-            self.scan_param_vec = self.GenVector(min=0 * self.u.MHz, max=self.mw_freq_scan_range * self.u.MHz,
-                                                 delta=self.mw_df * self.u.MHz, asInt=False)
+            # self.scan_param_vec = self.GenVector(min=0 * self.u.MHz, max=self.mw_freq_scan_range * self.u.MHz,
+            #                                      delta=self.mw_df * self.u.MHz, asInt=False)
+            self.scan_param_vec = [1]
 
             # length and idx vector
             self.vectorLength = len(self.scan_param_vec)  # size of arrays
@@ -1821,7 +1864,7 @@ class GUI_OPX():
             self.idx_vec_ini = np.arange(0, self.array_length, 1)  # indexes vector
 
             #Simulation
-            self.random_int = random.randint(0, 100)
+            self.random_int = [random.randint(0, 100) for _ in range(100)]
 
             # tracking signal
             self.tSequencePeriod = ((self.tMW + self.tLaser) * (
@@ -1833,27 +1876,28 @@ class GUI_OPX():
             self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (
                 self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
         if Generate_QUA_sequance:
-            if not self.simulation_flag:
+            if not self.benchmark_switch_flag:
                 play("Turn_ON", "Laser", duration=self.tLaser // 4)
                 # Pumping: MW + RF + Laser (In that order)
-                self.QUA_Pump(t_pump = self.tLaser, t_mw = self.tMW/2, t_rf = self.tRF, f_mw = self.fMW_1,
+                self.QUA_Pump(t_pump = self.tLaser, t_mw = self.tMW/2, t_rf = self.tRF, f_mw = self.mw_freq* self.u.MHz,
                               f_rf = self.rf_resonance_freq * self.u.MHz,
                               p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=self.t_wait)
                 # First set of pi/2 half pulses with frequency f_2
-                update_frequency("MW",self.fMW_2)
+                update_frequency("MW",self.mw_freq*self.u.MHz)
                 self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
                 # Second set of pi/2 half pulses with frequency f_1
-                update_frequency("MW", self.fMW_1)
+                update_frequency("MW", (self.mw_freq + self.mw_dif_freq_2)*self.u.MHz)
                 self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
                 # Implementing all the gates
                 self.benchmark_play_list_of_gates()
                 play("Turn_ON", "Laser", duration=self.tLaser // 4)
                 align("Laser","MW")
-                self.benchmark_measure_nuclear_spin()
+                # Add wait time
+                self.benchmark_measure_nuclear_spin(t_wait=self.t_wait)
                 align()
             else:
-                with for_(self.i_idx, 0, self.i_idx < 100, self.i_idx + 1):
-                    assign(self.total_counts, self.simulation_random_integer[self.i_idx])
+                self.benchmark_measure_nuclear_spin(t_wait=self.t_wait)
+                align()
 
         if execute_qua:
             self.Random_Benchmark_QUA_PGM(generate_params=True)
@@ -5544,7 +5588,7 @@ class GUI_OPX():
             self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
         elif self.exp == Experiment.RandomBenchmark:
             #If nothing else get added you can put it in with counter
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration"], mode="live")
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -5660,7 +5704,7 @@ class GUI_OPX():
             if self.exp == Experiment.RandomBenchmark:
                 dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                dpg.set_value("series_counts_ref", [self.X_vec, self.Y_vec_ref])
+                dpg.set_value("series_counts_ref", [, ])
                 dpg.set_value("series_counts_ref2", [[], []])
                 dpg.set_value("series_res_calcualted", [[], []])
                 dpg.set_item_label("series_counts", "det_1")
@@ -5692,7 +5736,7 @@ class GUI_OPX():
         elif self.exp == Experiment.G2:
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
         elif self.exp == Experiment.RandomBenchmark:
-            self.counter_Signal, self.ref_signal = self.results.fetch_all()
+            self.benchmark_Signal, self.ref_signal, self.iteration = self.results.fetch_all()
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -5810,20 +5854,8 @@ class GUI_OPX():
             self.Y_vec = self.g2Vec#*self.iteration
 
         if self.exp == Experiment.RandomBenchmark:
-            if len(self.X_vec) > self.NumOfPoints:
-                self.Y_vec = self.Y_vec[-self.NumOfPoints:]  # get last NumOfPoint elements from end
-                self.Y_vec_ref = self.Y_vec_ref[-self.NumOfPoints:]  # get last NumOfPoint elements from end
-                self.X_vec = self.X_vec[-self.NumOfPoints:]
-
-            self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
-            self.Y_vec_ref.append(self.ref_signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
-            self.X_vec.append(self.counter_Signal[1] / self.u.s)  # Convert timestamps to seconds
-
-        if self.exp == Experiment.RandomBenchmark:  # freq
-            self.X_vec = self.scan_param_vec / float(1e9) + self.mw_freq  # [GHz]
-            self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
-            self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
-            self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
+            self.X_vec = self.iteration
+            self.Y_vec = self.benchmark_Signal
 
         if self.exp == Experiment.testCrap:  # freq or time oe something else
             ## todo add switch per test for correct normalization
