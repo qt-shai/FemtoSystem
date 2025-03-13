@@ -90,8 +90,8 @@ class GUI_OPX():
         # HW
         self.n_measure = 4
         self.MW_dif = 3 # [MHz]
-        self.t_wait = None
-        self.fMW_1 = None
+        self.t_wait = 0
+        self.fMW_1 = 0
         self.limit = None
         self.verbose:bool = False
         self.window_tag = "OPX Window"
@@ -182,46 +182,46 @@ class GUI_OPX():
         # common parameters
         self.exp = Experiment.COUNTER
 
-        self.mw_Pwr = -20.0  # [dBm]
-        self.mw_freq = 0  # [GHz], base frequency. Both start freq for scan and base frequency
-        self.mw_freq_2 = 3.2 # [GHz]
-        self.mw_freq_scan_range = 10.0  # [MHz]
+        self.mw_Pwr = -6  # [dBm]
+        self.mw_freq = 2.597  # [GHz], base frequency. Both start freq for scan and base frequency
+        self.mw_freq_2 = 2.60166 # [GHz]
+        self.mw_freq_scan_range = 6  # [MHz]
         self.mw_df = float(0.1)  # [MHz]
-        self.mw_freq_resonance = 2.18018  # [GHz]
-        self.mw_2ndfreq_resonance = 2.18318 # [GHz]
-        self.mw_P_amp = 1.0    # proportional amplitude
-        self.mw_P_amp2 = 1.0   # proportional amplitude
+        self.mw_freq_resonance = 2.60166  # [GHz]
+        self.mw_2ndfreq_resonance = 2.60166 # [GHz]
+        self.mw_P_amp = 0.69    # proportional amplitude
+        self.mw_P_amp2 = 0.1   # proportional amplitude
 
-        self.n_avg = int(3)  # number of averages
-        self.n_nuc_pump = 1  # number of times to try nuclear pumping
+        self.n_avg = int(1000000)  # number of averages
+        self.n_nuc_pump = 0  # number of times to try nuclear pumping
         self.n_CPMG = 1  # CPMG repeatetions
         self.N_p_amp = 20
 
         self.scan_t_start = 20  # [nsec], must above 16ns (4 cycle)
-        self.scan_t_end = 2000  # [nsec]
-        self.scan_t_dt = 40  # [nsec], must above 4ns (1 cycle)
+        self.scan_t_end = 1000  # [nsec]
+        self.scan_t_dt = 8  # [nsec], must above 4ns (1 cycle)
 
         self.MeasProcessTime = 300  # [nsec], time required for measure element to finish process
-        self.Tpump = 500  # [nsec]
+        self.Tpump = 300  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
-        self.TcounterPulsed = 500  # [nsec]
-        self.total_integration_time = 5  # [msec]
-        self.Tsettle = 2000 # [nsec]
-        self.t_mw = 289  # [nsec] # from rabi experiment
-        self.t_mw2 = 164  # [nsec] # from rabi experiment
+        self.TcounterPulsed = 300  # [nsec]
+        self.total_integration_time = 100  # [msec]
+        self.Tsettle = 300 # [nsec]
+        self.t_mw = 232  # [nsec] # from rabi experiment
+        self.t_mw2 = 2500  # [nsec] # from rabi experiment
         self.Tedge = 100 # [nsec]
-        self.Twait = 2.0 # [usec]
+        self.Twait = 20.0 # [usec]
 
         self.OPX_rf_amp = 0.5  # [V], OPX max amplitude
-        self.rf_Pwr = 0.1  # [V], requied OPX amplitude
+        self.rf_Pwr = 0.5  # [V], requied OPX amplitude
         self.rf_proportional_pwr = self.rf_Pwr / self.OPX_rf_amp  # [1], multiply by wafeform to actually change amplitude
-        self.rf_resonance_freq = 2.963  # [MHz]
-        self.rf_freq = 3.03  # [MHz]
-        self.rf_freq_scan_range_gui = 100000.0  # [kHz]
-        self.rf_freq_scan_range = 100.0  # [MHz]
-        self.rf_df = float(0.1)  # [MHz]
-        self.rf_df_gui = float(100)  # [kHz]
-        self.rf_pulse_time = 100000  # [nsec]
+        self.rf_resonance_freq = 2.9898  # [MHz]
+        self.rf_freq = 2.95  # [MHz]
+        self.rf_freq_scan_range_gui = 100  # [kHz]
+        self.rf_freq_scan_range = 0.1  # [MHz]
+        self.rf_df = float(0.001)  # [MHz]
+        self.rf_df_gui = float(1)  # [kHz]
+        self.rf_pulse_time = 7800  # [nsec]
 
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
@@ -1670,6 +1670,7 @@ class GUI_OPX():
         update_frequency("MW", f_mw)
         update_frequency("RF", f_rf)
 
+        #print(t_wait)
         # play MW
         #play("xPulse"* amp(p_mw), "MW", duration=t_mw // 4)
         self.MW_and_reverse(p_mw, (t_mw / 2) // 4)
@@ -1799,12 +1800,16 @@ class GUI_OPX():
                     save(self.tracking_signal, self.tracking_signal_st)  # save number of iteration inside for_loop
 
                 with stream_processing():
-                    self.counts_st.buffer(self.vectorLength).average().save("counts")
-                    self.counts_ref_st.buffer(self.vectorLength).average().save("counts_ref")
-                    self.counts_ref2_st.buffer(self.vectorLength).average().save("counts_ref2")
-                    self.resCalculated_st.buffer(self.vectorLength).average().save("resCalculated")
-                    self.n_st.save("iteration")
-                    self.tracking_signal_st.save("tracking_ref")
+                    if self.exp == Experiment.RandomBenchmark:
+                        self.counts_st.with_timestamps().save("counts")
+                        self.n_st.save("iteration")
+                    else:
+                        self.counts_st.buffer(self.vectorLength).average().save("counts")
+                        self.counts_ref_st.buffer(self.vectorLength).average().save("counts_ref")
+                        self.counts_ref2_st.buffer(self.vectorLength).average().save("counts_ref2")
+                        self.resCalculated_st.buffer(self.vectorLength).average().save("resCalculated")
+                        self.n_st.save("iteration")
+                        self.tracking_signal_st.save("tracking_ref")
             
         self.qm, self.job = self.QUA_execute()
 
@@ -1902,6 +1907,7 @@ class GUI_OPX():
                 self.benchmark_measure_nuclear_spin(t_wait=self.t_wait)
                 align()
             else:
+                assign(self.total_counts, 0)
                 self.benchmark_measure_nuclear_spin(t_wait=self.t_wait)
                 align()
 
@@ -5594,7 +5600,7 @@ class GUI_OPX():
             self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
         elif self.exp == Experiment.RandomBenchmark:
             #If nothing else get added you can put it in with counter
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "iteration"], mode="live")
+            self.results = fetching_tool(self.job, data_list=["counts", "iteration"], mode="live")
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -5710,20 +5716,13 @@ class GUI_OPX():
             if self.exp == Experiment.RandomBenchmark:
                 dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                dpg.set_value("series_counts_ref", [[],[] ])
-                dpg.set_value("series_counts_ref2", [[], []])
-                dpg.set_value("series_res_calcualted", [[], []])
-                dpg.set_item_label("series_counts", "det_1")
-                dpg.set_item_label("series_counts_ref", "det_2")
-                dpg.set_item_label("y_axis", "I [kCounts/sec]")
-                dpg.set_item_label("x_axis", "time [sec]")
+                dpg.set_item_label("series_counts", "Counts")
                 dpg.fit_axis_data('x_axis')
                 dpg.fit_axis_data('y_axis')
+                dpg.set_item_label("y_axis", "Counts")
+                dpg.set_item_label("x_axis", "Iterations")
 
                 dpg.bind_item_theme("series_counts", "LineYellowTheme")
-                dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
-                dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
-                dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
 
             
             current_time = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
@@ -5742,7 +5741,7 @@ class GUI_OPX():
         elif self.exp == Experiment.G2:
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
         elif self.exp == Experiment.RandomBenchmark:
-            self.benchmark_Signal, self.ref_signal, self.iteration = self.results.fetch_all()
+            self.benchmark_Signal, self.iteration = self.results.fetch_all()
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -5860,8 +5859,11 @@ class GUI_OPX():
             self.Y_vec = self.g2Vec#*self.iteration
 
         if self.exp == Experiment.RandomBenchmark:
-            self.X_vec = self.iteration
-            self.Y_vec = self.benchmark_Signal
+
+            self.X_vec.append(self.iteration)
+            self.Y_vec.append(self.benchmark_Signal[0])
+            #self.X_vec = self.iteration
+            #self.Y_vec = self.benchmark_Signal[0]
 
         if self.exp == Experiment.testCrap:  # freq or time oe something else
             ## todo add switch per test for correct normalization

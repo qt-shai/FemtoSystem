@@ -103,8 +103,8 @@ class ImGuiOverlay(Layer):
         if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
             simulation = True
         self.exSeq = ExpSequenceGui()
-        benchmark = True #Put False if not benchmark experiment
-        if not benchmark:
+        self.benchmark_exp = False #Put False if not benchmark experiment
+        if not self.benchmark_exp:
             self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
         # self.opxGUI = GUI_OPX(simulation)
     m_Time = 0.0
@@ -118,7 +118,7 @@ class ImGuiOverlay(Layer):
             self.guiID = Common_Counter_Singletone()
             self.guiID.Reset()
             self.exSeq.controls()
-            if not benchmark:
+            if not self.benchmark_exp:
                 self.mwGUI.controls()
             # self.smaractGUI.controls()
             # self.picomotorGUI.controls()
@@ -649,7 +649,7 @@ class PyGuiOverlay(Layer):
 
                 if instrument == Instruments.ROHDE_SCHWARZ:
                     pass
-                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
+                    #self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
                     # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
                     # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
 
