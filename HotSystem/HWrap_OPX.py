@@ -224,10 +224,11 @@ class GUI_OPX():
         self.scan_t_end = 2000  # [nsec]
         self.scan_t_dt = 40  # [nsec], must above 4ns (1 cycle)
 
-        self.MeasProcessTime = 300  # [nsec], time required for measure element to finish process
+        # self.MeasProcessTime = 300  # [nsec], time required for measure element to finish process
+        self.MeasProcessTime = 458  # [nsec], time required for measure element to finish process (correct for counter program)
         self.Tpump = 500  # [nsec]
         self.Tcounter = 10000  # [nsec], for scan it is the single integration time
-        self.TOPX_delay = 474 # [nsec]
+        self.Tcounter -= self.MeasProcessTime  # [nsec], for scan it is the single integration time
         self.TcounterPulsed = 5000  # [nsec]
         self.total_integration_time:float = 5.0  # [msec]
         self.Tsettle = 2000 # [nsec]
@@ -5162,6 +5163,8 @@ class GUI_OPX():
             self.laser_type = "Resonant_Laser"
 
         with program() as self.quaPGM:
+            # self.MeasProcessTime = 510 # [nsec] - delay due to OPX measure process time
+            # self.Tcounter -= self.MeasProcessTime
             self.times = declare(int, size=1000)
             self.times_ref = declare(int, size=1000)
             self.counts = declare(int)  # apd1
