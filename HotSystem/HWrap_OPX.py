@@ -88,10 +88,10 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
-        self.n_measure = 4
+        self.n_measure = 1000
         self.MW_dif = 3 # [MHz]
         self.Wait_time_benchmark = 10
-        self.t_wait = 0
+        self.t_wait_benchmark = 0
         self.fMW_1 = 0
         self.limit = None
         self.verbose:bool = False
@@ -1753,11 +1753,11 @@ class GUI_OPX():
                 self.resCalculated_st = declare_stream()  # reference signal
                 self.total_counts_st = declare_stream()
 
-                if self.benchmark_switch_flag:
+                if self.benchmark_switch_flag and self.exp == Experiment.RandomBenchmark:
                     self.QUA_Pump(t_pump=self.tLaser, t_mw=self.tMW / 2, t_rf=self.tRF,
                               f_mw=self.mw_freq * self.u.MHz,
                               f_rf=self.rf_resonance_freq * self.u.MHz,
-                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=self.t_wait)
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=self.t_wait_benchmark)
                 with for_(self.n, 0, self.n < self.n_avg, self.n + 1): # AVG loop
                     # reset vectors
                     with for_(self.idx, 0, self.idx < self.vectorLength, self.idx + 1):
@@ -1877,7 +1877,7 @@ class GUI_OPX():
             self.rf_pulse_time = 1000
             self.tRF = self.time_in_multiples_cycle_time(self.rf_pulse_time)
             self.Npump = self.n_nuc_pump
-            self.t_wait = self.time_in_multiples_cycle_time(self.Twait *1000) // 4
+            self.t_wait_benchmark = self.time_in_multiples_cycle_time(self.Twait *1000) // 4
             self.mw_dif_freq_2 = self.MW_dif # [MHz] to [GHz]
 
             # frequency scan vector
@@ -1908,7 +1908,7 @@ class GUI_OPX():
                 # Pumping: MW + RF + Laser (In that order)
                 self.QUA_Pump(t_pump = self.tLaser, t_mw = self.tMW/2, t_rf = self.tRF, f_mw = self.mw_freq* self.u.MHz,
                               f_rf = self.rf_resonance_freq * self.u.MHz,
-                              p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=self.t_wait)
+                              p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=self.t_wait_benchmark)
                 # First set of pi/2 half pulses with frequency f_2
                 update_frequency("MW",self.mw_freq*self.u.MHz)
                 self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
@@ -1920,11 +1920,11 @@ class GUI_OPX():
                 play("Turn_ON", "Laser", duration=self.tLaser // 4)
                 align("Laser","MW")
                 # Add wait time
-                self.benchmark_measure_nuclear_spin(t_wait=self.t_wait)
+                self.benchmark_measure_nuclear_spin(t_wait=self.t_wait_benchmark)
                 align()
             else:
                 assign(self.total_counts, 0)
-                self.benchmark_measure_nuclear_spin(t_wait=self.t_wait)
+                self.benchmark_measure_nuclear_spin(t_wait=self.t_wait_benchmark)
                 align()
 
         if execute_qua:
