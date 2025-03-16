@@ -277,6 +277,9 @@ class ImGuiOverlay(Layer):
     def mouse_callback(self,event):
         if False: 
             print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
+        
+
+
     def scroll_callback(self,event):
         if False: 
             print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
@@ -839,10 +842,10 @@ class PyGuiOverlay(Layer):
                 return
 
 
-            # Handle OPX map logic if enabled
-            if hasattr(self.opx, 'map') and self.opx.map is not None:
-                if self.opx.map.map_keyboard_enable:
-                    self.handle_opx_keyboard_movement(key_data_enum, is_coarse)
+            # # Handle OPX map logic if enabled
+            # if hasattr(self.opx, 'map') and self.opx.map is not None:
+            #     if self.opx.map.map_keyboard_enable:
+            #         self.handle_opx_keyboard_movement(key_data_enum, is_coarse)
 
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
@@ -885,7 +888,8 @@ class PyGuiOverlay(Layer):
                 elif key_data_enum == KeyboardKeys.DEL_KEY:
                     self.delete_active_item()  # Delete active marker or area marker
                 elif key_data_enum == KeyboardKeys.INSERT_KEY:
-                    self.insert_marker_near_active(duplicate_or_add_area = is_coarse)  # Insert a new marker near the active one & Insert a new area marker based on the active marker
+                    # self.insert_marker_near_active(duplicate_or_add_area = is_coarse)  # Insert a new marker near the active one & Insert a new area marker based on the active marker
+                    pass
                 elif key_data_enum == KeyboardKeys.K_KEY:
                     self.opx.map.move_mode = "marker"
                     # Update the button label to indicate the current state

@@ -9,6 +9,8 @@ class ZeluxGUI():
         self.HW = hw_devices.HW_devices()
         self.cam = self.HW.camera
 
+        self.AddNewWindow()
+
     def StartLive(self):
         global stopBtn
         self.cam.constantGrabbing = True
@@ -30,6 +32,19 @@ class ZeluxGUI():
         dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
 
     def UpdateImage(self):
+        window_size = dpg.get_item_width(self.window_tag), dpg.get_item_height(self.window_tag)
+        _width, _height = window_size
+        _width = _width * 0.9
+        _height = _height*0.9
+
+        
+        # Update image dimensions to match the new window size
+        dpg.set_item_width("image_id", _width)
+        dpg.set_item_height("image_id", _height)
+
+        dpg.delete_item("image_drawlist")
+        dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
+        dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
         dpg.set_value("image_id", self.cam.lateset_image_buffer)
         
     def UpdateExposure(sender, app_data, user_data):
@@ -49,16 +64,19 @@ class ZeluxGUI():
         pass
     
     def AddNewWindow(self, _width = 800):
-        dpg.add_window(label=self.window_tag, tag=self.window_tag,
+
+        _width = 1000
+        
+        with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar = False,
                         pos = [15,15],
                         width=int(_width*1.0), 
-                        height=int(_width*self.cam.ratio*1.2))
-        pass
-
+                        height=int(_width*self.cam.ratio*1.2)):
+                        pass
+            
+               
     def DeleteMainWindow(self):
         dpg.delete_item(item=self.window_tag)
         pass
-    
     
     def GUI_controls(self, isConnected = False, _width = 800):
         dpg.delete_item("groupZeluxControls")
@@ -87,28 +105,25 @@ class ZeluxGUI():
                                                     min_value= minGain,
                                                     max_value= maxGain)
 
-            with dpg.drawlist(width=_width, height=_width*self.cam.ratio):
-                dpg.draw_image("image_id", (0, 0), (_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1))
+            # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
+            # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
+
         else:
             dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=False)
             dpg.add_text("camera is probably not connected")
 
     def Controls(self):
-        # _width, _height, _channels, _data = dpg.load_image('C:\\Users\\amir\\Desktop\\Untitled2.png') # 0: width, 1: height, 2: channels, 3: data
+        dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=True)
 
-        with dpg.texture_registry(show=False):
-            dpg.add_dynamic_texture(width=self.cam.camera.image_width_pixels, 
-                                    height=self.cam.camera.image_height_pixels, 
-                                    default_value=self.cam.lateset_image_buffer, 
-                                    tag="image_id")
+        if len(self.cam.available_cameras) < 1:
+            self.GUI_controls(isConnected = False, _width = 700)
+            pass
+        else:
+            with dpg.texture_registry(tag="image_tag", show=False):
+                dpg.add_dynamic_texture(width=self.cam.camera.image_width_pixels, 
+                                height=self.cam.camera.image_height_pixels, 
+                                default_value=self.cam.lateset_image_buffer, 
+                                tag="image_id", parent="image_tag")
 
-        _width = 1000
-        with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar = False,
-                        pos = [15,15],
-                        width=int(_width*1.0), 
-                        height=int(_width*self.cam.ratio*1.2)):
-            dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=True)
-            if len(self.cam.available_cameras) < 1:
-                self.GUI_controls(isConnected = False, _width = 700)
-            else:
-                self.GUI_controls(isConnected = True)
+            self.GUI_controls(isConnected = True)
+            pass

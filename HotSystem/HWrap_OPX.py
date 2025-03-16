@@ -39,6 +39,7 @@ import shutil
 import xml.etree.ElementTree as ET
 import math
 import SystemConfig as configs
+import copy
 
 matplotlib.use('qtagg')
 
@@ -231,15 +232,6 @@ class GUI_OPX():
         self.bScanChkbox = False
 
         self.chkbox_close_all_qm = False
-        # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
-
-        # self.ZCalibrationData = np.array([[1274289050, 1099174441, -5215799855],[1274289385, -1900825080, -5239700330],[-1852010640, -1900825498, -5277599782]])
-
-        if os.path.exists('logged_points.txt'):
-            with open('logged_points.txt', 'r') as f:
-                self.positioner.LoggedPoints = [list(map(int, line.strip().split(','))) for line in f]
-        else:
-            self.positioner.LoggedPoints = []  # Set to an empty list if the file doesn't exist
 
         if simulation:
             print("OPX in simulation mode ***********************")
@@ -537,15 +529,15 @@ class GUI_OPX():
         pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.4)]
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
 
-        dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1,
-                       pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label="Exp graph", tag="experiments_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label="Exp graph", tag="graph_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+
         dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
-        dpg.add_plot(label="Graph", width=int(win_size[0]), height=int(win_size[1]), crosshairs=True, tag="graphXY",
-                     parent="Graph_group")  # height=-1, width=-1,no_menus = False )
+        dpg.add_plot(label="Graph", crosshairs=True, tag="graphXY", parent="graph_window", height=-1, width=-1)# width=int(win_size[0]), height=int(win_size[1]))  # height=-1, width=-1,no_menus = False )
         dpg.add_plot_legend(parent="graphXY")  # optionally create legend
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
-        dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False,
-                          parent="graphXY")  # REQUIRED: create x and y axes
+        dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False, parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
         dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis", tag="series_counts_ref")
         dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref2, label="counts_ref2", parent="y_axis", tag="series_counts_ref2")
@@ -569,8 +561,15 @@ class GUI_OPX():
         if isStart:
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=False)
 
+            dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
+            dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group", callback=self.Update_Intensity_Tracking_state, indent=-1, default_value=self.bEnableSignalIntensityCorrection)
+            dpg.add_checkbox(label="QUA shuffle", tag="chkbox_QUA_shuffle", parent="chkbox_group", callback=self.Update_QUA_Shuffle_state, indent=-1, default_value=self.bEnableShuffle)
+            dpg.add_checkbox(label="QUA simulate", tag="chkbox_QUA_simulate", parent="chkbox_group", callback=self.Update_QUA_Simulate_state, indent=-1, default_value=self.bEnableSimulate)
+            dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1, callback=self.Update_scan, default_value=self.bScanChkbox)
+            dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm, default_value=self.chkbox_close_all_qm)
+
             # Create a single collapsible header to contain all controls, collapsed by default
-            with dpg.collapsing_header(label="Parameter Controls", tag="Parameter_Controls_Header", parent="Params_Controls", default_open=False):
+            with dpg.collapsing_header(label="Parameters Control", tag="Parameter_Controls_Header", parent="Params_Controls", default_open=True):
                 # Child window and group for integration controls
                 with dpg.child_window(tag="child_Integration_Controls", horizontal_scrollbar=True, width=child_width, height=child_height):
                     with dpg.group(tag="Integration_Controls", horizontal=True):
@@ -596,9 +595,8 @@ class GUI_OPX():
                         dpg.add_text(default_value="Tprocess [nsec]", tag="text_process_time")
                         dpg.add_input_int(label="", tag="inInt_process_time", width=item_width, default_value=300, min_value=1, max_value=1000, step=1)
 
-                dpg.add_child_window(label="", tag="child_Freq_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
-                                     width=child_width, height=child_height)
-                dpg.add_group(tag="Freq_Controls", parent="child_Freq_Controls", horizontal=True)  # , before="Graph_group")
+                dpg.add_child_window(label="", tag="child_Freq_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True, width=child_width, height=child_height)
+                dpg.add_group(tag="Freq_Controls", parent="child_Freq_Controls", horizontal=True)
 
                 dpg.add_text(default_value="MW res [GHz]", parent="Freq_Controls", tag="text_mwResonanceFreq", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_mwResonanceFreq", indent=-1, parent="Freq_Controls", format="%.9f", width=item_width, callback=self.Update_mwResonanceFreq, default_value=self.mw_freq_resonance, min_value=0.001, max_value=6, step=0.001)
@@ -625,7 +623,7 @@ class GUI_OPX():
 
                 dpg.add_child_window(label="", tag="child_rf_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
                                      width=child_width, height=child_height)
-                dpg.add_group(tag="rf_Controls", parent="child_rf_Controls", horizontal=True)  # , before="Graph_group")
+                dpg.add_group(tag="rf_Controls", parent="child_rf_Controls", horizontal=True)
 
                 dpg.add_text(default_value="RF resonance freq [MHz]", parent="rf_Controls", tag="text_rf_resonance_Freq", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_rf_resonance_freq", indent=-1, parent="rf_Controls", format="%.9f", width=item_width,
@@ -647,7 +645,7 @@ class GUI_OPX():
 
                 dpg.add_child_window(label="", tag="child_Time_Scan_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
                                      width=child_width, height=child_height)
-                dpg.add_group(tag="Time_Scan_Controls", parent="child_Time_Scan_Controls", horizontal=True)  # , before="Graph_group")
+                dpg.add_group(tag="Time_Scan_Controls", parent="child_Time_Scan_Controls", horizontal=True)
                 dpg.add_text(default_value="scan t start [ns]", parent="Time_Scan_Controls", tag="text_scan_time_start", indent=-1)
                 dpg.add_input_int(label="", tag="inInt_scan_t_start", indent=-1, parent="Time_Scan_Controls", width=item_width,
                                   callback=self.UpdateScanTstart, default_value=self.scan_t_start, min_value=0, max_value=50000, step=1)
@@ -660,7 +658,7 @@ class GUI_OPX():
 
                 dpg.add_child_window(label="", tag="child_Time_delay_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
                                      width=child_width, height=child_height)
-                dpg.add_group(tag="Time_delay_Controls", parent="child_Time_delay_Controls", horizontal=True)  # , before="Graph_group")
+                dpg.add_group(tag="Time_delay_Controls", parent="child_Time_delay_Controls", horizontal=True)
 
                 dpg.add_text(default_value="t_mw [ns]", parent="Time_delay_Controls", tag="text_t_mw", indent=-1)
                 dpg.add_input_int(label="", tag="inInt_t_mw", indent=-1, parent="Time_delay_Controls", width=item_width, callback=self.UpdateT_mw, default_value=self.t_mw, min_value=0, max_value=50000, step=1)
@@ -684,7 +682,7 @@ class GUI_OPX():
 
                 dpg.add_child_window(label="", tag="child_Repetitions_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True,
                                      width=child_width, height=child_height)
-                dpg.add_group(tag="Repetitions_Controls", parent="child_Repetitions_Controls", horizontal=True)  # , before="Graph_group")
+                dpg.add_group(tag="Repetitions_Controls", parent="child_Repetitions_Controls", horizontal=True)
 
                 dpg.add_text(default_value="N nuc pump", parent="Repetitions_Controls", tag="text_N_nuc_pump", indent=-1)
                 dpg.add_input_int(label="", tag="inInt_N_nuc_pump", indent=-1, parent="Repetitions_Controls",
@@ -715,62 +713,11 @@ class GUI_OPX():
                                   default_value=self.N_tracking_search,
                                   min_value=0, max_value=50000, step=1)
 
-                dpg.add_group(tag="MW_amplitudes", parent="Parameter_Controls_Header", horizontal=True)  #, before="Graph_group")
+                dpg.add_group(tag="MW_amplitudes", parent="Parameter_Controls_Header", horizontal=True)
                 dpg.add_text(default_value="MW P_amp", parent="MW_amplitudes", tag="text_mwP_amp", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_mwP_amp", indent=-1, parent="MW_amplitudes", format="%.6f", width=item_width, callback=self.Update_mwP_amp, default_value=self.mw_P_amp, min_value=0.0, max_value=1.0, step=0.001)
                 dpg.add_text(default_value="MW P_amp2", parent="MW_amplitudes", tag="text_mwP_amp2", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_mwP_amp2", indent=-1, parent="MW_amplitudes", format="%.6f", width=item_width, callback=self.Update_mwP_amp2, default_value=self.mw_P_amp2, min_value=0.0, max_value=1.0, step=0.001)
-
-
-                dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
-                dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
-                                 callback=self.Update_Intensity_Tracking_state, indent=-1, default_value=self.bEnableSignalIntensityCorrection)
-                dpg.add_checkbox(label="QUA shuffle", tag="chkbox_QUA_shuffle", parent="chkbox_group", callback=self.Update_QUA_Shuffle_state,
-                                 indent=-1, default_value=self.bEnableShuffle)
-                dpg.add_checkbox(label="QUA simulate", tag="chkbox_QUA_simulate", parent="chkbox_group", callback=self.Update_QUA_Simulate_state,
-                                 indent=-1, default_value=self.bEnableSimulate)
-                dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1, callback=self.Update_scan,
-                                 default_value=self.bScanChkbox)
-                dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm,
-                                 default_value=self.chkbox_close_all_qm)
-
-                dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
-                              horizontal=False)  # parent="Params_Controls",horizontal=False)
-                _width = 300 # was 220
-                dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",
-                               callback=self.btnStartCounterLive, indent=-1, width=_width)
-                dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR", callback=self.btnStartODMR_CW, indent=-1, width=_width)
-                dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR", callback=self.btnStartPulsedODMR, indent=-1, width=_width)
-
-                dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
-                dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
-
-                dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
-                               callback=self.btnStartNuclearRABI, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR", callback=self.btnStartNuclearMR,
-                               indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear PolESR", parent="Buttons_Controls", tag="btnOPX_StartNuclearPolESR",
-                               callback=self.btnStartNuclearPolESR, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear lifetime S0", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS0",
-                               callback=self.btnStartNuclearSpinLifetimeS0, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear lifetime S1", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS1",
-                               callback=self.btnStartNuclearSpinLifetimeS1, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear Ramsay", parent="Buttons_Controls", tag="btnOPX_StartNuclearRamsay",
-                               callback=self.btnStartNuclearRamsay, indent=-1, width=_width)
-                dpg.add_button(label="Start Hahn", parent="Buttons_Controls", tag="btnOPX_StartHahn", callback=self.btnStartHahn, indent=-1,
-                               width=_width)
-                dpg.add_button(label="Start Electron Lifetime", parent="Buttons_Controls", tag="btnOPX_StartElectronLifetime",
-                               callback=self.btnStartElectronLifetime, indent=-1, width=_width)
-                dpg.add_button(label="Start Electron Coherence", parent="Buttons_Controls", tag="btnOPX_StartElectronCoherence",
-                               callback=self.btnStartElectron_Coherence, indent=-1, width=_width)
-
-                dpg.add_button(label="Start population gate tomography", parent="Buttons_Controls", tag="btnOPX_PopulationGateTomography",
-                               callback=self.btnStartPopulateGateTomography, indent=-1, width=_width)
-                dpg.add_button(label="Start Entanglement state tomography", parent="Buttons_Controls", tag="btnOPX_EntanglementStateTomography",
-                               callback=self.btnStartStateTomography, indent=-1, width=_width)
-                dpg.add_button(label="Start G2", parent="Buttons_Controls", tag="btnOPX_G2",
-                               callback=self.btnStartG2, indent=-1, width=_width)
 
                 # save exp data
                 dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
@@ -778,7 +725,28 @@ class GUI_OPX():
                 dpg.add_button(label="Save", parent="Save_Controls", tag="btnOPX_save", callback=self.btnSave,
                                indent=-1)  # remove save btn, it should save automatically
 
-            # dpg.add_checkbox(label="Radio Button1", source="bool_value")
+
+            _width = -1
+            dpg.add_group(tag="Buttons_Controls", parent="experiments_window", horizontal=False)  # parent="Params_Controls",horizontal=False)
+            dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",callback=self.btnStartCounterLive, indent=-1, width=_width)
+            dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR", callback=self.btnStartODMR_CW, indent=-1, width=_width)
+            dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR", callback=self.btnStartPulsedODMR, indent=-1, width=_width)
+            dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
+            dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
+            dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI", callback=self.btnStartNuclearRABI, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR", callback=self.btnStartNuclearMR, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear PolESR", parent="Buttons_Controls", tag="btnOPX_StartNuclearPolESR", callback=self.btnStartNuclearPolESR, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear lifetime S0", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS0", callback=self.btnStartNuclearSpinLifetimeS0, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear lifetime S1", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS1", callback=self.btnStartNuclearSpinLifetimeS1, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear Ramsay", parent="Buttons_Controls", tag="btnOPX_StartNuclearRamsay", callback=self.btnStartNuclearRamsay, indent=-1, width=_width)
+            dpg.add_button(label="Start Hahn", parent="Buttons_Controls", tag="btnOPX_StartHahn", callback=self.btnStartHahn, indent=-1, width=_width)
+            dpg.add_button(label="Start Electron Lifetime", parent="Buttons_Controls", tag="btnOPX_StartElectronLifetime", callback=self.btnStartElectronLifetime, indent=-1, width=_width)
+            dpg.add_button(label="Start Electron Coherence", parent="Buttons_Controls", tag="btnOPX_StartElectronCoherence", callback=self.btnStartElectron_Coherence, indent=-1, width=_width)
+            dpg.add_button(label="Start population gate tomography", parent="Buttons_Controls", tag="btnOPX_PopulationGateTomography", callback=self.btnStartPopulateGateTomography, indent=-1, width=_width)
+            dpg.add_button(label="Start Entanglement state tomography", parent="Buttons_Controls", tag="btnOPX_EntanglementStateTomography", callback=self.btnStartStateTomography, indent=-1, width=_width)
+            dpg.add_button(label="Start G2", parent="Buttons_Controls", tag="btnOPX_G2", callback=self.btnStartG2, indent=-1, width=_width)
+
             dpg.bind_item_theme(item="Params_Controls", theme="NewTheme")
             dpg.bind_item_theme(item="btnOPX_StartCounter", theme="btnYellowTheme")
             dpg.bind_item_theme(item="btnOPX_StartODMR", theme="btnRedTheme")
@@ -787,9 +755,10 @@ class GUI_OPX():
             dpg.bind_item_theme(item="btnOPX_StartNuclearRABI", theme="btnBlueTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearMR", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearPolESR", theme="btnGreenTheme")
+
         else:
-            dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=True)
-            dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1)
+            dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=True)
+            dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
             dpg.bind_item_theme(item="btnOPX_Stop", theme="btnRedTheme")
 
     def GUI_ScanControls(self):
@@ -865,7 +834,7 @@ class GUI_OPX():
                         dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
                         dpg.add_button(label="Auto Focus", tag="btnOPX_AutoFocus", callback=self.btnAutoFocus, indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
-                        dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
+                        # dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
                     with dpg.group(horizontal=False):
                         dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
@@ -885,7 +854,8 @@ class GUI_OPX():
                         dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=_width, tag="xy_span_um", format='%.4f')
                         dpg.add_input_float(label="Offset (nm)", default_value=1500.0, width=_width, tag="offset_from_focus_nm", format='%.1f')
 
-                    self.btnGetLoggedPoints()  # get logged points
+                    # self.btnGetLoggedPoints()  # get logged points
+
                     # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
                     self.map.create_map_gui(win_size, win_pos)  # dpg.set_frame_callback(1, self.load_pos)
         else:
@@ -1317,10 +1287,8 @@ class GUI_OPX():
             dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1], equal_aspects=True, crosshairs=True)
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis [um]", parent="plotImaga")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
-            dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data",
-                                 parent="plotImaga_Y")
-            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d),
-                                   colormap=dpg.mvPlotColormap_Jet)
+            dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data", parent="plotImaga_Y")
+            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
         except Exception as e:
             print(f"Error during plotting: {e}")
 
@@ -5739,17 +5707,6 @@ class GUI_OPX():
             res = list(self.positioner.AxesPositions)
             for ch in self.positioner.channels:
                 print(f"ch{ch}: in position = {res}, position = {res[ch]} {self.positioner.AxesPosUnits[ch]}")
-    # def scan_z_correction(self, i: int, j: int, k:int):
-    #     new_z_pos = int(self.V_scan[2][i])
-    #     if self.b_Zcorrection and not self.ZCalibrationData is None:
-    #         z_correction_new = int(
-    #             calculate_z_series(self.ZCalibrationData, np.array([int(V[k])]), int(self.V_scan[1][j]))[0] - self.z_calibration_offset)
-    #         if abs(z_correction_new - self.z_correction_previous) > self.z_correction_threshold:
-    #             new_z_pos = int(self.V_scan[2][i] + z_correction_new)
-    #             self.z_correction_previous = z_correction_new
-    #             self.positioner.MoveABSOLUTE(2, new_z_pos)
-    #         else:
-    #             new_z_pos = new_z_pos + self.z_correction_previous
     
     def Z_correction(self,_refp:list, _point:list):
         # Define the points (self.positioner.LoggedPoints equivalent)
@@ -5778,12 +5735,11 @@ class GUI_OPX():
         # print(Znew)
 
         return Znew
-
     def StartScan3D(self):  # currently flurascence scan
-        # self.positioner.LoggedPoints = [[259999542, 1844999926, 2101285], [259999326, 259999859, -5199534], [1930000049, 1850000121, 5601168]]
-        with open('logged_points.txt', 'w') as f:
-            for point in self.positioner.LoggedPoints:
-                f.write(f"{point[0]},{point[1]},{point[2]}\n")
+        if len(self.positioner.LoggedPoints) == 3:
+            with open('logged_points.txt', 'w') as f:
+                for point in self.positioner.LoggedPoints:
+                    f.write(f"{point[0]},{point[1]},{point[2]}\n")
 
         print("start scan steps")
         start_time = time.time()
@@ -5867,9 +5823,9 @@ class GUI_OPX():
                         V = list(self.V_scan[0])
 
                     # Z correction
-                    if self.b_Zcorrection and len(self.positioner.LoggedPoints) > 2:
+                    if self.b_Zcorrection and len(self.positioner.LoggedPoints) == 3:
                         currentP = np.array( [int(V[k]), int(self.V_scan[1][j]), int(self.V_scan[2][i])] )
-                        refP = self.initial_scan_Location
+                        refP = copy.deepcopy(self.initial_scan_Location)
                         refP[2] = int(self.V_scan[2][i])
                         p_new = int(self.Z_correction(refP, currentP))
                         self.positioner.MoveABSOLUTE(2, p_new)
@@ -5945,8 +5901,6 @@ class GUI_OPX():
 
         if not (self.stopScan):
             self.btnStop()
-
-
 
     def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
         # Create object to be saved in excel
