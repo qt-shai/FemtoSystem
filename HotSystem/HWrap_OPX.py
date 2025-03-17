@@ -1852,7 +1852,7 @@ class GUI_OPX():
     def benchmark_measure_nuclear_spin(self, t_wait):
         #Change N_pump to a new N parameter that is resposible for this
         if t_wait>16:
-            wait(t_wait//4)
+            wait(t_wait)
         with for_(self.n_m, 0, self.n_m < self.n_measure, self.n_m + 1):
             self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
             align("MW","Laser")
@@ -1868,7 +1868,7 @@ class GUI_OPX():
             self.tMeasureProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime) //4
             #self.tPump = self.time_in_multiples_cycle_time(self.Tpump) //4
             self.tLaser = self.time_in_multiples_cycle_time(self.Tpump)
-            self.tMeasure = self.tLaser // 4
+            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed) //4
             #self.tMeasure = 50
             self.fMW_2 = self.time_in_multiples_cycle_time(self.mw_freq_2)
             self.tMW = self.time_in_multiples_cycle_time(self.t_mw)
@@ -1924,6 +1924,7 @@ class GUI_OPX():
                 align()
             else:
                 assign(self.total_counts, 0)
+                update_frequency("MW", (self.mw_freq + self.mw_dif_freq_2) * self.u.MHz)
                 self.benchmark_measure_nuclear_spin(t_wait=self.t_wait_benchmark)
                 align()
 
@@ -4882,11 +4883,15 @@ class GUI_OPX():
             t = declare(int)  # time variable which we change during scan
             p = declare(fixed)  # fixed is similar to float 4bit.28bit
 
+            self.t_mw_qua = declare(int)
+            assign(self.t_mw_qua, (self.t_mw/2) // 4)
+
             n = declare(int)  # iteration variable
             n_st = declare_stream()  # stream iteration number
             self.m = declare(int)  # number of pumping iterations
             self.t_wait = declare(int)  # [cycles] time variable which we change during scan
             self.Npump = self.n_nuc_pump
+            assign(self.t_wait,self.Twait * 1000//4)
 
             counts_tmp = declare(int)  # temporary variable for number of counts
             counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
@@ -4943,8 +4948,8 @@ class GUI_OPX():
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
 
                         update_frequency("MW", self.fMW_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.t_mw/2) // 4)
-                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.t_mw/2) // 4)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
+                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
         
                         # play RF after MW
                         align("MW", "RF")
@@ -4953,8 +4958,9 @@ class GUI_OPX():
                         align("RF", "MW")
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         #update_frequency("MW", self.fMW_2nd_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.t_mw/2) // 4)
-                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.t_mw/2) // 4)
+                        wait(self.t_wait)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
+                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
                         # play laser after MW
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
@@ -4972,15 +4978,16 @@ class GUI_OPX():
                         # play MW for time Tmw
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         #update_frequency("MW", self.fMW_2nd_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.t_mw/2) // 4)
-                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.t_mw/2) // 4)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
+                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
                         # Don't play RF after MW just wait
-                        wait(t)  # t already devide by four
+                        wait(t)
+                        wait(self.t_wait)  # t already devide by four
                         # play MW
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         #update_frequency("MW", self.fMW_2nd_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.t_mw/2) // 4)
-                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.t_mw/2) // 4)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
+                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
                         # play laser after MW
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
@@ -6321,11 +6328,8 @@ class GUI_OPX():
             self.writeParametersToXML(fileName + ".xml")
 
             # raw data
-            if self.exp == Experiment.RandomBenchmark:
-                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,
+            RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,
                                    'Y_resCalc': self.Y_resCalculated}
-            else:
-                RawData_to_save = {'X': [self.iteration], 'Y': [self.benchmark_Signal], 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
 
             self.saveToCSV(fileName + ".csv", RawData_to_save)
