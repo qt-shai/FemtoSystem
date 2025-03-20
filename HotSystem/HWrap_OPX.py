@@ -246,7 +246,7 @@ class GUI_OPX():
 
         # load class parameters from XML
         self.update_from_xml()
-        self.connect_to_QM_OPX = True
+        self.connect_to_QM_OPX = False
         self.benchmark_switch_flag = True
         self.bScanChkbox = False
 
@@ -462,7 +462,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_t_mw3", value=sender.t_mw3)
         print("Set t_mw3 to: " + str(sender.t_mw3))
-    
+
     def Update_rf_pulse_time(sender, app_data, user_data):
         sender.rf_pulse_time = (int(user_data))
         time.sleep(0.001)
@@ -1631,7 +1631,7 @@ class GUI_OPX():
             sourceFile = open('debug.py', 'w')
             print(generate_qua_script(self.quaPGM, QuaCFG), file=sourceFile)
             sourceFile.close()
-            simulation_config = SimulationConfig(duration=48000)  # clock cycles
+            simulation_config = SimulationConfig(duration=96000)  # clock cycles
             job_sim = self.qmm.simulate(QuaCFG, self.quaPGM, simulation_config)
             # Simulate blocks python until the simulation is done
             job_sim.get_simulated_samples().con1.plot()
@@ -2519,7 +2519,7 @@ class GUI_OPX():
 
         # tracking signal
         #tSequencePeriod = ((tMW + self.tRF + tPump) * Npump + 2 * tMW + self.tRF + tScan_max / 2 + tLaser) * array_length * 2
-        tSequencePeriod = 1e9
+        tSequencePeriod = (2 * self.tRF * np.sum(self.t_vec) + np.size(self.t_vec) * ((tPump + self.tRF * 2 + self.t_mw) + self.t_mw2 + self.t_mw2 + tLaser)) * 3
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
@@ -2542,6 +2542,8 @@ class GUI_OPX():
             self.tRF_qua = declare(int)
             self.t_mw_qua = declare(int)
             assign(self.t_mw_qua, (self.t_mw / 2) // 4)
+            self.t_mw_qua2 = declare(int)
+            assign(self.t_mw_qua2, (self.t_mw2 / 2) // 4)
 
             f = declare(int)  # frequency variable which we change during scan
             t = declare(int)  # [cycles] time variable which we change during scan
@@ -2555,6 +2557,7 @@ class GUI_OPX():
 
             counts_tmp = declare(int)  # temporary variable for number of counts
             counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
+            counts_loop_size = array_length // self.dN
 
             runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
             track_idx = declare(int, value=0)  # iteration variable
@@ -2563,9 +2566,10 @@ class GUI_OPX():
             tracking_signal_st = declare_stream()
             sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=array_length)  # experiment signal (vector)
-            counts_ref = declare(int, size=array_length)  # reference signal (vector)
-            counts_ref2 = declare(int, size=array_length)
+            counts = declare(int, size=counts_loop_size)  # experiment signal (vector)
+            counts_ref = declare(int, size=counts_loop_size)  # reference signal (vector)
+            counts_ref2 = declare(int, size=counts_loop_size)
+            idx_counts_qua = declare(int)
 
             # # Shuffle parameters - freq
             # val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))    # frequencies QUA vector
@@ -2592,7 +2596,7 @@ class GUI_OPX():
 
             with for_(n, 0, n < self.n_avg, n + 1):
                 # reset
-                with for_(idx, 0, idx < array_length, idx + self.dN):
+                with for_(idx, 0, idx < counts_loop_size, idx + 1):
                     assign(counts_ref[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts_ref2[idx], 0)
@@ -2610,10 +2614,11 @@ class GUI_OPX():
                     #     assign(self.idx_vec_shuffle_gates_qua_reversed[temp_idx], 1)
 
                 # sequence
+                assign(idx_counts_qua, 0)
                 with for_(idx, 0, idx < array_length, idx + self.dN):
                     assign(sequenceState, IO1)
                     assign(self.tRF_qua, (self.tRF))
-                    assign(self.wait_ref, (2 * self.tRF_qua * idx))
+                    #assign(self.wait_ref, (2 * self.tRF_qua * idx))
                     self.reverse_qua_vector(idx = idx,jdx = jdx)
                     assign(self.total_rf_wait, 4)
                     assign(self.total_mw_wait, 4)
@@ -2671,7 +2676,7 @@ class GUI_OPX():
                         # measure signal
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
+                        assign(counts[idx_vec_qua[idx_counts_qua]], counts[idx_vec_qua[idx_counts_qua]] + counts_tmp)
                         align()
 
                         # reference
@@ -2721,7 +2726,7 @@ class GUI_OPX():
                         # measure signal
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_tmp)
+                        assign(counts_ref[idx_vec_qua[idx_counts_qua]], counts_ref[idx_vec_qua[idx_counts_qua]] + counts_tmp)
                         align()
 
                         # reference 2
@@ -6629,17 +6634,6 @@ class GUI_OPX():
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
             if self.exp == Experiment.RandomBenchmark:
-                # #dpg.set_item_label("graphXY", f"{self.exp.name}, iteration = {self.iteration}")
-                # #dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
-                # dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                # #dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
-                # dpg.set_item_label("series_counts", "Counts")
-                # dpg.fit_axis_data('x_axis')
-                # dpg.fit_axis_data('y_axis')
-                # dpg.set_item_label("y_axis", "Counts")
-                # dpg.set_item_label("x_axis", "Iterations")
-                #
-                # dpg.bind_item_theme("series_counts", "LineYellowTheme")
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="Number of gates")
 
