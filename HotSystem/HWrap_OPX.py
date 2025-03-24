@@ -1631,7 +1631,7 @@ class GUI_OPX():
             sourceFile = open('debug.py', 'w')
             print(generate_qua_script(self.quaPGM, QuaCFG), file=sourceFile)
             sourceFile.close()
-            simulation_config = SimulationConfig(duration=96000)  # clock cycles
+            simulation_config = SimulationConfig(duration=48000)  # clock cycles
             job_sim = self.qmm.simulate(QuaCFG, self.quaPGM, simulation_config)
             # Simulate blocks python until the simulation is done
             job_sim.get_simulated_samples().con1.plot()
@@ -2216,52 +2216,63 @@ class GUI_OPX():
 
     def play_random_qua_two_qubit_gate(self, N_vec, t_MW1, amp_MW1, t_MW2, amp_MW2, t_MW3, amp_MW3, f_mw1, f_mw2):
         with switch_(N_vec[self.n_m]):
-            with case_(1):
+            with case_(0):
+                # C_{n}NOT_{e}
                 update_frequency("MW",f_mw1)
                 play("xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
                 play("-xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
                 assign(self.total_mw_wait,self.total_mw_wait + t_MW1)
-            with case_(2):
+            with case_(1):
+                # IC_{n}NOT_{e}
                 update_frequency("MW", f_mw2)
                 play("xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
                 play("-xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW1)
-            with case_(3):
+            with case_(2):
+                # C_{n}H_{y_e}
                 update_frequency("MW", f_mw1)
+                play("xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
+                play("-xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
+                assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
+            with case_(3):
+                # IC_{n}H_{y_e}
+                update_frequency("MW", f_mw2)
                 play("xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 play("-xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
             with case_(4):
-                update_frequency("MW", f_mw2)
-                play("xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
-                play("-xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
-                assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
-            with case_(5):
+                # C_{n}H_{x_e}
                 update_frequency("MW", f_mw1)
                 play("yPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 play("-yPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
-            with case_(6):
+            with case_(5):
+                # IC_{n}H_{x_e}
                 update_frequency("MW", f_mw2)
                 play("yPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 play("-yPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
-            with case_(7):
+            with case_(6):
+                # Add to reference
+                #HCH_{n}H_{y_e}
                 update_frequency("MW", (f_mw1 + f_mw2)/2)
                 play("xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 play("-xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
+                assign(self.total_mw_wait, self.total_mw_wait + t_MW3)
+            with case_(7):
+                #HCH_{n}IH_{y_e}
+                update_frequency("MW", (f_mw1 + f_mw2)/2)
+                play("-xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
+                play("xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW3)
             with case_(8):
-                update_frequency("MW", (f_mw1 + f_mw2)/2)
-                play("-xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
-                play("xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
-                assign(self.total_mw_wait, self.total_mw_wait + t_MW3)
-            with case_(9):
+                #HCH_{n}H_{x_e}
                 update_frequency("MW", (f_mw1 + f_mw2)/2)
                 play("yPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 play("-yPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW3)
-            with case_(10):
+            with case_(9):
+                #HCH_{n}IH_{x_e}
                 update_frequency("MW", (f_mw1 + f_mw2)/2)
                 play("-yPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 play("yPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
@@ -2269,52 +2280,52 @@ class GUI_OPX():
 
     def play_random_reverse_qua_two_qubit_gate(self, N_vec, t_MW1, amp_MW1, t_MW2, amp_MW2, t_MW3, amp_MW3, f_mw1, f_mw2):
         with switch_(N_vec[self.n_m]):
-            with case_(1):
+            with case_(0):
                 update_frequency("MW", f_mw1)
+                play("-xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
+                play("xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
+                assign(self.total_mw_wait, self.total_mw_wait + t_MW1)
+            with case_(1):
+                update_frequency("MW", f_mw2)
                 play("-xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
                 play("xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW1)
             with case_(2):
-                update_frequency("MW", f_mw2)
-                play("-xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
-                play("xPulse" * amp(amp_MW1), "MW", duration=(t_MW1 / 2))
-                assign(self.total_mw_wait, self.total_mw_wait + t_MW1)
-            with case_(3):
                 update_frequency("MW", f_mw1)
+                play("-xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
+                play("xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
+                assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
+            with case_(3):
+                update_frequency("MW", f_mw2)
                 play("-xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 play("xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
             with case_(4):
-                update_frequency("MW", f_mw2)
-                play("-xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
-                play("xPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
-                assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
-            with case_(5):
                 update_frequency("MW", f_mw1)
                 play("-yPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 play("yPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
-            with case_(6):
+            with case_(5):
                 update_frequency("MW", f_mw2)
                 play("-yPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 play("yPulse" * amp(amp_MW2), "MW", duration=(t_MW2 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW2)
+            with case_(6):
+                update_frequency("MW", (f_mw1 + f_mw2) / 2)
+                play("-xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
+                play("xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
+                assign(self.total_mw_wait, self.total_mw_wait + t_MW3)
             with case_(7):
                 update_frequency("MW", (f_mw1 + f_mw2) / 2)
-                play("-xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 play("xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
+                play("-xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW3)
             with case_(8):
-                update_frequency("MW", (f_mw1 + f_mw2) / 2)
-                play("xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
-                play("-xPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
-                assign(self.total_mw_wait, self.total_mw_wait + t_MW3)
-            with case_(9):
                 update_frequency("MW", (f_mw1 + f_mw2) / 2)
                 play("-yPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 play("yPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 assign(self.total_mw_wait, self.total_mw_wait + t_MW3)
-            with case_(10):
+            with case_(9):
                 update_frequency("MW", (f_mw1 + f_mw2) / 2)
                 play("yPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
                 play("-yPulse" * amp(amp_MW3), "MW", duration=(t_MW3 / 2))
@@ -2445,19 +2456,21 @@ class GUI_OPX():
     #         self.Random_Benchmark_QUA_PGM(generate_params=True)
     #         self.QUA_PGM()
 
-    def create_random_qua_vector(self, jdx, vec_size, max_rand):
+    def create_random_qua_vector(self, jdx, vec_size, max_rand, n):
+        random_qua = Random()
+        random_qua.set_seed(n)
         with for_(jdx, 0,jdx < vec_size, jdx+1):
-            assign(self.idx_vec_ini_shaffle_qua[jdx], Random().rand_int(max_rand))
+            assign(self.idx_vec_ini_shaffle_qua[jdx], random_qua.rand_int(max_rand))
 
-    def QUA_shuffle_benchmark(self, array_len):
-        temp = declare(int)
-        j = declare(int)
-        i = declare(int)
-        with for_(i, 0, i < array_len, i + 1):
-            assign(j, Random().rand_int(array_len - i))
-            assign(temp, self.idx_vec_ini_shaffle_qua[j])
-            assign(self.idx_vec_ini_shaffle_qua[j], self.idx_vec_ini_shaffle_qua[array_len - 1 - i])
-            assign(self.idx_vec_ini_shaffle_qua[array_len - 1 - i], temp)
+    # def QUA_shuffle_benchmark(self, array_len):
+    #     temp = declare(int)
+    #     j = declare(int)
+    #     i = declare(int)
+    #     with for_(i, 0, i < array_len, i + 1):
+    #         assign(j, Random().rand_int(array_len - i))
+    #         assign(temp, self.idx_vec_ini_shaffle_qua[j])
+    #         assign(self.idx_vec_ini_shaffle_qua[j], self.idx_vec_ini_shaffle_qua[array_len - 1 - i])
+    #         assign(self.idx_vec_ini_shaffle_qua[array_len - 1 - i], temp)
 
     def generate_random_qua_integer_benchmark(self, rand_val, number_of_gates):
         """Generates a random integer from 0 to 23 in QUA"""
@@ -2516,6 +2529,7 @@ class GUI_OPX():
         gate_vector = np.arange(0,number_of_gates)
         idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
         idx_vec_ini_shaffle = self.tile_to_length(gate_vector, array_length)
+        #idx_vec_ini_shaffle = np.ones(self.n_measure)
 
         # tracking signal
         #tSequencePeriod = ((tMW + self.tRF + tPump) * Npump + 2 * tMW + self.tRF + tScan_max / 2 + tLaser) * array_length * 2
@@ -2566,9 +2580,9 @@ class GUI_OPX():
             tracking_signal_st = declare_stream()
             sequenceState = declare(int, value=0)
 
-            counts = declare(int, size=counts_loop_size)  # experiment signal (vector)
-            counts_ref = declare(int, size=counts_loop_size)  # reference signal (vector)
-            counts_ref2 = declare(int, size=counts_loop_size)
+            counts = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref = declare(int, size=array_length)  # reference signal (vector)
+            counts_ref2 = declare(int, size=array_length)
             idx_counts_qua = declare(int)
 
             # # Shuffle parameters - freq
@@ -2581,6 +2595,8 @@ class GUI_OPX():
             idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
             self.idx_vec_ini_shaffle_qua = declare(int, value=idx_vec_ini_shaffle)
             self.idx_vec_ini_shaffle_qua_reversed = declare(int, value=idx_vec_ini_shaffle)
+            # self.idx_vec_ini_shaffle_qua = declare(int, value=self.n_measure)
+            # self.idx_vec_ini_shaffle_qua_reversed = declare(int, value=self.n_measure)
             idx = declare(int)  # index variable to sweep over all indexes
             jdx = declare(int)
             self.wait_ref = declare(int)
@@ -2596,32 +2612,23 @@ class GUI_OPX():
 
             with for_(n, 0, n < self.n_avg, n + 1):
                 # reset
-                with for_(idx, 0, idx < counts_loop_size, idx + 1):
+                with for_(idx, 0, idx < array_length, idx + self.dN):
                     assign(counts_ref[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts_ref2[idx], 0)
 
-                # Shuffle
-                with if_(self.bEnableShuffle):
-                    #Need a condition that adds a value of 1 to one of vectors of size N and then 0 to the other 23
-                    #self.QUA_shuffle_benchmark(array_length)  # shuffle - idx_vec_qua vector is after shuffle
-                    self.create_random_qua_vector(jdx = jdx, vec_size = array_length, max_rand = number_of_gates)
-                    # with for_(idx, 0, idx < number_of_gates * array_length, idx + number_of_gates):
-                    #     self.generate_random_qua_integer_benchmark(rand_val, number_of_gates)
-                    #     assign(temp_idx, idx + rand_val)
-                    #     assign(self.idx_vec_shuffle_gates_qua[temp_idx], 1)
-                    #     assign(temp_idx, ((self.number_of_gates_qua * (array_length_qua-1)) - idx + rand_val))
-                    #     assign(self.idx_vec_shuffle_gates_qua_reversed[temp_idx], 1)
+                # Create random vector
+                self.create_random_qua_vector(jdx = jdx, vec_size = array_length, max_rand = number_of_gates, n = n)
+                self.reverse_qua_vector(idx = array_length, jdx = jdx)
 
                 # sequence
-                assign(idx_counts_qua, 0)
                 with for_(idx, 0, idx < array_length, idx + self.dN):
                     assign(sequenceState, IO1)
                     assign(self.tRF_qua, (self.tRF))
                     #assign(self.wait_ref, (2 * self.tRF_qua * idx))
                     self.reverse_qua_vector(idx = idx,jdx = jdx)
                     assign(self.total_rf_wait, 4)
-                    assign(self.total_mw_wait, 4)
+                    assign(self.total_mw_wait, 0)
                     with if_(sequenceState == 0):
                         # signal
                         # polarize (@fMW_res @ fRF_res)
@@ -2676,7 +2683,7 @@ class GUI_OPX():
                         # measure signal
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts[idx_vec_qua[idx_counts_qua]], counts[idx_vec_qua[idx_counts_qua]] + counts_tmp)
+                        assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # reference
@@ -2726,7 +2733,7 @@ class GUI_OPX():
                         # measure signal
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts_ref[idx_vec_qua[idx_counts_qua]], counts_ref[idx_vec_qua[idx_counts_qua]] + counts_tmp)
+                        assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
                         # reference 2
@@ -2759,7 +2766,13 @@ class GUI_OPX():
                         with else_():
                             play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
                             if self.benchmark_switch_flag:
+                                update_frequency("MW", (self.fMW_res + self.fMW_2nd_res) / 2)
+                                play("xPulse" * amp(self.mw_P_amp3), "MW", duration=(self.t_mw3 / 2))
+                                play("-xPulse" * amp(self.mw_P_amp3), "MW", duration=(self.t_mw3 / 2))
                                 wait(self.total_mw_wait)
+                                update_frequency("MW", (self.fMW_res + self.fMW_2nd_res) / 2)
+                                play("-xPulse" * amp(self.mw_P_amp3), "MW", duration=(self.t_mw3 / 2))
+                                play("xPulse" * amp(self.mw_P_amp3), "MW", duration=(self.t_mw3 / 2))
                             else:
                                 wait(self.total_rf_wait)
                             play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
@@ -6148,9 +6161,9 @@ class GUI_OPX():
                         # play MW for time t
                         #update_frequency("MW", 0)
                         update_frequency("MW", self.fMW_1st_res)
-                        ## play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
-                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
+                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
                         # update_frequency("MW", self.fMW_2nd_res)
                         # ## play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
                         # play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
