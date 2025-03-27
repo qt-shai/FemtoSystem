@@ -228,7 +228,7 @@ class GUI_OPX():
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
         self.dN = 10
-        self.back_freq = 2.597
+        self.back_freq = self.mw_2ndfreq_resonance
         self.n_measure = 6
         self.MW_dif = 3  # [MHz]
         self.Wait_time_benchmark = 10
@@ -246,6 +246,7 @@ class GUI_OPX():
         self.StopFetch = True
 
         self.expNotes = "_"
+        self.added_comments = None
 
         # load class parameters from XML
         self.update_from_xml()
@@ -438,7 +439,7 @@ class GUI_OPX():
         print("Set dN to: " + str(sender.dN))
 
     def Update_back_freq(sender, app_data, user_data):
-        sender.back_freq = (int(user_data))
+        sender.back_freq = (float(user_data))
         time.sleep(0.001)
         dpg.set_value(item="in_back_freq", value=sender.back_freq)
         print("Set back_freq to: " + str(sender.back_freq))
@@ -2517,6 +2518,7 @@ class GUI_OPX():
             n_st = declare_stream()  # stream iteration number
 
             counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_tmp_squared = declare(int)
             counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
             counts_loop_size = array_length // self.dN
 
@@ -2635,8 +2637,8 @@ class GUI_OPX():
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
-                        assign(counts_tmp, counts_tmp * counts_tmp)
-                        assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp)
+                        assign(counts_tmp_squared, counts_tmp * counts_tmp)
+                        assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp_squared)
                         align()
 
                         # reference
@@ -6771,7 +6773,7 @@ class GUI_OPX():
             self.Y_vec_ref2 = self.ref_signal2 / (self.TcounterPulsed * 1e-9) / 1e3
             self.benchmark_number_order = self.number_order
             self.benchmark_reverse_number_order = self.reverse_number_order
-            self.Y_vec_squared = self.signal_squared/ (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_squared = self.signal_squared/ ((self.TcounterPulsed * 1e-9)*(self.TcounterPulsed * 1e-9)) / 1e6
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
         if self.exp == Experiment.testCrap:  # freq or time oe something else
@@ -7195,7 +7197,10 @@ class GUI_OPX():
                 os.makedirs(folder_path)
             if self.exp == Experiment.RandomBenchmark:
                 #self.added_comments = dpg.get_value("inTxtOPX_expText")
-                fileName = os.path.join(folder_path, self.timeStamp + self.exp.name + self.added_comments)
+                if self.added_comments is not None:
+                    fileName = os.path.join(folder_path, self.timeStamp + self.exp.name + '_' + self.added_comments)
+                else:
+                    fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
             else:
                 fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
 
@@ -8019,7 +8024,8 @@ class GUI_OPX():
         # dpg.set_value("text item", f"Mouse Button ID: {app_data}")
         self.expNotes = sender
         self.HW.camera.imageNotes = sender
-        self.added_comments = sender
+        if self.added_comments is not None:
+            self.added_comments = sender
 
     def saveToCSV(self, file_name, data):
         print("Saving to CSV")
