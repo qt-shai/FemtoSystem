@@ -215,6 +215,9 @@ class GUI_OPX():
 
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
+        # G2 correlation width
+        self.correlation_width = 123 # [nsec]
+
         # Graph parameters
         self.NumOfPoints = 800  # to include in counter Graph
         self.reset_data_val()
@@ -388,6 +391,12 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_n_avg", value=sender.n_avg)
         print("Set n_avg to: " + str(sender.n_avg))
+
+    def UpdateCorrelationWidth(sender, app_data, user_data):
+        sender.correlation_width = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="inInt_G2_correlation_width", value=sender.correlation_width)
+        print("Set correlation_width to: " + str(sender.correlation_width))
 
     def UpdateN_tracking_search(sender, app_data, user_data):
         sender.N_tracking_search = (int(user_data))
@@ -701,8 +710,7 @@ class GUI_OPX():
                                   callback=self.UpdateN_CPMG, default_value=self.n_CPMG, min_value=0, max_value=50000, step=1)
 
                 dpg.add_text(default_value="N avg", parent="Repetitions_Controls", tag="text_n_avg", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_n_avg", indent=-1, parent="Repetitions_Controls", width=item_width, callback=self.UpdateNavg,
-                                  default_value=self.n_avg, min_value=0, max_value=50000, step=1)
+                dpg.add_input_int(label="", tag="inInt_n_avg", indent=-1, parent="Repetitions_Controls", width=item_width, callback=self.UpdateNavg, default_value=self.n_avg, min_value=0, max_value=50000, step=1)
                 dpg.add_text(default_value="TrackingThreshold", parent="Repetitions_Controls", tag="text_TrackingThreshold", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_TrackingThreshold", indent=-1, parent="Repetitions_Controls", format="%.2f",
                                      width=item_width, callback=self.Update_TrackingThreshold, default_value=self.TrackingThreshold, min_value=0,
@@ -745,7 +753,9 @@ class GUI_OPX():
             dpg.add_button(label="Start Electron Coherence", parent="Buttons_Controls", tag="btnOPX_StartElectronCoherence", callback=self.btnStartElectron_Coherence, indent=-1, width=_width)
             dpg.add_button(label="Start population gate tomography", parent="Buttons_Controls", tag="btnOPX_PopulationGateTomography", callback=self.btnStartPopulateGateTomography, indent=-1, width=_width)
             dpg.add_button(label="Start Entanglement state tomography", parent="Buttons_Controls", tag="btnOPX_EntanglementStateTomography", callback=self.btnStartStateTomography, indent=-1, width=_width)
-            dpg.add_button(label="Start G2", parent="Buttons_Controls", tag="btnOPX_G2", callback=self.btnStartG2, indent=-1, width=_width)
+            dpg.add_group(tag="G2_Controls", parent="Buttons_Controls", horizontal=True) 
+            dpg.add_button(label="Start G2", parent="G2_Controls", tag="btnOPX_G2", callback=self.btnStartG2, indent=-1, width=200)
+            dpg.add_input_int(label="", tag="inInt_G2_correlation_width", indent=-1, parent="G2_Controls", width=150, callback=self.UpdateCorrelationWidth, default_value=self.correlation_width, min_value=1, max_value=50000, step=1)
 
             dpg.bind_item_theme(item="Params_Controls", theme="NewTheme")
             dpg.bind_item_theme(item="btnOPX_StartCounter", theme="btnYellowTheme")
@@ -2165,7 +2175,8 @@ class GUI_OPX():
     def g2_raw_QUA(self):
         # Scan Parameters
         n_avg = self.n_avg
-        correlation_width = 200*self.u.ns
+        # res = self.GetItemsVal(["inInt_G2_correlation_width"])
+        correlation_width = self.correlation_width*self.u.ns
         self.correlation_width = int(correlation_width)
         expected_counts = 150
         N = 1000 # every N cycles it tries to update the stream
@@ -4881,6 +4892,7 @@ class GUI_OPX():
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
 
     def FetchData(self):
+        self.pgm_end = False
         self.refSignal = 0
         if self.bEnableSignalIntensityCorrection:  # prepare search maxI thread
             self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
@@ -5010,7 +5022,12 @@ class GUI_OPX():
                 lastTime = datetime.now().hour*3600+datetime.now().minute*60+datetime.now().second+datetime.now().microsecond/1e6
 
             if self.StopFetch:
-                break
+                # self.btnSave(folder= "Q:/QT-Quantum_Optic_Lab/expData/G2/")
+                pass
+        
+        if not(self.StopFetch):
+            self.pgm_end = True
+            self.btnStop()
         
     def GlobalFetchData(self):
         self.lock.acquire()
@@ -5455,16 +5472,20 @@ class GUI_OPX():
                 dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
 
             self.GUI_ParametersControl(True)
-            if not self.exp == Experiment.SCAN:
-                if (self.fetchTh.is_alive()):
-                    self.fetchTh.join()
-            else:
-                dpg.enable_item("btnOPX_StartScan")
 
             if (self.job):
                 self.StopJob(self.job, self.qm)
+                
+            if not self.exp == Experiment.SCAN:
+                if (self.fetchTh.is_alive()):
+                    if not(self.pgm_end):
+                        self.fetchTh.join()
+            else:
+                dpg.enable_item("btnOPX_StartScan")
 
-            if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
+            
+
+            if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN or self.exp == Experiment.G2:
                 pass
             else:
                 self.mwModule.Get_RF_state()
@@ -5498,28 +5519,28 @@ class GUI_OPX():
             self.saveToCSV(fileName + ".csv", RawData_to_save)
 
             # save data as image (using matplotlib)
-            if folder == None:
-                width = 1920  # Set the width of the image
-                height = 1080  # Set the height of the image
-                # Create a blank figure with the specified width and height, Convert width and height to inches
-                fig, ax = plt.subplots(figsize=(width / 100, height / 100), visible=True)
-                plt.plot(self.X_vec, self.Y_vec, label='data')  # Plot Y_vec
-                plt.plot(self.X_vec, self.Y_vec_ref, label='ref')  # Plot reference
+            # if folder == None:
+            #     width = 1920  # Set the width of the image
+            #     height = 1080  # Set the height of the image
+            #     # Create a blank figure with the specified width and height, Convert width and height to inches
+            #     fig, ax = plt.subplots(figsize=(width / 100, height / 100), visible=True)
+            #     plt.plot(self.X_vec, self.Y_vec, label='data')  # Plot Y_vec
+            #     plt.plot(self.X_vec, self.Y_vec_ref, label='ref')  # Plot reference
 
-                # Adjust axes limits (optional)
-                # ax.set_xlim(0, 10)
-                # ax.set_ylim(-1, 1)
+            #     # Adjust axes limits (optional)
+            #     # ax.set_xlim(0, 10)
+            #     # ax.set_ylim(-1, 1)
 
-                # Add legend
-                plt.legend()
+            #     # Add legend
+            #     plt.legend()
 
-                # Save the figure as a PNG file
-                plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
+            #     # Save the figure as a PNG file
+            #     plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
 
-                # close figure
-                plt.close(fig)
+            #     # close figure
+            #     plt.close(fig)
 
-                dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
+            dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
 
 
         except Exception as ex:
