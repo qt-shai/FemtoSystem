@@ -91,11 +91,6 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
-        self.dN = 10
-        self.n_measure = 6
-        self.MW_dif = 3 # [MHz]
-        self.Wait_time_benchmark = 10
-        self.t_wait_benchmark = 0
         self.fMW_1 = 0
         self.limit = None
         self.verbose:bool = False
@@ -232,6 +227,14 @@ class GUI_OPX():
 
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
+        self.dN = 10
+        self.back_freq = 2.597
+        self.n_measure = 6
+        self.MW_dif = 3  # [MHz]
+        self.Wait_time_benchmark = 10
+        self.t_wait_benchmark = 0
+        self.gate_number = 0
+
         # Graph parameters
         self.NumOfPoints = 800  # to include in counter Graph
         self.reset_data_val()
@@ -248,6 +251,7 @@ class GUI_OPX():
         self.update_from_xml()
         self.connect_to_QM_OPX = False
         self.benchmark_switch_flag = True
+        self.benchmark_one_gate_only = True
         self.bScanChkbox = False
 
         self.chkbox_close_all_qm = True
@@ -432,6 +436,18 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="indN", value=sender.dN)
         print("Set dN to: " + str(sender.dN))
+
+    def Update_back_freq(sender, app_data, user_data):
+        sender.back_freq = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="in_back_freq", value=sender.back_freq)
+        print("Set back_freq to: " + str(sender.back_freq))
+
+    def Update_gate_number(sender, app_data, user_data):
+        sender.gate_number = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="ind_gate_number", value=sender.gate_number)
+        print("Set gate_number to: " + str(sender.gate_number))
 
     def UpdateN_tracking_search(sender, app_data, user_data):
         sender.N_tracking_search = (int(user_data))
@@ -789,6 +805,16 @@ class GUI_OPX():
                 dpg.add_input_int(label="", tag="indN", indent=-1, parent="Benchmark_group",
                                   width=item_width, callback=self.UpdatedN,
                                   default_value=self.dN, min_value=0, max_value=100, step=1)
+                dpg.add_text(default_value="back freq [GHz]", parent="Benchmark_group", tag="back_freq_benchmark",
+                             indent=-1)
+                dpg.add_input_double(label="", tag="in_back_freq", indent=-1, parent="Benchmark_group",
+                                     format="%.9f", width=item_width, callback=self.Update_back_freq,
+                                     default_value=self.back_freq, min_value=0.001, max_value=6, step=0.001)
+                dpg.add_text(default_value="gate_number", parent="Benchmark_group", tag="gate_number_benchmark", indent=-1)
+                dpg.add_input_int(label="", tag="ind_gate_number", indent=-1, parent="Benchmark_group",
+                                  width=item_width, callback=self.Update_gate_number,
+                                  default_value=self.gate_number, min_value=0, max_value=9, step=1)
+
 
                 dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
                 dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
@@ -804,6 +830,8 @@ class GUI_OPX():
                 dpg.add_checkbox(label="Two Qubit Benchmark", tag="chkbox_no_gate_benchmark", parent="chkbox_group", indent=-1,
                                  callback=self.Update_benchmark_switch_flag,
                                  default_value=self.benchmark_switch_flag)
+                dpg.add_checkbox(label="One Gate Only Benchmark", tag="chkbox_single_gate_benchmark", parent="chkbox_group", indent=-1,
+                                 callback=self.Update_benchmark_one_gate_only,default_value=self.benchmark_one_gate_only)
 
                 dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
                               horizontal=False)  # parent="Params_Controls",horizontal=False)
@@ -1466,6 +1494,12 @@ class GUI_OPX():
         dpg.set_value(item="chkbox_no_gate_benchmark", value=sender.benchmark_switch_flag)
         print("Set chkbox_no_gate_benchmark to: " + str(sender.benchmark_switch_flag))
 
+    def Update_benchmark_one_gate_only(sender, app_data, user_data):
+        sender.benchmark_one_gate_only = user_data
+        time.sleep(0.001)
+        dpg.set_value(item="chkbox_single_gate_benchmark", value=sender.benchmark_one_gate_only)
+        print("Set chkbox_single_gate_benchmark to: " + str(sender.benchmark_one_gate_only))
+
     def Update_bX_Scan(sender, app_data, user_data):
         sender.b_Scan[0] = user_data
         time.sleep(0.001)
@@ -1575,6 +1609,8 @@ class GUI_OPX():
         self.Y_vec_ref = []
         self.Y_vec_ref2 = []
         self.Y_resCalculated = []
+        self.benchmark_number_order = []
+        self.benchmark_reverse_number_order = []
         self.iteration = 0
         self.counter = -10
 
@@ -2377,6 +2413,13 @@ class GUI_OPX():
         random_qua.set_seed(n)
         with for_(jdx, 0,jdx < vec_size, jdx+1):
             assign(self.idx_vec_ini_shaffle_qua[jdx], random_qua.rand_int(max_rand))
+            save(self.idx_vec_ini_shaffle_qua[jdx], self.number_order_st)
+
+    def create_non_random_qua_vector(self, jdx, vec_size, max_rand, n):
+        assign(self.one_gate_only_values_qua, self.gate_number)
+        with for_(jdx, 0,jdx < vec_size, jdx+1):
+            assign(self.idx_vec_ini_shaffle_qua[jdx], self.one_gate_only_values_qua)
+            save(self.idx_vec_ini_shaffle_qua[jdx], self.number_order_st)
 
     def generate_random_qua_integer_benchmark(self, rand_val, number_of_gates):
         """Generates a random integer from 0 to 23 in QUA"""
@@ -2451,13 +2494,8 @@ class GUI_OPX():
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
             self.reverse_rf_amp = declare(int)
-
-            rand_val = declare(int)
             self.temp_idx = declare(int)
-            # self.number_of_gates_qua = declare(int)
-            # assign(self.number_of_gates_qua, number_of_gates)
-            # array_length_qua = declare(int)
-            # assign(array_length_qua, array_length)
+            self.one_gate_only_values_qua = declare(int)
 
             self.tRF_qua = declare(int)
             self.t_mw_qua = declare(int)
@@ -2506,6 +2544,8 @@ class GUI_OPX():
             counts_st = declare_stream()  # experiment signal
             counts_ref_st = declare_stream()  # reference signal
             counts_ref_st2 = declare_stream()  # reference signal
+            self.number_order_st = declare_stream()
+            self.reverse_number_order_st = declare_stream()
 
             # set RF frequency to resonance
             update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -2519,7 +2559,10 @@ class GUI_OPX():
                     assign(counts_ref2[idx], 0)
 
                 # Create random vector
-                self.create_random_qua_vector(jdx = jdx, vec_size = array_length, max_rand = number_of_gates, n = n)
+                if self.benchmark_one_gate_only:
+                    self.create_non_random_qua_vector(jdx = jdx, vec_size = array_length, max_rand = number_of_gates, n = n)
+                else:
+                    self.create_random_qua_vector(jdx = jdx, vec_size = array_length, max_rand = number_of_gates, n = n)
 
                 # sequence
                 with for_(idx, 0, idx < array_length, idx + self.dN):
@@ -2617,16 +2660,16 @@ class GUI_OPX():
                         with else_():
                             if self.benchmark_switch_flag:
                                 #Correct
-                                wait(self.total_mw_wait)
+                                #wait(self.total_mw_wait)
                                 # Test run
-                                # play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
-                                # align("RF", "MW")
-                                # wait(t_wait)
-                                # self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua,
-                                #                                             self.idx_vec_ini_shaffle_qua_reversed, n,
-                                #                                             idx, keep_phase = True)
-                                # align("MW", "RF")
-                                # play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                align("RF", "MW")
+                                wait(t_wait)
+                                self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua,
+                                                                            self.idx_vec_ini_shaffle_qua_reversed, n,
+                                                                            idx, keep_phase = True)
+                                align("MW", "RF")
+                                play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
                             else:
                                 wait(self.total_rf_wait)
                         wait(t_wait)
@@ -2722,6 +2765,10 @@ class GUI_OPX():
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
+                    with if_(idx == array_length - 1):
+                        with for_(jdx, 0, jdx < idx, jdx + 1):
+                            save(self.idx_vec_ini_shaffle_qua_reversed[jdx], self.reverse_number_order_st)
+
                 # tracking signal
                 with if_(runTracking):
                     assign(track_idx, track_idx + 1)  # step up tracking counter
@@ -2755,6 +2802,8 @@ class GUI_OPX():
                 counts_ref_st2.buffer(len(self.t_vec)).average().save("counts_ref2")
                 n_st.save("iteration")
                 tracking_signal_st.save("tracking_ref")
+                self.number_order_st.buffer(len(self.t_vec)).average().save("number_order")
+                self.reverse_number_order_st.buffer(len(self.t_vec)).average().save("reverse_number_order")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -6449,7 +6498,7 @@ class GUI_OPX():
             self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
         elif self.exp == Experiment.RandomBenchmark:
             #If nothing else get added you can put it in with counter
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration", "tracking_ref"], mode="live")
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration", "tracking_ref", "number_order", "reverse_number_order"], mode="live")
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -6587,7 +6636,7 @@ class GUI_OPX():
         elif self.exp == Experiment.G2:
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
         elif self.exp == Experiment.RandomBenchmark:
-            self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
+            self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal, self.number_order, self.reverse_number_order = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -6709,20 +6758,9 @@ class GUI_OPX():
             self.Y_vec = self.signal/ (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref = self.ref_signal/ (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref2 = self.ref_signal2 / (self.TcounterPulsed * 1e-9) / 1e3
+            self.benchmark_number_order = self.number_order
+            self.benchmark_reverse_number_order = self.reverse_number_order
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
-        #     # if len(self.X_vec) != 0:
-        #     #     offset = self.X_vec[-1]
-        #     #     self.adjusted_iteration = self.iteration[len(self.X_vec):]
-        #     #     self.adjusted_counts = self.benchmark_Signal[len(self.Y_vec):]
-        #     #     self.X_vec.extend(self.adjusted_iteration)
-        #     #     self.Y_vec.extend(self.adjusted_counts)
-        #     # else:
-        #     #     self.X_vec.extend(self.iteration)
-        #     #     self.Y_vec.extend(self.benchmark_Signal)
-        #     self.X_vec.extend(self.iteration)
-        #     self.Y_vec.extend(self.benchmark_Signal)
-        #         #self.X_vec = self.iteration
-        #         #self.Y_vec = self.benchmark_Signal[0]
 
         if self.exp == Experiment.testCrap:  # freq or time oe something else
             ## todo add switch per test for correct normalization
@@ -7149,7 +7187,10 @@ class GUI_OPX():
             self.writeParametersToXML(fileName + ".xml")
 
             # raw data
-            RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
+            if self.exp == Experiment.RandomBenchmark:
+                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Gate_Order': self.benchmark_number_order, 'Reverse_Gate_order': self.benchmark_reverse_number_order}
+            else:
+                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
 
             self.saveToCSV(fileName + ".csv", RawData_to_save)
