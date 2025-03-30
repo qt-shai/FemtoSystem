@@ -93,7 +93,6 @@ class Experiment(Enum):
     PLE = 21 # Photoluminescence excitation
     EXTERNAL_FREQUENCY_SCAN = 22
     AWG_FP_SCAN = 23
-    PLE = 24  # Photoluminescence excitation
 
 class queried_plane(Enum):
     XY = 0
@@ -1021,10 +1020,7 @@ class GUI_OPX():
                                callback=self.btnStartODMR_CW, indent=-1, width=_width)
                 dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR",
                                callback=self.btnStartPulsedODMR, indent=-1, width=_width)
-
                 dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
-                dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
-                dpg.add_button(label="PLE", parent="Buttons_Controls", tag="btnPLE", callback=self.btnStartPLE, indent=-1, width=_width)
                 dpg.add_button(label="Ext. Frequency Scan", parent="Buttons_Controls", tag="btnExternalFrequencyScan",
                                callback=self.btnStartExternalFrequencyScan,
                                indent=-1, width=_width)
@@ -1032,14 +1028,10 @@ class GUI_OPX():
                                callback=self.btnStartAWG_FP_SCAN,
                                indent=-1, width=_width)
                 dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
-                dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield",
-                               callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
                 dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot",
                                callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
                 dpg.add_button(label="PLE", parent="Buttons_Controls", tag="btnPLE", callback=self.btnStartPLE,
                                indent=-1, width=_width)
-                dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI",
-                               callback=self.btnStartRABI, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
                                callback=self.btnStartNuclearRABI, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR",
