@@ -48,6 +48,7 @@ packages = [
     "moku",
     "zeroconf",
     "nidaqmx",
+    "qm_saas",
     "C:\\SmarAct\\MCS2\\SDK\\Python\\packages\\smaract.ctl-1.4.3.zip",
     "C:\\SmarAct\\MCS2\\SDK\\Python\\packages\\smaract.hsdr-1.0.0.zip",
     "C:\\SmarAct\\MCS2\\SDK\\Python\\packages\\smaract.si-2.1.6.zip",

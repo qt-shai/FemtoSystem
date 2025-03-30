@@ -16,7 +16,8 @@ class QUAConfigBase(ABC):
         AMPLITUDE_EOM = "Amplitude_EOM"
         RESONANT_LASER = "Resonant_Laser"
         AWG_TRigger = "AWG_Trigger"
-        
+        BLINDING = "Blinding"
+
     def __init__(self):
         # connect     
         self.system_name: Optional[str] = None
@@ -32,6 +33,7 @@ class QUAConfigBase(ABC):
         self.minimal_meas_len = 16  # in ns
         self.long_meas_len = 5e3  # in ns
         self.very_long_meas_len = 25e3  # in ns
+        self.blinding_length = 24 # in ns
 
         # MW parameters
         self.mw_amp_NV = 0.5  # in units of volts
@@ -91,7 +93,7 @@ class QUAConfigBase(ABC):
         pass
 
     def get_pulses(self) -> Dict[str, Any]:
-        return {
+        pulses =  {
             "const_pulse_single": {
                 "operation": "control",
                 "length": self.rf_length,  # in ns
@@ -155,6 +157,11 @@ class QUAConfigBase(ABC):
                 "length": self.switch_len,
                 "digital_marker": "ON",
             },
+            "blinding_ON": {
+                "operation": "control",
+                "length": self.blinding_length,
+                "digital_marker": "ON",
+            },
             "readout_pulse": {
                 "operation": "measurement",
                 "length": self.meas_len,
@@ -178,8 +185,12 @@ class QUAConfigBase(ABC):
                 "length": self.very_long_meas_len,
                 "digital_marker": "ON",
                 "waveforms": {"single": "zero_wf"},
-            },                
+            },
         }
+        pulses.update(self.get_extra_pulses_16ns())
+        pulses.update(self.get_extra_pulses_32ns())
+        pulses.update(self.get_extra_pulses_left())
+        return pulses
 
     def get_waveforms(self) -> Dict[str, Any]:
         return {
@@ -192,11 +203,15 @@ class QUAConfigBase(ABC):
         }
 
     def get_digital_waveforms(self) -> Dict[str, Any]:
-        return {
+        waveforms = {
             "ON": {"samples": [(1, 0)]},  # [(on/off, ns)]
-            "test": {"samples": [(1, 4), (0, 8), (1, 12)]}, # [(on/off, ns)] arbitrary example digital waveform total length /4 shoult be integer
+            "test": {"samples": [(1, 4), (0, 8), (1, 12)]}, # [(on/off, ns)] arbitrary example digital waveform total length /4 should be integer
             "OFF": {"samples": [(0, 0)]},  # [(on/off, ns)]
         }
+        waveforms.update(self.get_extra_digital_waveforms_16ns()) #For pulses smaller than 16ns
+        waveforms.update(self.get_extra_digital_waveforms_32ns()) #For pulses longer than 16ns
+        waveforms.update(self.get_extra_digital_waveform_left())
+        return waveforms
 
     def get_mixers(self) -> Dict[str, Any]:
         return {
@@ -216,3 +231,85 @@ class QUAConfigBase(ABC):
             "digital_waveforms": self.get_digital_waveforms(),
             "mixers": self.get_mixers(),
         }
+
+    def get_extra_digital_waveforms_16ns(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(16):
+            wf_key = f"d_wf_{t}"
+            if t == 0:
+                waveform = [(0, 16)]
+            else:
+                # 0 -> (16 - t) at state 0
+                # (16 - t) -> 16 at state 1
+                waveform = [
+                    (1, t),
+                    (0, 16),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
+    def get_extra_digital_waveforms_32ns(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(4):
+            wf_key = f"d_wf2_{t}"
+            if t == 0:
+                waveform = [(0, 32)]
+            else:
+                waveform = [
+                    (1, t),
+                    (0, 32),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
+    def get_extra_digital_waveform_left(self) -> Dict[str, Any]:
+        waveforms = {}
+        for t in range(16):
+            wf_key = f"d_wf_left_{t}"
+            if t == 0:
+                waveform = [(0, 16)]
+            else:
+                # 0 -> (16 - t) at state 0
+                # (16 - t) -> 16 at state 1
+                waveform = [
+                    (0, 16 - t),
+                    (1, 16),
+                ]
+            waveforms[wf_key] = {"samples": waveform}
+        return waveforms
+
+    def get_extra_pulses_16ns(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(16):
+            wf_key = f"d_wf_{t}"
+            pulse_key = f"d_pulse_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 16,
+                "digital_marker": wf_key,
+            }
+        return pulses
+
+    def get_extra_pulses_32ns(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(4):
+            wf_key = f"d_wf2_{t}"
+            pulse_key = f"d_pulse2_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 32,
+                "digital_marker": wf_key,
+            }
+        return pulses
+
+    def get_extra_pulses_left(self) -> Dict[str, Any]:
+        pulses = {}
+        for t in range(16):
+            wf_key = f"d_wf_left_{t}"
+            pulse_key = f"d_pulse_left_{t}"
+            pulses[pulse_key] = {
+                "operation": "control",
+                "length": 16,
+                "digital_marker": wf_key,
+            }
+        return pulses

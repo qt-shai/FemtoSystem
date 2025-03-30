@@ -42,6 +42,7 @@ class GUIKeysight33500B:
             f"column_offset_{self.unique_id}",
             f"column_duty_cycle_{self.unique_id}",
             f"column_phase_{self.unique_id}",
+            f"column_phase_{self.unique_id}",
             f"column_output_{self.unique_id}",
         ]
 

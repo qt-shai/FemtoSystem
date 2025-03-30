@@ -26,6 +26,7 @@ class GUIArduino:
         self.continuous_read_active = False
         self.arduino = arduino
         self.measurement_data: Optional[List[float]] = None
+        self.window_tag = "ArduinoWin"
         if arduino is None:
             arduino = ArduinoController(address="COM7")
             self.arduino = arduino
@@ -44,7 +45,8 @@ class GUIArduino:
         t.start()
 
         # Create GUI window
-        with dpg.window(tag="Arduino_Win", label="Arduino Communication", width=460, height=420, pos=[30, 30],collapsed=True):
+        with dpg.window(tag=self.window_tag, label="Arduino Communication", width=650, height=800):
+            dpg.add_text("Arduino Communication Panel", color=(0, 255, 0))
 
             # Input Fields
             with dpg.group(horizontal=True):

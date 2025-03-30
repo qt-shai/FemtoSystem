@@ -592,6 +592,18 @@ def create_gaussian_vector(nx: int, center: float = 2, width: float = 4) -> np.n
     gaussian = np.exp(-((x - center_value) ** 2) / (2 * (width_value ** 2)))  # Gaussian formula
     return gaussian
 
+def create_counts_vector(vector_size: int) -> np.ndarray:
+    # Define the valid indices where 1 can appear:
+    valid_indices = list(range(0, 26)) + list(range(46, 72)) + list(range(71, 96))
+
+    # Initialize a 2D NumPy array of zeros (num_vectors rows, k columns)
+    counts = np.zeros((vector_size), dtype=int)
+    if np.random.rand() < 0.5:
+        # Pick one random valid index
+        i = np.random.choice(valid_indices)
+        counts[i] = 1
+    return counts
+
 def reshape_and_pad_scan_counts(scan_counts: np.ndarray, Nx: int, Ny: int, Nz: int) -> np.ndarray:
     """
     Reshape and pad a partially filled 1D array into a 3D array with dimensions (Nx, Ny, Nz).
