@@ -105,10 +105,22 @@ class QUAConfigBase(ABC):
                 "waveforms": {"I": "cw_wf", "Q": "zero_wf"},  # 'cw_wf' is analog waveform name
                 "digital_marker": "ON",  # 'ON' is digital waveform name
             },
+            "-x_pulse": {
+                "operation": "control",
+                "length": self.mw_len_NV,
+                "waveforms": {"I": "-cw_wf", "Q": "zero_wf"},  # '-cw_wf' is analog waveform name
+                "digital_marker": "ON",  # 'ON' is digital waveform name
+            },
             "y_pulse": {
                 "operation": "control",
                 "length": self.mw_len_NV,
                 "waveforms": {"I": "zero_wf", "Q": "cw_wf"},  # 'cw_wf' is analog waveform name
+                "digital_marker": "ON",  # 'ON' is digital waveform name
+            },
+            "-y_pulse": {
+                "operation": "control",
+                "length": self.mw_len_NV,
+                "waveforms": {"I": "zero_wf", "Q": "-cw_wf"},  # 'cw_wf' is analog waveform name
                 "digital_marker": "ON",  # 'ON' is digital waveform name
             },
             "const_pulse": {
@@ -196,6 +208,7 @@ class QUAConfigBase(ABC):
         return {
             "rf_const_wf": {"type": "constant", "sample": self.rf_amp},
             "cw_wf": {"type": "constant", "sample": self.mw_amp_NV},
+            "-cw_wf": {"type": "constant", "sample": -self.mw_amp_NV},
             "pi_wf": {"type": "constant", "sample": self.pi_amp_NV},
             "pi_half_wf": {"type": "constant", "sample": self.pi_half_amp_NV},
             "-pi_half_wf": {"type": "constant", "sample": -self.pi_half_amp_NV},

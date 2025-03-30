@@ -12,6 +12,7 @@ import imgui
 import numpy as np
 from OpenGL.GL import glGetString
 from imgui.integrations.glfw import GlfwRenderer
+from numba.core.utils import benchmark
 from pyglet.gl import GL_VERSION, glClearColor, glClear, GL_COLOR_BUFFER_BIT
 from PIL import Image
 
@@ -731,7 +732,7 @@ class PyGuiOverlay(Layer):
 
                 if instrument == Instruments.ROHDE_SCHWARZ:
                     pass
-                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(device.simulation)
+                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
                     # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
                     # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
 

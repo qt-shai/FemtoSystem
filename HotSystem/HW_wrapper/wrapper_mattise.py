@@ -1,6 +1,4 @@
 from typing import Optional
-
-import numpy as np
 from pylablib.devices import Sirah
 
 import tkinter as tk
