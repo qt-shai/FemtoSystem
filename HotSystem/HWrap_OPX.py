@@ -639,6 +639,7 @@ class GUI_OPX():
 
     # GUI controls
     def GetWindowSize(self):
+        # Move to Common
         monitor = glfw.get_primary_monitor()  # Get the primary monitor
         mode = glfw.get_video_mode(monitor)  # Get the physical size of the monitor
         width, height = mode.size
@@ -671,7 +672,7 @@ class GUI_OPX():
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
         self.set_all_themes()
 
-        dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1,
+        dpg.add_window(label=self.window_tag, tag=self.window_tag,no_title_bar=True, height=-1, width=-1,
                        pos=[int(pos[0]), int(pos[1])])
         dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
         dpg.add_plot(label="Graph", width=int(win_size[0]), height=int(win_size[1]), crosshairs=True, tag="graphXY",
@@ -7732,17 +7733,17 @@ class GUI_OPX():
         self.Plot_Loaded_Scan(use_fast_rgb=True)
 
     def Plot_data(self, data, bLoad=False):
-        np_array = np.array(data)
+        np_array = np.array(data) #numpy array of the csv data
         # Nx = int(np_array[1,10])
         # Ny = int(np_array[1,11])
         # Nz = int(np_array[1,12])
-        allPoints = np_array[0:, 3]
-        self.Xv = np_array[0:, 4].astype(float) / 1e6
-        self.Yv = np_array[0:, 5].astype(float) / 1e6
-        self.Zv = np_array[0:, 6].astype(float) / 1e6
+        allPoints = np_array[0:, 3] #Intensity
+        self.Xv = np_array[0:, 4].astype(float) / 1e6 # x data of the Smaract values from the csv
+        self.Yv = np_array[0:, 5].astype(float) / 1e6 # y data of the Smaract values from the csv
+        self.Zv = np_array[0:, 6].astype(float) / 1e6 # z data of the Smaract values from the csv
 
         allPoints = allPoints.astype(float)  # intensities
-        Nx = int(round((self.Xv[-1] - self.Xv[0]) / (self.Xv[1] - self.Xv[0])) + 1)
+        Nx = int(round((self.Xv[-1] - self.Xv[0]) / (self.Xv[1] - self.Xv[0])) + 1) #Total range divided by step size
         if self.Yv[Nx] - self.Yv[0] == 0:
             if bLoad:
                 dpg.set_value("Scan_Message", "Stopped in the middle of a frame")

@@ -74,3 +74,4 @@ class GUI_CLD1011LP():  # todo1: support several devices
             self.laser.disable_tec()
         else:
             self.laser.enable_tec()
+
