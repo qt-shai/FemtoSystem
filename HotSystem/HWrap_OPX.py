@@ -3776,7 +3776,7 @@ class GUI_OPX():
         site_state = QUA varible
     '''
     def Nuclear_Pol_ESR_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):  # NUCLEAR_POL_ESR
-            self.Entanglement_gate_tomography_QUA_PGM(Generate_QUA_sequance=True)
+        self.Entanglement_gate_tomography_QUA_PGM(Generate_QUA_sequance=True)
         if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
             # for i in range(self.n_of_awg_changes):
             #     self.change_AWG_freq(channel = 1)
