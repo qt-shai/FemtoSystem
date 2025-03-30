@@ -68,6 +68,7 @@ class Experiment(Enum):
     TIME_BIN_ENTANGLEMENT = 20
     PLE = 21 # Photoluminescence excitation
     EXTERNAL_FREQUENCY_SCAN = 22
+    AWG_FP_SCAN = 23
 
 class queried_plane(Enum):
     XY = 0
@@ -97,6 +98,7 @@ class GUI_OPX():
         self.scan_intensities = None
         self.X_vec = None
         self.Y_vec = None
+        self.Y_vec_aggregated: list[list[float]] = []
         self.scan_default_sleep_time: float = 5e-3
         self.initial_scan_Location: List[float] = []
         self.iteration: int = 0
@@ -255,7 +257,7 @@ class GUI_OPX():
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
         # Graph parameters
-        self.NumOfPoints = 5000  # to include in counter Graph
+        self.NumOfPoints = 1000  # to include in counter Graph
         self.reset_data_val()
 
         self.Xv = []
@@ -822,7 +824,11 @@ class GUI_OPX():
                 dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
                 dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
                 dpg.add_button(label="PLE", parent="Buttons_Controls", tag="btnPLE", callback=self.btnStartPLE, indent=-1, width=_width)
-                dpg.add_button(label="Ext. Frequency Scan", parent="Buttons_Controls", tag="btnExternalFrequencyScan", callback=self.btnStartExternalFrequencyScan,
+                dpg.add_button(label="Ext. Frequency Scan", parent="Buttons_Controls", tag="btnExternalFrequencyScan",
+                               callback=self.btnStartExternalFrequencyScan,
+                               indent=-1, width=_width)
+                dpg.add_button(label="FP SCAN (AWG)", parent="Buttons_Controls", tag="btnAWG_FP_SCAN",
+                               callback=self.btnStartAWG_FP_SCAN,
                                indent=-1, width=_width)
                 dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
                 dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
@@ -1740,6 +1746,9 @@ class GUI_OPX():
         if self.exp == Experiment.PLE:
             self.bEnableShuffle=False
             self.MeasurePLE_QUA_PGM(trigger_threshold=self.ScanTrigger)
+        if self.exp == Experiment.AWG_FP_SCAN:
+            self.Y_vec_aggregated = []
+            self.awg_sync_counter_QUA_PGM()
 
     def QUA_execute(self, closeQM = False, quaPGM = None,QuaCFG = None):
         if QuaCFG == None:
@@ -5178,7 +5187,6 @@ class GUI_OPX():
             pump_pulse = declare(bool,value=False)
             scan_freq_experiment = self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN
 
-
             with infinite_loop_():
                 if scan_freq_experiment:
                     assign(pump_pulse, IO2)
@@ -5212,6 +5220,47 @@ class GUI_OPX():
                 # self.n_st.save("iteration")
 
         self.qm, self.job = self.QUA_execute()
+
+    def awg_sync_counter_QUA_PGM(self, n_count=1):
+
+        if self.is_green:
+            self.laser_type = "Laser"
+        else:
+            self.laser_type = "Resonant_Laser"
+
+        with program() as self.quaPGM:
+            # self.MeasProcessTime = 510 # [nsec] - delay due to OPX measure process time
+            # self.Tcounter -= self.MeasProcessTime
+            self.times = declare(int, size=1000)
+            self.times_ref = declare(int, size=1000)
+            self.counts = declare(int)  # apd1
+            self.counts_ref = declare(int)  # apd2
+            self.total_counts = declare(int, value=0)  # apd1
+            self.total_counts2 = declare(int, value=0)  # apd1
+            self.n = declare(int)  #
+            self.counts_st = declare_stream()
+            self.counts_ref_st = declare_stream()  # stream for counts
+            self.n_st = declare_stream()  # stream for number of iterations
+
+            with infinite_loop_():
+                play("Turn_ON",configs.QUAConfigBase.Elements.AWG_TRigger.value , duration=int(1000 * self.u.ns // 4))  #
+                wait(1000//4)
+                align()
+                with for_(self.n, 0, self.n < self.total_integration_time * self.u.ms, self.n + self.Tcounter):  # number of averages / total integation time
+                    play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
+                    measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
+                    assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
+
+                save(self.total_counts, self.counts_st)
+                assign(self.total_counts, 0)
+
+            with stream_processing():
+                # TODO: Change buffer size to not be hardcoded
+                self.counts_st.buffer(400).average().save("counts")
+                # self.counts_st.buffer(400).save("counts")
+
+        self.qm, self.job = self.QUA_execute()
+
     def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1,
                                  triggerThreshold: int = 1, play_element = configs.QUAConfigBase.Elements.LASER.value):
         # MeasureByTrigger_QUA_PGM function measures counts.
@@ -5445,6 +5494,8 @@ class GUI_OPX():
         # fetch right parameters
         if self.exp in [Experiment.COUNTER, Experiment.EXTERNAL_FREQUENCY_SCAN]:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref"], mode="live")
+        elif self.exp == Experiment.AWG_FP_SCAN:
+            self.results = fetching_tool(self.job, data_list=["counts"], mode="live")
         elif self.exp == Experiment.G2:
             self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
@@ -5492,6 +5543,20 @@ class GUI_OPX():
                 except:
                     print('Failed updaitng graph')
                 # self.Counter_updateGraph()
+
+            if self.exp == Experiment.AWG_FP_SCAN:
+                try:
+                    dpg.set_item_label("graphXY", f"{self.exp.name},  lastVal = {round(self.Y_vec[-1], 2)}")
+                    dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
+                    dpg.set_item_label("y_axis", "I [kCounts/sec]")
+                    dpg.set_item_label("x_axis", "Frequency [GHz]")
+                    dpg.fit_axis_data('x_axis')
+                    dpg.fit_axis_data('y_axis')
+
+                    dpg.bind_item_theme("series_counts", "LineYellowTheme")
+                except:
+                    print('Failed updating graph in experiment AWG_FP_SCAN')
+
             if self.exp == Experiment.ODMR_CW:  #freq
                 self.SearchPeakIntensity()
                 self.Common_updateGraph(_xLabel="freq [GHz]")
@@ -5589,6 +5654,8 @@ class GUI_OPX():
 
         if self.exp in [Experiment.COUNTER, Experiment.EXTERNAL_FREQUENCY_SCAN]:
             self.counter_Signal, self.ref_signal = self.results.fetch_all()
+        elif self.exp == Experiment.AWG_FP_SCAN:
+            self.counter_signal = self.results.fetch_all()
         elif self.exp == Experiment.G2:
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
@@ -5609,6 +5676,13 @@ class GUI_OPX():
             self.Y_vec.append(self.counter_Signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
             self.Y_vec_ref.append(self.ref_signal[0] / int(self.total_integration_time * self.u.ms) * 1e9 / 1e3)  # counts/second
             self.X_vec.append(self.counter_Signal[1] / self.u.s)  # Convert timestamps to seconds
+
+        if self.exp == Experiment.AWG_FP_SCAN:
+            new_data = list(np.array(self.counter_signal[0]) / self.total_integration_time)
+            if not self.Y_vec == new_data:
+                self.X_vec = list(np.linspace(0, 10, 200)) + list(np.linspace(10, 20, 200))
+                self.Y_vec_aggregated.extend(new_data)
+                self.Y_vec = new_data
 
         if self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN:
             if len(self.X_vec) > self.NumOfPoints:
@@ -6132,6 +6206,9 @@ class GUI_OPX():
             # raw data
             RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
+            if self.exp == Experiment.AWG_FP_SCAN:
+                RawData_to_save['Y_Aggregated'] = self.Y_vec_aggregated
+
             self.save_to_cvs(fileName + ".csv", RawData_to_save)
             print(f"CSV file saved to {fileName}.csv")
 
@@ -6178,6 +6255,22 @@ class GUI_OPX():
 
     def btnStartExternalFrequencyScan(self, b_startFetch=True):
         self.exp = Experiment.EXTERNAL_FREQUENCY_SCAN
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+
+        self.timeStamp = self.getCurrentTimeStamp()
+        folder_path = 'C:/temp/' + self.exp.name + '/'
+        if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
+            os.makedirs(folder_path)
+        self.csv_file = os.path.join(folder_path, self.timeStamp + self.exp.name + ".csv")
+        # TODO: Boaz - Check for edge cases in number of measurements per array
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                         num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
+
+        if b_startFetch and not self.bEnableSimulate:
+            self.StartFetch(_target=self.FetchData)
+
+    def btnStartAWG_FP_SCAN(self, b_startFetch=True):
+        self.exp = Experiment.AWG_FP_SCAN
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
 
         self.timeStamp = self.getCurrentTimeStamp()

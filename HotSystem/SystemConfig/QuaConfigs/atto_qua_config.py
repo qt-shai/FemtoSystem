@@ -41,6 +41,7 @@ class AttoQuaConfig(QUAConfigBase):
                     9: {"offset": 0.0, "delay": self.phaseEOM_delay, "shareable": False},              # Phase EOM
                 },
                 "digital_outputs": {
+                    3: {"shareable": False},  # trigger AWG
                     4: {"shareable": False},  # trigger Laser (Cobolt)
                     5: {"shareable": False},  # trigger MW (Rohde Schwarz)
                     7: {"shareable": False},  # trigger Resonant Laser
@@ -106,6 +107,16 @@ class AttoQuaConfig(QUAConfigBase):
                     "y180": "y180_pulse",
                     "y90": "y90_pulse",
                 },
+            },
+            self.Elements.AWG_TRigger.value: {
+                "digitalInputs": {  # here it is actually outputs
+                    "marker": {
+                        "port": ("con1", 3),  # Digital output 4
+                        "delay": 0,
+                        "buffer": 0,
+                    },
+                },
+                "operations": {"Turn_ON": "laser_ON"},
             },
             self.Elements.RESONANT_LASER.value: {
                 "digitalInputs": {  # here it is actually outputs

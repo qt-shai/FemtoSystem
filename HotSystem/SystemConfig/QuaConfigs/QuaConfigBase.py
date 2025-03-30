@@ -15,6 +15,7 @@ class QUAConfigBase(ABC):
         DETECTOR2_OPD = "Detector2_OPD"
         AMPLITUDE_EOM = "Amplitude_EOM"
         RESONANT_LASER = "Resonant_Laser"
+        AWG_TRigger = "AWG_Trigger"
         
     def __init__(self):
         # connect     
