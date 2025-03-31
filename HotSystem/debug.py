@@ -1,5 +1,5 @@
 
-# Single QUA script generated at 2025-03-13 16:57:19.936331
+# Single QUA script generated at 2025-03-31 10:36:18.336673
 # QUA library version: 1.2.2a2
 
 from qm import CompilerOptionArguments
@@ -15,10 +15,12 @@ with program() as prog:
     v5 = declare(int, )
     v6 = declare(bool, value=False)
     with infinite_loop_():
-        with for_(v5,0,(v5<500),(v5+1)):
-            play("Turn_ON", "Resonant_Laser", duration=2500)
-            measure("min_readout", "Detector_OPD", None, time_tagging.digital(a1, 10000, v1, ""))
-            measure("min_readout", "Detector2_OPD", None, time_tagging.analog(a2, 10000, v2, ""))
+        with for_(v5,0,(v5<515),(v5+1)):
+            play("Turn_ON", "Laser", duration=2425)
+            measure("min_readout", "Detector_OPD", None, time_tagging.digital(a1, 9700, v1, ""))
+            measure("min_readout", "Detector2_OPD", None, time_tagging.digital(a2, 9700, v2, ""))
+            assign(v3, (v3+v1))
+            assign(v4, (v4+v2))
         r1 = declare_stream()
         save(v3, r1)
         r2 = declare_stream()
@@ -58,6 +60,9 @@ config = {
                 },
             },
             "digital_outputs": {
+                "3": {
+                    "shareable": False,
+                },
                 "4": {
                     "shareable": False,
                 },
@@ -127,6 +132,18 @@ config = {
                 "-x90": "-x90_pulse",
                 "y180": "y180_pulse",
                 "y90": "y90_pulse",
+            },
+        },
+        "AWG_Trigger": {
+            "digitalInputs": {
+                "marker": {
+                    "port": ('con1', 3),
+                    "delay": 0,
+                    "buffer": 0,
+                },
+            },
+            "operations": {
+                "Turn_ON": "laser_ON",
             },
         },
         "Resonant_Laser": {
@@ -220,12 +237,30 @@ config = {
             },
             "digital_marker": "ON",
         },
+        "-x_pulse": {
+            "operation": "control",
+            "length": 100,
+            "waveforms": {
+                "I": "-cw_wf",
+                "Q": "zero_wf",
+            },
+            "digital_marker": "ON",
+        },
         "y_pulse": {
             "operation": "control",
             "length": 100,
             "waveforms": {
                 "I": "zero_wf",
                 "Q": "cw_wf",
+            },
+            "digital_marker": "ON",
+        },
+        "-y_pulse": {
+            "operation": "control",
+            "length": 100,
+            "waveforms": {
+                "I": "zero_wf",
+                "Q": "-cw_wf",
             },
             "digital_marker": "ON",
         },
@@ -293,6 +328,11 @@ config = {
             "length": 100,
             "digital_marker": "ON",
         },
+        "blinding_ON": {
+            "operation": "control",
+            "length": 24,
+            "digital_marker": "ON",
+        },
         "readout_pulse": {
             "operation": "measurement",
             "length": 300,
@@ -325,6 +365,186 @@ config = {
                 "single": "zero_wf",
             },
         },
+        "d_pulse_0": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_0",
+        },
+        "d_pulse_1": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_1",
+        },
+        "d_pulse_2": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_2",
+        },
+        "d_pulse_3": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_3",
+        },
+        "d_pulse_4": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_4",
+        },
+        "d_pulse_5": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_5",
+        },
+        "d_pulse_6": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_6",
+        },
+        "d_pulse_7": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_7",
+        },
+        "d_pulse_8": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_8",
+        },
+        "d_pulse_9": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_9",
+        },
+        "d_pulse_10": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_10",
+        },
+        "d_pulse_11": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_11",
+        },
+        "d_pulse_12": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_12",
+        },
+        "d_pulse_13": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_13",
+        },
+        "d_pulse_14": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_14",
+        },
+        "d_pulse_15": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_15",
+        },
+        "d_pulse2_0": {
+            "operation": "control",
+            "length": 32,
+            "digital_marker": "d_wf2_0",
+        },
+        "d_pulse2_1": {
+            "operation": "control",
+            "length": 32,
+            "digital_marker": "d_wf2_1",
+        },
+        "d_pulse2_2": {
+            "operation": "control",
+            "length": 32,
+            "digital_marker": "d_wf2_2",
+        },
+        "d_pulse2_3": {
+            "operation": "control",
+            "length": 32,
+            "digital_marker": "d_wf2_3",
+        },
+        "d_pulse_left_0": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_0",
+        },
+        "d_pulse_left_1": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_1",
+        },
+        "d_pulse_left_2": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_2",
+        },
+        "d_pulse_left_3": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_3",
+        },
+        "d_pulse_left_4": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_4",
+        },
+        "d_pulse_left_5": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_5",
+        },
+        "d_pulse_left_6": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_6",
+        },
+        "d_pulse_left_7": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_7",
+        },
+        "d_pulse_left_8": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_8",
+        },
+        "d_pulse_left_9": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_9",
+        },
+        "d_pulse_left_10": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_10",
+        },
+        "d_pulse_left_11": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_11",
+        },
+        "d_pulse_left_12": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_12",
+        },
+        "d_pulse_left_13": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_13",
+        },
+        "d_pulse_left_14": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_14",
+        },
+        "d_pulse_left_15": {
+            "operation": "control",
+            "length": 16,
+            "digital_marker": "d_wf_left_15",
+        },
         "atto_set_voltage_pulse": {
             "operation": "control",
             "length": 16,
@@ -341,6 +561,10 @@ config = {
         "cw_wf": {
             "type": "constant",
             "sample": 0.5,
+        },
+        "-cw_wf": {
+            "type": "constant",
+            "sample": -0.5,
         },
         "pi_wf": {
             "type": "constant",
@@ -368,6 +592,114 @@ config = {
         },
         "OFF": {
             "samples": [(0, 0)],
+        },
+        "d_wf_0": {
+            "samples": [(0, 16)],
+        },
+        "d_wf_1": {
+            "samples": [(1, 1), (0, 16)],
+        },
+        "d_wf_2": {
+            "samples": [(1, 2), (0, 16)],
+        },
+        "d_wf_3": {
+            "samples": [(1, 3), (0, 16)],
+        },
+        "d_wf_4": {
+            "samples": [(1, 4), (0, 16)],
+        },
+        "d_wf_5": {
+            "samples": [(1, 5), (0, 16)],
+        },
+        "d_wf_6": {
+            "samples": [(1, 6), (0, 16)],
+        },
+        "d_wf_7": {
+            "samples": [(1, 7), (0, 16)],
+        },
+        "d_wf_8": {
+            "samples": [(1, 8), (0, 16)],
+        },
+        "d_wf_9": {
+            "samples": [(1, 9), (0, 16)],
+        },
+        "d_wf_10": {
+            "samples": [(1, 10), (0, 16)],
+        },
+        "d_wf_11": {
+            "samples": [(1, 11), (0, 16)],
+        },
+        "d_wf_12": {
+            "samples": [(1, 12), (0, 16)],
+        },
+        "d_wf_13": {
+            "samples": [(1, 13), (0, 16)],
+        },
+        "d_wf_14": {
+            "samples": [(1, 14), (0, 16)],
+        },
+        "d_wf_15": {
+            "samples": [(1, 15), (0, 16)],
+        },
+        "d_wf2_0": {
+            "samples": [(0, 32)],
+        },
+        "d_wf2_1": {
+            "samples": [(1, 1), (0, 32)],
+        },
+        "d_wf2_2": {
+            "samples": [(1, 2), (0, 32)],
+        },
+        "d_wf2_3": {
+            "samples": [(1, 3), (0, 32)],
+        },
+        "d_wf_left_0": {
+            "samples": [(0, 16)],
+        },
+        "d_wf_left_1": {
+            "samples": [(0, 15), (1, 16)],
+        },
+        "d_wf_left_2": {
+            "samples": [(0, 14), (1, 16)],
+        },
+        "d_wf_left_3": {
+            "samples": [(0, 13), (1, 16)],
+        },
+        "d_wf_left_4": {
+            "samples": [(0, 12), (1, 16)],
+        },
+        "d_wf_left_5": {
+            "samples": [(0, 11), (1, 16)],
+        },
+        "d_wf_left_6": {
+            "samples": [(0, 10), (1, 16)],
+        },
+        "d_wf_left_7": {
+            "samples": [(0, 9), (1, 16)],
+        },
+        "d_wf_left_8": {
+            "samples": [(0, 8), (1, 16)],
+        },
+        "d_wf_left_9": {
+            "samples": [(0, 7), (1, 16)],
+        },
+        "d_wf_left_10": {
+            "samples": [(0, 6), (1, 16)],
+        },
+        "d_wf_left_11": {
+            "samples": [(0, 5), (1, 16)],
+        },
+        "d_wf_left_12": {
+            "samples": [(0, 4), (1, 16)],
+        },
+        "d_wf_left_13": {
+            "samples": [(0, 3), (1, 16)],
+        },
+        "d_wf_left_14": {
+            "samples": [(0, 2), (1, 16)],
+        },
+        "d_wf_left_15": {
+            "samples": [(0, 1), (1, 16)],
         },
     },
     "mixers": {
@@ -431,6 +763,11 @@ loaded_config = {
                 },
             },
             "digital_outputs": {
+                "3": {
+                    "shareable": False,
+                    "inverted": False,
+                    "level": "LVTTL",
+                },
                 "4": {
                     "shareable": False,
                     "inverted": False,
@@ -524,6 +861,29 @@ loaded_config = {
                 "lo_frequency": 2700000000.0,
             },
             "intermediate_frequency": 124000000.0,
+        },
+        "AWG_Trigger": {
+            "digitalInputs": {
+                "marker": {
+                    "delay": 0,
+                    "buffer": 0,
+                    "port": ('con1', 1, 3),
+                },
+            },
+            "digitalOutputs": {},
+            "outputs": {},
+            "operations": {
+                "Turn_ON": "laser_ON",
+            },
+            "hold_offset": {
+                "duration": 0,
+            },
+            "sticky": {
+                "analog": False,
+                "digital": False,
+                "duration": 4,
+            },
+            "thread": "",
         },
         "Resonant_Laser": {
             "digitalInputs": {
@@ -670,11 +1030,31 @@ loaded_config = {
             "operation": "control",
             "digital_marker": "ON",
         },
+        "-x_pulse": {
+            "length": 100,
+            "waveforms": {
+                "I": "-cw_wf",
+                "Q": "zero_wf",
+            },
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "ON",
+        },
         "y_pulse": {
             "length": 100,
             "waveforms": {
                 "I": "zero_wf",
                 "Q": "cw_wf",
+            },
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "ON",
+        },
+        "-y_pulse": {
+            "length": 100,
+            "waveforms": {
+                "I": "zero_wf",
+                "Q": "-cw_wf",
             },
             "integration_weights": {},
             "operation": "control",
@@ -754,6 +1134,13 @@ loaded_config = {
             "operation": "control",
             "digital_marker": "ON",
         },
+        "blinding_ON": {
+            "length": 24,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "ON",
+        },
         "readout_pulse": {
             "length": 300,
             "waveforms": {
@@ -790,6 +1177,258 @@ loaded_config = {
             "operation": "measurement",
             "digital_marker": "ON",
         },
+        "d_pulse_0": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_0",
+        },
+        "d_pulse_1": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_1",
+        },
+        "d_pulse_2": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_2",
+        },
+        "d_pulse_3": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_3",
+        },
+        "d_pulse_4": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_4",
+        },
+        "d_pulse_5": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_5",
+        },
+        "d_pulse_6": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_6",
+        },
+        "d_pulse_7": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_7",
+        },
+        "d_pulse_8": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_8",
+        },
+        "d_pulse_9": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_9",
+        },
+        "d_pulse_10": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_10",
+        },
+        "d_pulse_11": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_11",
+        },
+        "d_pulse_12": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_12",
+        },
+        "d_pulse_13": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_13",
+        },
+        "d_pulse_14": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_14",
+        },
+        "d_pulse_15": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_15",
+        },
+        "d_pulse2_0": {
+            "length": 32,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf2_0",
+        },
+        "d_pulse2_1": {
+            "length": 32,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf2_1",
+        },
+        "d_pulse2_2": {
+            "length": 32,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf2_2",
+        },
+        "d_pulse2_3": {
+            "length": 32,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf2_3",
+        },
+        "d_pulse_left_0": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_0",
+        },
+        "d_pulse_left_1": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_1",
+        },
+        "d_pulse_left_2": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_2",
+        },
+        "d_pulse_left_3": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_3",
+        },
+        "d_pulse_left_4": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_4",
+        },
+        "d_pulse_left_5": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_5",
+        },
+        "d_pulse_left_6": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_6",
+        },
+        "d_pulse_left_7": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_7",
+        },
+        "d_pulse_left_8": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_8",
+        },
+        "d_pulse_left_9": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_9",
+        },
+        "d_pulse_left_10": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_10",
+        },
+        "d_pulse_left_11": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_11",
+        },
+        "d_pulse_left_12": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_12",
+        },
+        "d_pulse_left_13": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_13",
+        },
+        "d_pulse_left_14": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_14",
+        },
+        "d_pulse_left_15": {
+            "length": 16,
+            "waveforms": {},
+            "integration_weights": {},
+            "operation": "control",
+            "digital_marker": "d_wf_left_15",
+        },
         "atto_set_voltage_pulse": {
             "length": 16,
             "waveforms": {
@@ -807,6 +1446,10 @@ loaded_config = {
         "cw_wf": {
             "type": "constant",
             "sample": 0.5,
+        },
+        "-cw_wf": {
+            "type": "constant",
+            "sample": -0.5,
         },
         "pi_wf": {
             "type": "constant",
@@ -834,6 +1477,114 @@ loaded_config = {
         },
         "OFF": {
             "samples": [(0, 0)],
+        },
+        "d_wf_0": {
+            "samples": [(0, 16)],
+        },
+        "d_wf_1": {
+            "samples": [(1, 1), (0, 16)],
+        },
+        "d_wf_2": {
+            "samples": [(1, 2), (0, 16)],
+        },
+        "d_wf_3": {
+            "samples": [(1, 3), (0, 16)],
+        },
+        "d_wf_4": {
+            "samples": [(1, 4), (0, 16)],
+        },
+        "d_wf_5": {
+            "samples": [(1, 5), (0, 16)],
+        },
+        "d_wf_6": {
+            "samples": [(1, 6), (0, 16)],
+        },
+        "d_wf_7": {
+            "samples": [(1, 7), (0, 16)],
+        },
+        "d_wf_8": {
+            "samples": [(1, 8), (0, 16)],
+        },
+        "d_wf_9": {
+            "samples": [(1, 9), (0, 16)],
+        },
+        "d_wf_10": {
+            "samples": [(1, 10), (0, 16)],
+        },
+        "d_wf_11": {
+            "samples": [(1, 11), (0, 16)],
+        },
+        "d_wf_12": {
+            "samples": [(1, 12), (0, 16)],
+        },
+        "d_wf_13": {
+            "samples": [(1, 13), (0, 16)],
+        },
+        "d_wf_14": {
+            "samples": [(1, 14), (0, 16)],
+        },
+        "d_wf_15": {
+            "samples": [(1, 15), (0, 16)],
+        },
+        "d_wf2_0": {
+            "samples": [(0, 32)],
+        },
+        "d_wf2_1": {
+            "samples": [(1, 1), (0, 32)],
+        },
+        "d_wf2_2": {
+            "samples": [(1, 2), (0, 32)],
+        },
+        "d_wf2_3": {
+            "samples": [(1, 3), (0, 32)],
+        },
+        "d_wf_left_0": {
+            "samples": [(0, 16)],
+        },
+        "d_wf_left_1": {
+            "samples": [(0, 15), (1, 16)],
+        },
+        "d_wf_left_2": {
+            "samples": [(0, 14), (1, 16)],
+        },
+        "d_wf_left_3": {
+            "samples": [(0, 13), (1, 16)],
+        },
+        "d_wf_left_4": {
+            "samples": [(0, 12), (1, 16)],
+        },
+        "d_wf_left_5": {
+            "samples": [(0, 11), (1, 16)],
+        },
+        "d_wf_left_6": {
+            "samples": [(0, 10), (1, 16)],
+        },
+        "d_wf_left_7": {
+            "samples": [(0, 9), (1, 16)],
+        },
+        "d_wf_left_8": {
+            "samples": [(0, 8), (1, 16)],
+        },
+        "d_wf_left_9": {
+            "samples": [(0, 7), (1, 16)],
+        },
+        "d_wf_left_10": {
+            "samples": [(0, 6), (1, 16)],
+        },
+        "d_wf_left_11": {
+            "samples": [(0, 5), (1, 16)],
+        },
+        "d_wf_left_12": {
+            "samples": [(0, 4), (1, 16)],
+        },
+        "d_wf_left_13": {
+            "samples": [(0, 3), (1, 16)],
+        },
+        "d_wf_left_14": {
+            "samples": [(0, 2), (1, 16)],
+        },
+        "d_wf_left_15": {
+            "samples": [(0, 1), (1, 16)],
         },
     },
     "integration_weights": {},

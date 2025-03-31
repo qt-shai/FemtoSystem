@@ -582,7 +582,8 @@ class PyGuiOverlay(Layer):
             print(f"app_data: {app_data}")
     def Callback_mouse_release(self,sender,app_data):
         if self.allow_bring_to_front == 1:
-            dpg.focus_item("Main_Window")
+            #dpg.focus_item("Main_Window")
+            pass
         if False:
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")

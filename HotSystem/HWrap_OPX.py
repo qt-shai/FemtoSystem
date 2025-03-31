@@ -8533,7 +8533,6 @@ class GUI_OPX():
         print(f"after close: {newQM}")
         return report
 
-
     def stop_benchmark(self):
         self.stopScan = True
         self.StopFetch = True
@@ -8636,8 +8635,13 @@ class GUI_OPX():
                                        f'Counts_Bin_3_{self.bin_times[2][0]}:{self.bin_times[2][1]}': self.counts_in_bin3,
                                        'Pulse_type': self.list_of_pulse_type}
             else:
-                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,
-                                   'Y_resCalc': self.Y_resCalculated}
+                RawData_to_save = {
+                    'X': self.X_vec if isinstance(self.X_vec, list) else list(self.X_vec),
+                    'Y': self.Y_vec if isinstance(self.Y_vec, list) else list(self.Y_vec),
+                    'Y_ref': self.Y_vec_ref if isinstance(self.Y_vec_ref, list) else list(self.Y_vec_ref),
+                    'Y_ref2': self.Y_vec_ref2 if isinstance(self.Y_vec_ref2, list) else list(self.Y_vec_ref2),
+                    'Y_resCalc': self.Y_resCalculated if isinstance(self.Y_resCalculated, list) else list(self.Y_resCalculated)
+                }
 
             self.save_to_cvs(fileName + ".csv", RawData_to_save, to_append=True)
             if self.exp == Experiment.AWG_FP_SCAN:
@@ -10305,6 +10309,7 @@ class GUI_OPX():
 
     def save_to_cvs(self, file_name, data, to_append: bool = False):
         print("Starting to save data to CSV.")
+
 
         # Ensure data is a dictionary
         if not isinstance(data, dict) or not all(isinstance(v, list) for v in data.values()):
