@@ -7432,7 +7432,7 @@ class GUI_OPX():
                         play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
                     measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
                     # measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
-                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
                     assign(self.total_counts2, self.total_counts2 + self.counts_ref)  # assign is equal in qua language  # align()
