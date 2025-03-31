@@ -45,6 +45,8 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
 
     if instrument == Instruments.ATTO_POSITIONER:
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
+    if instrument == Instruments.KDC_101:
+        devices = Picomotor.newportPicomotor.get_available_devices()
     if not isinstance(devices, list) and devices:
         devices = [devices]
 

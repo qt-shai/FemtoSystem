@@ -31,6 +31,7 @@ class Instruments(Enum):
     SIMULATION = "simulation"
     KEYSIGHT_AWG = "keysight_awg"
     CLD1011LP = "CLD1011LP"
+    KDC_101 = "KDC_101"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"

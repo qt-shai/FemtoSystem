@@ -2,8 +2,10 @@
 from typing import Optional
 import threading
 
+#from pylablib.legacy.aux_libs.devices.Thorlabs import KDC101
+
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B, AttoScannerWrapper
+    SirahMatisse, Keysight33500B, AttoScannerWrapper, MotorStage
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
 
@@ -137,6 +139,11 @@ class HW_devices:
             elif instrument == Instruments.ELC_POWER_SUPPLY:
                 # Initialize ELC Power Supply
                 self.elc_power_supply = ALR3206T(simulation=self.simulation)
+
+            elif instrument == Instruments.KDC_101:
+                # KDC_101 Rotational Stage for the Lambda/2 Plate
+                # TODO: Make serial number into an input to the Motor Stage
+                self.kdc_101 = MotorStage()
 
             else:
                 # Handle unknown instrument case

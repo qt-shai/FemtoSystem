@@ -9,8 +9,8 @@ from SystemConfig import Instruments, load_instrument_images
 
 class GUI_KDC101(GUIMotor):
 
-    def __init__(self) -> None:
-        self.dev = MotorStage()
+    def __init__(self, serial_number) -> None:
+        self.dev = MotorStage(serial_number=serial_number)
         self.prefix = "KDC101"
         self.window_tag: str = f"{self.prefix}_Win"
         self.enable_button_tag = f"{self.prefix}_EnableButton"
