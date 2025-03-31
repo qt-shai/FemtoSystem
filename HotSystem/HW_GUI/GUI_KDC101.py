@@ -25,7 +25,7 @@ class GUI_KDC101(GUIMotor):
         self.system_initialization()
         Child_Width = 100
         with dpg.window(label=f"{self.prefix} motor", no_title_bar=False,
-                        height=self.viewport_height * 0.25, width=self.viewport_width * 0.58, pos=[0, 0],
+                        height=self.viewport_height * 0.25, width=self.viewport_width * 0.38, pos=[0, 0],
                         collapsed=False, tag=self.window_tag):
 
             with dpg.group(horizontal=False, tag="group 1", width=Child_Width):
