@@ -304,6 +304,3 @@ class GUIArduino:
         # You can get the updated position from app_data or by using dpg.get_item_pos(sender)
         new_pos = dpg.get_item_pos(sender)
         # print(f"Window '{sender}' moved. New position: {new_pos}")
-
-
-
