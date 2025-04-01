@@ -22,6 +22,7 @@ class MotorStage(Motor):
         super().__init__()
         self.serial_number = str(serial_number)
         DeviceManagerCLI.BuildDeviceList()
+        #self.device = KCubeDCServo.CreateKCubeDCServo(self.serial_number)
         self.device = KCubeDCServo.CreateKCubeDCServo(self.serial_number)
         self.timeout = 20000
         self.is_homed = False
@@ -49,6 +50,9 @@ class MotorStage(Motor):
             self.device.SetSettings(self.device.MotorDeviceSettings, True, False)
             self.device.StartPolling(250)
             time.sleep(0.25)
+            device_info = self.device.GetDeviceInfo()
+            description = device_info.Description
+            print(f"Device info is {description}")
         except Exception as e:
             print(
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Error during initialization:", e)

@@ -5,9 +5,12 @@ import csv
 from tkinter import filedialog
 import numpy as np
 import pandas as pd
-from typing import Tuple, Union, List, Optional
+from abc import ABC
+from typing import Tuple, Union, List, Optional, Generic, Any, Callable, TypeVar
 from matplotlib import pyplot as plt
 import os
+
+T = TypeVar('T')
 
 def load_scan_plane_calibration_data(file_path: str) -> np.ndarray:
     """
@@ -350,5 +353,230 @@ def fast_rgb_convert(array2d):
     # Reshape to the desired format
     result_array_ = result_array_.reshape(-1)
     return result_array_
+
+class ObserverInterface(ABC):
+    """
+    An interface for managing observers and notifying them of updates.
+    """
+
+    def __init__(self) -> None:
+        self._observers: List[Callable[[Any], None]] = []
+
+    def add_observer(self, observer: Callable[[Any], None]) -> None:
+        """
+        Add an observer callback.
+
+        :param observer: A callable accepting a single argument (data).
+        """
+        if not callable(observer):
+            raise ValueError("Observer must be callable.")
+        self._observers.append(observer)
+
+    def remove_observer(self, observer: Callable[[Any], None]) -> None:
+        """
+        Remove a previously registered observer callback.
+
+        :param observer: The observer to remove.
+        """
+        if observer in self._observers:
+            self._observers.remove(observer)
+
+    def notify_observers(self, data: Any) -> None:
+        """
+        Notify all observers with the provided data.
+
+        :param data: The data to pass to all registered observers.
+        """
+        for callback in self._observers:
+            try:
+                callback(data)
+            except Exception as e:
+                print(f"Error notifying observer: {e}")
+
+
+class ObservableField(Generic[T], ObserverInterface):
+    """
+    A field that notifies observers on changes and integrates with the ObserverInterface.
+    """
+
+    def __init__(self, initial_value: T):
+        """
+        Initialize the observable field with an initial value.
+
+        :param initial_value: The initial value of the field.
+        """
+        super().__init__()
+        self._value = initial_value
+
+    def get(self) -> T:
+        """Retrieve the value."""
+        return self._value
+
+    def set(self, value: T) -> None:
+        """
+        Set the value and notify observers.
+
+        :param value: The new value to set.
+        """
+        self._value = value
+        self.notify_observers(value)
+
+def is_within_bounds(value: float, bounds: tuple[float, float]) -> bool:
+    """
+    Checks if a given value is within the specified bounds.
+
+    :param value: The value to check.
+    :param bounds: A tuple containing the lower and upper bounds (inclusive).
+    :return: True if the value is within bounds, False otherwise.
+    """
+    if not isinstance(bounds, tuple) or len(bounds) != 2:
+        raise ValueError("Bounds must be a tuple with two elements: (lower_bound, upper_bound).")
+    lower_bound, upper_bound = bounds
+    if lower_bound > upper_bound:
+        raise ValueError("Invalid bounds: lower_bound must be less than or equal to upper_bound.")
+    return lower_bound <= value <= upper_bound
+
+def fit_parabola(x_data: np.ndarray, y_data: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Fit a parabola (quadratic polynomial) to the given x_data and y_data.
+    Returns the polynomial coefficients (a, b, c) for ax^2 + bx + c.
+
+    :param x_data: NumPy array of x-values.
+    :param y_data: NumPy array of y-values.
+    :return: (a, b, c) polynomial coefficients.
+    """
+    if len(x_data) < 3 or len(y_data) < 3:
+        raise ValueError("At least 3 points are required to fit a parabola.")
+
+    if len(x_data) != len(y_data):
+        raise ValueError("x_data and y_data must have the same length.")
+
+    # Fit a quadratic polynomial (2nd-degree) to the data
+    coeffs = np.polyfit(x_data, y_data, 2)  # Returns [a, b, c] for ax^2 + bx + c
+    return coeffs[0], coeffs[1], coeffs[2]
+
+
+def find_parabola_minimum(a: float, b: float, c: float) -> Optional[float]:
+    """
+    Find the x-position of the minimum of a parabola described by ax^2 + bx + c.
+    If the parabola has a maximum (a < 0), return None.
+
+    :param a: Quadratic coefficient.
+    :param b: Linear coefficient.
+    :param c: Constant term.
+    :return: The x-coordinate of the parabola's minimum, or None if the parabola has a maximum.
+    """
+    if a == 0:
+        raise ValueError("Coefficient 'a' cannot be zero for a parabola.")
+
+    if a < 0:
+        return None  # Parabola has a maximum, not a minimum
+
+    return -b / (2.0 * a)
+
+def create_gaussian_vector(nx: int, center: float = 2, width: float = 4) -> np.ndarray:
+    """
+    Create a NumPy vector with Nx points, with a Gaussian centered at Nx/center and a width of Nx/width.
+
+    :param nx: Number of points in the vector.
+    :param center: Factor to determine the center of the Gaussian as Nx/center. Default is 2.
+    :param width: Factor to determine the width of the Gaussian as Nx/width. Default is 4.
+    :return: NumPy array containing the Gaussian vector.
+    """
+    if nx <= 0:
+        raise ValueError("Number of points (nx) must be a positive integer.")
+
+    x = np.linspace(0, nx - 1, nx)  # Create an array of Nx points
+    center_value = nx / center  # Gaussian center
+    width_value = nx / width  # Gaussian width (standard deviation)
+
+    gaussian = np.exp(-((x - center_value) ** 2) / (2 * (width_value ** 2)))  # Gaussian formula
+    return gaussian
+
+def create_counts_vector(vector_size: int) -> np.ndarray:
+    # Define the valid indices where 1 can appear:
+    valid_indices = list(range(0, 26)) + list(range(46, 72)) + list(range(71, 96))
+
+    # Initialize a 2D NumPy array of zeros (num_vectors rows, k columns)
+    counts = np.zeros((vector_size), dtype=int)
+    if np.random.rand() < 0.5:
+        # Pick one random valid index
+        i = np.random.choice(valid_indices)
+        counts[i] = 1
+    return counts
+
+def reshape_and_pad_scan_counts(scan_counts: np.ndarray, Nx: int, Ny: int, Nz: int) -> np.ndarray:
+    """
+    Reshape and pad a partially filled 1D array into a 3D array with dimensions (Nx, Ny, Nz).
+
+    :param scan_counts: Flattened array of scan counts (partially filled).
+    :param Nx: Target size of the X-dimension.
+    :param Ny: Nominal size of the Y-dimension.
+    :param Nz: Target size of the Z-dimension.
+    :return: Reshaped and padded 3D array of scan counts.
+    """
+    # Flatten the input array to ensure compatibility
+    flattened_data = np.array(scan_counts).flatten()
+
+    # Calculate the total number of elements in a single XY slice
+    slice_size = Nx * Nz
+
+    # Calculate the total number of required elements for the full 3D array
+    total_required_elements = Nx * Ny * Nz
+
+    # Pad the flattened array to match the total required elements
+    if len(flattened_data) < total_required_elements:
+        padding_size = total_required_elements - len(flattened_data)
+        flattened_data = np.pad(flattened_data, (0, padding_size), constant_values=0)
+    elif len(flattened_data) > total_required_elements:
+        flattened_data = flattened_data[:total_required_elements]
+
+    # Reshape the padded array into the desired 3D shape
+    reshaped_data = flattened_data.reshape(Nx, Ny, Nz)
+
+    return reshaped_data
+
+def test_reshape_and_pad_scan_counts():
+    """Run a series of tests on the reshape_and_pad_scan_counts function."""
+    # Test case 1: Perfectly filled array
+    scan_counts = np.arange(50)  # 10x5x1
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 5, 1), f"Unexpected shape: {result.shape}"
+
+    # Test case 2: Incomplete array requiring padding
+    scan_counts = np.arange(48)  # 10x5x1 with padding needed
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 5, 1), f"Unexpected shape: {result.shape}"
+    assert result[-1, -1, -1] == 0, "Padding not applied correctly"
+
+    # Test case 3: Empty array
+    scan_counts = np.array([])  # No elements
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 0, 1), f"Unexpected shape: {result.shape}"
+
+    # Test case 4: Single element array
+    scan_counts = np.array([42])  # One element
+    Nx, Ny, Nz = 2, 2, 2
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (2, 1, 2), f"Unexpected shape: {result.shape}"
+    assert result[0, 0, 0] == 42, "Element not placed correctly"
+
+    # Test case 5: Uneven elements
+    scan_counts = np.arange(23)  # Incomplete last slice
+    Nx, Ny, Nz = 3, 3, 3
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (3, 3, 3), f"Unexpected shape: {result.shape}"
+    assert result[-1, -1, -1] == 0, "Padding not applied correctly"
+
+    # Test case 6: Large array with multiple slices
+    scan_counts = np.arange(120)  # 10x6x2
+    Nx, Ny, Nz = 10, 6, 2
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 6, 2), f"Unexpected shape: {result.shape}"
+
+    print("All tests passed!")
 
 

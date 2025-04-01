@@ -2,7 +2,7 @@ import logging
 import threading
 from typing import List, Optional
 
-from Utils import SerialDevice
+from Utils import SerialDevice, ObservableField
 
 logging.basicConfig(level=logging.INFO)
 
@@ -25,11 +25,11 @@ class ArduinoController(SerialDevice):
         super().__init__(address=address, baudrate=baudrate, timeout=timeout, simulation=simulation)
 
         # Observable fields for GUI interaction
-        # self.communication_result: ObservableField[str] = ObservableField("")
-        # self.num_points: ObservableField[int] = ObservableField(10)  # Default value
-        # self.time_interval_us: ObservableField[int] = ObservableField(1000)  # Default in microseconds
-        # self.pulse_width_us = ObservableField(1000)
-        # self.pulse_spacing_us = ObservableField(5000)
+        self.communication_result: ObservableField[str] = ObservableField("")
+        self.num_points: ObservableField[int] = ObservableField(10)  # Default value
+        self.time_interval_us: ObservableField[int] = ObservableField(1000)  # Default in microseconds
+        self.pulse_width_us = ObservableField(1000)
+        self.pulse_spacing_us = ObservableField(5000)
         self.last_measured_value: Optional[float] = None
         self.lock = threading.Lock()
 
