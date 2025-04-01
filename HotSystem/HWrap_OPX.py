@@ -4741,6 +4741,7 @@ class GUI_OPX():
         tMeasureProcess = self.MeasProcessTime
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
+        tWait = self.time_in_multiples_cycle_time(self.Twait)
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
@@ -4753,7 +4754,7 @@ class GUI_OPX():
 
         tRF = self.rf_pulse_time
         Npump = self.n_nuc_pump
-
+        
         # frequency scan vector
         f_min = 0 * self.u.MHz  # start of freq sweep
         f_max = self.mw_freq_scan_range * self.u.MHz  # end of freq sweep
@@ -4813,6 +4814,7 @@ class GUI_OPX():
             val_vec_qua = declare(int, value=np.array([int(i) for i in self.t_vec_ini]))  # time QUA vector
             idx_vec_qua = declare(int, value=idx_vec_ini)  # indexes QUA vector
             idx = declare(int)  # index variable to sweep over all indexes
+            jdx = declare(int)  # index variable to sweep over all indexes
 
             # stream parameters
             counts_st = declare_stream()  # experiment signal
@@ -4847,36 +4849,72 @@ class GUI_OPX():
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
                             # play MW
-                            play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
+                            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                             # play RF (@resonance freq & pulsed time)
                             align("MW", "RF")
                             play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to pump
                             align("RF", "Laser")
                             play("Turn_ON", "Laser", duration=tPump // 4)
+                            wait(tWait//4)
                         align()
-
+                        
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
-                        # play MW
-                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=tMW // 4)
+                        # CnNOTe
+                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        play("-xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
                         
                         # play RF pi/2
                         align("MW", "RF")
                         play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
                         
+
+                        # flip electron spin down by MW pulses on both resonances
+                        #align("RF", "MW")
+                        #play("-xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        #play("xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        #update_frequency("MW", fMW_res1)
+                        #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+
+                        # play laser during the wait time  
+                        align("RF", "Laser") 
+                        #align("MW", "Laser")  
+                        #play("Turn_ON", "Laser", duration=(t-(tMW*4)//4))
+                        play("Turn_ON", "Laser", duration=t-(tMW*2)//4)
+                        #with for_(jdx,0,jdx<(t-(tMW*2)//4),jdx+tSettle//4):
+                        #    play("Turn_ON", "Laser", duration=tPump//4)
+                        #    wait(tSettle//4-tPump//4)
+
                         # Twait, note: t is already in cycles!
-                        wait(t)
+                        #wait(t)
+                        # flip electron spin back up
+                        align("Laser","MW")
+                        update_frequency("MW", fMW_res1)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        update_frequency("MW", fMW_res2)
+                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        play("-xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
                         
                         # play RF pi/2
-                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
+                        #align("MW","RF")
+                        align("Laser","RF")
+                        play("const" * amp(-p), "RF", duration=(tRF / 2) // 4)
                         # play Laser
                         #align("RF", "Laser")
                         #play("Turn_ON", "Laser", duration=tSettle // 4)
-
-                        # play MW
+                        
                         align("RF", "MW")
-                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=tMW // 4)
+                        wait(tWait //4)
+
+                        # CnNOTe 
+                        update_frequency("MW", fMW_res2)
+                        play("-xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        
                         # play Laser
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser  // 4)
@@ -4894,26 +4932,64 @@ class GUI_OPX():
                             # set MW frequency to resonance
                             update_frequency("MW", fMW_res1)
                             # play MW
-                            play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
+                            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                             # play RF (@resonance freq & pulsed time)
                             align("MW", "RF")
                             play("const" * amp(p), "RF", duration=tRF // 4)
                             # turn on laser to pump
                             align("RF", "Laser")
                             play("Turn_ON", "Laser", duration=tPump // 4)
+                            wait(tWait//4)
                         align()
+
                         # set MW frequency to resonance
                         update_frequency("MW", fMW_res2)
-                        # play MW
-                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=tMW // 4)
+                        # CnNOTe
+                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        play("-xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
                         
-                        # do not play RF
-                        wait(t + tRF // 4)
+                        # Nucl. pi/2
+                        align("MW", "RF")
+                        play("const" * amp(p), "RF", duration=(tRF / 2) // 4)
+                        
+                        #flip electron spin down
+                        #align("RF", "MW")
+                        #play("-xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        #play("xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        #update_frequency("MW", fMW_res1)
+                        #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        
+                        # do not play laser
+                        #wait(t - (tMW*4)//4)
+                        wait(t)
+                        #wait(tWait //4)
                         # play Laser
                         #play("Turn_ON", "Laser", duration=tSettle // 4)
+
+                        # flip electron spin back up
+                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        #update_frequency("MW", fMW_res2)
+                        #play("xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        #play("-xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
                         
-                        # play MW
-                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=tMW // 4)
+                        #align("MW","RF")
+                        # play RF pi/2
+                        play("const" * amp(-p), "RF", duration=(tRF / 2) // 4)
+                        # play Laser
+                        #align("RF", "Laser")
+                        #play("Turn_ON", "Laser", duration=tSettle // 4)
+
+                        align("RF", "MW")
+                        wait(tWait //4)
+                        
+                        # CnNOTe
+                        update_frequency("MW", fMW_res2)
+                        play("-xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=(tMW/2) // 4)
+                        
                         # play Laser
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser  // 4)
