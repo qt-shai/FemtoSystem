@@ -5,7 +5,7 @@ import threading
 #from pylablib.legacy.aux_libs.devices.Thorlabs import KDC101
 
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B, AttoScannerWrapper, MotorStage
+    SirahMatisse, Keysight33500B, AttoScannerWrapper, MotorStage, ArduinoController
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
 
@@ -40,6 +40,7 @@ class HW_devices:
             self.atto_scanner: Optional[AttoScannerWrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
+            self.arduino: Optional[ArduinoController] = None
 
     def __new__(cls, simulation:bool = False) -> 'HW_devices':
         """
@@ -144,6 +145,15 @@ class HW_devices:
                 # KDC_101 Rotational Stage for the Lambda/2 Plate
                 # TODO: Make serial number into an input to the Motor Stage
                 self.kdc_101 = MotorStage()
+
+            elif instrument == Instruments.ARDUINO:
+                # Initialize ArduinoController
+                self.arduino = ArduinoController(
+                    address=f"ASRL{device.com_port}::INSTR" if device.com_port != "N/A" else None,
+                    baudrate=9600,
+                    timeout=1000,
+                    simulation=self.simulation
+                )
 
             else:
                 # Handle unknown instrument case

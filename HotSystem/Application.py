@@ -15,6 +15,7 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_arduino import GUIArduino
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
 from HW_GUI.GUI_keysight_AWG import GUIKeysight33500B
 from HW_GUI.GUI_mattise import GUIMatisse
@@ -389,6 +390,7 @@ class PyGuiOverlay(Layer):
         self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
+        self.arduino_gui: Optional[GUIArduino] = None
         self.mwGUI = None
         self.system_type: Optional[SystemType] = None
         self.system_config: Optional[SystemConfig] = None
@@ -778,6 +780,11 @@ class PyGuiOverlay(Layer):
                     self.kdc_101_gui.system_initialization()
                     dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.ARDUINO:
+                    self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
+                    dpg.set_item_pos(self.arduino_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.arduino_gui.window_tag) + vertical_spacing
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 
