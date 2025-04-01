@@ -227,9 +227,9 @@ class GUI_OPX():
 
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
-        self.dN = 10
+        self.dN  = 10
         self.back_freq = self.mw_2ndfreq_resonance
-        self.n_measure = 6
+        self.n_measure = 30
         self.MW_dif = 3  # [MHz]
         self.Wait_time_benchmark = 10
         self.t_wait_benchmark = 0
@@ -2552,7 +2552,7 @@ class GUI_OPX():
             counts_ref_st2 = declare_stream()  # reference signal
             self.number_order_st = declare_stream()
             self.reverse_number_order_st = declare_stream()
-            counts_square_st = declare_stream()
+            self.counts_square_st = declare_stream()
 
             # set RF frequency to resonance
             update_frequency("RF", self.rf_resonance_freq * self.u.MHz)
@@ -2776,7 +2776,7 @@ class GUI_OPX():
                         align()
 
                     with if_(idx == array_length - 1):
-                        with for_(jdx, 0, jdx < idx, jdx + 1):
+                        with for_(jdx, 0, jdx < idx, jdx + self.dN):
                             save(self.idx_vec_ini_shaffle_qua_reversed[jdx], self.reverse_number_order_st)
 
                 # tracking signal
@@ -2800,7 +2800,7 @@ class GUI_OPX():
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
                         save(counts_ref2[idx], counts_ref_st2)
-                        save(counts_square[idx],counts_square_st)
+                        save(counts_square[idx],self.counts_square_st)
 
                 save(n, n_st)  # save number of iteration inside for_loop
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
@@ -2814,8 +2814,8 @@ class GUI_OPX():
                 n_st.save("iteration")
                 tracking_signal_st.save("tracking_ref")
                 self.number_order_st.buffer(len(self.t_vec)).average().save("number_order")
-                self.reverse_number_order_st.buffer(len(self.t_vec)).average().save("reverse_number_order")
-                counts_square_st.buffer(len(self.t_vec)).average().save("counts_square")
+                # self.reverse_number_order_st.buffer(len(self.t_vec)).average().save("reverse_number_order")
+                self.counts_square_st.buffer(len(self.t_vec)).average().save("counts_square")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -6569,6 +6569,10 @@ class GUI_OPX():
         dpg.bind_item_theme("series_counts", "LineYellowTheme")
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
 
+    def ensure_list(self,x):
+        """Return x if it is a list, otherwise wrap x in a list."""
+        return x if isinstance(x, list) else [x]
+
     def FetchData(self):
         self.refSignal = 0
         if self.bEnableSignalIntensityCorrection:  # prepare search maxI thread
@@ -6586,7 +6590,7 @@ class GUI_OPX():
             self.results = fetching_tool(self.job, data_list=["g2", "total_counts", "iteration"], mode="live")
         elif self.exp == Experiment.RandomBenchmark:
             #If nothing else get added you can put it in with counter
-            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration", "tracking_ref", "number_order", "reverse_number_order", "counts_square"], mode="live")
+            self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration", "tracking_ref", "number_order", "counts_square"], mode="live")
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration","tracking_ref"], mode="live")
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -6719,12 +6723,14 @@ class GUI_OPX():
     def GlobalFetchData(self):
         self.lock.acquire()
 
+        data = [self.ensure_list(x) for x in self.results.fetch_all()]
+
         if self.exp == Experiment.COUNTER:
             self.counter_Signal, self.ref_signal = self.results.fetch_all()
         elif self.exp == Experiment.G2:
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
         elif self.exp == Experiment.RandomBenchmark:
-            self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal, self.number_order, self.reverse_number_order, self.signal_squared = self.results.fetch_all()  # grab/fetch new data from stream
+            self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal, self.number_order, self.signal_squared  = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -6845,11 +6851,16 @@ class GUI_OPX():
             # Add Y^2 and first measure order and reverse
             self.X_vec = [e for e in self.t_vec]  # [msec]
             self.Y_vec = self.signal/ (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec = self.Y_vec.tolist()
             self.Y_vec_ref = self.ref_signal/ (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref = self.Y_vec_ref.tolist()
             self.Y_vec_ref2 = self.ref_signal2 / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref2 = self.Y_vec_ref2.tolist()
             self.benchmark_number_order = self.number_order
-            self.benchmark_reverse_number_order = self.reverse_number_order
+            # self.benchmark_reverse_number_order = self.reverse_number_order
+            # self.benchmark_reverse_number_order = self.benchmark_reverse_number_order.tolist()
             self.Y_vec_squared = self.signal_squared/ ((self.TcounterPulsed * 1e-9)*(self.TcounterPulsed * 1e-9)) / 1e6
+            self.Y_vec_squared = self.Y_vec_squared.tolist()
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
         if self.exp == Experiment.testCrap:  # freq or time oe something else
@@ -7279,13 +7290,14 @@ class GUI_OPX():
                     fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
             else:
                 fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
+            # fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
 
             # parameters + note        
             self.writeParametersToXML(fileName + ".xml")
 
             # raw data
             if self.exp == Experiment.RandomBenchmark:
-                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_squared': self.Y_vec_squared,'Gate_Order': self.benchmark_number_order, 'Reverse_Gate_order': self.benchmark_reverse_number_order}
+                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,'Gate_Order': self.benchmark_number_order, 'Y_vec_squared': self.Y_vec_squared}
             else:
                 RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
@@ -8100,8 +8112,8 @@ class GUI_OPX():
         # dpg.set_value("text item", f"Mouse Button ID: {app_data}")
         self.expNotes = sender
         self.HW.camera.imageNotes = sender
-        if self.added_comments is not None:
-            self.added_comments = sender
+        # if self.added_comments is not None:
+        self.added_comments = sender
 
     def saveToCSV(self, file_name, data):
         print("Saving to CSV")
