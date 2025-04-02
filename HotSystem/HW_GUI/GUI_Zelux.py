@@ -10,6 +10,7 @@ class ZeluxGUI():
         self.HW = hw_devices.HW_devices()
         self.cam = self.HW.camera
         self.flipper = None
+        self.flipper_serial_number = ""
 
         self.AddNewWindow()
 
@@ -82,15 +83,28 @@ class ZeluxGUI():
     
     def GUI_controls(self, isConnected = False, _width = 800):
         dpg.delete_item("groupZeluxControls")
+        self.set_all_themes()
         if isConnected:
             dpg.add_group(tag="groupZeluxControls", parent=self.window_tag,horizontal=True)
             dpg.add_button(label="Start Live", callback=self.StartLive,tag="btnStartLive", parent="groupZeluxControls")
             dpg.add_button(label="Save Image", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
-            dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
-                             callback=self.Move_flipper, indent=-1, default_value=self.flipper.position)
+            dpg.add_slider_int(label="Motor 1",
+                               tag="on_off_slider", width=80,
+                               default_value=1, parent="groupZeluxControls",
+                               min_value=0, max_value=1,
+                               callback=self.on_off_slider_callback, indent=-1,
+                               format="Up")
+            dpg.add_slider_int(label="Motor 2",
+                               tag="on_off_slider_2", width=80,
+                               default_value=1, parent="groupZeluxControls",
+                               min_value=0, max_value=1,
+                               callback=self.on_off_slider_callback, indent=-1,
+                               format="Up")
 
             dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
             dpg.bind_item_theme(item = "btnSave", theme = "btnBlueTheme")
+            dpg.bind_item_theme("on_off_slider", "OnTheme")
+            dpg.bind_item_theme("on_off_slider_2", "OnTheme")
 
 
             minExp = min(self.cam.camera.exposure_time_range_us)/1e3
@@ -132,9 +146,48 @@ class ZeluxGUI():
             self.GUI_controls(isConnected = True)
             pass
 
+    def on_off_slider_callback(self,sender, app_data):
+        # app_data is the new slider value (0 or 1)
+        flipper_1_serial_number = "37008855"
+        flipper_2_serial_number = "37008948"
+        if sender == "on_off_slider":
+            self.flipper_serial_number = flipper_1_serial_number
+        elif sender == "on_off_slider_2":
+            self.flipper_serial_number = flipper_2_serial_number
+        if app_data == 1:
+            self.Move_flipper(self.flipper_serial_number)
+            dpg.configure_item(sender, format="Up")
+            dpg.bind_item_theme(sender, "OnTheme")
+            print("Flipper in Position 1!")
+        else:
+            self.Move_flipper(self.flipper_serial_number)
+            dpg.configure_item(sender, format="Down")
+            dpg.bind_item_theme(sender, "OffTheme")
+            print("Flipper in Position 2!")
 
-    def Move_flipper(self):
-        if self.flipper == None:
-            self.flipper = FilterFlipperController(serial_no="37008855")
+    def Move_flipper(self, serial_number):
+        try:
+            self.flipper = FilterFlipperController(serial_no=serial_number)
             self.flipper.connect()
-        self.flipper.toggle()
+            self.flipper.toggle()
+        except Exception as e:
+            print(e)
+
+    def set_all_themes(self):
+        with dpg.theme(tag="OnTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 180, 0))  # handle when pressed
+                # Optionally color the track:
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (50, 70, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (60, 80, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 90, 70))
+
+        # OFF Theme: keep the slider handle red in all states.
+        with dpg.theme(tag="OffTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (180, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (70, 50, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))

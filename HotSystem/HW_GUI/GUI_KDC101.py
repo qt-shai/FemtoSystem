@@ -25,7 +25,7 @@ class GUI_KDC101(GUIMotor):
         self.system_initialization()
         Child_Width = 100
         with dpg.window(label=f"{self.prefix} motor", no_title_bar=False,
-                        height=self.viewport_height * 0.25, width=self.viewport_width * 0.38, pos=[0, 0],
+                        height=400, width=600, pos=[0, 0],
                         collapsed=False, tag=self.window_tag):
 
             with dpg.group(horizontal=False, tag="group 1", width=Child_Width):
@@ -38,15 +38,15 @@ class GUI_KDC101(GUIMotor):
             with dpg.group(horizontal=False, tag="column 2", width=Child_Width):
                 #dpg.add_text(tag = "blabla_tag", default_value= self.dev.blabla.get(), color=(255, 255, 0))
                 with dpg.group(tag="controls"):
-                    dpg.add_text("Current Position:", color=(0, 255, 0), indent = 10)
+                    dpg.add_text("Current Position:", color=(0, 255, 0), indent = 100)
                     dpg.add_input_float(label="", default_value=float(str(self.dev.get_current_position())),
                                         callback=self.update_position,
                                         tag="position_input",
                                         format='%.3f',
                                         step = self.step,
-                                        indent=10,
+                                        indent=100,
                                         on_enter=True,
-                                        width=30)
+                                        width=200)
 
             #self.on_position_update(channel=0,position=float(str(self.dev.get_current_position())))
             #self.dev.blabla.add_observer(lambda val : dpg.set_value("blabla_tag",val))

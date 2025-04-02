@@ -96,6 +96,9 @@ class FilterFlipperController:
         finally:
             self.disconnect()
 
+    def get_position(self):
+        return self.device.Position
+
 #
 # if __name__ == "__main__":
 #     controller = FilterFlipperController()
