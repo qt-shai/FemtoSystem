@@ -1,13 +1,15 @@
-from ECM import *
+#from ECM import *
 from ImGuiwrappedMethods import *
 from Common import *
 from HW_wrapper import HW_devices as hw_devices
+from Arduino_controlled_motor import FilterFlipperController
 
 class ZeluxGUI():
     def __init__(self):
         self.window_tag = "Zelux Window"
         self.HW = hw_devices.HW_devices()
         self.cam = self.HW.camera
+        self.flipper = None
 
         self.AddNewWindow()
 
@@ -84,6 +86,8 @@ class ZeluxGUI():
             dpg.add_group(tag="groupZeluxControls", parent=self.window_tag,horizontal=True)
             dpg.add_button(label="Start Live", callback=self.StartLive,tag="btnStartLive", parent="groupZeluxControls")
             dpg.add_button(label="Save Image", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
+            dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
+                             callback=self.Move_flipper, indent=-1, default_value=self.flipper.position)
 
             dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
             dpg.bind_item_theme(item = "btnSave", theme = "btnBlueTheme")
@@ -127,3 +131,10 @@ class ZeluxGUI():
 
             self.GUI_controls(isConnected = True)
             pass
+
+
+    def Move_flipper(self):
+        if self.flipper == None:
+            self.flipper = FilterFlipperController(serial_no="37008855")
+            self.flipper.connect()
+        self.flipper.toggle()

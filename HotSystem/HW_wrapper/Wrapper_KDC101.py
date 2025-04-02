@@ -355,3 +355,6 @@ class MotorStage(Motor):
         """Return if the device ius connected, enabled or busy"""
         return self.is_connected(), self.is_enabled(), self.is_busy()
 
+    def set_polarization_angle(self, polarization_angle: int) -> None:
+        pass
+

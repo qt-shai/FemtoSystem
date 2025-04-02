@@ -1,5 +1,6 @@
 import clr
 import time
+import System.Reflection
 
 # Load the necessary .NET assemblies.
 clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\Thorlabs.MotionControl.DeviceManagerCLI.dll")
@@ -77,3 +78,25 @@ class FilterFlipperController:
             print("Device disconnected.")
         except Exception as e:
             print("Error during disconnect:", e)
+
+    def toggle(self):
+        try:
+            self.connect()
+            self.get_device_info()
+
+            # Retrieve the current position.
+            current_position = self.device.Position  # Assumes device.Position returns an integer or comparable value.
+            print(f"Current position: {current_position}")
+
+            # Toggle: if current position is 2, then set to 0; otherwise, set to 2.
+            new_position = 1 if current_position == 2 else 2
+            print(f"Toggling position to: {new_position}")
+
+            self.set_position(new_position)
+        finally:
+            self.disconnect()
+
+#
+# if __name__ == "__main__":
+#     controller = FilterFlipperController()
+#     controller.toggle()
