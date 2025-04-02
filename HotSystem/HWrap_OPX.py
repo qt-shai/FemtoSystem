@@ -118,6 +118,7 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.sum_counters_flag: bool = False
         self.csv_file: Optional[str] = None
         self.is_green = False
         self.ref_counts_handle = None
@@ -417,6 +418,10 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inDbl_total_integration_time", value=sender.total_integration_time)
         print("Set total_integration_time to: " + str(sender.total_integration_time) + "msec")
+
+    def toggle_sum_counters(self):
+        self.sum_counters_flag = not self.sum_counters_flag
+        print(f"Set counter sum flag to {self.sum_counters_flag}")
 
     def UpdateWaitTime(sender, app_data, user_data):
         sender.Twait = user_data
@@ -1115,6 +1120,9 @@ class GUI_OPX():
                                  default_value=self.benchmark_switch_flag)
                 dpg.add_checkbox(label="One Gate Only Benchmark", tag="chkbox_single_gate_benchmark", parent="chkbox_group", indent=-1,
                                  callback=self.Update_benchmark_one_gate_only,default_value=self.benchmark_one_gate_only)
+                dpg.add_checkbox(label="Sum Counters", tag="chkbox_sum_counters", parent="chkbox_group",
+                                 callback=self.toggle_sum_counters, indent=-1,
+                                 default_value=self.sum_counters_flag)
 
                 dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
                 dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
@@ -4629,7 +4637,7 @@ class GUI_OPX():
     def g2_raw_QUA(self):
         # Scan Parameters
         n_avg = self.n_avg
-        correlation_width = 200*self.u.ns
+        correlation_width = 400*self.u.ns
         self.correlation_width = int(correlation_width)
         expected_counts = 150
         N = 1000 # every N cycles it tries to update the stream
@@ -4655,9 +4663,13 @@ class GUI_OPX():
             # with infinite_loop_():
             # play("Turn_ON", "Laser")
             idxN = declare(int, value=0)  # every N steps it will try to update the stream
+            iteration_number = declare(int, value=0)  # every N steps it will try to update the stream
 
-            with for_(n, 0, n < n_avg, n + 1):
+
+            with infinite_loop_():
                 assign(idxN, idxN + 1)
+                assign(iteration_number, iteration_number + 1)
+
                 play("Turn_ON", "Laser")
                 measure("readout", "Detector_OPD", None, time_tagging.digital(times_1, self.Tcounter, counts_1))
                 measure("readout", "Detector2_OPD", None, time_tagging.digital(times_2, self.Tcounter, counts_2))
@@ -4673,10 +4685,10 @@ class GUI_OPX():
                         save(g2[p], g2_st)
                         # assign(g2[p], 0)
 
-                    save(n, n_st)
+                    save(iteration_number, n_st)
                     save(total_counts, total_counts_st)
 
-            save(n, n_st)
+            save(iteration_number, n_st)
             save(total_counts, total_counts_st)
 
             with stream_processing():
@@ -7435,8 +7447,10 @@ class GUI_OPX():
                     measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
-                    assign(self.total_counts2, self.total_counts2 + self.counts_ref)  # assign is equal in qua language  # align()
-
+                    if self.sum_counters_flag:
+                        assign(self.total_counts, self.total_counts + self.counts_ref)
+                    else:
+                        assign(self.total_counts2,self.total_counts2 + self.counts_ref)
                 save(self.total_counts, self.counts_st)
                 save(self.total_counts2, self.counts_ref_st) # only to keep on convention
                 assign(self.total_counts, 0)
@@ -7865,7 +7879,7 @@ class GUI_OPX():
                 self.Common_updateGraph(_xLabel="times", _yLabel="counts")
             if self.exp == Experiment.G2:
                 dpg.set_item_label("graphXY",
-                                   f"{self.exp.name}, iteration = {self.iteration}, Totalounts = {round(self.g2_totalCounts, 0)}")
+                                   f"{self.exp.name}, Iteration = {self.iteration}, Total Counts = {round(self.g2_totalCounts, 0)}, g2 = {np.min(self.Y_vec)/self.Y_vec[0]:.3f}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
                 dpg.set_value("series_counts_ref", [[], []])
                 dpg.set_value("series_counts_ref2", [[], []])
