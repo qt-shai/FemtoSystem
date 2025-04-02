@@ -10115,9 +10115,9 @@ class GUI_OPX():
             """
             if channel in [0, 1]:  # X and Y axes: atto_scanner
                 self.HW.atto_scanner.set_offset_voltage(self.HW.atto_scanner.channels[channel], position)
-            elif channel == 2:  # Z axis: atto_positioner
-                self.HW.atto_positioner.set_control_fix_output_voltage(self.HW.atto_positioner.channels[channel],
-                                                                       int(position))
+            # elif channel == 2:  # Z axis: atto_positioner
+            #     self.HW.atto_positioner.set_control_fix_output_voltage(self.HW.atto_positioner.channels[channel],
+            #                                                            int(position))
 
         def get_positions():
             """
@@ -10125,11 +10125,13 @@ class GUI_OPX():
             """
             x = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[0])  # X axis
             y = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[1])  # Y axis
-            z = self.HW.atto_positioner.get_control_fix_output_voltage(2)  # Z axis
-            return x, y, z
+            # z = self.HW.atto_positioner.get_control_fix_output_voltage(2)  # Z axis
+            # return x, y, z
+            return x, y
 
         # Example scan radii for each axis
-        tracking_scan_radius = [2.5, 2.5, 10000]
+        # tracking_scan_radius = [2.5, 2.5, 10000]
+        tracking_scan_radius = [10, 10]
 
         initial_guess = get_positions()
         bounds = self.calculate_tracking_bounds(initial_guess, tracking_scan_radius)
@@ -10157,7 +10159,18 @@ class GUI_OPX():
         )
 
     def calculate_tracking_bounds(self, initial_guess, scan_radius):
-        x_guess, y_guess, z_guess = initial_guess
+        # Check if initial_guess is XY (2 elements) or XYZ (3 elements)
+        if len(initial_guess) == 2:
+            # For XY case, z_guess and scan_radius for z are not used
+            x_guess, y_guess = initial_guess
+            z_guess = 0  # Default to 0 for z in XY mode
+            scan_radius.append(0)  # Append 0 to the scan_radius for z-axis (not used)
+        elif len(initial_guess) == 3:
+            # For XYZ case, all values are used
+            x_guess, y_guess, z_guess = initial_guess
+        else:
+            raise ValueError("initial_guess must have either 2 (XY) or 3 (XYZ) elements.")
+
         # Clip around each axis with respective scan radii
         x_bounds = (
             np.clip(x_guess - scan_radius[0], self.HW.atto_scanner.offset_voltage_min,
@@ -10171,14 +10184,19 @@ class GUI_OPX():
             np.clip(y_guess + scan_radius[1], self.HW.atto_scanner.offset_voltage_min,
                     self.HW.atto_scanner.offset_voltage_max),
         )
-        z_bounds = (
-            np.clip(z_guess - scan_radius[2], self.HW.atto_positioner.fix_output_voltage_min,
-                    self.HW.atto_positioner.fix_output_voltage_max),
-            np.clip(z_guess + scan_radius[2], self.HW.atto_positioner.fix_output_voltage_min,
-                    self.HW.atto_positioner.fix_output_voltage_max),
-        )
-        bounds = (x_bounds, y_bounds, z_bounds)
-        print(f"Bounds are : {bounds}")
+        # Only include z_bounds if it's an XYZ case
+        if len(initial_guess) == 3:
+            z_bounds = (
+                np.clip(z_guess - scan_radius[2], self.HW.atto_positioner.fix_output_voltage_min,
+                        self.HW.atto_positioner.fix_output_voltage_max),
+                np.clip(z_guess + scan_radius[2], self.HW.atto_positioner.fix_output_voltage_min,
+                        self.HW.atto_positioner.fix_output_voltage_max),
+            )
+            bounds = (x_bounds, y_bounds, z_bounds)
+        else:
+            bounds = (x_bounds, y_bounds)
+
+        print(f"Bounds are: {bounds}")
         return bounds
 
     def FindMaxSignal_atto_positioner(self):
