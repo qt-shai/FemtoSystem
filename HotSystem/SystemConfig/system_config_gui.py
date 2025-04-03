@@ -9,7 +9,8 @@ import dearpygui.dearpygui as dpg
 import HW_wrapper.Wrapper_Smaract as Smaract
 import HW_wrapper.Wrapper_Picomotor as Picomotor
 import HW_wrapper.Wrapper_Zelux as ZeluxCamera
-from SystemConfig import SystemConfig, find_ethernet_device, InstrumentsAddress
+from SystemConfig import (SystemConfig, find_ethernet_device, InstrumentsAddress, connect_thorlabs_motor_device_by_serial
+,get_thorlabs_motor_serial_nums)
 from SystemConfig import SystemType, Instruments, Device, load_system_from_xml
 
 # Initialize the devices list and selection dictionary
@@ -45,6 +46,9 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
 
     if instrument == Instruments.ATTO_POSITIONER:
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
+    if instrument == Instruments.KDC_101:
+        get_thorlabs_motor_serial_nums()
+        devices = connect_thorlabs_motor_device_by_serial()
     if not isinstance(devices, list) and devices:
         devices = [devices]
 
@@ -323,6 +327,16 @@ def run_system_config_gui():
                                         dpg.add_text(f"{instrument.value}")
                                         dpg.add_text(f"IP: {device.ip_address or 'N/A'}")
                                         dpg.add_text(f"MAC: {device.mac_address or 'N/A'}")
+                                        # if instrument.value == "KDC_101":
+                                        #     with dpg.group(horizontal=True):
+                                        #         dpg.add_text(f"SN:")
+                                        #         dpg.add_combo(items=com_port_list,
+                                        #                       default_value=device.com_port if device.com_port in com_port_list else
+                                        #                       com_port_list[0],
+                                        #                       callback=update_device_com_port,
+                                        #                       user_data=device)
+                                        # else:
+                                        #     dpg.add_text(f"SN: {device.serial_number or 'N/A'}")
                                         dpg.add_text(f"SN: {device.serial_number or 'N/A'}")
                                         with dpg.group(horizontal=True):
                                             dpg.add_text(f"COM Port:")

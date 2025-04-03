@@ -5,6 +5,11 @@ import xml.etree.ElementTree as ET
 from enum import Enum
 from typing import List, Optional
 from Utils import remove_overlap_from_string
+import serial
+import serial.tools.list_ports
+import clr
+clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\Thorlabs.MotionControl.DeviceManagerCLI.dll")
+from Thorlabs.MotionControl.DeviceManagerCLI import *
 
 class SystemType(Enum):
     HOT_SYSTEM = "HotSystem"
@@ -269,4 +274,29 @@ def find_ethernet_device(ip_address: str, instrument: Instruments) -> Optional[D
         print(f"Device at {ip_address} is not available.")
 
     return None
+
+def connect_thorlabs_motor_device_by_serial() -> Optional[List[Device]]:
+    available_devices = []
+    try:
+        available_motors = get_thorlabs_motor_serial_nums()
+        if len(available_motors) > 0:
+            for device in available_motors:
+                available_devices.append(Device(
+                    instrument=Instruments.KDC_101,
+                    ip_address='N/A',
+                    mac_address='N/A',
+                    serial_number=device,
+                    com_port='N/A'
+                ))
+    except Exception as e:
+        print(f"Could not find Thorlabs Motor. Error: {e}")
+    return available_devices
+
+def get_thorlabs_motor_serial_nums() -> List[str]:
+    DeviceManagerCLI.BuildDeviceList()
+    # Assuming GetDeviceList returns a comma-separated string of serial numbers
+    device_list_dotnet = DeviceManagerCLI.GetDeviceList()
+    available_serials = [str(sn) for sn in device_list_dotnet]
+    print(f"Available USB devices: {available_serials}")
+    return available_serials
 

@@ -1,4 +1,5 @@
 """An example that uses the .NET Kinesis Libraries to connect to a KDC."""
+import ctypes
 import time
 import clr
 import inspect
@@ -18,7 +19,7 @@ from Thorlabs.MotionControl.KCube.DCServoCLI import *
 class MotorStage(Motor):
     """Class representing a Thorlabs PRM1Z8 motor stage."""
 
-    def __init__(self, serial_number: int = 27266061):
+    def __init__(self, serial_number: str):
         super().__init__()
         self.serial_number = str(serial_number)
         DeviceManagerCLI.BuildDeviceList()
@@ -53,6 +54,8 @@ class MotorStage(Motor):
             device_info = self.device.GetDeviceInfo()
             description = device_info.Description
             print(f"Device info is {description}")
+            #self.get_serial_number()
+            #self.get_all_connected_serial_numbers()
         except Exception as e:
             print(
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Error during initialization:", e)
@@ -357,4 +360,3 @@ class MotorStage(Motor):
 
     def set_polarization_angle(self, polarization_angle: int) -> None:
         pass
-

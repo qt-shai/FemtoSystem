@@ -26,7 +26,7 @@ class GUI_KDC101(GUIMotor):
         self.system_initialization()
         Child_Width = 100
         with dpg.window(label=f"{self.prefix} motor", no_title_bar=False,
-                        height=250, width=400, pos=[0, 0],
+                        height=150, width=400, pos=[0, 0],
                         collapsed=False, tag=self.window_tag):
 
             with dpg.group(horizontal=False, tag="group 1", width=Child_Width):
@@ -36,7 +36,7 @@ class GUI_KDC101(GUIMotor):
                 dpg.add_button(label="Jog up", tag=self.jog_up_tag, callback=self.jog_up_button, pos=[280, 80])
                 dpg.add_button(label="Jog Down", tag=self.jog_down_tag, callback=self.jog_down_button, pos=[280, 110])
 
-            with dpg.group(horizontal=False, tag="column 2", width=2*Child_Width, pos = [10,80], height = 120):
+            with dpg.group(horizontal=False, tag="column 2", width=2*Child_Width, pos = [10,60], height = 120):
                 #dpg.add_text(tag = "blabla_tag", default_value= self.dev.blabla.get(), color=(255, 255, 0))
                 with dpg.group(tag="controls"):
                     dpg.add_text("Input Position:", color=(0, 255, 0), indent = 10)
@@ -47,10 +47,14 @@ class GUI_KDC101(GUIMotor):
                                         step = self.step,
                                         indent=10,
                                         on_enter=True,
+                                        max_value = 360,
+                                        min_value = 0,
                                         width=250)
-                # with dpg.group():
-                #     current_pos = self.dev.get_current_position()
-                #     dpg.add_text(default_value=f"{current_pos:.6f}", tag = self.position_display_tag,color=(0, 255, 0), indent=10)
+            with dpg.group(horizontal=True, pos = [10,120]):
+                # current_pos = self.dev.get_current_position()
+                # dpg.add_text(default_value=f"Current_position:{current_pos:.6f}", tag = self.position_display_tag,color=(0, 255, 0), indent=10,
+                #              pos=[80, 110])
+                dpg.add_text("Current Position:", color=(0, 255, 0), indent=10)
 
             #self.on_position_update(channel=0,position=float(str(self.dev.get_current_position())))
             #self.dev.blabla.add_observer(lambda val : dpg.set_value("blabla_tag",val))

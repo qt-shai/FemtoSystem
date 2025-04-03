@@ -776,7 +776,7 @@ class PyGuiOverlay(Layer):
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.KDC_101:
-                    self.kdc_101_gui = GUI_KDC101(serial_number = 27266061)
+                    self.kdc_101_gui = GUI_KDC101(serial_number = device.serial_number)
                     #self.kdc_101_gui = GUI_KDC101(serial_number=37008855)
                     self.kdc_101_gui.system_initialization()
                     dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
