@@ -144,7 +144,7 @@ class HW_devices:
             elif instrument == Instruments.KDC_101:
                 # KDC_101 Rotational Stage for the Lambda/2 Plate
                 # TODO: Make serial number into an input to the Motor Stage
-                self.kdc_101 = MotorStage()
+                self.kdc_101 = MotorStage(serial_number=27266061)
 
             elif instrument == Instruments.ARDUINO:
                 # Initialize ArduinoController
