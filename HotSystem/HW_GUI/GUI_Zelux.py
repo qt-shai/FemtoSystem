@@ -2,7 +2,7 @@
 from ImGuiwrappedMethods import *
 from Common import *
 from HW_wrapper import HW_devices as hw_devices
-from Arduino_controlled_motor import FilterFlipperController
+from HW_wrapper.Wrapper_MFF_101 import FilterFlipperController
 
 class ZeluxGUI():
     def __init__(self):
@@ -167,7 +167,7 @@ class ZeluxGUI():
 
     def Move_flipper(self, serial_number):
         try:
-            self.flipper = FilterFlipperController(serial_no=serial_number)
+            self.flipper = FilterFlipperController(serial_number=serial_number)
             self.flipper.connect()
             self.flipper.toggle()
         except Exception as e:

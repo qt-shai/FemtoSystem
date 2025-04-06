@@ -147,6 +147,7 @@ class HW_devices:
                 # # KDC_101 Rotational Stage for the Lambda/2 Plate
                 # # TODO: Make serial number into an input to the Motor Stage
                 self.kdc_101 = MotorStage(device.serial_number)
+                self.kdc_101.connect()
                 pass
 
             elif instrument == Instruments.MFF_101:
