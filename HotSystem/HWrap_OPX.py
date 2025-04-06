@@ -2242,7 +2242,7 @@ class GUI_OPX():
 
     def verify_insideQUA_FreqValues(self, freq, min=0, max=400):  # [MHz]
         if freq < min * self.u.MHz or freq > max * self.u.MHz:
-            raise Exception('freq is out of range. verify base freq is up to 400 MHz relative to resonance')
+            raise Exception(f'freq {freq} is out of range [{min},{max}]. verify base freq is up to 400 MHz relative to resonance')
 
     def GenVector(self, min, max, delta, asInt=False, N="none"):
         if N == "none":
@@ -7105,8 +7105,8 @@ class GUI_OPX():
         # MW parameters
         self.fMW_1st_res = 0 #(self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz
         self.verify_insideQUA_FreqValues(self.fMW_1st_res)
-        self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq_resonance) * self.u.GHz # Hz
-        self.verify_insideQUA_FreqValues(self.fMW_2nd_res)
+        # self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq_resonance) * self.u.GHz # Hz
+        # self.verify_insideQUA_FreqValues(self.fMW_2nd_res)
 
         # time scan vector
         tRabi_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
@@ -7493,15 +7493,19 @@ class GUI_OPX():
                 with for_(self.n, 0, self.n < self.total_integration_time * self.u.ms, self.n + self.Tcounter):  # number of averages / total integation time
                     play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
                     measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
-                    assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
 
+                    if self.sum_counters_flag:
+                        measure("min_readout", "Detector2_OPD", None,
+                                time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts_ref))
+                        assign(self.total_counts, self.total_counts + self.counts_ref)  # assign is equal in qua language  # align()
+                    assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
                 save(self.total_counts, self.counts_st)
                 assign(self.total_counts, 0)
 
             with stream_processing():
                 # TODO: Change buffer size to not be hardcoded
-                self.counts_st.buffer(400).average().save("counts")
-                # self.counts_st.buffer(400).save("counts")
+                # self.counts_st.buffer(400).average().save("counts")
+                self.counts_st.buffer(400).save("counts")
 
         self.qm, self.job = self.QUA_execute()
 
@@ -7517,6 +7521,7 @@ class GUI_OPX():
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
             counts = declare(int)  # apd1
+            counts2 = declare(int)  # apd1
             total_counts = declare(int, value=0)  # apd1
             n = declare(int)  #
             meas_idx = declare(int, value=0)
@@ -7541,6 +7546,10 @@ class GUI_OPX():
                         play("Turn_ON", play_element, duration=laser_on_duration)
                         measure("readout", "Detector_OPD", None,
                                 time_tagging.digital(times, single_integration_time, counts))
+                        if self.sum_counters_flag:
+                            measure("min_readout", "Detector2_OPD", None,
+                                    time_tagging.digital(times, single_integration_time, counts2))
+                            assign(total_counts,total_counts + counts2)
                         assign(total_counts, total_counts + counts)
 
                     save(total_counts, counts_st)
