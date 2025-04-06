@@ -22,7 +22,7 @@ from HW_GUI.GUI_mattise import GUIMatisse
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
 from HW_GUI.GUI_KDC101 import GUI_KDC101
-from HW_wrapper import AttoScannerWrapper
+from HW_wrapper import AttoScannerWrapper, MotorStage
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Window import Window_singleton
 import threading
@@ -776,16 +776,16 @@ class PyGuiOverlay(Layer):
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.KDC_101:
-                    self.kdc_101_gui = GUI_KDC101(serial_number = device.serial_number)
-                    #self.kdc_101_gui = GUI_KDC101(serial_number=37008855)
-                    self.kdc_101_gui.system_initialization()
-                    dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
-                    y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
+                    # self.kdc_101_gui = GUI_KDC101(serial_number = "27266061", device=hw_devices.HW_devices(simulation=self.simulation).kdc_101)
+                    # dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
+                    # y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
+                    pass
 
                 elif instrument == Instruments.ARDUINO:
                     self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
                     dpg.set_item_pos(self.arduino_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.arduino_gui.window_tag) + vertical_spacing
+
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 
