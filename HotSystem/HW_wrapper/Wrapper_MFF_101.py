@@ -1,6 +1,6 @@
 import clr
 import time
-import System.Reflection
+import inspect
 
 # Load the necessary .NET assemblies.
 clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\Thorlabs.MotionControl.DeviceManagerCLI.dll")
@@ -15,8 +15,8 @@ from System import UInt32
 class FilterFlipperController:
     """Class representing a Thorlabs Filter Flipper controller."""
 
-    def __init__(self, serial_no: str = "37008855"):
-        self.serial_no = serial_no
+    def __init__(self, serial_number: str = "37009011"):
+        self.serial_no = serial_number
         self.settings_timeout = 10000
         self.op_timeout = 60000
         self.polling_rate = 250
@@ -52,6 +52,11 @@ class FilterFlipperController:
             return info
         except Exception as e:
             print("Error retrieving device information:", e)
+
+    def is_busy(self) -> bool:
+        print(
+            f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Device is busy: {self.device.IsDeviceBusy}.")
+        return self.device.IsDeviceBusy
 
     def home(self):
         try:
@@ -93,8 +98,11 @@ class FilterFlipperController:
             print(f"Toggling position to: {new_position}")
 
             self.set_position(new_position)
-        finally:
-            self.disconnect()
+            return new_position
+        except Exception as e:
+            print("Error during toggling:", e)
+        # finally:
+        #     self.disconnect()
 
     def get_position(self):
         return self.device.Position

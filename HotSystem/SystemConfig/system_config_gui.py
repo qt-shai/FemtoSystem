@@ -46,9 +46,9 @@ def get_available_devices(instrument: Instruments) -> Optional[List[Device]]:
 
     if instrument == Instruments.ATTO_POSITIONER:
         devices = find_ethernet_device(SystemConfig.atto_positioner_ip, instrument)
-    if instrument == Instruments.KDC_101:
-        get_thorlabs_motor_serial_nums()
-        devices = connect_thorlabs_motor_device_by_serial()
+    if (instrument == Instruments.KDC_101) or (instrument == Instruments.MFF_101):
+        #get_thorlabs_motor_serial_nums()
+        devices = connect_thorlabs_motor_device_by_serial(instrument)
     if not isinstance(devices, list) and devices:
         devices = [devices]
 

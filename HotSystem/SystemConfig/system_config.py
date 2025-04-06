@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from enum import Enum
 from typing import List, Optional
 from Utils import remove_overlap_from_string
+from pylablib.devices import Thorlabs
 import serial
 import serial.tools.list_ports
 import clr
@@ -37,6 +38,7 @@ class Instruments(Enum):
     KEYSIGHT_AWG = "keysight_awg"
     CLD1011LP = "CLD1011LP"
     KDC_101 = "KDC_101"
+    MFF_101 = "MFF_101"
     ARDUINO = "Arduino"
 
 class InstrumentsAddress(Enum):
@@ -275,28 +277,39 @@ def find_ethernet_device(ip_address: str, instrument: Instruments) -> Optional[D
 
     return None
 
-def connect_thorlabs_motor_device_by_serial() -> Optional[List[Device]]:
+def connect_thorlabs_motor_device_by_serial(instrument) -> Optional[List[Device]]:
     available_devices = []
     try:
-        available_motors = get_thorlabs_motor_serial_nums()
+        available_motors = get_thorlabs_motor_serial_nums(instrument)
         if len(available_motors) > 0:
             for device in available_motors:
-                available_devices.append(Device(
-                    instrument=Instruments.KDC_101,
-                    ip_address='N/A',
-                    mac_address='N/A',
-                    serial_number=device,
-                    com_port='N/A'
-                ))
+                if device not in available_devices:
+                    available_devices.append(Device(
+                        instrument=instrument,
+                        ip_address='N/A',
+                        mac_address='N/A',
+                        serial_number=device,
+                        com_port='N/A'
+                    ))
     except Exception as e:
         print(f"Could not find Thorlabs Motor. Error: {e}")
     return available_devices
 
-def get_thorlabs_motor_serial_nums() -> List[str]:
-    DeviceManagerCLI.BuildDeviceList()
-    # Assuming GetDeviceList returns a comma-separated string of serial numbers
-    device_list_dotnet = DeviceManagerCLI.GetDeviceList()
-    available_serials = [str(sn) for sn in device_list_dotnet]
-    print(f"Available USB devices: {available_serials}")
-    return available_serials
+def get_thorlabs_motor_serial_nums(intrument) -> List[str]:
+    # DeviceManagerCLI.BuildDeviceList()
+    # # Assuming GetDeviceList returns a comma-separated string of serial numbers
+    # device_list_dotnet = DeviceManagerCLI.GetDeviceList()
+    # available_serials = [str(sn) for sn in device_list_dotnet]
+    # print(f"Available USB devices: {available_serials}")
+    device_type_list = Thorlabs.list_kinesis_devices(filter_ids=True)
+    print(f"Available devices types: {device_type_list}")
+    available_serials = []
+    try:
+        if intrument == Instruments.KDC_101:
+            available_serials = [device_id for device_id, device_type in device_type_list if device_type == 'Brushed Motor Controller']
+        elif intrument == Instruments.MFF_101:
+            available_serials = [device_id for device_id, device_type in device_type_list if device_type == 'APT Filter Flipper']
+        return available_serials
+    except Exception as e:
+        print(f"Could not find Thorlabs Motor. Error: {e}")
 

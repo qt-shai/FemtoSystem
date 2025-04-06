@@ -12,13 +12,14 @@ class GUI_KDC101(GUIMotor):
     def __init__(self, serial_number, device) -> None:
         self.dev = device
         self.prefix = "KDC101"
-        self.window_tag: str = f"{self.prefix}_Win_{serial_number}"
-        self.enable_button_tag = f"{self.prefix}_EnableButton_{serial_number}"
-        self.stop_button_tag = f"{self.prefix}_StopButton_{serial_number}"
-        self.position_tag = f"{self.prefix}_Position_{serial_number}"
-        self.jog_up_tag = f"{self.prefix}_Jog Up_{serial_number}"
-        self.jog_down_tag = f"{self.prefix}_Jog Down_{serial_number}"
-        self.position_display_tag = f"{self.prefix}_PositionDisplay_{serial_number}"
+        self.unique_id = self._get_unique_id_from_device()
+        self.window_tag: str = f"{self.prefix}_Win_{self.unique_id}"
+        self.enable_button_tag = f"{self.prefix}_EnableButton_{self.unique_id}"
+        self.stop_button_tag = f"{self.prefix}_StopButton_{self.unique_id}"
+        self.position_tag = f"{self.prefix}_Position_{self.unique_id}"
+        self.jog_up_tag = f"{self.prefix}_Jog Up_{self.unique_id}"
+        self.jog_down_tag = f"{self.prefix}_Jog Down_{self.unique_id}"
+        self.position_display_tag = f"{self.prefix}_PositionDisplay_{self.unique_id}"
         self.step = 0.5
         themes = DpgThemes()
         self.viewport_width = dpg.get_viewport_client_width()
@@ -30,14 +31,14 @@ class GUI_KDC101(GUIMotor):
                             height=150, width=400, pos=[0, 0],
                             collapsed=False, tag=self.window_tag):
 
-                with dpg.group(horizontal=False, tag="group 1", width=Child_Width):
+                with dpg.group(horizontal=False, tag=f"group 1_{self.unique_id}", width=Child_Width):
                     dpg.add_button(label="Home", callback=self.home_button, pos=[150,30])
                     dpg.add_button(label="Disable", tag=self.enable_button_tag, callback=self.enable_button, pos=[20,30])
                     dpg.add_button(label="Stop", tag=self.stop_button_tag, callback=self.stop_button, pos=[280, 30])
                     dpg.add_button(label="Jog up", tag=self.jog_up_tag, callback=self.jog_up_button, pos=[280, 80])
                     dpg.add_button(label="Jog Down", tag=self.jog_down_tag, callback=self.jog_down_button, pos=[280, 110])
 
-                with dpg.group(horizontal=False, tag="column 2", width=2*Child_Width, pos = [10,60], height = 120):
+                with dpg.group(horizontal=False, tag=f"column 2_{self.unique_id}", width=2*Child_Width, pos = [10,60], height = 120):
                     #dpg.add_text(tag = "blabla_tag", default_value= self.dev.blabla.get(), color=(255, 255, 0))
                     with dpg.group(tag="controls"):
                         dpg.add_text("Input Position:", color=(0, 255, 0), indent = 10)
