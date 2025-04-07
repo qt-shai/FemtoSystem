@@ -61,7 +61,7 @@ from SystemConfig import SystemType
 from Utils import OptimizerMethod, find_max_signal
 from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, \
     open_file_dialog, create_gaussian_vector,\
-    open_file_dialog, create_gaussian_vector, create_counts_vector
+    open_file_dialog, create_gaussian_vector, create_counts_vector, OptimizerMethod, find_max_signal
 import dearpygui.dearpygui as dpg
 from PIL import Image
 import subprocess
@@ -69,8 +69,10 @@ import shutil
 import xml.etree.ElementTree as ET
 import math
 import SystemConfig as configs
-from Utils import OptimizerMethod, find_max_signal
+import copy
 import JobTesting_OPX
+
+from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
 
 matplotlib.use('qtagg')
 
@@ -195,11 +197,12 @@ class GUI_OPX():
                 print("Setting up tracking function with atto positioner")
                 self.tracking_function = self.FindMaxSignal_atto_positioner
         if (self.HW.config.system_type == configs.SystemType.DANIEL):
-            self.ScanTrigger = 1001  # IO2
-            self.TrackingTrigger = 1001  # IO1
+            self.ScanTrigger = 2001  # IO2
+            self.TrackingTrigger = 2001  # IO1
         if (self.HW.config.system_type == configs.SystemType.ICE):
             self.ScanTrigger = 10001  # IO2
             self.TrackingTrigger = 10001  # IO1
+        self.my_qua_jobs = []
 
         # At the end of the init - all values are overwritten from XML!
         # To update values of the parameters - update the XML or the corresponding place in the GUI
@@ -240,7 +243,7 @@ class GUI_OPX():
         self.idx_scan = [0, 0, 0]  # Z Y X
         self.startLoc = [0, 0, 0]
         self.endLoc = [0, 0, 0]
-        self.dir = 1
+        # self.dir = 1
         self.estimatedScanTime = 0.0  # [minutes]
         self.singleStepTime_scan = 0.033  # [sec]
         self.stopScan = True
@@ -335,6 +338,9 @@ class GUI_OPX():
 
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
+        # G2 correlation width
+        self.correlation_width = 223 # [nsec]
+
         self.dN = 10
         self.back_freq = self.mw_2ndfreq_resonance
         self.n_measure = 6
@@ -363,8 +369,9 @@ class GUI_OPX():
         self.benchmark_one_gate_only = True
         self.bScanChkbox = False
 
-        self.chkbox_close_all_qm = True
-        # self.bEnableSignalIntensityCorrection = False # tdo: remove after fixing intensity method
+        self.chkbox_close_all_qm = False
+        self.pharos = PharosLaserAPI(host="192.168.101.58")
+        self.Shoot_Femto_Pulses = False
 
         dpg.set_frame_callback(1, self.load_pos)
 
@@ -574,6 +581,12 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_n_avg", value=sender.n_avg)
         print("Set n_avg to: " + str(sender.n_avg))
+
+    def UpdateCorrelationWidth(sender, app_data, user_data):
+        sender.correlation_width = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="inInt_G2_correlation_width", value=sender.correlation_width)
+        print("Set correlation_width to: " + str(sender.correlation_width))
 
     def UpdateN_measure(sender, app_data, user_data):
         sender.n_measure = (int(user_data))
@@ -804,15 +817,15 @@ class GUI_OPX():
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
         self.set_all_themes()
 
-        dpg.add_window(label=self.window_tag, tag=self.window_tag,no_title_bar=True, height=-1, width=-1,
-                       pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label="Exp graph", tag="experiments_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label="Exp graph", tag="graph_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+
         dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
-        dpg.add_plot(label="Graph", width=int(win_size[0]), height=int(win_size[1]), crosshairs=True, tag="graphXY",
-                     parent="Graph_group")  # height=-1, width=-1,no_menus = False )
+        dpg.add_plot(label="Graph", crosshairs=True, tag="graphXY", parent="graph_window", height=-1, width=-1)# width=int(win_size[0]), height=int(win_size[1]))  # height=-1, width=-1,no_menus = False )
         dpg.add_plot_legend(parent="graphXY")  # optionally create legend
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
-        dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False,
-                          parent="graphXY")  # REQUIRED: create x and y axes
+        dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False, parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
         dpg.add_line_series(self.X_vec_ref, self.Y_vec_ref, label="counts_ref", parent="y_axis",
                             tag="series_counts_ref")
@@ -839,9 +852,23 @@ class GUI_OPX():
         if isStart:
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=False)
 
+            dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
+            dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group", callback=self.Update_Intensity_Tracking_state, indent=-1, default_value=self.bEnableSignalIntensityCorrection)
+            dpg.add_checkbox(label="QUA shuffle", tag="chkbox_QUA_shuffle", parent="chkbox_group", callback=self.Update_QUA_Shuffle_state, indent=-1, default_value=self.bEnableShuffle)
+            dpg.add_checkbox(label="QUA simulate", tag="chkbox_QUA_simulate", parent="chkbox_group", callback=self.Update_QUA_Simulate_state, indent=-1, default_value=self.bEnableSimulate)
+            dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1, callback=self.Update_scan, default_value=self.bScanChkbox)
+            dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1, callback=self.Update_close_all_qm, default_value=self.chkbox_close_all_qm)
+            dpg.add_checkbox(label="Two Qubit Benchmark", tag="chkbox_no_gate_benchmark", parent="chkbox_group", indent=-1,
+                             callback=self.Update_benchmark_switch_flag,
+                             default_value=self.benchmark_switch_flag)
+            dpg.add_checkbox(label="One Gate Only Benchmark", tag="chkbox_single_gate_benchmark", parent="chkbox_group", indent=-1,
+                             callback=self.Update_benchmark_one_gate_only,default_value=self.benchmark_one_gate_only)
+            dpg.add_checkbox(label="Sum Counters", tag="chkbox_sum_counters", parent="chkbox_group",
+                             callback=self.toggle_sum_counters, indent=-1,
+                             default_value=self.sum_counters_flag)
+
             # Create a single collapsible header to contain all controls, collapsed by default
-            with dpg.collapsing_header(label="Parameter Controls", tag="Parameter_Controls_Header",
-                                       parent="Params_Controls", default_open=False):
+            with dpg.collapsing_header(label="Parameters Control", tag="Parameter_Controls_Header", parent="Params_Controls", default_open=True):
                 # Child window and group for integration controls
                 with dpg.child_window(tag="child_Integration_Controls", horizontal_scrollbar=True, width=child_width,
                                       height=child_height):
@@ -876,11 +903,8 @@ class GUI_OPX():
                         dpg.add_input_int(label="", tag="inInt_process_time", width=item_width, default_value=300,
                                           min_value=1, max_value=1000, step=1)
 
-                dpg.add_child_window(label="", tag="child_Freq_Controls", parent="Parameter_Controls_Header",
-                                     horizontal_scrollbar=True,
-                                     width=child_width, height=child_height)
-                dpg.add_group(tag="Freq_Controls", parent="child_Freq_Controls",
-                              horizontal=True)  # , before="Graph_group")
+                dpg.add_child_window(label="", tag="child_Freq_Controls", parent="Parameter_Controls_Header", horizontal_scrollbar=True, width=child_width, height=child_height)
+                dpg.add_group(tag="Freq_Controls", parent="child_Freq_Controls", horizontal=True)  # , before="Graph_group")
 
                 dpg.add_text(default_value="MW res [GHz]", parent="Freq_Controls", tag="text_mwResonanceFreq",
                              indent=-1)
@@ -951,14 +975,10 @@ class GUI_OPX():
                 dpg.add_child_window(label="", tag="child_Time_Scan_Controls", parent="Parameter_Controls_Header",
                                      horizontal_scrollbar=True,
                                      width=child_width, height=child_height)
-                dpg.add_group(tag="Time_Scan_Controls", parent="child_Time_Scan_Controls",
-                              horizontal=True)  # , before="Graph_group")
-                dpg.add_text(default_value="scan t start [ns]", parent="Time_Scan_Controls", tag="text_scan_time_start",
-                             indent=-1)
-                dpg.add_input_int(label="", tag="inInt_scan_t_start", indent=-1, parent="Time_Scan_Controls",
-                                  width=item_width,
-                                  callback=self.UpdateScanTstart, default_value=self.scan_t_start, min_value=0,
-                                  max_value=50000, step=1)
+                dpg.add_group(tag="Time_Scan_Controls", parent="child_Time_Scan_Controls", horizontal=True)  # , before="Graph_group")
+                dpg.add_text(default_value="scan t start [ns]", parent="Time_Scan_Controls", tag="text_scan_time_start", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_scan_t_start", indent=-1, parent="Time_Scan_Controls", width=item_width,
+                                  callback=self.UpdateScanTstart, default_value=self.scan_t_start, min_value=0, max_value=50000, step=1)
                 dpg.add_text(default_value="dt [ns]", parent="Time_Scan_Controls", tag="text_scan_time_dt", indent=-1)
                 dpg.add_input_int(label="", tag="inInt_scan_t_dt", indent=-1, parent="Time_Scan_Controls",
                                   width=item_width,
@@ -974,8 +994,7 @@ class GUI_OPX():
                 dpg.add_child_window(label="", tag="child_Time_delay_Controls", parent="Parameter_Controls_Header",
                                      horizontal_scrollbar=True,
                                      width=child_width, height=child_height)
-                dpg.add_group(tag="Time_delay_Controls", parent="child_Time_delay_Controls",
-                              horizontal=True)  # , before="Graph_group")
+                dpg.add_group(tag="Time_delay_Controls", parent="child_Time_delay_Controls", horizontal=True)  # , before="Graph_group")
 
                 dpg.add_text(default_value="t_mw [ns]", parent="Time_delay_Controls", tag="text_t_mw", indent=-1)
                 dpg.add_input_int(label="", tag="inInt_t_mw", indent=-1, parent="Time_delay_Controls", width=item_width,
@@ -1014,8 +1033,7 @@ class GUI_OPX():
                 dpg.add_child_window(label="", tag="child_Repetitions_Controls", parent="Parameter_Controls_Header",
                                      horizontal_scrollbar=True,
                                      width=child_width, height=child_height)
-                dpg.add_group(tag="Repetitions_Controls", parent="child_Repetitions_Controls",
-                              horizontal=True)  # , before="Graph_group")
+                dpg.add_group(tag="Repetitions_Controls", parent="child_Repetitions_Controls", horizontal=True)  # , before="Graph_group")
 
                 dpg.add_text(default_value="N nuc pump", parent="Repetitions_Controls", tag="text_N_nuc_pump",
                              indent=-1)
@@ -1037,15 +1055,11 @@ class GUI_OPX():
                                   step=1)
 
                 dpg.add_text(default_value="N avg", parent="Repetitions_Controls", tag="text_n_avg", indent=-1)
-                dpg.add_input_int(label="", tag="inInt_n_avg", indent=-1, parent="Repetitions_Controls",
-                                  width=item_width, callback=self.UpdateNavg,
+                dpg.add_input_int(label="", tag="inInt_n_avg", indent=-1, parent="Repetitions_Controls", width=item_width, callback=self.UpdateNavg,
                                   default_value=self.n_avg, min_value=0, max_value=50000, step=1)
-                dpg.add_text(default_value="TrackingThreshold", parent="Repetitions_Controls",
-                             tag="text_TrackingThreshold", indent=-1)
-                dpg.add_input_double(label="", tag="inDbl_TrackingThreshold", indent=-1, parent="Repetitions_Controls",
-                                     format="%.2f",
-                                     width=item_width, callback=self.Update_TrackingThreshold,
-                                     default_value=self.TrackingThreshold, min_value=0,
+                dpg.add_text(default_value="TrackingThreshold", parent="Repetitions_Controls", tag="text_TrackingThreshold", indent=-1)
+                dpg.add_input_double(label="", tag="inDbl_TrackingThreshold", indent=-1, parent="Repetitions_Controls", format="%.2f",
+                                     width=item_width, callback=self.Update_TrackingThreshold, default_value=self.TrackingThreshold, min_value=0,
                                      max_value=1, step=0.01)
                 dpg.add_text(default_value="N search (Itracking)", parent="Repetitions_Controls",
                              tag="text_N_tracking_search", indent=-1)
@@ -1060,22 +1074,7 @@ class GUI_OPX():
                                   default_value=self.survey_g2_counts,
                                   min_value=0, max_value=50000, step=1)
 
-                dpg.add_text(default_value="Survey g2 threshold", parent="Repetitions_Controls",
-                             tag="text_survey_g2_threshold", indent=-1)
-                dpg.add_input_float(label="", tag="inInt_survey_g2_threshold", indent=-1, parent="Repetitions_Controls",
-                                  width=item_width, callback=self.UpdateN_survey_g2_threshold,
-                                  default_value=self.survey_g2_threshold,
-                                  min_value=0, max_value=1, step=0.001)
-
-                dpg.add_text(default_value="Survey g2 timeout", parent="Repetitions_Controls",
-                             tag="text_survey_g2_timeout", indent=-1)
-                dpg.add_input_float(label="", tag="inInt_survey_g2_timeout", indent=-1, parent="Repetitions_Controls",
-                                  width=item_width, callback=self.UpdateN_survey_g2_timeout,
-                                  default_value=self.survey_g2_timeout,
-                                  min_value=1, max_value=10000, step=1)
-
-                dpg.add_group(tag="MW_amplitudes", parent="Parameter_Controls_Header",
-                              horizontal=True)  # , before="Graph_group")
+                dpg.add_group(tag="MW_amplitudes", parent="Parameter_Controls_Header", horizontal=True)  #, before="Graph_group")
                 dpg.add_text(default_value="MW P_amp", parent="MW_amplitudes", tag="text_mwP_amp", indent=-1)
                 dpg.add_input_double(label="", tag="inDbl_mwP_amp", indent=-1, parent="MW_amplitudes", format="%.6f",
                                      width=item_width, callback=self.Update_mwP_amp, default_value=self.mw_P_amp,
@@ -1089,6 +1088,11 @@ class GUI_OPX():
                                      width=item_width, callback=self.Update_mwP_amp3, default_value=self.mw_P_amp3,
                                      min_value=0.0, max_value=1.0, step=0.001)
 
+                # save exp data
+                dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
+                dpg.add_input_text(label="", parent="Save_Controls", tag="inTxtOPX_expText", indent=-1, callback=self.saveExperimentsNotes)
+                dpg.add_button(label="Save", parent="Save_Controls", tag="btnOPX_save", callback=self.btnSave,
+                               indent=-1)  # remove save btn, it should save automatically
                 dpg.add_child_window(label="", tag="child_benchmark", parent="Parameter_Controls_Header",
                                      horizontal_scrollbar=True,
                                      width=child_width, height=child_height)
@@ -1146,33 +1150,14 @@ class GUI_OPX():
                                      default_value=self.AWG_interval,
                                      min_value=0, max_value=10000, step=4)
 
-                dpg.add_group(tag="chkbox_group", parent="Params_Controls", horizontal=True)
-                dpg.add_checkbox(label="Intensity Correction", tag="chkbox_intensity_correction", parent="chkbox_group",
-                                 callback=self.Update_Intensity_Tracking_state, indent=-1,
-                                 default_value=self.bEnableSignalIntensityCorrection)
-                dpg.add_checkbox(label="QUA shuffle", tag="chkbox_QUA_shuffle", parent="chkbox_group",
-                                 callback=self.Update_QUA_Shuffle_state,
-                                 indent=-1, default_value=self.bEnableShuffle)
-                dpg.add_checkbox(label="QUA simulate", tag="chkbox_QUA_simulate", parent="chkbox_group",
-                                 callback=self.Update_QUA_Simulate_state,
-                                 indent=-1, default_value=self.bEnableSimulate)
-                dpg.add_checkbox(label="Scan XYZ", tag="chkbox_scan", parent="chkbox_group", indent=-1,
-                                 callback=self.Update_scan,
-                                 default_value=self.bScanChkbox)
-                dpg.add_checkbox(label="Close All QM", tag="chkbox_close_all_qm", parent="chkbox_group", indent=-1,
-                                 callback=self.Update_close_all_qm,
-                                 default_value=self.chkbox_close_all_qm)
-                dpg.add_checkbox(label="Two Qubit Benchmark", tag="chkbox_no_gate_benchmark", parent="chkbox_group", indent=-1,
-                                 callback=self.Update_benchmark_switch_flag,
-                                 default_value=self.benchmark_switch_flag)
-                dpg.add_checkbox(label="One Gate Only Benchmark", tag="chkbox_single_gate_benchmark", parent="chkbox_group", indent=-1,
-                                 callback=self.Update_benchmark_one_gate_only,default_value=self.benchmark_one_gate_only)
-                dpg.add_checkbox(label="Sum Counters", tag="chkbox_sum_counters", parent="chkbox_group",
-                                 callback=self.toggle_sum_counters, indent=-1,
-                                 default_value=self.sum_counters_flag)
-
                 dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
                 dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
+
+                # save exp data
+                dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
+                dpg.add_input_text(label="", parent="Save_Controls", tag="inTxtOPX_expText", indent=-1, callback=self.saveExperimentsNotes)
+                dpg.add_button(label="Save", parent="Save_Controls", tag="btnOPX_save", callback=self.btnSave,
+                               indent=-1)  # remove save btn, it should save automatically
 
                 dpg.add_slider_int(label="Laser Type",
                                    tag="on_off_slider", width = 80,
@@ -1181,76 +1166,43 @@ class GUI_OPX():
                                    callback=self.on_off_slider_callback,indent = -1,
                                    format="Green")
 
-                dpg.add_group(tag="Buttons_Controls", parent="Graph_group",
-                              horizontal=False)  # parent="Params_Controls",horizontal=False)
-                _width = 300  # was 220
-                dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",
-                               callback=self.btnStartCounterLive, indent=-1, width=_width)
-                dpg.add_button(label="g2 Survey", parent="Buttons_Controls", tag="btnOPX_StartG2Survey",
-                               callback=self.btnStartG2Survey, indent=-1, width=_width)
-                dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR",
-                               callback=self.btnStartODMR_CW, indent=-1, width=_width)
-                dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR",
-                               callback=self.btnStartPulsedODMR, indent=-1, width=_width)
-                dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
-                dpg.add_button(label="Ext. Frequency Scan", parent="Buttons_Controls", tag="btnExternalFrequencyScan",
-                               callback=self.btnStartExternalFrequencyScan,
-                               indent=-1, width=_width)
-                dpg.add_button(label="FP SCAN (AWG)", parent="Buttons_Controls", tag="btnAWG_FP_SCAN",
-                               callback=self.btnStartAWG_FP_SCAN,
-                               indent=-1, width=_width)
-                dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
-                dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot",
-                               callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
-                dpg.add_button(label="PLE", parent="Buttons_Controls", tag="btnPLE", callback=self.btnStartPLE,
-                               indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI",
-                               callback=self.btnStartNuclearRABI, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR",
-                               callback=self.btnStartNuclearMR,
-                               indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear PolESR", parent="Buttons_Controls", tag="btnOPX_StartNuclearPolESR",
-                               callback=self.btnStartNuclearPolESR, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear lifetime S0", parent="Buttons_Controls",
-                               tag="btnOPX_StartNuclearLifetimeS0",
-                               callback=self.btnStartNuclearSpinLifetimeS0, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear lifetime S1", parent="Buttons_Controls",
-                               tag="btnOPX_StartNuclearLifetimeS1",
-                               callback=self.btnStartNuclearSpinLifetimeS1, indent=-1, width=_width)
-                dpg.add_button(label="Start Nuclear Ramsay", parent="Buttons_Controls", tag="btnOPX_StartNuclearRamsay",
-                               callback=self.btnStartNuclearRamsay, indent=-1, width=_width)
-                dpg.add_button(label="Start Hahn", parent="Buttons_Controls", tag="btnOPX_StartHahn",
-                               callback=self.btnStartHahn, indent=-1,
-                               width=_width)
-                dpg.add_button(label="Start Electron Lifetime", parent="Buttons_Controls",
-                               tag="btnOPX_StartElectronLifetime",
-                               callback=self.btnStartElectronLifetime, indent=-1, width=_width)
-                dpg.add_button(label="Start Electron Coherence", parent="Buttons_Controls",
-                               tag="btnOPX_StartElectronCoherence",
-                               callback=self.btnStartElectron_Coherence, indent=-1, width=_width)
-
-                dpg.add_button(label="Start population gate tomography", parent="Buttons_Controls",
-                               tag="btnOPX_PopulationGateTomography",
-                               callback=self.btnStartPopulateGateTomography, indent=-1, width=_width)
-                dpg.add_button(label="Start Entanglement state tomography", parent="Buttons_Controls",
-                               tag="btnOPX_EntanglementStateTomography",
-                               callback=self.btnStartStateTomography, indent=-1, width=_width)
-                dpg.add_button(label="Start G2", parent="Buttons_Controls", tag="btnOPX_G2",
-                               callback=self.btnStartG2, indent=-1, width=_width)
-                dpg.add_button(label="Eilon's", parent="Buttons_Controls", tag="btnOPX_Eilons",
-                               callback=self.btnStartEilons, indent=-1, width=_width)
-                dpg.add_button(label="Random Benchmark", parent="Buttons_Controls", tag="btnOPX_RandomBenchmark",
-                               callback=self.btnStartRandomBenchmark, indent=-1, width=_width)
-                dpg.add_button(label="Start Time Bin Entanglement", parent="Buttons_Controls",
-                               tag="btnOPX_StartTimeBinEntanglement",
-                               callback=self.btnStartTimeBinEntanglement, indent=-1, width=_width)
-
-                # save exp data
-                dpg.add_group(tag="Save_Controls", parent="Parameter_Controls_Header", horizontal=True)
-                dpg.add_input_text(label="", parent="Save_Controls", tag="inTxtOPX_expText", indent=-1,
-                                   callback=self.saveExperimentsNotes)
-                dpg.add_button(label="Save", parent="Save_Controls", tag="btnOPX_save", callback=self.btnSave,
-                               indent=-1)  # remove save btn, it should save automatically
+            _width = -1
+            dpg.add_group(tag="Buttons_Controls", parent="experiments_window", horizontal=False)  # parent="Params_Controls",horizontal=False)
+            dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",callback=self.btnStartCounterLive, indent=-1, width=_width)
+            dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR", callback=self.btnStartODMR_CW, indent=-1, width=_width)
+            dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR", callback=self.btnStartPulsedODMR, indent=-1, width=_width)
+            dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
+            dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
+            dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI", callback=self.btnStartNuclearRABI, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR", callback=self.btnStartNuclearMR, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear PolESR", parent="Buttons_Controls", tag="btnOPX_StartNuclearPolESR", callback=self.btnStartNuclearPolESR, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear lifetime S0", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS0", callback=self.btnStartNuclearSpinLifetimeS0, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear lifetime S1", parent="Buttons_Controls", tag="btnOPX_StartNuclearLifetimeS1", callback=self.btnStartNuclearSpinLifetimeS1, indent=-1, width=_width)
+            dpg.add_button(label="Start Nuclear Ramsay", parent="Buttons_Controls", tag="btnOPX_StartNuclearRamsay", callback=self.btnStartNuclearRamsay, indent=-1, width=_width)
+            dpg.add_button(label="Start Hahn", parent="Buttons_Controls", tag="btnOPX_StartHahn", callback=self.btnStartHahn, indent=-1, width=_width)
+            dpg.add_button(label="Start Electron Lifetime", parent="Buttons_Controls", tag="btnOPX_StartElectronLifetime", callback=self.btnStartElectronLifetime, indent=-1, width=_width)
+            dpg.add_button(label="Start Electron Coherence", parent="Buttons_Controls", tag="btnOPX_StartElectronCoherence", callback=self.btnStartElectron_Coherence, indent=-1, width=_width)
+            dpg.add_button(label="Start population gate tomography", parent="Buttons_Controls", tag="btnOPX_PopulationGateTomography", callback=self.btnStartPopulateGateTomography, indent=-1, width=_width)
+            dpg.add_button(label="Start Entanglement state tomography", parent="Buttons_Controls", tag="btnOPX_EntanglementStateTomography", callback=self.btnStartStateTomography, indent=-1, width=_width)
+            dpg.add_group(tag="G2_Controls", parent="Buttons_Controls", horizontal=True)
+            dpg.add_button(label="Start G2", parent="G2_Controls", tag="btnOPX_G2", callback=self.btnStartG2, indent=-1, width=200)
+            dpg.add_input_int(label="", tag="inInt_G2_correlation_width", indent=-1, parent="G2_Controls", width=150, callback=self.UpdateCorrelationWidth, default_value=self.correlation_width, min_value=1, max_value=50000, step=1)
+            dpg.add_button(label="Eilon's", parent="Buttons_Controls", tag="btnOPX_Eilons",
+                           callback=self.btnStartEilons, indent=-1, width=_width)
+            dpg.add_button(label="Random Benchmark", parent="Buttons_Controls", tag="btnOPX_RandomBenchmark",
+                           callback=self.btnStartRandomBenchmark, indent=-1, width=_width)
+            dpg.add_button(label="Start Time Bin Entanglement", parent="Buttons_Controls",
+                           tag="btnOPX_StartTimeBinEntanglement",
+                           callback=self.btnStartTimeBinEntanglement, indent=-1, width=_width)
+            dpg.add_button(label="PLE", parent="Buttons_Controls", tag="btnPLE", callback=self.btnStartPLE,
+                           indent=-1, width=_width)
+            dpg.add_button(label="Ext. Frequency Scan", parent="Buttons_Controls", tag="btnExternalFrequencyScan",
+                           callback=self.btnStartExternalFrequencyScan,
+                           indent=-1, width=_width)
+            dpg.add_button(label="FP SCAN (AWG)", parent="Buttons_Controls", tag="btnAWG_FP_SCAN",
+                           callback=self.btnStartAWG_FP_SCAN,
+                           indent=-1, width=_width)
 
             # dpg.add_checkbox(label="Radio Button1", source="bool_value")
             dpg.bind_item_theme(item="Params_Controls", theme="NewTheme")
@@ -1265,8 +1217,8 @@ class GUI_OPX():
             dpg.bind_item_theme(item="btnOPX_StartG2Survey", theme="btnPurpleTheme")
 
         else:
-            dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=True)
-            dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1)
+            dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=True)
+            dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
             dpg.bind_item_theme(item="btnOPX_Stop", theme="btnRedTheme")
             dpg.add_button(label="Find Max Intensity", parent="Params_Controls", tag="btnOPX_StartFindMaxIntensity",
                            callback=self.MoveToPeakIntensity, indent=-1)
@@ -1362,9 +1314,11 @@ class GUI_OPX():
                         dpg.add_button(label="Auto Focus", tag="btnOPX_AutoFocus", callback=self.btnAutoFocus,
                                        indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
-                        dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint",
-                                       callback=self.btnGetLoggedPoints, indent=-1, width=130)
+                        dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
+                        dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
+                        # dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
+                    _width = 150
                     with dpg.group(horizontal=False):
                         dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
                         dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
@@ -1374,6 +1328,8 @@ class GUI_OPX():
                             dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor",
                                              callback=self.toggle_use_picomotor,
                                              default_value=self.use_picomotor)
+                        dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=40,width=_width)
+                        dpg.add_input_int(label="Inc", tag="femto_increment",default_value=2,width=_width)
 
                     _width = 200
                     with dpg.group(horizontal=False):
@@ -1955,12 +1911,8 @@ class GUI_OPX():
                          equal_aspects=True, crosshairs=True)
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis [um]", parent="plotImaga")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
-            dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]],
-                                 bounds_max=[endLoc[0], endLoc[1]], label="Scan data",
-                                 parent="plotImaga_Y")
-            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d),
-                                   max_scale=np.max(array_2d),
-                                   colormap=dpg.mvPlotColormap_Jet)
+            dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data", parent="plotImaga_Y")
+            dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
         except Exception as e:
             print(f"Error during plotting: {e}")
 
@@ -2282,9 +2234,6 @@ class GUI_OPX():
             with open('qua_jobs.txt', 'w') as f:
                 for _job in self.my_qua_jobs:
                     f.write(f"{_job['qm_id']},{_job['job_id']}\n")
-
-            if self.connect_to_QM_OPX:
-                self.instance.close()
 
             if self.connect_to_QM_OPX:
                 self.instance.close()
@@ -4697,7 +4646,8 @@ class GUI_OPX():
     def g2_raw_QUA(self):
         # Scan Parameters
         n_avg = self.n_avg
-        correlation_width = 400*self.u.ns
+        # res = self.GetItemsVal(["inInt_G2_correlation_width"])
+        correlation_width = self.correlation_width*self.u.ns
         self.correlation_width = int(correlation_width)
         expected_counts = 1000
         N = 1000 # every N cycles it tries to update the stream
@@ -4731,6 +4681,7 @@ class GUI_OPX():
                 assign(iteration_number, iteration_number + 1)
 
                 play("Turn_ON", "Laser")
+                #ToDo :change to analog according to system
                 measure("readout", "Detector_OPD", None, time_tagging.digital(times_1, self.Tcounter, counts_1))
                 measure("readout", "Detector2_OPD", None, time_tagging.digital(times_2, self.Tcounter, counts_2))
 
@@ -7566,6 +7517,7 @@ class GUI_OPX():
                         play("Turn_ON", "Resonant_Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
                     else:
                         play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
+                    #ToDo: change to general measure
                     measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
                     # measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
                     measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
@@ -7633,60 +7585,66 @@ class GUI_OPX():
 
         self.qm, self.job = self.QUA_execute()
 
-    def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1,
-                                 triggerThreshold: int = 1, play_element=configs.QUAConfigBase.Elements.LASER.value):
+    def MeasureByTrigger_QUA_PGM(self, num_bins_per_measurement: int = 1, num_measurement_per_array: int = 1, triggerThreshold: int = 1, play_element=configs.QUAConfigBase.Elements.LASER.value):
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
         # each measurement will be append to buffer.
-        laser_on_duration = int(self.Tcounter * self.u.ns // 4)
+        delay = 25000 # 2usec
+        pulsesTriggerDelay = 50000 // 4 # 50 [usec]
+        laser_on_duration = int((self.Tcounter+2*delay) * self.u.ns // 4)
         single_integration_time = int(self.Tcounter * self.u.ns)
-        smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
+        # smaract_ttl_duration = int(self.smaract_ttl_duration * self.u.ms // 4)
+
+        ini_vec = [0 for i in range(num_measurement_per_array)]
 
         with program() as self.quaPGM:
             times = declare(int, size=1000)  # maximum number of counts allowed per measurements
-            counts = declare(int)  # apd1
-            counts2 = declare(int)  # apd1
-            total_counts = declare(int, value=0)  # apd1
+            times2 = declare(int, size=1000)  # maximum number of counts allowed per measurements
+            counts = declare(int,value=0)  # apd1
+            counts2 = declare(int,value=0)  # apd1
+            total_counts = declare(int, value=ini_vec)  # apd1
             n = declare(int)  #
+            i = declare(int,value=0)  #
             meas_idx = declare(int, value=0)
             counts_st = declare_stream()
             meas_idx_st = declare_stream()
 
-            pulsesTriggerDelay = 5000000 // 4
+            # pulsesTriggerDelay = 5000000 // 4
             sequenceState = declare(int, value=0)
             triggerTh = declare(int, value=triggerThreshold)
             assign(IO2, 0)
 
             with infinite_loop_():
-                # wait_for_trigger("Laser") # wait for smaract trigger
+                # wait_for_SW_trigger("Laser")
                 assign(sequenceState, IO2)
-                with if_((sequenceState + 1 > triggerTh) & (sequenceState - 1 < triggerTh)):
-                    assign(IO2, 0)
-                    assign(sequenceState, 0)
-                    align()
-                    align()
-                    # pause()
+                # wait(pulsesTriggerDelay)
+
+                with if_(sequenceState == self.ScanTrigger):
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
-                        play("Turn_ON", play_element, duration=laser_on_duration)
-                        measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times, single_integration_time, counts))
-                        if self.sum_counters_flag:
-                            measure("min_readout", "Detector2_OPD", None,
-                                    time_tagging.digital(times, single_integration_time, counts2))
-                            assign(total_counts,total_counts + counts2)
-                        assign(total_counts, total_counts + counts)
+                        play("Turn_ON", "Laser", duration=laser_on_duration)
+                        wait(delay//4,"Detector_OPD")
+                        #todo: change to general measure function
+                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, single_integration_time, counts))
+                    if self.sum_counters_flag:
+                        measure("min_readout", "Detector2_OPD", None, time_tagging.digital(times2, single_integration_time, counts2))
+                        assign(total_counts[i], total_counts[i] + counts + counts2)
+                    else:
+                        assign(total_counts[i], total_counts[i] + counts)
 
-                    save(total_counts, counts_st)
-                    assign(total_counts, 0)
-
-                    align()
-                    wait(pulsesTriggerDelay)
-                    # wait(pulsesTriggerDelay, "SmaractTrigger")
-                    # play("Turn_ON", "SmaractTrigger", duration=smaract_ttl_duration)
-
-                    align()
+                    # wait(pulsesTriggerDelay)
                     assign(meas_idx, meas_idx + 1)
-                    save(meas_idx, meas_idx_st)
+                    assign(i,i+1)
+
+                    with if_(i == num_measurement_per_array):
+                        save(meas_idx, meas_idx_st)
+
+                        with for_(i, 0, i < num_measurement_per_array, i + 1):
+                            save(total_counts[i], counts_st)
+                            assign(total_counts[i],0)
+                        assign(i,0)
+
+
+                    assign(IO2, self.ScanTrigger-1)
 
             with stream_processing():
                 meas_idx_st.save("meas_idx_scanLine")
@@ -7863,7 +7821,7 @@ class GUI_OPX():
         dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
 
     def FetchData(self):
-        # if not self.simulation:
+        self.pgm_end = False
         self.refSignal = 0
         if self.bEnableSignalIntensityCorrection:  # prepare search maxI thread
             self.MAxSignalTh = threading.Thread(target=self.FindMaxSignal)
@@ -8061,7 +8019,12 @@ class GUI_OPX():
 
 
             if self.StopFetch:
-                break
+                # self.btnSave(folder= "Q:/QT-Quantum_Optic_Lab/expData/G2/")
+                pass
+
+        if not(self.StopFetch):
+            self.pgm_end = True
+            self.btnStop()
         
     def GlobalFetchData(self):
         self.lock.acquire()
@@ -8956,17 +8919,20 @@ class GUI_OPX():
 
             self.GUI_ParametersControl(True)
 
+            if not self.simulation and self.job:
+                self.StopJob(self.job, self.qm)
+
             if not self.exp == Experiment.SCAN:
                 if hasattr(self, 'fetchTh'):
                     if (self.fetchTh.is_alive()):
+                    if not(self.pgm_end):
                         self.fetchTh.join()
             else:
                 dpg.enable_item("btnOPX_StartScan")
 
-            if not self.simulation and self.job:
-                self.StopJob(self.job, self.qm)
+            self.Shoot_Femto_Pulses = False
 
-            if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN:
+            if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN or self.exp == Experiment.G2:
                 pass
             else:
                 if hasattr(self.mwModule, 'RFstate'):
@@ -9082,7 +9048,14 @@ class GUI_OPX():
                 "Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))  # raise
             print(f"Error while saving data: {ex}")
 
+    def btnFemtoPulses(self):
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Shooting femto pulses !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        self.Shoot_Femto_Pulses = True
+        self.ScanTh = threading.Thread(target=self.StartScan)
+        self.ScanTh.start()
+
     def btnStartScan(self):
+        self.Shoot_Femto_Pulses = False
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
 
@@ -9374,53 +9347,10 @@ class GUI_OPX():
         dpg.set_value("Scan_Message", "Auto-focus done")
         print("Auto-focus done")
 
-    def StartScan3D(self):  # currently flurascence scan
-        print("start scan steps")
-        start_time = time.time()
-        print(f"start_time: {self.format_time(start_time)}")
-
-        # init
-        self.exp = Experiment.SCAN
-        self.GUI_ParametersControl(isStart=False)
-        self.to_xml()  # save last params to xml
-        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")  # moved near end of scan
-
-        try:
-            # Define the source files and destinations
-            file_mappings = [{"src": 'Q:/QT-Quantum_Optic_Lab/expData/Images/Zelux_Last_Image.png',
-                "dest_local": self.create_scan_file_name(local=True) + "_ZELUX.png",
-                "dest_remote": self.create_scan_file_name(local=False) + "_ZELUX.png"},
-                {"src": 'C:/WC/HotSystem/map_config.txt', "dest_local": self.create_scan_file_name(local=True) + "_map_config.txt",
-                    "dest_remote": self.create_scan_file_name(local=False) + "_map_config.txt"}]
-
-            # Move each file for both local and remote
-            for file_map in file_mappings:
-                for dest in [file_map["dest_local"], file_map["dest_remote"]]:
-                    if os.path.exists(file_map["src"]):
-                        shutil.copy(file_map["src"], dest)
-                        print(f"File moved to {dest}")
-                    else:
-                        print(f"Source file {file_map['src']} does not exist.")
-        except Exception as e:
-            print(f"Error occurred: {e}")
-
+    def scan_reset_data(self):
         self.stopScan = False
-        isDebug = True
         self.scan_Out = []
         self.scan_intensities = []
-
-        if self.positioner is smaractMCS2:
-            # reset stage motion parameters (stream, motion delays, mav velocity)
-            self.positioner.set_in_position_delay(0, delay=0)  # reset delays yo minimal
-            self.positioner.DisablePositionTrigger(0)  # disable triggers
-            self.positioner.SetVelocity(0, 0)  # set max velocity (ch 0)
-            self.positioner.setIOmoduleEnable(dev=0)
-            self.positioner.set_Channel_Constant_Mode_State(channel=0)
-
-        # GUI - convert Start Scan to Stop scan
-        dpg.disable_item("btnOPX_StartScan")
-
-        # reset res vectors 
         self.X_vec = []
         self.Y_vec = []
         self.Y_vec_ref = []
@@ -9431,60 +9361,117 @@ class GUI_OPX():
         self.Zv = [0]
         self.initial_scan_Location = []
         self.V_scan = []
-        t_wait_motionStart = 0.005
-        N = [1, 1, 1]
-
-        # get current (initial) position
+        self.t_wait_motionStart = 0.005
+        self.N_scan = [1, 1, 1]
+        self.scanFN = self.create_scan_file_name(local=True)
+    def scan_reset_positioner(self):
+        if isinstance(self.positioner, smaractMCS2): # reset stage motion parameters (stream, motion delays, mav velocity)
+            self.positioner.set_in_position_delay(0, delay=0)  # reset delays yo minimal
+            self.positioner.DisablePositionTrigger(0)  # disable triggers
+            self.positioner.SetVelocity(0, 0)  # set max velocity (ch 0)
+            self.positioner.setIOmoduleEnable(dev=0)
+            self.positioner.set_Channel_Constant_Mode_State(channel=0)
+    def scan_get_current_pos(self, _isDebug = False):
+        time.sleep(1e-3)
         for ch in self.positioner.channels:  # verify in postion
             res = self.readInpos(ch)
         self.positioner.GetPosition()
         self.absPosunits = list(self.positioner.AxesPosUnits)
+        if _isDebug:
+            res = list(self.positioner.AxesPositions)
+            for ch in self.positioner.channels:
+                print(f"ch{ch}: in position = {res}, position = {res[ch]} {self.positioner.AxesPosUnits[ch]}")
+
+    def Z_correction(self,_refp:list, _point:list):
+        # Define the points (self.positioner.LoggedPoints equivalent)
+        P = np.array(self.positioner.LoggedPoints)
+        refP = np.array(_refp)
+        point = np.array(_point)
+
+        # Vector U and normalization
+        U = P[1,:] - P[0,:]
+        u = U / np.linalg.norm(U)
+
+        # Vector V and normalization
+        V = P[2,:] - P[0,:]
+        v = V / np.linalg.norm(V)
+
+        # Cross product to find the normal vector N
+        N = np.cross(u, v)
+
+        # Calculate D
+        D = -np.dot(refP, N)
+
+        # Calculate the new points Pnew
+        # Pnew = -(point[:, :2] @ N[:2] + D) / N[2]
+        Znew = -(point[:2] @ N[:2] + D) / N[2]
+
+        # print(Znew)
+
+        return Znew
+
+    def StartScan3D(self):  # currently flurascence scan
+        if len(self.positioner.LoggedPoints) == 3:
+            with open('logged_points.txt', 'w') as f:
+                for point in self.positioner.LoggedPoints:
+                    f.write(f"{point[0]},{point[1]},{point[2]}\n")
+
+        print("start scan steps")
+        start_time = time.time()
+        print(f"start_time: {self.format_time(start_time)}")
+
+        # init
+        self.exp = Experiment.SCAN
+        self.GUI_ParametersControl(isStart=False)
+        self.to_xml()  # save last params to xml
+        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")  # moved near end of scan
+        # GUI - convert Start Scan to Stop scan
+        dpg.disable_item("btnOPX_StartScan")
+
+        isDebug = True
+
+        self.scan_reset_data()
+        self.scan_reset_positioner()
+        self.scan_get_current_pos(_isDebug=isDebug)
         self.initial_scan_Location = list(self.positioner.AxesPositions)
-        for ch in self.positioner.channels:
-            if isDebug:
-                print(f"ch{ch}: in position = {res}, position = {self.initial_scan_Location[ch]} {self.positioner.AxesPosUnits[ch]}")
+
+        # List of item tags to retrieve values from
+        p_femto = {}
+        item_tags = ["femto_attenuator", "femto_increment"]
+        for tag in item_tags:
+            p_femto[tag] = dpg.get_value(tag)
+            print(f"{tag}: {p_femto[tag]}")
+
+        # Loop over three axes and populate scan coordinates
+        scan_coordinates = []
+        self.N_scan = []
+        for i in range(3):
+            if self.b_Scan[i]:
+                axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i]) * 1e3 + np.array(self.initial_scan_Location[i])).astype(np.int64)
+            else:
+                axis_values = np.array([self.initial_scan_Location[i]]).astype(np.int64)  # Ensure it's an array
+
+            self.N_scan.append(len(axis_values))
+            scan_coordinates.append(axis_values)
+        self.V_scan = scan_coordinates
 
         # goto scan start location
-        ini_scan_pos = [0, 0, 0]
-        for ch in self.positioner.channels:
-            V_scan = []
-            if self.b_Scan[ch]:
-                ini_scan_pos[ch] = self.initial_scan_Location[ch] - self.L_scan[ch] * 1e3 / 2  # [pm]
-                self.positioner.MoveABSOLUTE(ch, int(ini_scan_pos[ch]))  # move absolute to start location
-                N[ch] = (int(self.L_scan[ch] / self.dL_scan[ch]))+1
-                for i in range(N[ch]):
-                    V_scan.append(i * self.dL_scan[ch] * 1e3 + ini_scan_pos[ch])
+        for ch in range(3):
+            self.positioner.MoveABSOLUTE(ch, scan_coordinates[ch][0])
+            time.sleep(self.t_wait_motionStart)  # allow motion to start
+        self.scan_get_current_pos(True)
 
-                time.sleep(t_wait_motionStart)  # allow motion to start
-                res = self.readInpos(ch)  # wait motion ends
-                if isDebug:
-                    print(f"ch{ch} at initial scan position")
+        Nx = self.N_scan[0]
+        Ny = self.N_scan[1]
+        Nz = self.N_scan[2]
 
-            else:
-                ini_scan_pos[ch] = self.initial_scan_Location[ch]
-                V_scan.append(self.initial_scan_Location[ch])
-
-            self.V_scan.append(V_scan)
-        self.positioner.GetPosition()
-        if isDebug:
-            for i in self.positioner.channels:
-                print(f"ch[{i}] Pos = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
-
-        Nx = len(self.V_scan[0])
-        Ny = len(self.V_scan[1])
-        if len(self.V_scan) > 2:
-            Nz = len(self.V_scan[2])
-        else:
-            Nz = 1
-            self.V_scan.append([0])
         self.scan_intensities = np.zeros((Nx, Ny, Nz))
         self.scan_data = self.scan_intensities
-        self.idx_scan = [0, 0, 0]
 
         self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
         self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
 
-        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc, endLoc=self.endLoc)
+        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc, endLoc=self.endLoc) # required review
 
         # Start Qua PGM
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns), num_measurement_per_array=Nx)
@@ -9492,43 +9479,36 @@ class GUI_OPX():
         self.counts_handle = res_handles.get("counts_scanLine")
         self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
 
-        # offset in X start point from 
-        x_channel = 0
-        scanPx_Start = int(list(self.V_scan[0])[0] - self.dL_scan[x_channel] * 1e3)
-        self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
-        time.sleep(0.005)  # allow motion to start
-        for q in self.positioner.channels:
-            self.readInpos(q)  # wait motion ends
-
-        self.dir = 1
-        self.scanFN = self.create_scan_file_name(local=True)
-
         # init measurements index
         previousMeas_idx = 0  # used as workaround to reapet line if an error occur in number of measurements
         meas_idx = 0
 
-        # Calculate the z calibration offset at the origin of the scan
-        if self.b_Zcorrection and not self.ZCalibrationData is None:
-            z_calibration_offset = int(
-                calculate_z_series(self.ZCalibrationData, np.array([self.initial_scan_Location[0]]), self.initial_scan_Location[1])[0])
-        z_correction_previous = 0
-        for i in range(N[2]):  # Z
+        for i in range(self.N_scan[2]):  # Z
             if self.stopScan:
                 break
             if 2 in self.positioner.channels:
                 self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][i]))
 
             j = 0
-            # for j in range(N[1]):  # Y
-            while j < N[1]:  # Y
+            while j < self.N_scan[1]:  # Y
                 if self.stopScan:
                     break
                 self.positioner.MoveABSOLUTE(1, int(self.V_scan[1][j]))
-                self.dir = self.dir * -1  # change direction to create S shape scan
                 V = []
 
+                if self.Shoot_Femto_Pulses:
+                    attenuator_value = j*p_femto["femto_increment"]+p_femto["femto_attenuator"]
+                    if attenuator_value > 100:
+                        attenuator_value = 100
+                    print(f"!!!!! set attenuator to {attenuator_value} !!!!!")
+                    self.pharos.setBasicTargetAttenuatorPercentage(attenuator_value)
+                    get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+                    while abs(get_attenuator_value - attenuator_value) > 0.1:
+                        time.sleep(0.1)
+                        get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+
                 Line_time_start = time.time()
-                for k in range(N[0]):
+                for k in range(self.N_scan[0]):
                     if self.stopScan:
                         break
 
@@ -9536,27 +9516,42 @@ class GUI_OPX():
                         V = list(self.V_scan[0])
 
                     # Z correction
-                    new_z_pos = int(self.V_scan[2][i])
-                    if self.b_Zcorrection and not self.ZCalibrationData is None:
-                        z_correction_new = int(
-                            calculate_z_series(self.ZCalibrationData, np.array([int(V[k])]), int(self.V_scan[1][j]))[0] - z_calibration_offset)
-                        if abs(z_correction_new - z_correction_previous) > self.z_correction_threshold:
-                            new_z_pos = int(self.V_scan[2][i] + z_correction_new)
-                            z_correction_previous = z_correction_new
-                            self.positioner.MoveABSOLUTE(2, new_z_pos)
-                        else:
-                            new_z_pos = new_z_pos + z_correction_previous
+                    if self.b_Zcorrection and len(self.positioner.LoggedPoints) == 3:
+                        currentP = np.array( [int(V[k]), int(self.V_scan[1][j]), int(self.V_scan[2][i])] )
+                        refP = copy.deepcopy(self.initial_scan_Location)
+                        refP[2] = int(self.V_scan[2][i])
+                        p_new = int(self.Z_correction(refP, currentP))
+                        self.positioner.MoveABSOLUTE(2, p_new)
+
 
                     # move to next X - when trigger the OPX will measure and append the results
                     self.positioner.MoveABSOLUTE(0, int(V[k]))
-                    time.sleep(5e-3)
-                    for q in self.positioner.channels:
-                        self.readInpos(q)  # wait motion ends
+                    self.scan_get_current_pos()
+
+                    if self.Shoot_Femto_Pulses:
+                        print("Pulse!")
+                        self.pharos.enablePp()
+                        time.sleep(0.2)
+                        current_state = self.pharos.getAdvancedIsPpEnabled()
+                        while current_state:
+                            time.sleep(0.2)
+                            print("Pp enable")
+                            current_state = self.pharos.getAdvancedIsPpEnabled()
+
+
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
                     self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
-                    time.sleep(self.total_integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
+                    time.sleep(1e-3)  # wait for measurement do occur
+                    # time.sleep(2*self.total_integration_time * 1e-3 + 5e-3)  # wait for measurement do occur
+                    if not self.stopScan:
+                        res = self.qm.get_io2_value()
+                    while ((not self.stopScan) and (res.get('int_value') == self.ScanTrigger)):
+                        res = self.qm.get_io2_value()
 
-                    # fetch X scanned results
+                self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
+                self.scan_get_current_pos(True)
+
+                # fetch X scanned results
                 if self.counts_handle.is_processing():
                     print('Waiting for QUA counts')
                     self.counts_handle.wait_for_values(1)
@@ -9567,50 +9562,47 @@ class GUI_OPX():
                     counts = self.counts_handle.fetch_all()
                     print(f"counts.size =  {counts.size}")
 
-                    self.qmm.clear_all_job_results()
-                    self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
+                    # self.qmm.clear_all_job_results()
+                    self.scan_intensities[:, j, i] = counts/ self.total_integration_time  # counts/ms = Kcounts/s
                     self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)
 
                 if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
                     j = j + 1
-                    self.prepare_scan_data()  #max_position_x_scan = self.endLoc[0] * 1e6 + self.dL_scan[0] * 1e3, min_position_x_scan = self.startLoc[0] * 1e6,start_pos=ini_scan_pos)
-                    self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
+                    # self.prepare_scan_data(max_position_x_scan = self.V_scan[0][-1], min_position_x_scan = self.V_scan[0][0],start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
+                    # self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
                 else:
                     print("****** error: ******\nNumber of measurements is not consistent with excpected.\nthis line will be repeated.")
                     pass
 
                 previousMeas_idx = meas_idx
 
-                # offset in X start point from 
-                self.positioner.MoveABSOLUTE(channel=x_channel, newPosition=scanPx_Start)
-                time.sleep(0.005)  # allow motion to start
-                for q in self.positioner.channels:
-                    self.readInpos(q)  # wait motion ends
-
+                # eswtimate time left
                 Line_time_End = time.time()
                 elapsed_time = time.time() - start_time
-                delta = (Line_time_End - Line_time_start)
-                estimated_time_left = delta * (N[2] - i) * (N[1] - j) - delta
+                delta = (Line_time_End - Line_time_start) # line time
+                estimated_time_left = delta * ( (self.N_scan[2] - i - 1) * self.N_scan[1] + (self.N_scan[1] - j-1) )
                 estimated_time_left = estimated_time_left if estimated_time_left > 0 else 0
                 dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
 
         # back to start position
         for i in self.positioner.channels:
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
-            res = self.readInpos(i)
-            self.positioner.GetPosition()
-            print(f"ch{i}: in position = {res}, position = {self.positioner.AxesPositions[i]} [{self.positioner.AxesPosUnits[i]}]")
+        self.scan_get_current_pos(True)
 
+        # save data to csv
+        self.prepare_scan_data(max_position_x_scan = self.V_scan[0][-1], min_position_x_scan = self.V_scan[0][0],start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
-        self.to_xml()
 
+
+        # total experiment time
         end_time = time.time()
         print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
-        print(f"number of points ={N[0] * N[1] * N[2]}")
+        print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
 
+        self.Shoot_Femto_Pulses = False
         if not (self.stopScan):
             self.btnStop()
 

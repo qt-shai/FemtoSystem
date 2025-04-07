@@ -12,7 +12,8 @@ import HW_wrapper.Wrapper_Picomotor as Picomotor
 import HW_wrapper.Wrapper_Zelux as ZeluxCamera
 import HW_wrapper.SRS_PID.wrapper_sim960_pid as wrapper_sim960_pid
 import HW_wrapper.SRS_PID.wrapper_sim900_mainframe as wrapper_sim900_mainframe
-from SystemConfig import SystemConfig, find_ethernet_device, InstrumentsAddress
+from SystemConfig import (SystemConfig, find_ethernet_device, InstrumentsAddress, connect_thorlabs_motor_device_by_serial
+,get_thorlabs_motor_serial_nums)
 from SystemConfig import SystemType, Instruments, Device, load_system_from_xml
 
 # Initialize the devices list and selection dictionary
@@ -78,6 +79,11 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                     dev.misc = InstrumentsAddress.opx_femto_system_cluster.value
                 elif dev.ip_address == InstrumentsAddress.opx_atto_system_ip.value:
                     dev.misc = InstrumentsAddress.opx_atto_system_cluster.value
+    if (instrument == Instruments.KDC_101) or (instrument == Instruments.MFF_101):
+        #get_thorlabs_motor_serial_nums()
+        devices = connect_thorlabs_motor_device_by_serial(instrument)
+    if not isinstance(devices, list) and devices:
+        devices = [devices]
 
         if not isinstance(devices, list) and devices:
             devices = [devices]

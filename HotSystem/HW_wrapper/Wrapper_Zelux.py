@@ -130,6 +130,7 @@ class Zelux:
             rgb_image[:, :, 2] = b * I * 1.0
 
             # Normalize image if necessary
+            # Normalize image if necessary
             max_pixel = rgb_image.max()
             if max_pixel > 1.0:
                 rgb_image = rgb_image / max_pixel

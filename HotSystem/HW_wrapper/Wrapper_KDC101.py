@@ -1,10 +1,12 @@
 """An example that uses the .NET Kinesis Libraries to connect to a KDC."""
+import ctypes
 import time
 import clr
 import inspect
 import threading
 
-from HW_wrapper import Motor
+from HW_wrapper.abstract_motor import Motor
+from System import Decimal
 
 clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\Thorlabs.MotionControl.DeviceManagerCLI.dll")
 clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\Thorlabs.MotionControl.GenericMotorCLI.dll")
@@ -12,16 +14,16 @@ clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\ThorLabs.MotionControl.K
 from Thorlabs.MotionControl.DeviceManagerCLI import *
 from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.DCServoCLI import *
-from System import Decimal
 
 
 class MotorStage(Motor):
     """Class representing a Thorlabs PRM1Z8 motor stage."""
 
-    def __init__(self, serial_number: int = 27266074):
+    def __init__(self, serial_number: str):
         super().__init__()
         self.serial_number = str(serial_number)
         DeviceManagerCLI.BuildDeviceList()
+        #self.device = KCubeDCServo.CreateKCubeDCServo(self.serial_number)
         self.device = KCubeDCServo.CreateKCubeDCServo(self.serial_number)
         self.timeout = 20000
         self.is_homed = False
@@ -34,7 +36,6 @@ class MotorStage(Motor):
         try:
             # Connect, begin polling, and enable
             self.device.Connect(self.serial_number)
-
             # Wait for Settings to Initialise
             if not self.device.IsSettingsInitialized():
                 self.device.WaitForSettingsInitialized(self.timeout)
@@ -50,6 +51,11 @@ class MotorStage(Motor):
             self.device.SetSettings(self.device.MotorDeviceSettings, True, False)
             self.device.StartPolling(250)
             time.sleep(0.25)
+            device_info = self.device.GetDeviceInfo()
+            description = device_info.Description
+            print(f"Device info is {description}")
+            #self.get_serial_number()
+            #self.get_all_connected_serial_numbers()
         except Exception as e:
             print(
                 f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Error during initialization:", e)
@@ -125,8 +131,6 @@ class MotorStage(Motor):
                 relative_distance = current_position - Decimal(angle)
                 self.set_new_jog_step(relative_distance)
                 self.jog("backward")
-            if not self.is_busy():
-                self.set_jog_step(10)
 
         except Exception as e:
             raise RuntimeError(f"Error during non-blocking absolute motion: {e}")
@@ -153,8 +157,6 @@ class MotorStage(Motor):
             self.jog("forward")
             # Reset jog step to a default value of 10
             time.sleep(0.25)
-            if not self.is_busy():
-                self.set_jog_step(10)
         except Exception as e:
             raise RuntimeError(f"Error during non-blocking relative motion: {e}")
 
@@ -356,3 +358,5 @@ class MotorStage(Motor):
         """Return if the device ius connected, enabled or busy"""
         return self.is_connected(), self.is_enabled(), self.is_busy()
 
+    def set_polarization_angle(self, polarization_angle: int) -> None:
+        pass

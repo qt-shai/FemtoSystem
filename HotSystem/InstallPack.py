@@ -54,6 +54,7 @@ packages = [
     "C:\\SmarAct\\MCS2\\SDK\\Python\\packages\\smaract.si-2.1.6.zip",
     os.path.join(install_path,
         "ExampleZeluxCam\\Scientific Camera Interfaces\\SDK\\Python Toolkit\\thorlabs_tsi_camera_python_sdk_package.zip".lstrip("\\")),
+    "pywin32",
 ]
 
 b_install = True

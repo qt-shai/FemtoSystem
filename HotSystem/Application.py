@@ -1,22 +1,12 @@
 import inspect
-import os
-import sys
-import threading
-import time
+import pdb
 from typing import Optional
-
-import dearpygui.dearpygui as dpg
 import dearpygui.demo as DPGdemo
-import glfw
 import imgui
-import numpy as np
 from OpenGL.GL import glGetString
 from imgui.integrations.glfw import GlfwRenderer
-from numba.core.utils import benchmark
 from pyglet.gl import GL_VERSION, glClearColor, glClear, GL_COLOR_BUFFER_BIT
 from PIL import Image
-
-import HW_wrapper.HW_devices as hw_devices
 from Common import Common_Counter_Singletone, KeyboardKeys
 from EventDispatcher import EventDispatcher
 from ExpSequenceGui import ExpSequenceGui
@@ -36,6 +26,8 @@ from HW_GUI.GUI_mattise import GUIMatisse
 from HW_GUI.GUI_wavemeter import GUIWavemeter
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
+from HW_GUI.GUI_KDC101 import GUI_KDC101
+from HW_GUI.GUI_MFF_101 import GUI_MFF
 from HW_GUI.GUI_sim960PID import GUISIM960
 from HW_GUI.GUI_moku import GUIMoku
 from HW_wrapper.Wrapper_moku import Moku
@@ -45,6 +37,15 @@ from Utils.Common import calculate_z_series
 from Common import WindowNames
 from Window import Window_singleton
 from Outout_to_gui import DualOutput
+import threading
+import glfw
+import dearpygui.dearpygui as dpg
+import os
+import time
+import HW_wrapper.HW_devices as hw_devices
+import sys
+from Utils.Common import calculate_z_series
+import numpy as np
 
 
 class Layer:
@@ -414,6 +415,7 @@ class PyGuiOverlay(Layer):
         self.mwGUI = None
         self.system_type: Optional[SystemType] = None
         self.system_config: Optional[SystemConfig] = None
+        self.mff_101_gui: Optional[SystemConfig] = None
         # Initialize instruments based on the system configuration
 
         self.smaract_thread = None
@@ -865,6 +867,18 @@ class PyGuiOverlay(Layer):
                     self.active_instrument_list.append(self.atto_scanner_gui.window_tag)
                     dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.KDC_101:
+                    self.kdc_101_gui = GUI_KDC101(serial_number = device.serial_number, device = hw_devices.HW_devices(simulation=self.simulation).kdc_101)
+                    dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
+
+                elif instrument == Instruments.MFF_101:
+                    # if self.mff_101_gui is None:
+                    #     self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices(simulation=self.simulation).mff_101)
+                    # else:
+                    #     self.mff_101_gui.add_new_button(serial_number=device.serial_number)
+                    pass
 
                 elif instrument == Instruments.ARDUINO:
                     self.create_bring_window_button(self.arduino_gui.window_tag, button_label="Arduino",

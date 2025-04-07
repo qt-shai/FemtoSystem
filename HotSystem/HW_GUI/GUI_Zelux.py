@@ -1,13 +1,18 @@
-from ECM import *
+#from ECM import *
 from ImGuiwrappedMethods import *
 from Common import *
 from HW_wrapper import HW_devices as hw_devices
+from HW_wrapper.Wrapper_MFF_101 import FilterFlipperController
 
 class ZeluxGUI():
     def __init__(self):
         self.window_tag = "Zelux Window"
         self.HW = hw_devices.HW_devices()
         self.cam = self.HW.camera
+        self.flipper = None
+        self.flipper_serial_number = ""
+
+        self.AddNewWindow()
 
     def StartLive(self):
         global stopBtn
@@ -30,6 +35,19 @@ class ZeluxGUI():
         dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
 
     def UpdateImage(self):
+        window_size = dpg.get_item_width(self.window_tag), dpg.get_item_height(self.window_tag)
+        _width, _height = window_size
+        _width = _width * 0.9
+        _height = _height*0.9
+
+        
+        # Update image dimensions to match the new window size
+        dpg.set_item_width("image_id", _width)
+        dpg.set_item_height("image_id", _height)
+
+        dpg.delete_item("image_drawlist")
+        dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
+        dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
         dpg.set_value("image_id", self.cam.lateset_image_buffer)
         
     def UpdateExposure(sender, app_data, user_data):
@@ -49,26 +67,44 @@ class ZeluxGUI():
         pass
     
     def AddNewWindow(self, _width = 800):
-        dpg.add_window(label=self.window_tag, tag=self.window_tag,
+
+        _width = 1000
+        
+        with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar = False,
                         pos = [15,15],
                         width=int(_width*1.0), 
-                        height=int(_width*self.cam.ratio*1.2))
-        pass
-
+                        height=int(_width*self.cam.ratio*1.2)):
+                        pass
+            
+               
     def DeleteMainWindow(self):
         dpg.delete_item(item=self.window_tag)
         pass
     
-    
     def GUI_controls(self, isConnected = False, _width = 800):
         dpg.delete_item("groupZeluxControls")
+        self.set_all_themes()
         if isConnected:
             dpg.add_group(tag="groupZeluxControls", parent=self.window_tag,horizontal=True)
             dpg.add_button(label="Start Live", callback=self.StartLive,tag="btnStartLive", parent="groupZeluxControls")
             dpg.add_button(label="Save Image", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
+            dpg.add_slider_int(label="Motor 1",
+                               tag="on_off_slider", width=80,
+                               default_value=1, parent="groupZeluxControls",
+                               min_value=0, max_value=1,
+                               callback=self.on_off_slider_callback, indent=-1,
+                               format="Up")
+            dpg.add_slider_int(label="Motor 2",
+                               tag="on_off_slider_2", width=80,
+                               default_value=1, parent="groupZeluxControls",
+                               min_value=0, max_value=1,
+                               callback=self.on_off_slider_callback, indent=-1,
+                               format="Up")
 
             dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
             dpg.bind_item_theme(item = "btnSave", theme = "btnBlueTheme")
+            dpg.bind_item_theme("on_off_slider", "OnTheme")
+            dpg.bind_item_theme("on_off_slider_2", "OnTheme")
 
 
             minExp = min(self.cam.camera.exposure_time_range_us)/1e3
@@ -87,28 +123,71 @@ class ZeluxGUI():
                                                     min_value= minGain,
                                                     max_value= maxGain)
 
-            with dpg.drawlist(width=_width, height=_width*self.cam.ratio):
-                dpg.draw_image("image_id", (0, 0), (_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1))
+            # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
+            # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
+
         else:
             dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=False)
             dpg.add_text("camera is probably not connected")
 
     def Controls(self):
-        # _width, _height, _channels, _data = dpg.load_image('C:\\Users\\amir\\Desktop\\Untitled2.png') # 0: width, 1: height, 2: channels, 3: data
+        dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=True)
 
-        with dpg.texture_registry(show=False):
-            dpg.add_dynamic_texture(width=self.cam.camera.image_width_pixels, 
-                                    height=self.cam.camera.image_height_pixels, 
-                                    default_value=self.cam.lateset_image_buffer, 
-                                    tag="image_id")
+        if len(self.cam.available_cameras) < 1:
+            self.GUI_controls(isConnected = False, _width = 700)
+            pass
+        else:
+            with dpg.texture_registry(tag="image_tag", show=False):
+                dpg.add_dynamic_texture(width=self.cam.camera.image_width_pixels, 
+                                height=self.cam.camera.image_height_pixels, 
+                                default_value=self.cam.lateset_image_buffer, 
+                                tag="image_id", parent="image_tag")
 
-        _width = 1000
-        with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar = False,
-                        pos = [15,15],
-                        width=int(_width*1.0), 
-                        height=int(_width*self.cam.ratio*1.2)):
-            dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=True)
-            if len(self.cam.available_cameras) < 1:
-                self.GUI_controls(isConnected = False, _width = 700)
-            else:
-                self.GUI_controls(isConnected = True)
+            self.GUI_controls(isConnected = True)
+            pass
+
+    def on_off_slider_callback(self,sender, app_data):
+        # app_data is the new slider value (0 or 1)
+        flipper_1_serial_number = "37008855"
+        flipper_2_serial_number = "37008948"
+        if sender == "on_off_slider":
+            self.flipper_serial_number = flipper_1_serial_number
+        elif sender == "on_off_slider_2":
+            self.flipper_serial_number = flipper_2_serial_number
+        if app_data == 1:
+            self.Move_flipper(self.flipper_serial_number)
+            dpg.configure_item(sender, format="Up")
+            dpg.bind_item_theme(sender, "OnTheme")
+            print("Flipper in Position 1!")
+        else:
+            self.Move_flipper(self.flipper_serial_number)
+            dpg.configure_item(sender, format="Down")
+            dpg.bind_item_theme(sender, "OffTheme")
+            print("Flipper in Position 2!")
+
+    def Move_flipper(self, serial_number):
+        try:
+            self.flipper = FilterFlipperController(serial_number=serial_number)
+            self.flipper.connect()
+            self.flipper.toggle()
+        except Exception as e:
+            print(e)
+
+    def set_all_themes(self):
+        with dpg.theme(tag="OnTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 180, 0))  # handle when pressed
+                # Optionally color the track:
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (50, 70, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (60, 80, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 90, 70))
+
+        # OFF Theme: keep the slider handle red in all states.
+        with dpg.theme(tag="OffTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (180, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (70, 50, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))

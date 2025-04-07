@@ -4,6 +4,8 @@ import threading
 
 from Common import KeyboardKeys
 from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
+    SirahMatisse, Keysight33500B, AttoScannerWrapper, MotorStage, ArduinoController, Motor, FilterFlipperController
+from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
     SirahMatisse, Keysight33500B, ArduinoController, NI_DAQ_Controller
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
@@ -43,6 +45,9 @@ class HW_devices:
             self.SRS_PID_list: Optional[list[SRSsim960]] = None
             self.arduino: Optional[ArduinoController] = None  # Add Arduino
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
+            self.arduino: Optional[ArduinoController] = None
+            self.kdc_101: Optional[MotorStage] = None
+            self.mff_101: Optional[MotorStage] = None
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
             self.ni_daq_controller: Optional[NI_DAQ_Controller]= None
             self._initialize()
@@ -201,6 +206,27 @@ class HW_devices:
                         "pulse_spacing_us": 5000,
                     }
                     self.ni_daq_controller = NI_DAQ_Controller(configuration=config)
+
+                elif instrument == Instruments.KDC_101:
+                    # # KDC_101 Rotational Stage for the Lambda/2 Plate
+                    # # TODO: Make serial number into an input to the Motor Stage
+                    self.kdc_101 = MotorStage(device.serial_number)
+                    self.kdc_101.connect()
+                    pass
+
+                elif instrument == Instruments.MFF_101:
+                    # self.mff_101 = FilterFlipperController(device.serial_number)
+                    # self.mff_101.connect()
+                    pass
+
+                elif instrument == Instruments.ARDUINO:
+                    # Initialize ArduinoController
+                    self.arduino = ArduinoController(
+                        address=f"ASRL{device.com_port}::INSTR" if device.com_port != "N/A" else None,
+                        baudrate=9600,
+                        timeout=1000,
+                        simulation=self.simulation
+                    )
 
 
                 else:

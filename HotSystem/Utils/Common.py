@@ -13,12 +13,15 @@ import csv
 from tkinter import filedialog
 import numpy as np
 import pandas as pd
-from typing import Tuple, Union, List
+from abc import ABC
+from typing import Tuple, Union, List, Optional, Generic, Any, Callable, TypeVar
 from matplotlib import pyplot as plt
 import os
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 
+
+T = TypeVar('T')
 
 def load_scan_plane_calibration_data(file_path: str) -> np.ndarray:
     """
