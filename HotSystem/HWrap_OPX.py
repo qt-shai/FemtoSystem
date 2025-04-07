@@ -18,7 +18,7 @@ import traceback
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from enum import Enum
-from typing import Union, Optional, Callable, List, Tuple
+from typing import Union, Optional, Callable, List, Tuple, Any
 
 import dearpygui.dearpygui as dpg
 import glfw
@@ -28,6 +28,8 @@ from PIL import Image
 import tkinter as tk
 import functools
 from collections import Counter
+
+from pylablib import load_csv
 from qm_saas import QmSaas, QoPVersion
 
 from gevent.libev.corecext import callback
@@ -118,6 +120,10 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+        self.survey_g2_threshold: int = 100
+        self.survey_g2_timeout: int = 120
+        self.survey_g2_counts: int = 100
+        self.survey: bool = False
         self.sum_counters_flag: bool = False
         self.csv_file: Optional[str] = None
         self.is_green = False
@@ -603,6 +609,25 @@ class GUI_OPX():
         dpg.set_value(item="inInt_N_tracking_search", value=sender.N_tracking_search)
         print("Set N_tracking_search to: " + str(sender.N_tracking_search))
 
+    def UpdateN_survey_g2_counts(sender, app_data, user_data):
+        sender.survey_g2_counts = (int(user_data))
+        time.sleep(0.001)
+        dpg.set_value(item="inInt_survey_g2_counts", value=sender.survey_g2_counts)
+        print("Set survey_g2_counts to: " + str(sender.survey_g2_counts))
+
+    def UpdateN_survey_g2_threshold(sender, app_data, user_data):
+            sender.survey_g2_threshold = (int(user_data))
+            time.sleep(0.001)
+            dpg.set_value(item="survey_g2_threshold", value=sender.survey_g2_threshold)
+            print("Set survey_g2_threshold to: " + str(sender.survey_g2_threshold))
+
+    def UpdateN_survey_g2_timeout(sender, app_data, user_data):
+            sender.survey_g2_timeout = (int(user_data))
+            time.sleep(0.001)
+            dpg.set_value(item="survey_g2_timeout", value=sender.survey_g2_timeout)
+            print("Set survey_g2_timeout to: " + str(sender.survey_g2_timeout))
+
+
     def UpdateT_rf_pulse_time(sender, app_data, user_data):
         sender.rf_pulse_time = (int(user_data))
         time.sleep(0.001)
@@ -1026,6 +1051,26 @@ class GUI_OPX():
                                   width=item_width, callback=self.UpdateN_tracking_search,
                                   default_value=self.N_tracking_search,
                                   min_value=0, max_value=50000, step=1)
+                dpg.add_text(default_value="Survey g2 counts", parent="Repetitions_Controls",
+                             tag="text_survey_g2_counts", indent=-1)
+                dpg.add_input_int(label="", tag="inInt_survey_g2_counts", indent=-1, parent="Repetitions_Controls",
+                                  width=item_width, callback=self.UpdateN_survey_g2_counts,
+                                  default_value=self.survey_g2_counts,
+                                  min_value=0, max_value=50000, step=1)
+
+                dpg.add_text(default_value="Survey g2 threshold", parent="Repetitions_Controls",
+                             tag="text_survey_g2_threshold", indent=-1)
+                dpg.add_input_float(label="", tag="inInt_survey_g2_threshold", indent=-1, parent="Repetitions_Controls",
+                                  width=item_width, callback=self.UpdateN_survey_g2_threshold,
+                                  default_value=self.survey_g2_threshold,
+                                  min_value=0, max_value=1, step=0.001)
+
+                dpg.add_text(default_value="Survey g2 timeout", parent="Repetitions_Controls",
+                             tag="text_survey_g2_timeout", indent=-1)
+                dpg.add_input_float(label="", tag="inInt_survey_g2_timeout", indent=-1, parent="Repetitions_Controls",
+                                  width=item_width, callback=self.UpdateN_survey_g2_timeout,
+                                  default_value=self.survey_g2_timeout,
+                                  min_value=1, max_value=10000, step=1)
 
                 dpg.add_group(tag="MW_amplitudes", parent="Parameter_Controls_Header",
                               horizontal=True)  # , before="Graph_group")
@@ -1139,6 +1184,8 @@ class GUI_OPX():
                 _width = 300  # was 220
                 dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",
                                callback=self.btnStartCounterLive, indent=-1, width=_width)
+                dpg.add_button(label="g2 Survey", parent="Buttons_Controls", tag="btnOPX_StartG2Survey",
+                               callback=self.btnStartG2Survey, indent=-1, width=_width)
                 dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR",
                                callback=self.btnStartODMR_CW, indent=-1, width=_width)
                 dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR",
@@ -1213,6 +1260,7 @@ class GUI_OPX():
             dpg.bind_item_theme(item="btnOPX_StartNuclearMR", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearPolESR", theme="btnGreenTheme")
             dpg.bind_item_theme("on_off_slider", "OnTheme")
+            dpg.bind_item_theme(item="btnOPX_StartG2Survey", theme="btnPurpleTheme")
 
         else:
             dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=True)
@@ -2118,6 +2166,7 @@ class GUI_OPX():
 
     def initQUA_gen(self, n_count=1, num_measurement_per_array=1):
         self.reset_data_val()
+        self.to_xml()
         if self.exp == Experiment.COUNTER:
             self.counter_QUA_PGM(n_count=int(n_count))
         if self.exp == Experiment.EXTERNAL_FREQUENCY_SCAN:
@@ -8238,6 +8287,261 @@ class GUI_OPX():
         if b_startFetch and not self.bEnableSimulate:
             self.StartFetch(_target=self.FetchData)
 
+    def btnStartG2Survey(self) -> None:
+        """
+        Wrapper function to prompt the user for a CSV file containing survey points, extract the points,
+        select the appropriate move and position functions, and start the g2 survey.
+
+        The CSV file is expected to have rows with at least two columns representing the x and y coordinates.
+        The move function is chosen based on the existence of self.HW.atto_positioner.MoveABSOLUTE or
+        self.positioner.MoveABSOLUTE. Similarly, the position function is selected from self.HW.atto_positioner.get_position
+        or self.positioner.get_position, and the wait function is wrapped from either
+        self.HW.atto_positioner.wait_for_axes_to_stop or self.positioner.ReadIsInPosition.
+
+        Recommended survey parameters:
+          - g2_threshold: 0.45
+          - g2_counts: 200
+
+        :return: None
+        """
+        try:
+            # Prompt user for CSV file path
+
+            file_path = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
+            points = []
+            with open(file_path, 'r') as csvfile:
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    if len(row) >= 2:
+                        try:
+                            x = float(row[0].strip())
+                            y = float(row[1].strip())
+                            points.append((x, y))
+                        except ValueError:
+                            print(f"Skipping row with invalid coordinates: {row}")
+            if not points:
+                print("No valid points found in the CSV file.")
+                return
+
+            # Select move, position, and wait functions based on available hardware
+            if hasattr(self, "HW") and hasattr(self.HW, "atto_positioner") and hasattr(self.HW.atto_positioner,
+                                                                                       "MoveABSOLUTE"):
+                move_fn = self.HW.atto_positioner.MoveABSOLUTE
+                get_positions_fn = self.HW.atto_positioner.get_position
+                read_in_pos_fn = lambda ax: self.HW.atto_positioner.wait_for_axes_to_stop([ax], max_wait_time=20.0)
+            elif hasattr(self, "positioner") and hasattr(self.positioner, "MoveABSOLUTE"):
+                move_fn = self.positioner.MoveABSOLUTE
+                get_positions_fn = self.positioner.get_position
+                read_in_pos_fn = lambda ch: self.positioner.ReadIsInPosition(ch)
+            else:
+                print("No valid move function found.")
+                return
+
+            # Determine the expected number of axes based on the current positions
+            positions = [get_positions_fn(x) for x in range(len(points[0]))]
+            if not positions:
+                print("Unable to retrieve current positions. Aborting survey.")
+                return
+
+            # Set survey parameters
+            g2_threshold = self.survey_g2_threshold
+            g2_counts = self.survey_g2_counts
+
+            # Start the survey with the provided parameters
+            self.perform_survey(
+                points=points,
+                move_fn=move_fn,
+                read_in_pos_fn=read_in_pos_fn,
+                get_positions_fn=get_positions_fn,
+                move_only = False,
+                search_peak_intensity_near_positions = True
+            )
+        except Exception as e:
+            print(f"An error occurred in btnStartG2Survey: {e}")
+
+    def perform_survey(
+            self,
+            points: List[Tuple[float, float]],
+            move_fn: Callable[[int, int|float], Any],
+            g2_threshold: float,
+            g2_counts: int,
+            g2_timeout: int,
+            read_in_pos_fn: Callable[[int], Any],
+            get_positions_fn: Callable[[int], Any],
+            move_only: bool = False,
+            search_peak_intensity_near_positions: bool = True
+    ) -> None:
+            """
+            Perform a survey of g2 and PL scans of NV centers.
+
+            For each (x, y) point in the provided list, the function performs the following:
+              1. Sets the survey flag to True.
+              2. Moves to the given point using the provided move function.
+              3. Verifies positioning by reading each axis position via read_in_pos_fn and gets current positions using get_positions_fn.
+              4. Starts a live counter by invoking self.btnStartCounterLive.
+              5. Searches for peak intensity using self.MoveToPeakIntensity.
+              6. Waits for the thread self.MAxSignalTh to complete.
+              7. Stops the live counter via self.btnStop.
+              8. Initiates a g2 measurement using self.btnStartG2.
+              9. Waits until self.Y_vec[0] equals g2_counts (with a timeout safeguard).
+             10. Stops the g2 measurement with self.btnStop.
+             11. If the ratio (min(self.Y_vec) / self.Y_vec[0]) exceeds g2_threshold, starts a scan by invoking self.btnStartScan and waits for self.ScanTh to finish.
+                 Otherwise, it moves on to the next point.
+
+            Throughout the survey, progress updates are printed, including:
+              - Percentage completion.
+              - Number of points processed out of the total.
+              - Time elapsed for the current point and overall.
+              - Estimated Time of Arrival (ETA) for survey completion.
+
+            :param points: List of (x, y) tuples representing the coordinates to survey.
+            :param move_fn: A callable function that moves the system to a specified (x, y) coordinate.
+            :param g2_threshold: Threshold ratio to decide whether to perform a scan.
+            :param g2_counts: Expected count value for g2 measurement to wait for.
+            :param g2_timeout: timeout of the g2 measurement if counts threshold was not reached. [seconds]
+            :param read_in_pos_fn: A callable that accepts an axis index (int) and ensures that axis is in position.
+            :param get_positions_fn: A callable that returns the current positions after reading all axes.
+            :param move_only: boolean that controls if the survey only moves to positions or performs the measurements as well.
+            :param search_peak_intensity_near_positions: boolean that contorls if peak search is required around each location
+            """
+            try:
+                # Set survey flag to indicate that the survey is running
+                self.survey = True
+                total_points = len(points)
+
+                if total_points == 0:
+                    print("No points provided for the survey. Exiting function.")
+                    return
+
+                overall_start_time = time.time()  # Record the overall start time
+
+                # Iterate over each survey point
+                for idx, point in enumerate(points, start=1):
+                    point_start_time = time.time()
+                    print(f"\n--- Starting point {idx}/{total_points}: {point} ---")
+
+                    # Move to the specified point using the provided move function
+                    try:
+                        move_fn(point)
+                        for ax in range(len(point)):
+                            read_in_pos_fn(ax)  # Ensure in position
+                        current_positions = get_positions_fn()
+                        print(f"Current positions after move: {current_positions}")
+                        print(f"Moved to point {point} successfully.")
+                    except Exception as move_error:
+                        print(f"Error moving to point {point}: {move_error}. Skipping this point.")
+                        continue
+
+                    if search_peak_intensity_near_positions:
+                        # Start the live counter and search for peak intensity
+                        try:
+                            print("Starting live counter.")
+                            self.btnStartCounterLive()
+                            print("Moving to peak intensity.")
+                            self.MoveToPeakIntensity()
+                        except Exception as intensity_error:
+                            print(f"Error during live counter/peak intensity at point {point}: {intensity_error}.")
+                            continue
+
+                        # Wait for the MAxSignal thread to finish
+                        try:
+                            if hasattr(self, 'MAxSignalTh') and self.MAxSignalTh is not None:
+                                print("Waiting for MAxSignal thread to complete...")
+                                self.MAxSignalTh.join()
+                                print("MAxSignal thread completed.")
+                            else:
+                                print("MAxSignal thread not found; proceeding without waiting.")
+                        except Exception as thread_error:
+                            print(f"Error while waiting for MAxSignal thread at point {point}: {thread_error}.")
+                            continue
+
+                        # Stop the live counter
+                        try:
+                            print("Stopping live counter.")
+                            self.btnStop()
+                        except Exception as stop_error:
+                            print(f"Error stopping live counter at point {point}: {stop_error}.")
+                            continue
+
+                    if move_only:
+                        continue
+
+                    # Start the g2 measurement
+                    try:
+                        print("Starting g2 measurement.")
+                        self.btnStartG2()
+                    except Exception as g2_start_error:
+                        print(f"Error starting g2 measurement at point {point}: {g2_start_error}.")
+                        continue
+
+                    # Wait until self.Y_vec[0] equals the expected g2_counts (with a timeout safeguard)
+                    try:
+                        print(f"Waiting for g2 measurement to reach {g2_counts} counts...")
+                        g2_wait_start = time.time()
+                        timeout = g2_timeout  # maximum wait time in seconds
+                        while True:
+                            # Ensure self.Y_vec exists and has at least one element
+                            if hasattr(self, "Y_vec") and self.Y_vec and self.Y_vec[0] == g2_counts:
+                                break
+                            if time.time() - g2_wait_start > timeout:
+                                print(f"Timeout reached while waiting for g2 counts at point {point}.")
+                                break
+                            time.sleep(0.1)
+                        print("g2 measurement condition met or timeout occurred.")
+                    except Exception as g2_wait_error:
+                        print(f"Error during g2 measurement wait at point {point}: {g2_wait_error}.")
+                        continue
+
+                    # Stop the g2 measurement
+                    try:
+                        print("Stopping g2 measurement.")
+                        self.btnStop()
+                    except Exception as g2_stop_error:
+                        print(f"Error stopping g2 measurement at point {point}: {g2_stop_error}.")
+                        continue
+
+                    # Evaluate g2 measurement results and decide whether to perform a scan
+                    try:
+                        if hasattr(self, "Y_vec") and self.Y_vec and self.Y_vec[0] != 0:
+                            ratio = min(self.Y_vec) / self.Y_vec[0]
+                            print(f"g2 ratio: {ratio:.3f} (Threshold: {g2_threshold})")
+                            if ratio > g2_threshold:
+                                print("g2 condition satisfied. Initiating scan.")
+                                self.btnStartScan()
+                                if hasattr(self, 'ScanTh') and self.ScanTh is not None:
+                                    print("Waiting for Scan thread to complete...")
+                                    self.ScanTh.join()
+                                    print("Scan thread completed.")
+                                else:
+                                    print("Scan thread not found; proceeding without waiting.")
+                            else:
+                                print("g2 condition not met. Skipping scan at this point.")
+                        else:
+                            print("Invalid g2 measurement data. Skipping scan evaluation for this point.")
+                    except Exception as scan_error:
+                        print(f"Error during scan evaluation at point {point}: {scan_error}.")
+
+                    # Calculate and display progress, elapsed time, and ETA
+                    elapsed_point = time.time() - point_start_time
+                    elapsed_total = time.time() - overall_start_time
+                    progress_percent = (idx / total_points) * 100
+                    estimated_total = (elapsed_total / idx) * total_points
+                    eta = estimated_total - elapsed_total
+
+                    print(
+                        f"Point {idx}/{total_points} completed in {elapsed_point:.2f} sec. "
+                        f"Overall progress: {progress_percent:.2f}% | Total elapsed: {elapsed_total:.2f} sec | ETA: {eta:.2f} sec."
+                    )
+
+                print("\nSurvey completed successfully.")
+
+            except Exception as general_error:
+                print(f"An unexpected error occurred during the survey: {general_error}.")
+
+            finally:
+                # Reset the survey flag when done
+                self.survey = False
+
     def btnStartODMR_CW(self):
         self.exp = Experiment.ODMR_CW
         self.GUI_ParametersControl(isStart=self.bEnableSimulate)
@@ -8620,9 +8924,9 @@ class GUI_OPX():
             self.timeStamp = self.getCurrentTimeStamp()
 
             if folder is None:
-                folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + self.exp.name + '/'
+                folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + (fr'Survey{self.HW.config.system_type}/' if self.survey else '') + self.exp.name + '/'
             else:
-                folder_path = folder + self.exp.name + '/'
+                folder_path = folder + (fr'Survey{self.HW.config.system_type}/' if self.survey else '') + self.exp.name + '/'
             if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
                 os.makedirs(folder_path)
             if self.exp == Experiment.RandomBenchmark:
@@ -8637,6 +8941,7 @@ class GUI_OPX():
             # parameters + note        
             self.writeParametersToXML(fileName + ".xml")
             print(f'XML file saved to {fileName}.xml')
+            self.to_xml()
 
             # raw data
             if self.exp == Experiment.RandomBenchmark:
@@ -8696,7 +9001,6 @@ class GUI_OPX():
                 plt.close(fig)
 
                 dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
-
 
         except Exception as ex:
             self.error = (
@@ -8819,11 +9123,11 @@ class GUI_OPX():
                 """
                 x = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[0])  # X axis
                 y = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[1])  # Y axis
-                z = self.HW.atto_positioner.get_position(2)  # Z axis
+                z = self.HW.atto_positioner.wait_for_axes_to_stop()  # Z axis
                 # z = self.HW.atto_positioner.get_control_output_voltage(2)  # Z axis
                 # print(f"control voltage: {z}, fixed_offset_voltage: {self.HW.atto_positioner.get_control_output_voltage(2)}")
                 return x, y, z
-
+            self.positioner
             self.HW.atto_scanner.stop_updates()
             self.HW.atto_positioner.stop_updates()
 
@@ -9224,6 +9528,7 @@ class GUI_OPX():
 
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
+        self.to_xml()
 
         end_time = time.time()
         print(f"end_time: {end_time}")
@@ -9715,7 +10020,7 @@ class GUI_OPX():
         # end part to delete if save doesnt work
         fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
         self.writeParametersToXML(fn + ".xml")
-
+        self.to_xml()
         end_time = time.time()
         print(f"end_time: {end_time}")
         print(f"number of points = {Nx * Ny * Nz}")
@@ -9990,12 +10295,31 @@ class GUI_OPX():
         return fileName
 
     def create_scan_file_name(self, local=False):
+        """
+            Create a file name for saving a scan, adjusting the folder path based on survey mode.
+
+            If 'local' is True, the scan data will be saved to a local temporary folder.
+            Otherwise, if self.survey is True, the scan will be saved into:
+                Q:/QT-Quantum_Optic_Lab/expData/survey{system_type}/scan
+            If self.survey is False, the scan will be saved into:
+                Q:/QT-Quantum_Optic_Lab/expData/scan/{system_type}
+
+            The file name includes a timestamp, experiment name, and experiment notes.
+
+            :param local: Boolean flag indicating whether to use a local folder.
+            :return: The full file path for the scan file.
+            """
         # file name
         timeStamp = self.getCurrentTimeStamp()  # get current time stamp
         if local:
             folder_path = "C:/temp/TempScanData/"
         else:
-            folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}'
+            # Determine folder path based on survey mode
+            if hasattr(self, "survey") and self.survey:
+                folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/survey{self.HW.config.system_type}/scan'
+            else:
+                folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}'
+
         if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
             try:
                 os.makedirs(folder_path)

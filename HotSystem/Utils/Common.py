@@ -273,33 +273,40 @@ def get_square_matrix_size(num_items):
     size = math.ceil(math.sqrt(num_items))
     return size
 
-def open_file_dialog(initial_folder: str ="", title:str = "", filetypes=None) -> str:
-    """
-    Open a file dialog to select an XML file.
 
-    :param initial_folder: The initial folder path to open in the file dialog.
-    :param title: The title of the dialog.
-    :param filetypes: A tuple of file types to open in the dialog.
-    :return: The selected file path or None if no file is selected.
+def open_file_dialog(initial_folder: str = "", title: str = "", filetypes=None, select_folder: bool = False) -> str:
     """
+    Open a file dialog to select an XML file or a folder.
+
+    :param initial_folder: The initial folder path to open in the dialog.
+    :param title: The title of the dialog.
+    :param filetypes: A tuple of file types to open in the dialog (ignored if select_folder is True).
+    :param select_folder: If True, open a folder selection dialog instead of a file selection dialog.
+    :return: The selected file or folder path, or an empty string if nothing is selected.
+    """
+    import tkinter as tk
+    from tkinter import filedialog
+
     if filetypes is None:
         filetypes = [("All Files", "*.*")]
+
     root = tk.Tk()  # Create the root window
     root.withdraw()  # Hide the main window
-    file_path = filedialog.askopenfilename(
-        initialdir=initial_folder,  # Set the initial directory
-        title=title,
-        filetypes=filetypes
-    )  # Open a file dialog
 
-    if file_path:  # Check if a file was selected
-        print(f"Selected file: {file_path}")  # Log the selected file
+    if select_folder:
+        path = filedialog.askdirectory(initialdir=initial_folder, title=title)
     else:
-        print("No file selected")  # Log if no file was selected
+        path = filedialog.askopenfilename(initialdir=initial_folder, title=title, filetypes=filetypes)
+
+    if path:
+        print(f"Selected {'folder' if select_folder else 'file'}: {path}")
+    else:
+        print(f"No {'folder' if select_folder else 'file'} selected")
 
     root.destroy()  # Close the main window
 
-    return file_path
+    return path
+
 
 def remove_overlap_from_string(left_string: str, right_string: str) -> str:
     """
@@ -678,7 +685,84 @@ def test_reshape_and_pad_scan_counts():
 
     print("All tests passed!")
 
-# Run tests
 
+import csv
+import os
+import matplotlib.pyplot as plt
+from typing import List, Tuple
+
+def generate_survey_csv(first_position: Tuple[float, float], dx: float, dy: float, nx: int, ny: int) -> List[Tuple[float, float]]:
+    """
+    Generate a CSV file containing survey points for an S-shaped scan and plot the trajectory.
+
+    The function computes survey points starting at 'first_position' with displacements 'dx' and 'dy'
+    over 'nx' columns and 'ny' rows. Points are sorted in a serpentine (S-shape) order for efficient scanning.
+    It then prompts the user for a file path using open_file_dialog, writes the points to the file,
+    and plots the resulting trajectory.
+
+    :param first_position: A tuple (x, y) representing the starting coordinates.
+    :param dx: Displacement in the x direction between adjacent points.
+    :param dy: Displacement in the y direction between adjacent rows.
+    :param nx: Number of points in the x direction (columns).
+    :param ny: Number of rows in the y direction.
+    :return: A list of (x, y) tuples representing the survey points.
+    """
+    try:
+        # Generate survey points in serpentine (S-shape) order.
+        points: List[Tuple[float, float]] = []
+        start_x, start_y = first_position
+        for row in range(ny):
+            row_points = []
+            for col in range(nx):
+                x = start_x + col * dx
+                y = start_y + row * dy
+                row_points.append((x, y))
+            # Reverse every other row for S-shape scanning
+            if row % 2 == 1:
+                row_points.reverse()
+            points.extend(row_points)
+
+        # Prompt user for a file path to save the CSV file using the existing open_file_dialog function.
+        folder_path = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")], select_folder=True)
+        if not folder_path:
+            print("No folder selected. Aborting CSV generation.")
+            return points
+        # Ensure the file name ends with .csv
+        file_path = os.path.join(folder_path, "survey_g2_point_map.csv")
+        if os.path.exists(file_path):
+            base = os.path.join(folder_path, "survey_g2_point_map")
+            ext = ".csv"
+            counter = 1
+            while os.path.exists(f"{base}_{counter:03d}{ext}"):
+                counter += 1
+            file_path = f"{base}_{counter:03d}{ext}"
+
+        # Write the survey points to the CSV file.
+        with open(file_path, mode='w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            for pt in points:
+                writer.writerow(pt)
+        print(f"CSV file successfully saved to: {file_path}")
+
+        # Plot the survey trajectory.
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        plt.figure()
+        plt.plot(xs, ys, marker='o', linestyle='-')
+        plt.title("Survey Trajectory (S-Shape Scan)")
+        plt.xlabel("X Position")
+        plt.ylabel("Y Position")
+        plt.grid(False)
+        plt.show()
+
+        return points
+
+    except Exception as e:
+        print(f"An error occurred during CSV generation: {e}")
+        return []
+
+
+# Run tests
 if __name__ == "__main__":
-    test_reshape_and_pad_scan_counts()
+    survey_points = generate_survey_csv((2000, 2000), 2, 2, 20, 20)
+

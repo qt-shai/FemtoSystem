@@ -1476,6 +1476,7 @@ class PyGuiOverlay(Layer):
         self.Btn_colorTheme(_tag = "btnRedTheme",_color = (150, 100, 100))
         self.Btn_colorTheme(_tag = "btnGreenTheme",_color = (100, 150, 100))
         self.Btn_colorTheme(_tag = "btnBlueTheme",_color = (100, 100, 150))
+        self.Btn_colorTheme(_tag="btnPurpleTheme", _color=(195, 177, 255))
 
         # Create a theme to highlight the new container (group or child window)
         with dpg.theme(tag="highlighted_header_theme"):
