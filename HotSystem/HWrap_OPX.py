@@ -29,6 +29,8 @@ import tkinter as tk
 import functools
 from collections import Counter
 
+from qm.qua._expressions import QuaVariable, QuaVariableType
+
 from pylablib import load_csv
 from qm_saas import QmSaas, QoPVersion
 
@@ -2710,6 +2712,15 @@ class GUI_OPX():
         # if self.exp == Experiment.RandomBenchmark:
         #     self.Random_Benchmark_QUA_PGM(Generate_QUA_sequance = True)
 
+    def QUA_measure_with_sum_counters(self,detector1:str, detector2:Optional[str], time_vector:QuaVariableType, measure_time:int,
+                                      counts:QuaVariableType,total_counts:QuaVariableType,counts2:Optional[QuaVariableType]=None, measure_waveform:str = "min_readout", sum_counters:bool=False):
+        measure(measure_waveform,detector1 , None,time_tagging.digital(time_vector,measure_time, counts))
+        if sum_counters:
+            measure(measure_waveform,detector2, None,time_tagging.digital(time_vector,measure_time, counts2))
+            assign(total_counts, total_counts + counts2)
+        assign(total_counts, total_counts + counts)
+        return total_counts
+
     def tile_to_length(self, array, final_length):
         """
         Return a 1D array of exactly 'final_length' by repeating 'array'
@@ -4688,7 +4699,7 @@ class GUI_OPX():
         n_avg = self.n_avg
         correlation_width = 400*self.u.ns
         self.correlation_width = int(correlation_width)
-        expected_counts = 150
+        expected_counts = 1000
         N = 1000 # every N cycles it tries to update the stream
 
         with program() as self.quaPGM:
@@ -7043,6 +7054,7 @@ class GUI_OPX():
             n_st = declare_stream()  # stream iteration number
 
             counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_tmp2 = declare(int)  # temporary variable for number of counts
             counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
             runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
@@ -7090,8 +7102,19 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
+                        if self.sum_counters_flag:
+                            align("MW", "Detector2_OPD")
+                        # measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        # assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
+                        self.QUA_measure_with_sum_counters("Detector_OPD",
+                                                           "Detector2_OPD",
+                                                           times,
+                                                           tMeasure,
+                                                           counts_tmp,
+                                                           counts[idx_vec_qua[idx]],
+                                                           counts_tmp2,
+                                                           sum_counters=self.sum_counters_flag)
+
                         align()
 
                         # don't play MW for time t
@@ -7099,9 +7122,17 @@ class GUI_OPX():
                         # play laser after MW
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
-                        measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
-                        assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+                        # measure("readout", "Detector_OPD", None,
+                        #         time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        # assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+                        self.QUA_measure_with_sum_counters("Detector_OPD",
+                                                           "Detector2_OPD",
+                                                           times_ref,
+                                                           tMeasure,
+                                                           counts_tmp,
+                                                           counts_ref[idx_vec_qua[idx]],
+                                                           counts_tmp2,
+                                                           sum_counters=self.sum_counters_flag)
                         # align()
                     with else_():
                         assign(tracking_signal, 0)
@@ -7187,6 +7218,7 @@ class GUI_OPX():
             n_st = declare_stream()  # stream iteration number
 
             counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_tmp2 = declare(int)  # temporary variable for number of counts
             counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
             runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
@@ -7244,9 +7276,21 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
-                        measure("min_readout_pulse", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
-                        
+                        if self.sum_counters_flag:
+                            align( "Detector2_OPD", "Detector_OPD")
+                        # measure("min_readout_pulse", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        # assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
+
+                        self.QUA_measure_with_sum_counters("Detector_OPD",
+                                                           "Detector2_OPD",
+                                                           times,
+                                                           tMeasure,
+                                                           counts_tmp,
+                                                           counts[idx_vec_qua[idx]],
+                                                           counts_tmp2,
+                                                           measure_waveform = "min_readout_pulse",
+                                                           sum_counters=self.sum_counters_flag)
+
                         align()
                         # don't play MW for the maximal mw pulsae duration 
                         wait(int(self.t_vec_ini[-1])+5)
@@ -7255,9 +7299,22 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
+                        if self.sum_counters_flag:
+                            align("MW", "Detector2_OPD")
                         wait(12,"Detector_OPD")
-                        measure("min_readout_pulse", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
-                        assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+                        if self.sum_counters_flag:
+                            wait(12, "Detector_OPD")
+                        # measure("min_readout_pulse", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        # assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+                        self.QUA_measure_with_sum_counters("Detector_OPD",
+                                                           "Detector2_OPD",
+                                                           times_ref,
+                                                           tMeasure,
+                                                           counts_tmp,
+                                                           counts_ref[idx_vec_qua[idx]],
+                                                           counts_tmp2,
+                                                           measure_waveform="min_readout_pulse",
+                                                           sum_counters=self.sum_counters_flag)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
@@ -7333,6 +7390,7 @@ class GUI_OPX():
             n_st = declare_stream()  # stream iteration number
 
             counts_tmp = declare(int)  # temporary variable for number of counts
+            counts_tmp2 = declare(int)  # temporary variable for number of counts
             counts_ref_tmp = declare(int)  # temporary variable for number of counts reference
 
             runTracking = declare(bool, value=self.bEnableSignalIntensityCorrection)
@@ -7376,16 +7434,33 @@ class GUI_OPX():
                         play("cw", "MW", duration=tMW // 4)  # play microwave pulse
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         wait(tSettle // 4, "Detector_OPD")
-                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
+                        # measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        # assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
+                        self.QUA_measure_with_sum_counters("Detector_OPD",
+                                                           "Detector2_OPD",
+                                                           times,
+                                                           tMeasure,
+                                                           counts_tmp,
+                                                           counts[idx_vec_qua[idx]],
+                                                           counts_tmp2,
+                                                           sum_counters=self.sum_counters_flag)
                         align()
 
                         # reference sequence
                         # don't play MW
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         wait(tSettle // 4, "Detector_OPD")
-                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
-                        assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+                        # measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        # assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+
+                        self.QUA_measure_with_sum_counters("Detector_OPD",
+                                                           "Detector2_OPD",
+                                                           times_ref,
+                                                           tMeasure,
+                                                           counts_tmp,
+                                                           counts_ref[idx_vec_qua[idx]],
+                                                           counts_tmp2,
+                                                           sum_counters=self.sum_counters_flag)
                         align()
                     with else_():
                         assign(tracking_signal, 0)
