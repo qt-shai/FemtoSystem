@@ -151,8 +151,9 @@ class HW_devices:
                 pass
 
             elif instrument == Instruments.MFF_101:
-                self.mff_101 = FilterFlipperController(device.serial_number)
-                self.mff_101.connect()
+                # self.mff_101 = FilterFlipperController(device.serial_number)
+                # self.mff_101.connect()
+                pass
 
             elif instrument == Instruments.ARDUINO:
                 # Initialize ArduinoController

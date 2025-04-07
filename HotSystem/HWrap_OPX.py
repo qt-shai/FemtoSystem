@@ -41,6 +41,8 @@ import math
 import SystemConfig as configs
 import copy
 
+from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
+
 matplotlib.use('qtagg')
 
 def create_logger(log_file_path: str):
@@ -235,6 +237,8 @@ class GUI_OPX():
         self.bScanChkbox = False
 
         self.chkbox_close_all_qm = False
+        self.pharos = PharosLaserAPI(host="192.168.101.58")
+        self.Shoot_Femto_Pulses = False
 
         if simulation:
             print("OPX in simulation mode ***********************")
@@ -844,8 +848,11 @@ class GUI_OPX():
                         dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
                         dpg.add_button(label="Auto Focus", tag="btnOPX_AutoFocus", callback=self.btnAutoFocus, indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
+                        dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
+                        dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         # dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
+                    _width = 150
                     with dpg.group(horizontal=False):
                         dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
                         dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
@@ -854,6 +861,8 @@ class GUI_OPX():
                             dpg.add_button(label="plot", callback=self.plot_graph)
                             dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor", callback=self.toggle_use_picomotor,
                                              default_value=self.use_picomotor)
+                        dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=40,width=_width)
+                        dpg.add_input_int(label="Inc", tag="femto_increment",default_value=2,width=_width)
 
                     _width = 200
                     with dpg.group(horizontal=False):
@@ -5483,7 +5492,7 @@ class GUI_OPX():
             else:
                 dpg.enable_item("btnOPX_StartScan")
 
-            
+            self.Shoot_Femto_Pulses = False
 
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN or self.exp == Experiment.G2:
                 pass
@@ -5546,7 +5555,14 @@ class GUI_OPX():
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))  # raise
 
+    def btnFemtoPulses(self):
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Shooting femto pulses !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        self.Shoot_Femto_Pulses = True
+        self.ScanTh = threading.Thread(target=self.StartScan)
+        self.ScanTh.start()
+
     def btnStartScan(self):
+        self.Shoot_Femto_Pulses = False
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
 
@@ -5756,6 +5772,7 @@ class GUI_OPX():
         # print(Znew)
 
         return Znew
+
     def StartScan3D(self):  # currently flurascence scan
         if len(self.positioner.LoggedPoints) == 3:
             with open('logged_points.txt', 'w') as f:
@@ -5780,6 +5797,13 @@ class GUI_OPX():
         self.scan_reset_positioner()
         self.scan_get_current_pos(_isDebug=isDebug)
         self.initial_scan_Location = list(self.positioner.AxesPositions)
+
+        # List of item tags to retrieve values from
+        p_femto = {}        
+        item_tags = ["femto_attenuator", "femto_increment"]
+        for tag in item_tags:
+            p_femto[tag] = dpg.get_value(tag)
+            print(f"{tag}: {p_femto[tag]}")
 
         # Loop over three axes and populate scan coordinates
         scan_coordinates = []
@@ -5835,6 +5859,17 @@ class GUI_OPX():
                 self.positioner.MoveABSOLUTE(1, int(self.V_scan[1][j]))
                 V = []
 
+                if self.Shoot_Femto_Pulses:
+                    attenuator_value = j*p_femto["femto_increment"]+p_femto["femto_attenuator"]
+                    if attenuator_value > 100:
+                        attenuator_value = 100
+                    print(f"!!!!! set attenuator to {attenuator_value} !!!!!")
+                    self.pharos.setBasicTargetAttenuatorPercentage(attenuator_value)
+                    get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+                    while abs(get_attenuator_value - attenuator_value) > 0.1:
+                        time.sleep(0.1)
+                        get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+
                 Line_time_start = time.time()
                 for k in range(self.N_scan[0]):
                     if self.stopScan:
@@ -5855,6 +5890,17 @@ class GUI_OPX():
                     # move to next X - when trigger the OPX will measure and append the results
                     self.positioner.MoveABSOLUTE(0, int(V[k]))
                     self.scan_get_current_pos()
+
+                    if self.Shoot_Femto_Pulses:
+                        print("Pulse!")
+                        self.pharos.enablePp()
+                        time.sleep(0.2)
+                        current_state = self.pharos.getAdvancedIsPpEnabled()
+                        while current_state:
+                            time.sleep(0.2)
+                            print("Pp enable")
+                            current_state = self.pharos.getAdvancedIsPpEnabled()
+
 
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
                     self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
@@ -5919,7 +5965,7 @@ class GUI_OPX():
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
 
-
+        self.Shoot_Femto_Pulses = False
         if not (self.stopScan):
             self.btnStop()
 

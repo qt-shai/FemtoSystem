@@ -783,10 +783,11 @@ class PyGuiOverlay(Layer):
                     y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.MFF_101:
-                    if self.mff_101_gui is None:
-                        self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices(simulation=self.simulation).mff_101)
-                    else:
-                        self.mff_101_gui.add_new_button(serial_number=device.serial_number)
+                    # if self.mff_101_gui is None:
+                    #     self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices(simulation=self.simulation).mff_101)
+                    # else:
+                    #     self.mff_101_gui.add_new_button(serial_number=device.serial_number)
+                    pass
 
                 elif instrument == Instruments.ARDUINO:
                     self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)

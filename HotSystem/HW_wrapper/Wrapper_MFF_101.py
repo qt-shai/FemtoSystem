@@ -101,8 +101,8 @@ class FilterFlipperController:
             return new_position
         except Exception as e:
             print("Error during toggling:", e)
-        # finally:
-        #     self.disconnect()
+        finally:
+            self.disconnect()
 
     def get_position(self):
         return self.device.Position

@@ -55,13 +55,32 @@ class GUI_KDC101(GUIMotor):
             with dpg.group(horizontal=True, pos = [10,120]):
                 dpg.add_text("Current Position:", color=(0, 255, 0), indent=10)
 
-    def update_position_display(self):
-        """Updates the position display with the latest position."""
-        try:
-            current_pos = self.dev.get_current_position()
-            dpg.set_value(self.position_tag, f"{current_pos:.6f}")
-        except Exception as e:
-            dpg.set_value(self.position_tag, f"Error: {e}")
+        # self._monitor_stop_event = threading.Event()
+        # self._monitor_thread = threading.Thread(target=self._monitor_position, daemon=True)
+        # self._monitor_thread.start()
+
+    # def _monitor_position(self):
+    #     """Thread function that continuously updates the motor position every 0.2 seconds."""
+    #     while not self._monitor_stop_event.is_set():
+    #         try:
+    #             current_pos = self.dev.get_current_position()
+    #             dpg.set_value(self.position_tag, f"{current_pos:.6f}")
+    #         except Exception as e:
+    #             dpg.set_value(self.position_tag, f"Error: {e}")
+    #         time.sleep(0.2)
+    #
+    # def shutdown(self):
+    #     """Cleanly stop the monitoring thread."""
+    #     self._monitor_stop_event.set()
+    #     self._monitor_thread.join(timeout=1)
+    #
+    # def update_position_display(self):
+    #     """Updates the position display with the latest position."""
+    #     try:
+    #         current_pos = self.dev.get_current_position()
+    #         dpg.set_value(self.position_tag, f"{current_pos:.6f}")
+    #     except Exception as e:
+    #         dpg.set_value(self.position_tag, f"Error: {e}")
 
     def system_initialization(self):
         self.dev.connect()
