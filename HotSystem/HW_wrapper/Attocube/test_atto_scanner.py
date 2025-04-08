@@ -1,5 +1,6 @@
 import unittest
-from HW_wrapper import Keysight33500B, AttoScannerWrapper  # Assuming you have the AWG wrapper
+from HW_wrapper import Keysight33500B  # Assuming you have the AWG wrapper
+from HW_wrapper.Attocube.anc300_scanner import Anc300Wrapper
 from SystemConfig import InstrumentsAddress
 
 
@@ -11,7 +12,8 @@ class TestAttoScannerWrapper(unittest.TestCase):
         Set up the Keysight 33500B AWG and AttoScannerWrapper instances before running the tests.
         """
         cls.awg = Keysight33500B(address=InstrumentsAddress.KEYSIGHT_AWG.value)  # Replace with actual address
-        cls.atto_scanner = AttoScannerWrapper(cls.awg, max_travel_x=40.0, max_travel_y=40.0)
+        # Integrate into system_config properly
+        cls.atto_scanner = Anc300Wrapper(conn = 'COM3')
 
     @classmethod
     def tearDownClass(cls):

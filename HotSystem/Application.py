@@ -9,7 +9,7 @@ from pyglet.gl import GL_VERSION, glClearColor, glClear, GL_COLOR_BUFFER_BIT
 from PIL import Image
 from Common import Common_Counter_Singletone, KeyboardKeys
 from EventDispatcher import EventDispatcher
-from ExpSequenceGui import ExpSequenceGui
+#from ExpSequenceGui import ExpSequenceGui
 from HW_GUI import GUI_CLD1011LP as gui_CLD1011LP
 from HW_GUI import GUI_Cobolt as gui_Cobolt
 from HW_GUI import GUI_Picomotor as gui_Picomotor
@@ -116,7 +116,7 @@ class ImGuiOverlay(Layer):
         simulation = False
         if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
             simulation = True
-        self.exSeq = ExpSequenceGui()
+        #self.exSeq = ExpSequenceGui()
         try:
             self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
         except:
@@ -132,7 +132,7 @@ class ImGuiOverlay(Layer):
         else:
             self.guiID = Common_Counter_Singletone()
             self.guiID.Reset()
-            self.exSeq.controls()
+            #self.exSeq.controls()
             if self.mwGUI:
                 self.mwGUI.controls()
             # self.smaractGUI.controls()
@@ -1611,7 +1611,9 @@ class PyGuiOverlay(Layer):
         with dpg.window(label="Viewport Window", tag="Viewport_Window", no_resize=True, no_move=True,width = self.viewport_w, height = self.viewport_h):
             dpg.add_drawlist(tag="full_drawlist", width=800, height=600)
         dpg.set_primary_window("Viewport_Window", True)
-        dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
+        # dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
+
+
     def create_console_gui(self):
         """Creates a console GUI window for displaying logs and user inputs."""
         with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):

@@ -12,8 +12,7 @@ import HW_wrapper.Wrapper_Picomotor as Picomotor
 import HW_wrapper.Wrapper_Zelux as ZeluxCamera
 import HW_wrapper.SRS_PID.wrapper_sim960_pid as wrapper_sim960_pid
 import HW_wrapper.SRS_PID.wrapper_sim900_mainframe as wrapper_sim900_mainframe
-from SystemConfig import (SystemConfig, find_ethernet_device, InstrumentsAddress, connect_thorlabs_motor_device_by_serial
-,get_thorlabs_motor_serial_nums)
+from SystemConfig import (SystemConfig, find_ethernet_device, InstrumentsAddress, connect_thorlabs_motor_device_by_serial,get_thorlabs_motor_serial_nums)
 from SystemConfig import SystemType, Instruments, Device, load_system_from_xml
 
 # Initialize the devices list and selection dictionary

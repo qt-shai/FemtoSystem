@@ -2,6 +2,7 @@ import asyncio
 import logging
 import threading
 from typing import Optional, List
+from HW_wrapper.Arduino.arduino_wrapper import ArduinoController
 
 import dearpygui.dearpygui as dpg
 

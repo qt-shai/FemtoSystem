@@ -3,10 +3,10 @@ from typing import Optional, Callable, Dict, DefaultDict
 import threading
 
 from Common import KeyboardKeys
-from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B, AttoScannerWrapper, MotorStage, ArduinoController, Motor, FilterFlipperController
+from HW_wrapper import (AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor,
+    SirahMatisse, Keysight33500B, MotorStage, ArduinoController, Motor, FilterFlipperController,
+                        SirahMatisse, Keysight33500B, ArduinoController, NI_DAQ_Controller)
 from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
-    SirahMatisse, Keysight33500B, ArduinoController, NI_DAQ_Controller
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900

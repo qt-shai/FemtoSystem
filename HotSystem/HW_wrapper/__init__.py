@@ -10,7 +10,6 @@ from .SmarAct.smaract_movement import Movement
 from .SmarAct.smaract_stream_manager import StreamManager
 from .wrapper_mattise import SirahMatisse
 from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
-from HW_wrapper.Attocube.atto_piezo_scanner import AttoScannerWrapper
 from .Wrapper_KDC101 import MotorStage
 from .Wrapper_MFF_101 import FilterFlipperController
 from .Arduino.arduino_wrapper import ArduinoController
@@ -39,7 +38,6 @@ __all__ = [
     'StreamManager',
     'SirahMatisse',
     'Keysight33500B',
-    'AttoScannerWrapper',
     'ConnectorMode',
     'MotorStage',
     'FilterFlipperController'
