@@ -21,7 +21,10 @@ class GUI_smaract():
         self.dev = self.HW.positioner
         self.selectedDevice = serial_number
         self.dev.error = None
-        self.simulation = simulation
+        if simulation:
+            self.simulation = simulation
+        else:
+            self.simulation = False
         self.dev.GetAvailableDevices()
 
         self.prefix = "mcs"

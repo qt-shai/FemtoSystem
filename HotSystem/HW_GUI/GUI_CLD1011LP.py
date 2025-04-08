@@ -23,6 +23,7 @@ class GUI_CLD1011LP():  # todo1: support several devices
         # Define the layout of the GUI
         Child_Width = 200
 
+
         dpg.add_window(tag=self.window_tag, label=""+ self.laser.info, no_title_bar=False, height=440, width=1600, collapsed=True)
         
         # groups

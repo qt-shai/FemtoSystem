@@ -9,7 +9,7 @@ from SystemConfig import Instruments, load_instrument_images
 
 class GUI_KDC101(GUIMotor):
 
-    def __init__(self, serial_number, device) -> None:
+    def __init__(self, serial_number, device, simulation: bool = False) -> None:
         self.dev = device
         self.prefix = "KDC101"
         self.unique_id = self._get_unique_id_from_device()

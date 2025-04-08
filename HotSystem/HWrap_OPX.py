@@ -34,6 +34,10 @@ from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare
     elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger, counting, Math, Cast, case_, \
     switch_, strict_timing_, declare_input_stream
+from gevent.libev.corecext import callback
+from matplotlib import pyplot as plt
+from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
+from qualang_tools.results import fetching_tool
 from qualang_tools.results import progress_counter, fetching_tool
 from functools import partial
 from qualang_tools.units import unit
@@ -698,12 +702,12 @@ class GUI_OPX():
         if app_data == 1:
             self.is_green = True
             dpg.configure_item(sender, format="GREEN")
-            dpg.bind_item_theme(sender, "OnTheme")
+            dpg.bind_item_theme(sender, "OnTheme_OPX")
             print("Laser is Green!")
         else:
             self.is_green = False
             dpg.configure_item(sender, format="RED")
-            dpg.bind_item_theme(sender, "OffTheme")
+            dpg.bind_item_theme(sender, "OffTheme_OPX")
             print("Laser is Red!")
 
     def UpdateTsettle(sender, app_data, user_data):
@@ -787,7 +791,7 @@ class GUI_OPX():
         self.window_scale_factor = width / 3840
 
     def set_all_themes(self):
-        with dpg.theme(tag="OnTheme"):
+        with dpg.theme(tag="OnTheme_OPX"):
             with dpg.theme_component(dpg.mvSliderInt):
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 180, 0))  # handle when pressed
@@ -797,7 +801,7 @@ class GUI_OPX():
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 90, 70))
 
         # OFF Theme: keep the slider handle red in all states.
-        with dpg.theme(tag="OffTheme"):
+        with dpg.theme(tag="OffTheme_OPX"):
             with dpg.theme_component(dpg.mvSliderInt):
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0))  # idle handle color
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (180, 0, 0))
@@ -833,7 +837,7 @@ class GUI_OPX():
         dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
         dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
 
-        dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=False)
+        #dpg.add_group(tag="Params_Controls", before="Graph_group", parent=self.window_tag, horizontal=False)
         self.GUI_ParametersControl(True)
 
     def GUI_ParametersControl(self, isStart):
@@ -1186,7 +1190,7 @@ class GUI_OPX():
 
 
                 dpg.add_slider_int(label="Laser Type",
-                                   tag="on_off_slider", width = 80,
+                                   tag="on_off_slider_OPX", width = 80,
                                    default_value=1, parent="chkbox_group",
                                    min_value=0, max_value=1,
                                    callback=self.on_off_slider_callback,indent = -1,
@@ -1215,6 +1219,8 @@ class GUI_OPX():
             dpg.add_button(label="Start G2", parent="G2_Controls", tag="btnOPX_G2", callback=self.btnStartG2, indent=-1, width=200)
             dpg.add_input_int(label="", tag="inInt_G2_correlation_width", indent=-1, parent="G2_Controls", width=150, callback=self.UpdateCorrelationWidth, default_value=self.correlation_width,
                               min_value=1, max_value=50000, step=1)
+            dpg.add_button(label="Start G2 Survey", parent="Buttons_Controls", tag="btnOPX_StartG2Survey", callback=self.btnStartG2, indent=-1,
+                           width=_width)
             dpg.add_button(label="Eilon's", parent="Buttons_Controls", tag="btnOPX_Eilons",
                            callback=self.btnStartEilons, indent=-1, width=_width)
             dpg.add_button(label="Random Benchmark", parent="Buttons_Controls", tag="btnOPX_RandomBenchmark",
@@ -1240,7 +1246,7 @@ class GUI_OPX():
             dpg.bind_item_theme(item="btnOPX_StartNuclearRABI", theme="btnBlueTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearMR", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnOPX_StartNuclearPolESR", theme="btnGreenTheme")
-            dpg.bind_item_theme("on_off_slider", "OnTheme")
+            dpg.bind_item_theme("on_off_slider_OPX", "OnTheme_OPX")
             dpg.bind_item_theme(item="btnOPX_StartG2Survey", theme="btnPurpleTheme")
 
         else:

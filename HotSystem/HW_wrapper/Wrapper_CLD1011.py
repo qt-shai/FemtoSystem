@@ -3,7 +3,7 @@ import time
 import threading
 
 class ThorlabsCLD1011LP:
-    def __init__(self,simulation=False):#, resource_name: str):
+    def __init__(self, simulation=False):
         """
         Initialize the Thorlabs CLD1011LP laser diode driver.
         
@@ -20,8 +20,6 @@ class ThorlabsCLD1011LP:
         self.minI = 0.0 # mA
         self.get_device_info()
         self.disable_modulation()
-
-        1
 
     def write_cmd(self,cmd):
         self.lock.acquire()

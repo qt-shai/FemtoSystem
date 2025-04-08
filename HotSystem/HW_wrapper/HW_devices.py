@@ -6,11 +6,10 @@ from Common import KeyboardKeys
 from HW_wrapper import (AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor,
     SirahMatisse, Keysight33500B, MotorStage, ArduinoController, Motor, FilterFlipperController,
                         SirahMatisse, Keysight33500B, ArduinoController, NI_DAQ_Controller)
-from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
-from HW_wrapper.Wrapper_Cobolt import CoboltLaser
+from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
 from HW_wrapper.wrapper_wavemeter import HighFinesseWLM
 from HW_wrapper.Wrapper_moku import Moku
@@ -110,7 +109,7 @@ class HW_devices:
 
                 elif instrument == Instruments.CLD1011LP:
                     CLD1011LP_config: Device = [x for x in self.config.devices if x.instrument is Instruments.CLD1011LP][0]
-                    self.CLD1011LP = ThorlabsCLD1011LP(simulation=Device.simulation)
+                    self.CLD1011LP = ThorlabsCLD1011LP(simulation=device.simulation)
 
                 elif instrument == Instruments.PICOMOTOR:
                     self.picomotor = newportPicomotor(device.simulation)
