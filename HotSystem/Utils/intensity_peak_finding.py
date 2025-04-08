@@ -16,6 +16,7 @@ class OptimizerMethod(Enum):
     CG = "CG"
     CMA_ES = "CMA"
     DIRECTIONAL = "Directional"
+    SEQUENTIAL = "Sequential"
 
 def directional_climbing_optimize(
     move_abs_fn: Callable[[int, float], None],
@@ -64,82 +65,169 @@ def directional_climbing_optimize(
         y_history.append(y)
         intensity_history.append(intensity)
         if intensity > global_best_sig:
-            z_current = get_positions_fn()[2]
             global_best_sig = intensity
-            global_best_pos = (x, y, z_current)
-
-    def move_and_measure(x: float, y: float, z: float) -> float:
+            if len(bounds) == 3:
+                z_current = get_positions_fn()[2]
+                global_best_pos = (x, y, z_current)
+            else:
+                global_best_pos = (x, y)
+    def move_and_measure(x: float, y: float, z: Optional[float] = None) -> float:
         nonlocal measure_count
         # Clamp to bounds
         x = np.clip(x, bounds[0][0], bounds[0][1])
         y = np.clip(y, bounds[1][0], bounds[1][1])
-        z = np.clip(z, bounds[2][0], bounds[2][1])
+        if z:
+            z = np.clip(z, bounds[2][0], bounds[2][1])
         move_abs_fn(0, x)
         move_abs_fn(1, y)
-        move_abs_fn(2, z)
-        while not (read_in_pos_fn(0) and read_in_pos_fn(1) and read_in_pos_fn(2)):
+        if z:
+            move_abs_fn(2, z)
+        while not (read_in_pos_fn(0) and read_in_pos_fn(1)):
             time.sleep(5e-3)
+        if z:
+            while not read_in_pos_fn(2):
+                time.sleep(5e-3)
         fetch_data_fn()
         sig = get_signal_fn()
         record_measure(x, y, sig)
         measure_count += 1
         return sig
 
-    def test_direction(base_pos: Tuple[float, float, float], axis_vec: Tuple[float, float], steps: int = 3) -> Tuple[float, float, float, float]:
-        x0, y0, z0 = base_pos
-        best_sig = move_and_measure(x0, y0, z0)
-        best_pos = (x0, y0, z0)
+    def test_direction(base_pos: Tuple[float, ...], axis_vec: Tuple[float, float], steps: int = 3) -> Tuple[float, ...]:
+        """
+        Test movement in a given direction from a base position over a specified number of steps.
+
+        Supports both 2-axis and 3-axis systems. For a 2-axis base_pos (x, y), the function uses move_and_measure(x, y).
+        For a 3-axis base_pos (x, y, z), it uses move_and_measure(x, y, z) and maintains z constant.
+
+        :param base_pos: The starting position as a tuple (x, y) or (x, y, z).
+        :param axis_vec: A tuple (dx, dy) representing the direction to move in the XY plane.
+        :param steps: Number of steps to move along the direction.
+        :return: A tuple representing the best position and its signal, i.e., (x, y, sig) for 2-axis, or (x, y, z, sig) for 3-axis.
+        """
+        num_axes = len(base_pos)
+        if num_axes == 3:
+            x0, y0, z0 = base_pos
+            best_sig = move_and_measure(x0, y0, z0)
+            best_pos = (x0, y0, z0)
+        elif num_axes == 2:
+            x0, y0 = base_pos
+            best_sig = move_and_measure(x0, y0)
+            best_pos = (x0, y0)
+        else:
+            raise ValueError("base_pos must be a tuple with 2 or 3 elements.")
+
         for i in range(1, steps + 1):
-            print(step_size[0])
-            x_test = x0 + axis_vec[0]*i*step_size[0]
-            y_test = y0 + axis_vec[1]*i*step_size[1]
-            sig = move_and_measure(x_test, y_test, z0)
+            # Compute the test coordinates using the global step_size tuple.
+            x_test = x0 + axis_vec[0] * i * step_size[0]
+            y_test = y0 + axis_vec[1] * i * step_size[1]
+            if num_axes == 3:
+                sig = move_and_measure(x_test, y_test, z0)
+                test_pos = (x_test, y_test, z0)
+            else:
+                sig = move_and_measure(x_test, y_test)
+                test_pos = (x_test, y_test)
             if sig > best_sig:
                 best_sig = sig
-                best_pos = (x_test, y_test, z0)
-        return (*best_pos, best_sig)
+                best_pos = test_pos
 
-    def try_axes(base_pos: Tuple[float, float, float]) -> Tuple[float, float, float, float]:
-        if verbose: print(f"Trying axes directions along X and Y from base position: {base_pos}")
-        x0, y0, z0 = base_pos
-        base_sig = move_and_measure(x0, y0, z0)
-        directions = [(1,0),(-1,0),(0,1),(0,-1)]
-        best_overall = (x0, y0, z0, base_sig)
-        for d in directions:
-            res = test_direction((x0,y0,z0), d)
-            if res[3] > best_overall[3]:
-                best_overall = res
-        if best_overall[3] > base_sig:
-            if verbose: print(f"Found better direction along XY: {best_overall[:3]} intensity={best_overall[3]:.4f}")
+        # Return the best position along with its signal measurement.
+        if num_axes == 3:
+            return (*best_pos, best_sig)
         else:
-            if verbose: print("No improvement found along X/Y directions.")
+            return (*best_pos, best_sig)
+
+    def try_axes(base_pos: Tuple[float, ...]) -> Tuple[float, ...]:
+        if verbose:
+            print(f"Trying axes directions along X and Y from base position: {base_pos}")
+
+        directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        num_axes = len(base_pos)
+
+        if num_axes == 3:
+            x0, y0, z0 = base_pos
+            base_sig = move_and_measure(x0, y0, z0)
+            best_overall = (x0, y0, z0, base_sig)
+            signal_index = 3
+        elif num_axes == 2:
+            x0, y0 = base_pos
+            base_sig = move_and_measure(x0, y0)
+            best_overall = (x0, y0, base_sig)
+            signal_index = 2
+        else:
+            raise ValueError("base_pos must be a tuple with 2 or 3 elements.")
+
+        for d in directions:
+            if num_axes == 3:
+                res = test_direction((x0, y0, z0), d)
+            else:
+                res = test_direction((x0, y0), d)
+            if res[signal_index] > best_overall[signal_index]:
+                best_overall = res
+
+        if best_overall[signal_index] > base_sig:
+            if verbose:
+                print(
+                    f"Found better direction along XY: {best_overall[:num_axes]} intensity={best_overall[signal_index]:.4f}")
+        else:
+            if verbose:
+                print("No improvement found along X/Y directions.")
         return best_overall
 
-    def follow_direction(base_pos: Tuple[float, float, float], dx: float, dy: float) -> Tuple[float, float, float, float]:
-        x, y, z = base_pos
-        current_sig = move_and_measure(x, y, z)
+    def follow_direction(base_pos: Tuple[float, ...], dx: float, dy: float) -> Tuple[float, ...]:
+        """
+        Follow a specified direction from a base position until no further improvement is observed.
+
+        Supports both 2-axis and 3-axis systems. For a 3-axis base_pos (x, y, z), the function keeps z constant.
+        For a 2-axis base_pos (x, y), it only operates in the XY plane.
+
+        :param base_pos: The starting position as a tuple (x, y) or (x, y, z).
+        :param dx: Direction multiplier along the x-axis.
+        :param dy: Direction multiplier along the y-axis.
+        :return: For a 3-axis system, returns (x, y, z, current_sig). For a 2-axis system, returns (x, y, current_sig).
+        """
+        num_axes = len(base_pos)
+        if num_axes == 3:
+            x, y, z = base_pos
+            current_sig = move_and_measure(x, y, z)
+        elif num_axes == 2:
+            x, y = base_pos
+            current_sig = move_and_measure(x, y)
+        else:
+            raise ValueError("base_pos must be a tuple with 2 or 3 elements.")
+
         initial_sig = current_sig
-        if verbose: print(f"Following direction dx={dx}, dy={dy} from {base_pos}...")
+        if verbose:
+            print(f"Following direction dx={dx}, dy={dy} from {base_pos}...")
         improved = True
         steps_taken = 0
-        max_steps = 5  # limit how far we go in this direction
+        max_steps = 5  # Limit how far we go in this direction
+
         while improved and steps_taken < max_steps:
-            new_x = x + dx*step_size[0]
-            new_y = y + dy*step_size[1]
-            new_sig = move_and_measure(new_x, new_y, z)
+            new_x = x + dx * step_size[0]
+            new_y = y + dy * step_size[1]
+            if num_axes == 3:
+                new_sig = move_and_measure(new_x, new_y, z)
+            else:
+                new_sig = move_and_measure(new_x, new_y)
             steps_taken += 1
             if new_sig > current_sig:
-                x, y, z = new_x, new_y, z
+                x, y = new_x, new_y
                 current_sig = new_sig
-                # Check if we got at least 10% improvement from start
+                # Check if we got at least the improvement threshold (e.g., 10% improvement from start)
                 if current_sig >= initial_sig * improvement_threshold:
-                    if verbose: print(f"Direction gave >=10% improvement. Current intensity={current_sig:.4f}")
+                    if verbose:
+                        print(f"Direction gave >=10% improvement. Current intensity={current_sig:.4f}")
                     break
             else:
-                if verbose: print("No further improvement along this direction.")
+                if verbose:
+                    print("No further improvement along this direction.")
                 improved = False
 
-        return x, y, z, current_sig
+        if num_axes == 3:
+            return x, y, z, current_sig
+        else:
+            return x, y, current_sig
 
     def axis_climb(base_pos: Tuple[float, float, float], axis: int) -> Tuple[float, float, float, float]:
         # Axis: 0=X, 1=Y, 2=Z
@@ -304,78 +392,79 @@ def directional_climbing_optimize(
 
     return x_best, y_best, z_best, sig_best, measure_count
 
+
 def sequential_scan(
-    move_abs_fn: Callable[[int, int], None],
-    read_in_pos_fn: Callable[[int], bool],
-    fetch_data_fn: Callable[[], None],
-    get_signal_fn: Callable[[], float],
-    bounds: Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]],
-    step_size: float = 10000.0
-) -> Tuple[float, float, float]:
+        move_abs_fn: Callable[[int, float], None],
+        read_in_pos_fn: Callable[[int], bool],
+        fetch_data_fn: Callable[[], None],
+        get_signal_fn: Callable[[], float],
+        bounds: Tuple[Tuple[float, float], ...],
+        step_size: float = 10000.0
+) -> Tuple[float, ...]:
     """
-    Perform a sequential scan: first Z, then Y, and finally X.
+    Perform a sequential scan on 2 or 3 axes.
+
+    For a 3-axis system, the scanning order is Z, then Y, then X (i.e., axis indices 2, 1, 0).
+    For a 2-axis system, the scanning order is Y then X (i.e., axis indices 1, 0).
     Each axis scan is performed around the best position found so far.
+
     :param move_abs_fn: Function to move a given axis to an absolute position.
+                        Accepts an axis index and a position value.
     :param read_in_pos_fn: Function to check if an axis is in position.
+                           Accepts an axis index.
     :param fetch_data_fn: Function to fetch the latest measurement data.
     :param get_signal_fn: Function to get the current signal value.
-    :param bounds: Bounds for (x, y, z) as ((x_low, x_high), (y_low, y_high), (z_low, z_high)).
+    :param bounds: Bounds for the axes as ((x_low, x_high), (y_low, y_high)) for 2-axis or
+                   ((x_low, x_high), (y_low, y_high), (z_low, z_high)) for 3-axis.
     :param step_size: Step size for the scans.
-    :return: The (x, y, z) position with the highest signal.
+    :return: The position (as a tuple) with the highest signal.
     """
-    def scan_axis(axis: int, start_pos: Tuple[float, float, float]) -> Tuple[float, float, float]:
+
+    num_axes = len(bounds)
+    if num_axes not in [2, 3]:
+        raise ValueError("Bounds must be provided for either 2 or 3 axes.")
+
+    # Compute the initial position as the midpoint of each bound.
+    initial_position = tuple((b[0] + b[1]) / 2 for b in bounds)
+
+    def scan_axis(axis: int, start_pos: Tuple[float, ...]) -> Tuple[float, ...]:
         """
-        Perform a scan along a single axis while keeping other axes fixed.
-        :param axis: Axis index (0 for X, 1 for Y, 2 for Z).
-        :param start_pos: Current (x, y, z) position.
-        :return: Best (x, y, z) position after the scan.
+        Scan along a single axis while keeping the other axes fixed.
+
+        :param axis: The axis index to scan.
+        :param start_pos: The current position for all axes.
+        :return: The best position (as a tuple) after scanning the given axis.
         """
         best_signal = float('-inf')
         best_position = start_pos
         axis_range = np.arange(bounds[axis][0], bounds[axis][1] + step_size, step_size)
-
         for pos in axis_range:
-            # Move only the specified axis
+            # Move the target axis to the new position.
             move_abs_fn(axis, pos)
-
-
-            # Keep other axes fixed at their current positions
-            for other_axis in range(3):
-                if other_axis != axis:
-                    move_abs_fn(other_axis, start_pos[other_axis])
-
-            # Wait until all axes are in position
-            while not all(read_in_pos_fn(i) for i in range(3)):
+            # Wait until all axes are in position.
+            while not read_in_pos_fn(axis):
                 time.sleep(0.001)
-
-            # Fetch new data and read the signal
+            # Fetch data and measure the signal.
             fetch_data_fn()
-            signal = -get_signal_fn()
-
+            signal = get_signal_fn()
             print(f"Scanning axis {axis} at position {pos}: Signal = {signal}")
-
-            # Update the best position if the current signal is higher
             if signal > best_signal:
                 best_signal = signal
-                best_position = (
-                    pos if axis == 0 else start_pos[0],
-                    pos if axis == 1 else start_pos[1],
-                    pos if axis == 2 else start_pos[2],
-                )
-
+                best_position = tuple(pos if i == axis else start_pos[i] for i in range(num_axes))
         print(f"Best position after scanning axis {axis}: {best_position} with signal = {best_signal}")
-        return best_position
+        move_abs_fn(axis, best_position[axis])
+        return *best_position,best_signal
 
-    # Initial starting position (default to the middle of the bounds)
-    initial_position = (0,0,0)
+    # Define the scanning order: for 3 axes, scan Z, Y, then X; for 2 axes, scan Y then X.
+    scan_order = [2, 1, 0] if num_axes == 3 else [1, 0]
 
-    # Sequentially scan Z, Y, then X
-    best_position = scan_axis(0, initial_position)  # Scan Z
-    best_position = scan_axis(1, best_position)    # Scan Y
-    best_position = scan_axis(2, best_position)    # Scan X
+    best_position = initial_position
+    for axis in scan_order:
+        best_position = scan_axis(axis, best_position)
 
     print(f"Best position after sequential scan: {best_position}")
     return best_position
+
 
 def coarse_scan(
     move_abs_fn: Callable[[int, int], None],
@@ -488,7 +577,7 @@ def find_max_signal(
     initial_guess: Optional[Tuple[float,float,float]]|Optional[Tuple[float,float]] = None,
     max_iter: int = 1000,
     use_coarse_scan: bool = False,
-) -> Tuple[float,float,float,float]:
+) -> Tuple[float,float,Optional[float],float]:
     """
     A generalized peak finding function.
     :param move_abs_fn: A function to move a given axis to an absolute position: move_abs_fn(axis:int, position:float).
@@ -517,8 +606,21 @@ def find_max_signal(
                 time.sleep(0.01)
             return initial_guess[0], initial_guess[1], initial_guess[2], 1000
 
+    if method == OptimizerMethod.SEQUENTIAL:
+        step_size_val: float = 1  # or any desired value
+        best_position = sequential_scan(move_abs_fn, read_in_pos_fn, fetch_data_fn, get_signal_fn, bounds,
+                                        step_size=step_size_val)
+        print(f"Best position found: {best_position}")
+        # Return based on the number of axes
+        if len(bounds) == 3:
+            x_best, y_best, z_best, max_signal = best_position
+            return x_best, y_best, z_best, max_signal
+        else:
+            x_best, y_best, max_signal = best_position
+            return x_best, y_best, None, max_signal
+
     if method == OptimizerMethod.DIRECTIONAL:
-        step_size: list[float] = [np.abs(bounds[axis][1] - bounds[axis][0])/10 for axis in range(3)]
+        step_size: list[float] = [np.abs(bounds[axis][1] - bounds[axis][0])/10 for axis in range(len(bounds))]
         improvement_threshold: float = 1.10
         max_axis_attempts:int = 3
         run_stats:bool = False
