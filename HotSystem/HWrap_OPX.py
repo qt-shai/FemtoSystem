@@ -29,6 +29,7 @@ import tkinter as tk
 import functools
 from collections import Counter
 
+from qm.jobs.base_job import QmBaseJob
 from qm.qua._expressions import QuaVariable, QuaVariableType
 
 from pylablib import load_csv
@@ -40,7 +41,7 @@ from qm.qua import update_frequency, frame_rotation, frame_rotation_2pi, declare
     assign, elif_, if_, IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_, wait_for_trigger, case_, switch_
 from qm_saas import QmSaas, QoPVersion
-from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
+from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig, QuantumMachine, QmJob, QmPendingJob
 from qm.qua import update_frequency, frame_rotation_2pi, declare_stream, declare, program, for_, assign, elif_, if_, \
     IO1, IO2, time_tagging, measure, play, wait, align, else_, \
     save, stream_processing, amp, Random, fixed, pause, infinite_loop_
@@ -122,17 +123,20 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
-        self.survey_g2_threshold: int = 100
+        self.stop_survey: bool = False
+        self.survey_stop_flag = False
+        self.survey_g2_threshold: float = 0.4
         self.survey_g2_timeout: int = 120
         self.survey_g2_counts: int = 100
+        self.survey_thread = None
         self.survey: bool = False
         self.sum_counters_flag: bool = False
         self.csv_file: Optional[str] = None
         self.is_green = False
         self.ref_counts_handle = None
         self.mattise_frequency_offset: float = 0
-        self.job = None
-        self.qm = None
+        self.job:Optional[QmPendingJob]  = None
+        self.qm: Optional[QuantumMachine] = None
         self.Y_vec_ref = None
         self.X_vec_ref = None
         self.Z_vec = None
@@ -249,7 +253,7 @@ class GUI_OPX():
         self.bEnableShuffle = True
         self.bEnableSimulate = False
         # tracking ref
-        self.bEnableSignalIntensityCorrection = True
+        self.bEnableSignalIntensityCorrection = False
         self.trackingPeriodTime = 10000000  # [nsec]
         self.refSignal = 0.0
         self.TrackIsRunning = True
@@ -618,17 +622,22 @@ class GUI_OPX():
         print("Set survey_g2_counts to: " + str(sender.survey_g2_counts))
 
     def UpdateN_survey_g2_threshold(sender, app_data, user_data):
-            sender.survey_g2_threshold = (int(user_data))
+            sender.survey_g2_threshold = (float(user_data))
             time.sleep(0.001)
-            dpg.set_value(item="survey_g2_threshold", value=sender.survey_g2_threshold)
+            dpg.set_value(item="inInt_survey_g2_threshold", value=sender.survey_g2_threshold)
             print("Set survey_g2_threshold to: " + str(sender.survey_g2_threshold))
 
     def UpdateN_survey_g2_timeout(sender, app_data, user_data):
             sender.survey_g2_timeout = (int(user_data))
             time.sleep(0.001)
-            dpg.set_value(item="survey_g2_timeout", value=sender.survey_g2_timeout)
+            dpg.set_value(item="inInt_survey_g2_timeout", value=sender.survey_g2_timeout)
             print("Set survey_g2_timeout to: " + str(sender.survey_g2_timeout))
 
+    def toggel_stop_survey(sender, app_data, user_data):
+            sender.stop_survey = (bool(user_data))
+            time.sleep(0.001)
+            dpg.set_value(item="chkbox_stop_survey", value=sender.stop_survey)
+            print("Set stop_survey to: " + str(sender.stop_survey))
 
     def UpdateT_rf_pulse_time(sender, app_data, user_data):
         sender.rf_pulse_time = (int(user_data))
@@ -1170,6 +1179,9 @@ class GUI_OPX():
                 dpg.add_checkbox(label="Sum Counters", tag="chkbox_sum_counters", parent="chkbox_group",
                                  callback=self.toggle_sum_counters, indent=-1,
                                  default_value=self.sum_counters_flag)
+                dpg.add_checkbox(label="Stop Survey", tag="chkbox_stop_survey", parent="chkbox_group",
+                                 callback=self.toggel_stop_survey, indent=-1,
+                                 default_value=self.stop_survey)
 
                 dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
                 dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
@@ -8418,19 +8430,21 @@ class GUI_OPX():
                 print("Unable to retrieve current positions. Aborting survey.")
                 return
 
-            # Set survey parameters
-            g2_threshold = self.survey_g2_threshold
-            g2_counts = self.survey_g2_counts
+            def run_survey():
+                self.perform_survey(
+                    points=points,
+                    move_fn=move_fn,
+                    read_in_pos_fn=read_in_pos_fn,
+                    get_positions_fn=get_positions_fn,
+                    g2_counts=self.survey_g2_counts,
+                    g2_threshold=self.survey_g2_threshold,
+                    g2_timeout=self.survey_g2_timeout,
+                    move_only=False,
+                    search_peak_intensity_near_positions=True
+                )
 
-            # Start the survey with the provided parameters
-            self.perform_survey(
-                points=points,
-                move_fn=move_fn,
-                read_in_pos_fn=read_in_pos_fn,
-                get_positions_fn=get_positions_fn,
-                move_only = False,
-                search_peak_intensity_near_positions = True
-            )
+            self.survey_thread = threading.Thread(target=run_survey, daemon=True)
+            self.survey_thread.start()
         except Exception as e:
             print(f"An error occurred in btnStartG2Survey: {e}")
 
@@ -8484,6 +8498,10 @@ class GUI_OPX():
                 self.survey = True
                 total_points = len(points)
 
+                if self.HW.atto_scanner:
+                    self.HW.atto_scanner.MoveABSOLUTE(1, 25)
+                    self.HW.atto_scanner.MoveABSOLUTE(2, 25)
+
                 if total_points == 0:
                     print("No points provided for the survey. Exiting function.")
                     return
@@ -8492,33 +8510,45 @@ class GUI_OPX():
 
                 # Iterate over each survey point
                 for idx, point in enumerate(points, start=1):
+                    if self.survey_stop_flag:
+                        return
                     point_start_time = time.time()
                     print(f"\n--- Starting point {idx}/{total_points}: {point} ---")
 
+                    if self.HW.atto_scanner:
+                        self.HW.atto_scanner.MoveABSOLUTE(1, 25)
+                        self.HW.atto_scanner.MoveABSOLUTE(2, 25)
+
                     # Move to the specified point using the provided move function
                     try:
-                        move_fn(point)
                         for ax in range(len(point)):
+                            move_fn(ax, point[ax])
                             read_in_pos_fn(ax)  # Ensure in position
-                        current_positions = get_positions_fn()
+                        current_positions = [get_positions_fn(x) for x in range(len(point))]
                         print(f"Current positions after move: {current_positions}")
                         print(f"Moved to point {point} successfully.")
                     except Exception as move_error:
                         print(f"Error moving to point {point}: {move_error}. Skipping this point.")
                         continue
 
+
                     if search_peak_intensity_near_positions:
                         # Start the live counter and search for peak intensity
                         try:
                             print("Starting live counter.")
+                            self.Y_vec = []
                             self.btnStartCounterLive()
+                            time.sleep(1)
+                            self.wait_for_job()
                             print("Moving to peak intensity.")
                             self.MoveToPeakIntensity()
+                            time.sleep(1)
                         except Exception as intensity_error:
                             print(f"Error during live counter/peak intensity at point {point}: {intensity_error}.")
                             continue
-
-                        # Wait for the MAxSignal thread to finish
+                        if self.survey_stop_flag:
+                            return
+                            # Wait for the MAxSignal thread to finish
                         try:
                             if hasattr(self, 'MAxSignalTh') and self.MAxSignalTh is not None:
                                 print("Waiting for MAxSignal thread to complete...")
@@ -8534,6 +8564,7 @@ class GUI_OPX():
                         try:
                             print("Stopping live counter.")
                             self.btnStop()
+                            self.wait_for_job()
                         except Exception as stop_error:
                             print(f"Error stopping live counter at point {point}: {stop_error}.")
                             continue
@@ -8545,6 +8576,8 @@ class GUI_OPX():
                     try:
                         print("Starting g2 measurement.")
                         self.btnStartG2()
+                        g2_wait_start = time.time()
+                        self.wait_for_job()
                     except Exception as g2_start_error:
                         print(f"Error starting g2 measurement at point {point}: {g2_start_error}.")
                         continue
@@ -8552,16 +8585,18 @@ class GUI_OPX():
                     # Wait until self.Y_vec[0] equals the expected g2_counts (with a timeout safeguard)
                     try:
                         print(f"Waiting for g2 measurement to reach {g2_counts} counts...")
-                        g2_wait_start = time.time()
                         timeout = g2_timeout  # maximum wait time in seconds
                         while True:
-                            # Ensure self.Y_vec exists and has at least one element
-                            if hasattr(self, "Y_vec") and self.Y_vec and self.Y_vec[0] == g2_counts:
+                            if self.survey_stop_flag:
+                                return
+                                # Ensure self.Y_vec exists and has at least one element
+                            time.sleep(0.1)
+                            if hasattr(self, "Y_vec") and self.Y_vec is not None and len(self.Y_vec) > 0 and self.Y_vec[0] == g2_counts:
                                 break
                             if time.time() - g2_wait_start > timeout:
                                 print(f"Timeout reached while waiting for g2 counts at point {point}.")
                                 break
-                            time.sleep(0.1)
+
                         print("g2 measurement condition met or timeout occurred.")
                     except Exception as g2_wait_error:
                         print(f"Error during g2 measurement wait at point {point}: {g2_wait_error}.")
@@ -8571,22 +8606,29 @@ class GUI_OPX():
                     try:
                         print("Stopping g2 measurement.")
                         self.btnStop()
+                        if hasattr(self, 'fetchTh'):
+                            while self.fetchTh.is_alive():
+                                time.sleep(0.1)
                     except Exception as g2_stop_error:
                         print(f"Error stopping g2 measurement at point {point}: {g2_stop_error}.")
                         continue
 
                     # Evaluate g2 measurement results and decide whether to perform a scan
                     try:
-                        if hasattr(self, "Y_vec") and self.Y_vec and self.Y_vec[0] != 0:
+                        if hasattr(self, "Y_vec") and self.Y_vec is not None and self.Y_vec[0] != 0:
                             ratio = min(self.Y_vec) / self.Y_vec[0]
                             print(f"g2 ratio: {ratio:.3f} (Threshold: {g2_threshold})")
-                            if ratio > g2_threshold:
+                            if ratio < g2_threshold:
                                 print("g2 condition satisfied. Initiating scan.")
                                 self.btnStartScan()
+                                time.sleep(1)
+                                self.wait_for_job()
                                 if hasattr(self, 'ScanTh') and self.ScanTh is not None:
                                     print("Waiting for Scan thread to complete...")
-                                    self.ScanTh.join()
+                                    while self.ScanTh.is_alive():
+                                        time.sleep(0.1)
                                     print("Scan thread completed.")
+                                    time.sleep(1)
                                 else:
                                     print("Scan thread not found; proceeding without waiting.")
                             else:
@@ -8616,6 +8658,16 @@ class GUI_OPX():
             finally:
                 # Reset the survey flag when done
                 self.survey = False
+
+    def wait_for_job(self):
+        try:
+            while not self.job:
+                time.sleep(1)
+            if hasattr(self.job, "wait_for_execution"):
+                self.job.wait_for_execution()
+            time.sleep(1)
+        except Exception as e:
+            print(f'Error while waiting for job: {e}')
 
     def btnStartODMR_CW(self):
         self.exp = Experiment.ODMR_CW
@@ -8943,6 +8995,10 @@ class GUI_OPX():
 
     def btnStop(self):  # Stop Exp
         try:
+            if self.survey_thread is not None and self.survey_thread.is_alive() and self.stop_survey:
+                # Signal the survey thread to stop gracefully, e.g., by setting a stop flag
+                self.survey_stop_flag = True
+                self.survey_thread.join()
             # todo: creat methode that handle OPX close job and instances
             self.stopScan = True
             self.StopFetch = True
@@ -8997,7 +9053,6 @@ class GUI_OPX():
             # file name
             # timeStamp = self.getCurrentTimeStamp()  # get current time stamp
             self.timeStamp = self.getCurrentTimeStamp()
-
             if folder is None:
                 folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + (fr'Survey{self.HW.config.system_type}/' if self.survey else '') + self.exp.name + '/'
             else:
@@ -9198,11 +9253,11 @@ class GUI_OPX():
                 """
                 x = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[0])  # X axis
                 y = self.HW.atto_scanner.get_offset_voltage(self.HW.atto_scanner.channels[1])  # Y axis
-                z = self.HW.atto_positioner.wait_for_axes_to_stop()  # Z axis
+                # z = self.HW.atto_positioner.wait_for_axes_to_stop()  # Z axis
                 # z = self.HW.atto_positioner.get_control_output_voltage(2)  # Z axis
                 # print(f"control voltage: {z}, fixed_offset_voltage: {self.HW.atto_positioner.get_control_output_voltage(2)}")
-                return x, y, z
-            self.positioner
+                return x, y
+
             self.HW.atto_scanner.stop_updates()
             self.HW.atto_positioner.stop_updates()
 
@@ -9223,9 +9278,15 @@ class GUI_OPX():
             lower_bounds = [scanner_min, scanner_min, positioner_min]
             upper_bounds = [scanner_max, scanner_max, positioner_max]
 
-            x_vec, y_vec, z_vec = create_scan_vectors(self.initial_scan_Location,
+            if len(self.initial_scan_Location) == 3:
+                x_vec, y_vec, z_vec = create_scan_vectors(self.initial_scan_Location,
                                                       scan_lengths, scan_steps,
                                                       (lower_bounds, upper_bounds))
+            else:
+                x_vec, y_vec = create_scan_vectors(self.initial_scan_Location,
+                                                          scan_lengths, scan_steps,
+                                                          (lower_bounds, upper_bounds))
+                z_vec = None
             print(f"x_vec: {x_vec}")
             print(f"y_vec: {y_vec}")
             print(f"z_vec: {z_vec}")
@@ -10539,7 +10600,7 @@ class GUI_OPX():
 
         # Example scan radii for each axis
         # tracking_scan_radius = [2.5, 2.5, 10000]
-        tracking_scan_radius = [10, 10]
+        tracking_scan_radius = [5, 5]
 
         initial_guess = get_positions()
         bounds = self.calculate_tracking_bounds(initial_guess, tracking_scan_radius)
@@ -10553,7 +10614,7 @@ class GUI_OPX():
             get_signal_fn=lambda: self.counter_Signal[0] if self.exp == Experiment.COUNTER else self.tracking_ref,
             # Signal to maximize
             bounds=bounds,
-            method=OptimizerMethod.DIRECTIONAL,
+            method=OptimizerMethod.SEQUENTIAL,
             initial_guess=initial_guess,
             max_iter=30,
             use_coarse_scan=True
@@ -10562,9 +10623,10 @@ class GUI_OPX():
         # Reset the output state or finalize settings
         self.qm.set_io1_value(0)
 
-        print(
-            f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV, z={z_opt:.2f} mV with intensity={intensity:.4f}"
-        )
+        if z_opt:
+            print(f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV, z={z_opt:.2f} mV with intensity={intensity:.4f}")
+        else:
+            print(f"Optimal position found: x={x_opt:.2f} mV, y={y_opt:.2f} mV with intensity={intensity:.4f}")
 
     def calculate_tracking_bounds(self, initial_guess, scan_radius):
         # Check if initial_guess is XY (2 elements) or XYZ (3 elements)
@@ -10627,7 +10689,7 @@ class GUI_OPX():
             fetch_data_fn=self.GlobalFetchData,
             get_signal_fn=lambda: self.counter_Signal[0] if self.exp == Experiment.COUNTER else self.tracking_ref,
             bounds=bounds,
-            method=OptimizerMethod.DIRECTIONAL,
+            method=OptimizerMethod.SEQUENTIAL,
             initial_guess=initial_position,
             max_iter=30,
             use_coarse_scan=True
@@ -10647,7 +10709,7 @@ class GUI_OPX():
 
     def MoveToPeakIntensity(self):
         print('Start looking for peak intensity')
-        if self.bEnableSignalIntensityCorrection:
+        if self.bEnableSignalIntensityCorrection or self.survey:
             print(f"self.HW.atto_scanner is {self.HW.atto_scanner}")
             print(f"self.HW.atto_positioner is {self.HW.atto_positioner}")
             if self.HW.atto_scanner or self.HW.atto_positioner:

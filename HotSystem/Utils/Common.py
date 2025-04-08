@@ -764,5 +764,5 @@ def generate_survey_csv(first_position: Tuple[float, float], dx: float, dy: floa
 
 # Run tests
 if __name__ == "__main__":
-    survey_points = generate_survey_csv((2000, 2000), 2, 2, 20, 20)
+    survey_points = generate_survey_csv((2209.5, 2280.6), 5, -5, 5, 5)
 
