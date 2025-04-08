@@ -1832,9 +1832,12 @@ class GUI_OPX():
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]),
                               parent="plotImaga")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImaga", tag="plotImaga_Y")
-            dpg.add_image_series("textureXY_tag", bounds_min=[self.startLoc[0], self.startLoc[1]],
-                                 bounds_max=[self.endLoc[0], self.endLoc[1]],
-                                 label="Scan data", parent="plotImaga_Y")
+            dpg.add_image_series(texture_tag="textureXY_tag",
+                                 bounds_min=[float(self.startLoc[0]), float(self.startLoc[1])],
+                                 bounds_max=[float(self.endLoc[0]), float(self.endLoc[1])],
+                                 label="Scan data",
+                                 parent="plotImaga_Y")
+
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(arrXY),
                                    max_scale=np.max(arrXY),
                                    colormap=dpg.mvPlotColormap_Jet)
@@ -1857,9 +1860,11 @@ class GUI_OPX():
                                   label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),
                                   parent="plotImagb")
                 dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagb", tag="plotImagb_Y")
-                dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]],
-                                     bounds_max=[self.endLoc[0], self.endLoc[2]],
-                                     label="Scan data", parent="plotImagb_Y")
+                dpg.add_image_series(texture_tag="textureXY_tag",
+                                     bounds_min=[float(self.startLoc[0]), float(self.startLoc[1])],
+                                     bounds_max=[float(self.endLoc[0]), float(self.endLoc[1])],
+                                     label="Scan data",
+                                     parent="plotImaga_Y")
 
                 # YZ plot
                 dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1],
@@ -1869,9 +1874,11 @@ class GUI_OPX():
                                   label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),
                                   parent="plotImagc")
                 dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
-                dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]],
-                                     bounds_max=[self.endLoc[1], self.endLoc[2]],
-                                     label="Scan data", parent="plotImagc_Y")
+                dpg.add_image_series(texture_tag="textureXY_tag",
+                                     bounds_min=[float(self.startLoc[0]), float(self.startLoc[1])],
+                                     bounds_max=[float(self.endLoc[0]), float(self.endLoc[1])],
+                                     label="Scan data",
+                                     parent="plotImaga_Y")
 
             dpg.set_item_height("Scan_Window", item_height + 150)
 
@@ -1967,7 +1974,7 @@ class GUI_OPX():
                          equal_aspects=True, crosshairs=True)
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis [um]", parent="plotImaga")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
-            dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]],
+            dpg.add_image_series(texture_tag="texture_tag", bounds_min=[startLoc[0], startLoc[1]],
                                  bounds_max=[endLoc[0], endLoc[1]], label="Scan data",
                                  parent="plotImaga_Y")
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d),
@@ -10082,14 +10089,6 @@ class GUI_OPX():
             previousMeas_idx = meas_idx
             return not self.stopScan  # If we got here, presumably okay
 
-        def prepare_and_save_data(Nx, Ny, Nz):
-            self.prepare_scan_data()
-            self.save_scan_data(
-                Nx=Nx, Ny=Ny, Nz=Nz,
-                fileName=self.scanFN,
-                to_append=True
-            )
-
         # ----------------------------------------------------------------------
         # Main Scanning Loops
         # ----------------------------------------------------------------------
@@ -10140,19 +10139,19 @@ class GUI_OPX():
         Ny = self.scan_intensities.shape[1]  # Y-axis (number of lines in the data)
         Nz = 1  # Default Z-axis since no additional layers are specified
 
-        if UseDisplayDuring:
-            self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
-            self.V_scan[2] = [0]  # Keep Z dimension as a single layer
-            self.Y_vec = list(range(Ny))
-            self.Z_vec = list(range(Nz))
-            self.prepare_scan_data()
-        else:
-            self.X_vec = list(np.array(self.scan_frequencies_aggregated).flatten())
-            self.Y_vec = list(range(self.scan_iterations))
-            self.Z_vec = list(range(Nz))
-            self.V_scan[1] = list(range(self.scan_iterations))
-            self.scan_intensities = list(np.array(self.scan_counts_aggregated).flatten())
-            self.prepare_scan_data()
+        # if UseDisplayDuring:
+        #     self.V_scan[1] = list(range(Ny))  # Y dimension represents line indices
+        #     self.V_scan[2] = [0]  # Keep Z dimension as a single layer
+        #     self.Y_vec = list(range(Ny))
+        #     self.Z_vec = list(range(Nz))
+        #     # self.prepare_scan_data()
+        # else:
+        #     self.X_vec = list(np.array(self.scan_frequencies_aggregated).flatten())
+        #     self.Y_vec = list(range(self.scan_iterations))
+        #     self.Z_vec = list(range(Nz))
+        #     self.V_scan[1] = list(range(self.scan_iterations))
+        #     self.scan_intensities = list(np.array(self.scan_counts_aggregated).flatten())
+        #     # self.prepare_scan_data()
         # end part to delete if save doesnt work
         fn = self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.create_scan_file_name(local=False))
         self.writeParametersToXML(fn + ".xml")
@@ -10248,10 +10247,8 @@ class GUI_OPX():
         self.Yv = self.Yv[0:Nx * Ny:Nx]
         self.Zv = self.Zv[0:-1:Nx * Ny]
         # xy
-        self.startLoc = [int(np_array[1, 4].astype(float) / 1e6), int(np_array[1, 5].astype(float) / 1e6),
-                         int(np_array[1, 6].astype(float) / 1e6)]  # um
-        self.endLoc = [int(np_array[-1, 4].astype(float) / 1e6), int(np_array[-1, 5].astype(float) / 1e6),
-                       int(np_array[-1, 6].astype(float) / 1e6)]  # um
+        self.startLoc = [np_array[1, x] for x in [4,5,6]]
+        self.endLoc = [np_array[-1, x] for x in [4,5,6]]
 
         if bLoad:
             self.Plot_Loaded_Scan(use_fast_rgb=True)  ### HERE
