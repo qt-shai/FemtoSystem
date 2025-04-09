@@ -47,6 +47,7 @@ class AttoQuaConfig(QUAConfigBase):
                     7: {"shareable": False},  # trigger Resonant Laser
                 },
                 "analog_inputs": {
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # QM: why? because
                     2: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # QM: why? because
                 },
                 "digital_inputs": { # counter 1
@@ -167,13 +168,19 @@ class AttoQuaConfig(QUAConfigBase):
                     #     "buffer": 0,
                     # },
                 },
-                "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
-                "outputs": {"out1": ("con1", 2)},
+                # "digitalOutputs": {"out1": ("con1", 4)},  # 'digitalOutputs' here is actually 'digital input' of OPD
+                "outputs": {"out1": ("con1", 1)},
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
                     "long_readout": "long_readout_pulse",
                     "very_long_readout": "very_long_readout_pulse",
+                },
+                "outputPulseParameters": {
+                    "signalThreshold": self.signal_threshold,
+                    "signalPolarity": "below",
+                    "derivativeThreshold": 1023,
+                    "derivativePolarity": "below",
                 },
                 "time_of_flight": self.detection_delay_OPD,
                 "smearing": 0,
@@ -187,13 +194,19 @@ class AttoQuaConfig(QUAConfigBase):
                     #     "buffer": 0,
                     # },
                 },
-                "digitalOutputs": {"out1": ("con1", 5)},  # 'digitalOutputs' here is actually 'digital input' of OPD
+                # "digitalOutputs": {"out1": ("con1", 5)},  # 'digitalOutputs' here is actually 'digital input' of OPD
                 "outputs": {"out1": ("con1", 2)},
                 "operations": {
                     "readout": "readout_pulse",
                     "min_readout": "min_readout_pulse",
                     "long_readout": "long_readout_pulse",
                     "very_long_readout": "very_long_readout_pulse",
+                },
+                "outputPulseParameters": {
+                    "signalThreshold": self.signal_threshold,
+                    "signalPolarity": "below",
+                    "derivativeThreshold": 1023,
+                    "derivativePolarity": "below",
                 },
                 "time_of_flight": self.detection_delay_OPD,
                 "smearing": 0,
