@@ -23,8 +23,13 @@ class GUI_CLD1011LP():  # todo1: support several devices
         # Define the layout of the GUI
         Child_Width = 200
 
+        self.simulation = simulation
+        if simulation:
+            laser_info = "Simulating laser CLD10111LP"
+        else:
+            laser_info = self.laser.info
 
-        dpg.add_window(tag=self.window_tag, label=""+ self.laser.info, no_title_bar=False, height=440, width=1600, collapsed=True)
+        dpg.add_window(tag=self.window_tag, label=""+ laser_info, no_title_bar=False, height=440, width=1600, collapsed=True)
         
         # groups
         dpg.add_group(tag="cld1011lp Laser_sections", horizontal=True, parent=self.window_tag)

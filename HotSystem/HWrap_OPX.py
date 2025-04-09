@@ -1408,6 +1408,12 @@ class GUI_OPX():
                 window_data[win_name] = (win_pos, win_size, collapsed)
                 print(f"Position of {win_name}: {win_pos}, Size: {win_size}, Collapsed: {collapsed}")
 
+        # Also save the main viewport position and size
+        viewport_pos = dpg.get_viewport_pos()
+        viewport_size = dpg.get_viewport_width(), dpg.get_viewport_height()
+        window_data["main_viewport"] = (viewport_pos, viewport_size, False)
+        print(f"Viewport Position: {viewport_pos}, Size: {viewport_size}")
+
         try:
             # Read existing map_config.txt content, if available
             try:
@@ -1484,7 +1490,11 @@ class GUI_OPX():
                     print(f"{window_name} does not exist in the current context.")
 
             for window_name, size in window_sizes.items():
-                if dpg.does_item_exist(window_name):
+                if window_name == "main_viewport":
+                    dpg.set_viewport_width(size[0])
+                    dpg.set_viewport_height(size[1])
+                    print(f"Loaded main viewport size: {size}")
+                elif dpg.does_item_exist(window_name):
                     dpg.set_item_width(window_name, size[0])
                     dpg.set_item_height(window_name, size[1])
                     print(f"Loaded size for {window_name}: {size}")
@@ -9616,15 +9626,15 @@ class GUI_OPX():
                             current_hwp = self.kdc_101.get_current_position()
                     else:
                         attenuator_value = j*p_femto["femto_increment_att"]+p_femto["femto_attenuator"]
-                    if attenuator_value > 100:
-                        attenuator_value = 100
-                    print(f"!!!!! set attenuator to {attenuator_value} !!!!!")
-                    self.pharos.setBasicTargetAttenuatorPercentage(attenuator_value)
-                        # Wait until the attenuator reaches the set value
-                    get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
-                    while abs(get_attenuator_value - attenuator_value) > 0.1:
-                        time.sleep(0.1)
+                        if attenuator_value > 100:
+                            attenuator_value = 100
+                        print(f"!!!!! set attenuator to {attenuator_value} !!!!!")
+                        self.pharos.setBasicTargetAttenuatorPercentage(attenuator_value)
+                            # Wait until the attenuator reaches the set value
                         get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+                        while abs(get_attenuator_value - attenuator_value) > 0.1:
+                            time.sleep(0.1)
+                            get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
 
                 Line_time_start = time.time()
                 for k in range(self.N_scan[0]):

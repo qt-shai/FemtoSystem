@@ -4,6 +4,11 @@ import pdb
 import xml.etree.ElementTree as ET
 from typing import List, Optional, Dict
 # from numpy.array_api import trunc
+# import sys
+# # Add the project root (C:\WC\HotSystem) to sys.path
+# project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# if project_root not in sys.path:
+#     sys.path.append(project_root)
 
 from Utils import remove_overlap_from_string, get_square_matrix_size, scan_com_ports
 import dearpygui.dearpygui as dpg

@@ -32,6 +32,7 @@ class DualOutput:
 
         if dpg.does_item_exist("console_log"):  # Ensure the widget exists
             dpg.set_value("console_log", "".join(self.messages))
+            dpg.set_y_scroll("console_output", 99999)  # Auto-scroll to bottom
 
     def flush(self):
         """

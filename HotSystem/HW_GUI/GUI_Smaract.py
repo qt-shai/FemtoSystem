@@ -181,6 +181,9 @@ class GUI_smaract():
             "OPX Window", "Map_window", "Scan_Window", "LaserWin","CLD1011LP_Win",
             "experiments_window","graph_window", "console_window"
         ]
+        # Dynamically add all KDC101 windows by tag
+        kdc_windows = [item for item in dpg.get_all_items() if isinstance(item, str) and item.startswith("KDC101_Win_")]
+        window_names.extend(kdc_windows)
 
         # Dictionary to store window positions and dimensions
         window_positions = {}

@@ -753,7 +753,7 @@ class PyGuiOverlay(Layer):
                         self.smaract_thread.start()
 
                 elif instrument == Instruments.CLD1011LP:
-                    self.CLD1011LP_gui = gui_CLD1011LP.GUI_CLD1011LP()
+                    self.CLD1011LP_gui = gui_CLD1011LP.GUI_CLD1011LP(device.simulation)
                     self.create_bring_window_button(self.CLD1011LP_gui.window_tag, button_label="CLD1011LP",
                                                     tag="CLD1011LP_button", parent="focus_group")
                     self.active_instrument_list.append(self.CLD1011LP_gui.window_tag)
@@ -872,8 +872,8 @@ class PyGuiOverlay(Layer):
                     self.kdc_101_gui = GUI_KDC101(serial_number = device.serial_number, device = hw_devices.HW_devices().kdc_101)
                     dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
-                    self.create_bring_window_button(self.kdc_101_gui.window_tag, button_label="Cobolt",
-                                                    tag="Cobolt_button", parent="focus_group")
+                    self.create_bring_window_button(self.kdc_101_gui.window_tag, button_label="kdc_101",
+                                                    tag="kdc_101_button", parent="focus_group")
                     self.active_instrument_list.append(self.kdc_101_gui.window_tag)
 
                 elif instrument == Instruments.MFF_101:
