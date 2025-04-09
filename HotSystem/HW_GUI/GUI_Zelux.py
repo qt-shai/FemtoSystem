@@ -11,6 +11,7 @@ class ZeluxGUI():
         self.cam = self.HW.camera
         self.flipper = None
         self.flipper_serial_number = ""
+        self.show_center_cross = False
 
         self.AddNewWindow()
 
@@ -49,7 +50,14 @@ class ZeluxGUI():
         dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
         dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
         dpg.set_value("image_id", self.cam.lateset_image_buffer)
-        
+
+        # Draw cross if enabled
+        if self.show_center_cross:
+            center_x = _width / 2
+            center_y = (_width * self.cam.ratio) / 2
+            dpg.draw_line((center_x - 100, center_y), (center_x + 100, center_y), color=(0, 255, 0, 255), thickness=1, parent="image_drawlist")
+            dpg.draw_line((center_x, center_y - 100), (center_x, center_y + 100), color=(0, 255, 0, 255), thickness=1, parent="image_drawlist")
+
     def UpdateExposure(sender, app_data, user_data):
         # a = dpg.get_value(sender)
         sender.cam.SetExposureTime(int(user_data*1e3))
@@ -88,23 +96,35 @@ class ZeluxGUI():
             dpg.add_group(tag="groupZeluxControls", parent=self.window_tag,horizontal=True)
             dpg.add_button(label="Start Live", callback=self.StartLive,tag="btnStartLive", parent="groupZeluxControls")
             dpg.add_button(label="Save Image", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
+
+            flipper1_serial_number = "37008855"
+            flipper2_serial_number = "37008948"
+            self.flipper = FilterFlipperController(serial_number=flipper1_serial_number)
+            self.flipper.connect()
+            flipper1_position=self.flipper.get_position()
+            self.flipper.disconnect()
+            self.flipper = FilterFlipperController(serial_number=flipper2_serial_number)
+            self.flipper.connect()
+            flipper2_position=self.flipper.get_position()
+            self.flipper.disconnect()
+
             dpg.add_slider_int(label="Motor 1",
                                tag="on_off_slider", width=80,
-                               default_value=1, parent="groupZeluxControls",
+                               default_value=flipper1_position-1, parent="groupZeluxControls",
                                min_value=0, max_value=1,
                                callback=self.on_off_slider_callback, indent=-1,
-                               format="Up")
+                               format="Up" if flipper1_position==2 else "Down")
             dpg.add_slider_int(label="Motor 2",
                                tag="on_off_slider_2", width=80,
-                               default_value=1, parent="groupZeluxControls",
+                               default_value=flipper2_position-1, parent="groupZeluxControls",
                                min_value=0, max_value=1,
                                callback=self.on_off_slider_callback, indent=-1,
-                               format="Up")
+                               format="Up" if flipper2_position==2 else "Down")
 
             dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
             dpg.bind_item_theme(item = "btnSave", theme = "btnBlueTheme")
-            dpg.bind_item_theme("on_off_slider", "OnTheme")
-            dpg.bind_item_theme("on_off_slider_2", "OnTheme")
+            dpg.bind_item_theme("on_off_slider", "OnTheme" if flipper1_position==2 else "OffTheme")
+            dpg.bind_item_theme("on_off_slider_2", "OnTheme" if flipper2_position==2 else "OffTheme")
 
 
             minExp = min(self.cam.camera.exposure_time_range_us)/1e3
@@ -122,6 +142,8 @@ class ZeluxGUI():
                                                     default_value=self.cam.camera.convert_gain_to_decibels(self.cam.camera.gain),
                                                     min_value= minGain,
                                                     max_value= maxGain)
+
+            dpg.add_checkbox(label="+", tag="chkShowCross", parent="groupZeluxControls", callback=self.toggle_center_cross)
 
             # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
             # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
@@ -146,6 +168,10 @@ class ZeluxGUI():
             self.GUI_controls(isConnected = True)
             pass
 
+    def toggle_center_cross(self, sender, app_data, user_data=None):
+        self.show_center_cross = app_data  # True or False
+        self.UpdateImage()  # Re-draw with or without the cross
+
     def on_off_slider_callback(self,sender, app_data):
         # app_data is the new slider value (0 or 1)
         flipper_1_serial_number = "37008855"
@@ -156,14 +182,22 @@ class ZeluxGUI():
             self.flipper_serial_number = flipper_2_serial_number
         if app_data == 1:
             self.Move_flipper(self.flipper_serial_number)
-            dpg.configure_item(sender, format="Up")
+            flipper_position=self.flipper.get_position()
+            if flipper_position==2:
+                dpg.configure_item(sender, format="Up")
+            else:
+                dpg.configure_item(sender, format="Down")
             dpg.bind_item_theme(sender, "OnTheme")
-            print("Flipper in Position 1!")
         else:
             self.Move_flipper(self.flipper_serial_number)
-            dpg.configure_item(sender, format="Down")
+
+            flipper_position=self.flipper.get_position()
+            if flipper_position==2:
+                dpg.configure_item(sender, format="Up")
+            else:
+                dpg.configure_item(sender, format="Down")
             dpg.bind_item_theme(sender, "OffTheme")
-            print("Flipper in Position 2!")
+
 
     def Move_flipper(self, serial_number):
         try:

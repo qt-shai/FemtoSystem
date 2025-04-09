@@ -178,7 +178,7 @@ class MotorStage(Motor):
     def get_current_position(self, channel: int=0) -> float:
         print(
             f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Position is: {self.device.Position}°")
-        return self.device.Position
+        return float(str(self.device.Position))
 
     def get_params(self) -> tuple:
         vel_params = self.device.GetVelocityParams()

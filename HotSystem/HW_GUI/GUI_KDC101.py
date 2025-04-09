@@ -52,8 +52,12 @@ class GUI_KDC101(GUIMotor):
                                         min_value = 0,
                                         width=75,
                                         parent = self.controls_tag)
-            with dpg.group(horizontal=True, pos = [10,120]):
+            with dpg.group(horizontal=False, pos = [10,120]):
                 dpg.add_text("Current Position:", color=(0, 255, 0), indent=10)
+                dpg.add_text(default_value="---", tag=self.position_display_tag, indent=10)
+                dpg.add_button(label="Read Current Angle", callback=self.read_current_angle)
+
+
 
         # self._monitor_stop_event = threading.Event()
         # self._monitor_thread = threading.Thread(target=self._monitor_position, daemon=True)
@@ -81,6 +85,15 @@ class GUI_KDC101(GUIMotor):
     #         dpg.set_value(self.position_tag, f"{current_pos:.6f}")
     #     except Exception as e:
     #         dpg.set_value(self.position_tag, f"Error: {e}")
+    def read_current_angle(self):
+        try:
+            angle = float(str(self.dev.get_current_position()))
+            dpg.set_value(self.position_display_tag, f"{angle:.3f}°")
+            print(f"Current angle: {angle:.3f}°")
+        except Exception as e:
+            print(f"Error reading current angle: {e}")
+            dpg.set_value(self.position_display_tag, f"Error")
+
 
     def system_initialization(self):
         self.dev.connect()

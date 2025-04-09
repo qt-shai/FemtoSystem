@@ -149,7 +149,8 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
     elif instrument == Instruments.OPX:
         ip_list = [
             InstrumentsAddress.opx_hot_system_ip.value,
-            InstrumentsAddress.opx_femto_system_ip.value
+            InstrumentsAddress.opx_femto_system_ip.value,
+            InstrumentsAddress.opx_atto_system_ip.value
         ]
         devices = find_device_list_from_ip(instrument, ip_list)
 

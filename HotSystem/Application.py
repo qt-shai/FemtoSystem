@@ -872,9 +872,9 @@ class PyGuiOverlay(Layer):
                     self.kdc_101_gui = GUI_KDC101(serial_number = device.serial_number, device = hw_devices.HW_devices().kdc_101)
                     dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
-                    self.create_bring_window_button(self.coboltGUI.window_tag, button_label="Cobolt",
+                    self.create_bring_window_button(self.kdc_101_gui.window_tag, button_label="Cobolt",
                                                     tag="Cobolt_button", parent="focus_group")
-                    self.active_instrument_list.append(self.coboltGUI.window_tag)
+                    self.active_instrument_list.append(self.kdc_101_gui.window_tag)
 
                 elif instrument == Instruments.MFF_101:
                     # if self.mff_101_gui is None:
