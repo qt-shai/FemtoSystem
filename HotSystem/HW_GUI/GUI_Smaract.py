@@ -177,13 +177,18 @@ class GUI_smaract():
     def save_pos(self):
         # Define the list of windows to check and save positions for
         window_names = [
-            "pico_Win", "mcs_Win", "Zelux Window",
+            "pico_Win", "mcs_Win", "Zelux Window",'graph_window','Main_Window',
             "OPX Window", "Map_window", "Scan_Window", "LaserWin","CLD1011LP_Win",
             "experiments_window","graph_window", "console_window"
         ]
-        # Dynamically add all KDC101 windows by tag
-        kdc_windows = [item for item in dpg.get_all_items() if isinstance(item, str) and item.startswith("KDC101_Win_")]
-        window_names.extend(kdc_windows)
+
+        # Dynamically find and add all KDC windows
+        all_windows = dpg.get_all_items()
+        for item in all_windows:
+            if dpg.get_item_type(item) == "mvAppItemType::mvWindowAppItem":
+                tag = dpg.get_item_alias(item) or str(item)
+                if tag.startswith("KDC101_Win_"):
+                    window_names.append(tag)
 
         # Dictionary to store window positions and dimensions
         window_positions = {}

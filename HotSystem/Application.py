@@ -1093,7 +1093,7 @@ class PyGuiOverlay(Layer):
                     if dpg.does_item_exist("map_image"):
                         item_x, item_y = dpg.get_item_pos("map_image")
                     else:
-                        print("map_image does not exist")
+                        # print("map_image does not exist")
                         return
 
                     if duplicate_or_add_area:
@@ -1161,7 +1161,7 @@ class PyGuiOverlay(Layer):
                     if dpg.does_item_exist("map_image"):
                         item_x, item_y = dpg.get_item_pos("map_image")
                     else:
-                        print("map_image does not exist")
+                        # print("map_image does not exist")
                         return
 
                     if duplicate_or_add_area:
