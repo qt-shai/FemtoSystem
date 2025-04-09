@@ -38,15 +38,15 @@
                 <Simulation>False</Simulation>
                 <Misc>Cluster_2</Misc>
             </Device>
-            <Device>
-                <Instrument>CLD1011LP</Instrument>
-                <IPAddress>N/A</IPAddress>
-                <MACAddress>N/A</MACAddress>
-                <SerialNumber>N/A</SerialNumber>
-                <COMPort>N/A</COMPort>
-                <Simulation>False</Simulation>
-                <Misc>N/A</Misc>
-            </Device>
+<!--            <Device>-->
+<!--                <Instrument>CLD1011LP</Instrument>-->
+<!--                <IPAddress>N/A</IPAddress>-->
+<!--                <MACAddress>N/A</MACAddress>-->
+<!--                <SerialNumber>N/A</SerialNumber>-->
+<!--                <COMPort>N/A</COMPort>-->
+<!--                <Simulation>False</Simulation>-->
+<!--                <Misc>N/A</Misc>-->
+<!--            </Device>-->
             <Device>
                 <Instrument>KDC_101</Instrument>
                 <IPAddress>N/A</IPAddress>

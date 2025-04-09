@@ -166,6 +166,7 @@ class GUI_OPX():
         self.system_name = self.HW.config.system_type.value
         self.mwModule = self.HW.microwave
         self.positioner = self.HW.positioner
+        self.kdc_101 = self.HW.kdc_101
         self.awg = self.HW.keysight_awg_device
         self.pico = self.HW.picomotor
         self.laser = self.HW.cobolt
@@ -1362,7 +1363,8 @@ class GUI_OPX():
                                              callback=self.toggle_use_picomotor,
                                              default_value=self.use_picomotor)
                         dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=40,width=_width)
-                        dpg.add_input_int(label="Inc", tag="femto_increment",default_value=2,width=_width)
+                        dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
+                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0.1, width=_width)
 
                     _width = 200
                     with dpg.group(horizontal=False):
@@ -1837,11 +1839,8 @@ class GUI_OPX():
                                   label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),
                                   parent="plotImagb")
                 dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagb", tag="plotImagb_Y")
-                dpg.add_image_series(texture_tag="textureXY_tag",
-                                     bounds_min=[float(self.startLoc[0]), float(self.startLoc[1])],
-                                     bounds_max=[float(self.endLoc[0]), float(self.endLoc[1])],
-                                     label="Scan data",
-                                     parent="plotImaga_Y")
+                dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]], bounds_max=[self.endLoc[0], self.endLoc[2]],
+                                     label="Scan data", parent="plotImagb_Y")
 
                 # YZ plot
                 dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1],
@@ -1851,11 +1850,8 @@ class GUI_OPX():
                                   label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),
                                   parent="plotImagc")
                 dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
-                dpg.add_image_series(texture_tag="textureXY_tag",
-                                     bounds_min=[float(self.startLoc[0]), float(self.startLoc[1])],
-                                     bounds_max=[float(self.endLoc[0]), float(self.endLoc[1])],
-                                     label="Scan data",
-                                     parent="plotImaga_Y")
+                dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
+                                     label="Scan data", parent="plotImagc_Y")
 
             dpg.set_item_height("Scan_Window", item_height + 150)
 
@@ -1976,7 +1972,10 @@ class GUI_OPX():
     def UpdateGuiDuringScan(self, Array2D, use_fast_rgb: bool = False):
         val = Array2D.reshape(-1)
         idx = np.where(val != 0)[0]
-        minI = val[idx].min()
+        if len(idx) == 0:
+            minI = 0
+        else:
+            minI = val[idx].min()
 
         result_array_ = self.fast_rgb_convert(np.flipud(Array2D.T))
 
@@ -7665,14 +7664,15 @@ class GUI_OPX():
                     with for_(n, 0, n < num_bins_per_measurement, n + 1):
                         play("Turn_ON", "Laser", duration=laser_on_duration)
                         wait(delay//4,"Detector_OPD")
+                        wait(delay//4,"Detector2_OPD")
                         #todo: change to general measure function
-                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times,
-                                                                                          single_integration_time,
-                                                                                          counts))
-                    if self.sum_counters_flag:
-                        measure("min_readout", "Detector2_OPD", None, time_tagging.digital(times2, single_integration_time, counts2))
-                        assign(total_counts[i], total_counts[i] + counts + counts2)
-                    else:
+                        measure("min_readout", "Detector_OPD", None, time_tagging.analog(times, single_integration_time, counts))
+
+                        # with if_(self.sum_counters_flag == True):
+                        if self.sum_counters_flag:
+                            measure("min_readout", "Detector2_OPD", None, time_tagging.analog(times2, single_integration_time, counts2))
+                            assign(total_counts[i], total_counts[i] + counts2)
+
                         assign(total_counts[i], total_counts[i] + counts)
 
                     # wait(pulsesTriggerDelay)
@@ -9533,10 +9533,15 @@ class GUI_OPX():
 
         # List of item tags to retrieve values from
         p_femto = {}
-        item_tags = ["femto_attenuator", "femto_increment"]
+        item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp"]
         for tag in item_tags:
             p_femto[tag] = dpg.get_value(tag)
             print(f"{tag}: {p_femto[tag]}")
+        current_hwp_angle = self.kdc_101.get_current_position()
+        print(f"!!!!!!!!!! Current HWP position is {current_hwp_angle:.2f}")
+        # Store original attenuator value
+        original_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+        print(f"!!!!!!!!!! Original attenuator value is {original_attenuator_value:.2f}")
 
         # Loop over three axes and populate scan coordinates
         scan_coordinates = []
@@ -9565,7 +9570,7 @@ class GUI_OPX():
 
         self.scan_intensities = np.zeros((Nx, Ny, Nz))
         self.scan_data = self.scan_intensities
-        self.idx_scan = [0, 0, 0]
+        #self.idx_scan = [0, 0, 0]
 
         self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
         self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
@@ -9599,11 +9604,23 @@ class GUI_OPX():
                 V = []
 
                 if self.Shoot_Femto_Pulses:
-                    attenuator_value = j * p_femto["femto_increment"] + p_femto["femto_attenuator"]
+                    if p_femto["femto_increment_att"] == 0:
+                        new_hwp_angle = current_hwp_angle + p_femto["femto_increment_hwp"] * j
+                        print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
+                        self.kdc_101.MoveABSOLUTE(new_hwp_angle)
+                        time.sleep(0.2)
+                        # Wait until HWP reaches the new angle
+                        current_hwp = self.kdc_101.get_current_position()
+                        while abs(current_hwp - new_hwp_angle) > 0.01:
+                            time.sleep(0.2)
+                            current_hwp = self.kdc_101.get_current_position()
+                    else:
+                        attenuator_value = j*p_femto["femto_increment_att"]+p_femto["femto_attenuator"]
                     if attenuator_value > 100:
                         attenuator_value = 100
                     print(f"!!!!! set attenuator to {attenuator_value} !!!!!")
                     self.pharos.setBasicTargetAttenuatorPercentage(attenuator_value)
+                        # Wait until the attenuator reaches the set value
                     get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
                     while abs(get_attenuator_value - attenuator_value) > 0.1:
                         time.sleep(0.1)
@@ -9649,7 +9666,7 @@ class GUI_OPX():
                         res = self.qm.get_io2_value()
 
                 self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
-                self.scan_get_current_pos(True)
+                self.scan_get_current_pos()
 
                 # fetch X scanned results
                 if self.counts_handle.is_processing():
@@ -9690,9 +9707,30 @@ class GUI_OPX():
             self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
         self.scan_get_current_pos(True)
 
+
+        # Restore HWP or attenuator value after scan
+        if self.Shoot_Femto_Pulses:
+            if p_femto["femto_increment_att"] == 0:
+                print(f"Restoring HWP to {current_hwp_angle:.2f} deg")
+                self.kdc_101.MoveABSOLUTE(current_hwp_angle)
+                time.sleep(0.2)
+                # Wait until reached
+                current_hwp = float(str(self.kdc_101.get_current_position()))
+                while abs(current_hwp - current_hwp_angle) > 0.01:
+                    time.sleep(0.2)
+                    current_hwp = float(str(self.kdc_101.get_current_position()))
+            else:
+                print(f"Restoring attenuator to {original_attenuator_value:.2f}%")
+                self.pharos.setBasicTargetAttenuatorPercentage(original_attenuator_value)
+                get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+                while abs(get_attenuator_value - original_attenuator_value) > 0.1:
+                    time.sleep(0.1)
+                    get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+
         # save data to csv
         self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1], min_position_x_scan=self.V_scan[0][0],
                                start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
+        #self.prepare_scan_data()
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
 
@@ -10199,48 +10237,64 @@ class GUI_OPX():
 
         return self.scan_intensities
 
-    def prepare_scan_data(self):
-        """
-        Prepare scan data with actual positions (X_vec, Y_vec, Z_vec), intensities,
-        and expected positions derived from V_scan. If actual positions are None,
-        they default to expected positions.
-        """
-        # Create an object to be saved in Excel
+    def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
+        # Create object to be saved in excel
         self.scan_Out = []
+        # probably unit issue
+        x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
+        y_vec = np.linspace(start_pos[1], start_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
+        z_vec = np.linspace(start_pos[2], start_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
+        for i in range(np.size(self.scan_intensities, 2)):
+            for j in range(np.size(self.scan_intensities, 1)):
+                for k in range(np.size(self.scan_intensities, 0)):
+                    x = x_vec[k]
+                    y = y_vec[j]
+                    z = z_vec[i]
+                    I = self.scan_intensities[k, j, i]
+                    self.scan_Out.append([x, y, z, I, x, y, z])
 
-        # Get dimensions
-        Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
-
-        # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
-        intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, Nz)
-        Ny = intensities_data.shape[1]
-        # Loop over Z, Y, and X scan coordinates
-        for i in range(Nz):  # Z dimension
-            for j in range(Ny):  # Y dimension
-                for k in range(Nx):  # X dimension
-                    # Expected positions derived from V_scan
-                    x_expected = self.V_scan[0][k]
-                    y_expected = self.V_scan[1][j]
-                    z_expected = self.V_scan[2][i]
-
-                    # Actual positions
-                    x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
-                    y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
-                    z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
-
-                    # Intensity at the current position
-                    intensities = (
-                        intensities_data[k, j, i]
-                        if intensities_data is not None
-                           and k < intensities_data.shape[0]
-                           and j < intensities_data.shape[1]
-                           and i < intensities_data.shape[2]
-                        else 0
-                    )
-
-                    # Append data for this point
-                    self.scan_Out.append(
-                        [x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
+    # def prepare_scan_data(self):
+    #     """
+    #     Prepare scan data with actual positions (X_vec, Y_vec, Z_vec), intensities,
+    #     and expected positions derived from V_scan. If actual positions are None,
+    #     they default to expected positions.
+    #     """
+    #     # Create an object to be saved in Excel
+    #     self.scan_Out = []
+    #
+    #     # Get dimensions
+    #     Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
+    #
+    #     # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
+    #     intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, Nz)
+    #     Ny = intensities_data.shape[1]
+    #     # Loop over Z, Y, and X scan coordinates
+    #     for i in range(Nz):  # Z dimension
+    #         for j in range(Ny):  # Y dimension
+    #             for k in range(Nx):  # X dimension
+    #                 # Expected positions derived from V_scan
+    #                 x_expected = self.V_scan[0][k]
+    #                 y_expected = self.V_scan[1][j]
+    #                 z_expected = self.V_scan[2][i]
+    #
+    #                 # Actual positions
+    #                 x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
+    #                 y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
+    #                 z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
+    #
+    #                 # Intensity at the current position
+    #                 intensities = (
+    #                     intensities_data[k, j, i]
+    #                     if intensities_data is not None
+    #                        and k < intensities_data.shape[0]
+    #                        and j < intensities_data.shape[1]
+    #                        and i < intensities_data.shape[2]
+    #                     else 0
+    #                 )
+    #
+    #                 # Append data for this point
+    #                 self.scan_Out.append(
+    #                     [x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)

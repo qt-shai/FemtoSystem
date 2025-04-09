@@ -179,7 +179,7 @@ class GUI_smaract():
         window_names = [
             "pico_Win", "mcs_Win", "Zelux Window",
             "OPX Window", "Map_window", "Scan_Window", "LaserWin","CLD1011LP_Win",
-            "experiments_window","graph_window",
+            "experiments_window","graph_window", "console_window"
         ]
 
         # Dictionary to store window positions and dimensions
