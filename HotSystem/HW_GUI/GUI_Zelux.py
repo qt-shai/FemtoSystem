@@ -101,34 +101,39 @@ class ZeluxGUI():
             dpg.add_button(label="Start Live", callback=self.StartLive, tag="btnStartLive", parent="groupZeluxControls")
             dpg.add_button(label="Save Image", callback=self.cam.saveImage, tag="btnSave", parent="groupZeluxControls")
 
-            flipper1_serial_number = "37008855"
-            flipper2_serial_number = "37008948"
-            self.flipper = FilterFlipperController(serial_number=flipper1_serial_number)
-            self.flipper.connect()
-            flipper1_position = self.flipper.get_position()
-            self.flipper.disconnect()
-            self.flipper = FilterFlipperController(serial_number=flipper2_serial_number)
-            self.flipper.connect()
-            flipper2_position = self.flipper.get_position()
-            self.flipper.disconnect()
+            try:
+                flipper1_serial_number = "37008855"
+                flipper2_serial_number = "37008948"
+                self.flipper = FilterFlipperController(serial_number=flipper1_serial_number)
+                self.flipper.connect()
+                flipper1_position = self.flipper.get_position()
+                self.flipper.disconnect()
+                self.flipper = FilterFlipperController(serial_number=flipper2_serial_number)
+                self.flipper.connect()
+                flipper2_position = self.flipper.get_position()
+                self.flipper.disconnect()
 
-            dpg.add_slider_int(label="Motor 1",
-                               tag="on_off_slider", width=80,
-                               default_value=flipper1_position - 1, parent="groupZeluxControls",
-                               min_value=0, max_value=1,
-                               callback=self.on_off_slider_callback, indent=-1,
-                               format="Up" if flipper1_position == 2 else "Down")
-            dpg.add_slider_int(label="Motor 2",
-                               tag="on_off_slider_2", width=80,
-                               default_value=flipper2_position - 1, parent="groupZeluxControls",
-                               min_value=0, max_value=1,
-                               callback=self.on_off_slider_callback, indent=-1,
-                               format="Up" if flipper2_position == 2 else "Down")
+                dpg.add_slider_int(label="Motor 1",
+                                   tag="on_off_slider", width=80,
+                                   default_value=flipper1_position - 1, parent="groupZeluxControls",
+                                   min_value=0, max_value=1,
+                                   callback=self.on_off_slider_callback, indent=-1,
+                                   format="Up" if flipper1_position == 2 else "Down")
+                dpg.add_slider_int(label="Motor 2",
+                                   tag="on_off_slider_2", width=80,
+                                   default_value=flipper2_position - 1, parent="groupZeluxControls",
+                                   min_value=0, max_value=1,
+                                   callback=self.on_off_slider_callback, indent=-1,
+                                   format="Up" if flipper2_position == 2 else "Down")
+
+                dpg.bind_item_theme("on_off_slider", "OnTheme" if flipper1_position == 2 else "OffTheme")
+                dpg.bind_item_theme("on_off_slider_2", "OnTheme" if flipper2_position == 2 else "OffTheme")
+
+            except Exception as e:
+                print(e)
 
             dpg.bind_item_theme(item="btnStartLive", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnSave", theme="btnBlueTheme")
-            dpg.bind_item_theme("on_off_slider", "OnTheme" if flipper1_position == 2 else "OffTheme")
-            dpg.bind_item_theme("on_off_slider_2", "OnTheme" if flipper2_position == 2 else "OffTheme")
 
             minExp = min(self.cam.camera.exposure_time_range_us) / 1e3
             maxExp = max(self.cam.camera.exposure_time_range_us) / 1e3

@@ -17,6 +17,7 @@ from abc import ABC
 from typing import Tuple, Union, List, Optional, Generic, Any, Callable, TypeVar
 from matplotlib import pyplot as plt
 import os
+import dearpygui.dearpygui as dpg
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 
@@ -613,6 +614,27 @@ def create_counts_vector(vector_size: int) -> np.ndarray:
         i = np.random.choice(valid_indices)
         counts[i] = 1
     return counts
+
+def set_on_off_themes():
+    if not dpg.does_item_exist("OnTheme"):
+        with dpg.theme(tag="OnTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 180, 0))  # handle when pressed
+                # Optionally color the track:
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (50, 70, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (60, 80, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 90, 70))
+
+    # OFF Theme: keep the slider handle red in all states.
+    if not dpg.does_item_exist("OffTheme"):
+        with dpg.theme(tag="OffTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (180, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (70, 50, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))
 
 def reshape_and_pad_scan_counts(scan_counts: np.ndarray, Nx: int, Ny: int, Nz: int) -> np.ndarray:
     """
