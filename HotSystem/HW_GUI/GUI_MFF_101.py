@@ -34,7 +34,7 @@ class GUI_MFF(GUIMotor):
         if dpg.does_item_exist("groupZeluxControls"):
             toggle_to_state = self.get_opposite_state(self.toggle_state)
             motor_str = "Motor"
-            motor_label = motor_str + " " + self.toggle_label[-2:]
+            motor_label = motor_str + " " + self.serial_number[-2:]
             self.get_toggle_label(toggle_to_state)
             dpg.add_slider_int(label=motor_label,
                                tag=f"on_off_slider_{self.unique_id}", width=80,
@@ -43,6 +43,7 @@ class GUI_MFF(GUIMotor):
                                callback=self.on_off_slider_callback, indent=-1,
                                format=self.toggle_label)
             dpg.bind_item_theme(f"on_off_slider_{self.unique_id}", self.get_toggle_theme(self.toggle_label))
+            dpg.set_exit_callback(self.on_exit_callback)
         else:
             print("Could not find groupZeluxControls in Zelux GUI")
 
@@ -71,6 +72,10 @@ class GUI_MFF(GUIMotor):
             else:
                 dpg.configure_item(sender, format="Down")
             dpg.bind_item_theme(sender, "OffTheme")
+
+    def on_exit_callback(self):
+        print("Exiting GUI, disconnecting from motor.")
+        self.dev.disconnect()
 
 
 
@@ -146,6 +151,6 @@ class GUI_MFF(GUIMotor):
 #             self.change_label()
 #             self.change_theme()
 #             dpg.set_exit_callback(self.on_exit_callback)
-
+#
 
 
