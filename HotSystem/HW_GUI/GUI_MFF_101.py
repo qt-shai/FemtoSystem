@@ -24,17 +24,25 @@ class GUI_MFF(GUIMotor):
         toggle_state = 2 if self.toggle_state == 1 else 1
         return toggle_state
 
+    def get_toggle_label(self, toggle_state):
+        self.toggle_label = "Down" if toggle_state == 2 else "Up"
+
+    def get_toggle_theme(self,toggle_label):
+        return "OnTheme" if toggle_label == "Down" else "OffTheme"
+
     def create_gui_into_zelux(self):
         if dpg.does_item_exist("groupZeluxControls"):
             toggle_to_state = self.get_opposite_state(self.toggle_state)
             motor_str = "Motor"
             motor_label = motor_str + " " + self.toggle_label[-2:]
+            self.get_toggle_label(toggle_to_state)
             dpg.add_slider_int(label=motor_label,
                                tag=f"on_off_slider_{self.unique_id}", width=80,
                                default_value=self.toggle_state - 1, parent="groupZeluxControls",
                                min_value=0, max_value=1,
                                callback=self.on_off_slider_callback, indent=-1,
-                               format="Up" if toggle_to_state == 2 else "Down")
+                               format=self.toggle_label)
+            dpg.bind_item_theme(f"on_off_slider_{self.unique_id}", self.get_toggle_theme(self.toggle_label))
         else:
             print("Could not find groupZeluxControls in Zelux GUI")
 
@@ -138,6 +146,6 @@ class GUI_MFF(GUIMotor):
 #             self.change_label()
 #             self.change_theme()
 #             dpg.set_exit_callback(self.on_exit_callback)
-#
-#
+
+
 

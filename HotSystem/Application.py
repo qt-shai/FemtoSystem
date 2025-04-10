@@ -881,6 +881,7 @@ class PyGuiOverlay(Layer):
                     #     self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices(simulation=self.simulation).mff_101)
                     # else:
                     #     self.mff_101_gui.add_new_button(serial_number=device.serial_number)
+                    # self.mff_101_gui = GUI_MFF(serial_number=device.serial_number,device=hw_devices.HW_devices().mff_101)
                     pass
 
                 elif instrument == Instruments.ARDUINO:
