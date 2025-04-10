@@ -20,6 +20,7 @@ class ThorlabsCLD1011LP:
         self.minI = 0.0 # mA
         self.get_device_info()
         self.disable_modulation()
+        print('Successfully initialized Thorlabs CLD1011LP')
 
     def write_cmd(self,cmd):
         self.lock.acquire()

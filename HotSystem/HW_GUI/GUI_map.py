@@ -97,7 +97,9 @@ class Map:
                         dpg.set_item_width(child_window, child_width)  # Shrunk width
                         dpg.set_item_height(child_window, child_height)  # Shrunk height
                 # Update button label
-                dpg.set_item_label("toggle_shrink_button", ">>>")
+                if dpg.does_item_exist("toggle_shrink_button"):
+                    dpg.set_item_label("toggle_shrink_button", ">>>")
+
                 self.is_windows_shrunk = True
 
         except Exception as e:
@@ -303,7 +305,8 @@ class Map:
                             dpg.add_image("map_texture", width=self.width, height=self.height, tag="map_image")
                             dpg.add_draw_layer(tag="map_draw_layer", parent="Map_window")
         else:
-            print(f"{self.image_path} does not exist")
+            # print(f"{self.image_path} does not exist")
+            pass
 
         use_pico, exp_notes = self.load_map_parameters()  # load map parameters
         # self.update_from_xml()
@@ -1074,7 +1077,7 @@ class Map:
                                         dpg.render_dearpygui_frame()  # Render a frame to ensure the map image position is ready
                                         item_x, item_y = dpg.get_item_pos("map_image")
                                 else:
-                                    print("map_image does not exist")
+                                    # print("map_image does not exist")
                                     item_x = 0
                                     item_y = 0
 
@@ -1131,7 +1134,7 @@ class Map:
 
             return self.use_picomotor, exp_notes
         except FileNotFoundError:
-            print("map_config.txt not found.")
+            # print("map_config.txt not found.")
             return self.use_picomotor, exp_notes
         except Exception as e:
             print(f"Error loading map parameters: {e}")
@@ -1383,7 +1386,7 @@ class Map:
             if dpg.does_item_exist("map_image"):
                 self.map_item_x, self.map_item_y = dpg.get_item_pos("map_image")
             else:
-                print("map_image does not exist")
+                # print("map_image does not exist")
                 return 1
 
             if mouse_x < self.map_item_x or mouse_y < self.map_item_y:

@@ -231,6 +231,7 @@ class HW_devices:
                 else:
                     # Handle unknown instrument case
                     print(f"Unknown instrument: {instrument}")
+
             except Exception as e:
                 print(f"Failed to connect to instrument {instrument} with error: {e}")
 
