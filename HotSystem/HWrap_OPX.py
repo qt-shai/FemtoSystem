@@ -152,7 +152,7 @@ class GUI_OPX():
         self.iteration_list = []
         self.tracking_function: Callable = None
         self.fMW_1 = 0
-        self.limit = None
+        self.limit = False
         self.verbose:bool = False
         self.window_tag = "OPX Window"
         self.plt_max1 = None
@@ -1367,6 +1367,12 @@ class GUI_OPX():
                         dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0.1, width=_width)
 
                     _width = 200
+
+                    with dpg.group(horizontal=False):
+                        dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
+                                         default_value=self.limit)
+                        dpg.add_button(label="fill Z", callback=self.fill_z)
+
                     with dpg.group(horizontal=False):
                         dpg.add_input_float(label="Step (um)", default_value=0.2, width=_width, tag="step_um",
                                             format='%.4f')
@@ -1381,13 +1387,32 @@ class GUI_OPX():
                         dpg.add_input_float(label="Offset (nm)", default_value=1500.0, width=_width,
                                             tag="offset_from_focus_nm", format='%.1f')
 
+
                     self.btnGetLoggedPoints()  # get logged points
                     # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
-                    self.map.create_map_gui(win_size, win_pos)  # dpg.set_frame_callback(1, self.load_pos)
+                    self.map.create_map_gui(win_size, win_pos)
+                    dpg.set_frame_callback(1, self.load_pos)
         else:
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
+
+    def fill_z(self):
+        # Calculate Z value (if needed, otherwise set to 0)
+        x = dpg.get_value("mcs_ch0_ABS")
+        y = dpg.get_value("mcs_ch1_ABS")
+
+        point_on_plane = self.get_device_position(self.positioner)
+
+        Z0 = calculate_z_series(self.map.ZCalibrationData, np.array(point_on_plane[0]), point_on_plane[1])
+        Z1 = calculate_z_series(self.map.ZCalibrationData, np.array(x*1e6), int(y*1e6))
+        z = (point_on_plane[2] - Z0 + Z1)/1e6
+
+        dpg.set_value("mcs_ch2_ABS", z)
+
+        points = np.array(point_on_plane)/1e6
+        print(points)
+        print(z)
 
     def save_pos(self):
         # Define the list of windows to check and save positions for
@@ -1445,7 +1470,7 @@ class GUI_OPX():
         try:
             # Check if map_config.txt exists and read the contents
             if not os.path.exists("map_config.txt"):
-                print("map_config.txt not found.")
+                # print("map_config.txt not found.")
                 return
 
             # Dictionaries to store positions, sizes, and collapsed states
@@ -1560,6 +1585,12 @@ class GUI_OPX():
         dpg.set_value(item="checkbox_use_picomotor", value=self.use_picomotor)
         self.map.toggle_use_picomotor(app_data=app_data, user_data=user_data)
         print("Set use_picomotor to: " + str(self.use_picomotor))
+
+    def toggle_limit(self, app_data, user_data):
+        self.limit = user_data
+        time.sleep(0.001)
+        dpg.set_value(item="checkbox_limit", value=self.limit)
+        print("Limit is " + str(self.limit))
 
     def plot_graph(self):
         # Check if plt_x and plt_y are not None
@@ -1980,6 +2011,10 @@ class GUI_OPX():
             print(f"Error setting texture tag value: {e}")
 
     def UpdateGuiDuringScan(self, Array2D, use_fast_rgb: bool = False):
+        # If self.limit is true, cap the values in Array2D at 200
+        if self.limit:
+            Array2D = np.where(Array2D > 500, 500, Array2D)
+
         val = Array2D.reshape(-1)
         idx = np.where(val != 0)[0]
         if len(idx) == 0:
@@ -9613,6 +9648,7 @@ class GUI_OPX():
                 #self.dir = self.dir * -1  # change direction to create S shape scan
                 V = []
 
+                current_hwp = None
                 if self.Shoot_Femto_Pulses:
                     if p_femto["femto_increment_att"] == 0:
                         new_hwp_angle = current_hwp_angle + p_femto["femto_increment_hwp"] * j
@@ -9657,13 +9693,13 @@ class GUI_OPX():
                     self.scan_get_current_pos()
 
                     if self.Shoot_Femto_Pulses:
-                        print("Pulse!")
+                        print(f"Pulse! | Y = {self.V_scan[1][j]} | HWP = {current_hwp:.2f}°")
                         self.pharos.enablePp()
                         time.sleep(0.2)
                         current_state = self.pharos.getAdvancedIsPpEnabled()
                         while current_state:
                             time.sleep(0.2)
-                            print("Pp enable")
+                            # print("Pp enable?")
                             current_state = self.pharos.getAdvancedIsPpEnabled()
 
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
@@ -9672,7 +9708,7 @@ class GUI_OPX():
                     # time.sleep(2*self.total_integration_time * 1e-3 + 5e-3)  # wait for measurement do occur
                     if not self.stopScan:
                         res = self.qm.get_io2_value()
-                    while ((not self.stopScan) and (res.get('int_value') == self.ScanTrigger)):
+                    while (not self.stopScan) and (res.get('int_value') == self.ScanTrigger):
                         res = self.qm.get_io2_value()
 
                 self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
@@ -9680,14 +9716,12 @@ class GUI_OPX():
 
                 # fetch X scanned results
                 if self.counts_handle.is_processing():
-                    print('Waiting for QUA counts')
                     self.counts_handle.wait_for_values(1)
                     self.meas_idx_handle.wait_for_values(1)
                     time.sleep(0.1)
                     meas_idx = self.meas_idx_handle.fetch_all()
-                    print(f"meas_idx =  {meas_idx}")
                     counts = self.counts_handle.fetch_all()
-                    print(f"counts.size =  {counts.size}")
+                    print(f"meas_idx = {meas_idx} | counts.size = {counts.size}")
 
                     # self.qmm.clear_all_job_results()
                     self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
@@ -10435,7 +10469,7 @@ class GUI_OPX():
                                     else:
                                         self.pico.LoggedPoints.append(logged_point)
                 except FileNotFoundError:
-                    print("map_config.txt not found.")
+                    # print("map_config.txt not found.")
                     dpg.set_value("Scan_Message", "Error: map_config.txt not found.")
                     return
                 except Exception as e:
