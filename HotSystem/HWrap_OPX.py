@@ -1318,12 +1318,12 @@ class GUI_OPX():
                                                   default_value=self.L_scan[2], min_value=0, max_value=500000, step=1)
 
                             with dpg.group(horizontal=True):
-                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=200,
+                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=600,
                                                    callback=self.saveExperimentsNotes, default_value=self.expNotes)
 
-                                dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
-                                             tag="text_expectedScanTime",
-                                             indent=-1)
+                            dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
+                                         tag="text_expectedScanTime",
+                                         indent=-1)
 
                             with dpg.group(horizontal=True):
                                 dpg.add_text(label="Message: ", tag="Scan_Message")

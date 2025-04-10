@@ -634,7 +634,7 @@ class Map:
             if dpg.does_item_exist("map_image"):
                 item_x, item_y = dpg.get_item_pos("map_image")
             else:
-                print("map_image does not exist")
+                # print("map_image does not exist")
                 item_x = 0
                 item_y = 0
 

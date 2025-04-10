@@ -11,7 +11,7 @@ class DualOutput:
         self.append_callback =  self.append_to_console
         self.original_stream = original_stream
         self.messages = []  # Store the last 10 messages
-        self.MAX_MESSAGES = 15
+        self.MAX_MESSAGES = 50
 
     def write(self, message):
         """
