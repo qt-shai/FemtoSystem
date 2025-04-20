@@ -614,9 +614,15 @@ def find_max_signal(
         # Return based on the number of axes
         if len(bounds) == 3:
             x_best, y_best, z_best, max_signal = best_position
+            for ch in range(3):
+                move_abs_fn(ch, best_position[ch])
+                time.sleep(0.01)
             return x_best, y_best, z_best, max_signal
         else:
             x_best, y_best, max_signal = best_position
+            for ch in range(2):
+                move_abs_fn(ch, best_position[ch])
+                time.sleep(0.01)
             return x_best, y_best, None, max_signal
 
     if method == OptimizerMethod.DIRECTIONAL:

@@ -69,6 +69,12 @@ def create_logger(log_file_path: str):
     log_file = open(log_file_path, 'w')
     return subprocess.Popen(['npx', 'pino-pretty'], stdin=subprocess.PIPE, stdout=log_file)
 
+# TODO : move to utils or something
+class MeasurementType(Enum):
+    ANALOG = 'analog'
+    DIGITAL = 'digital'
+    HIGH_RES = 'high_res'
+
 class Experiment(Enum):
     SCRIPT = 0
     RABI = 1
@@ -113,6 +119,10 @@ class GUI_OPX():
     # init parameters
     def __init__(self, simulation: bool = False):
         # HW
+
+        # TODO: Move measure_type definition to be read from config
+        measure_type = MeasurementType.ANALOG
+        self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
         self.stop_survey: bool = False
         self.survey_stop_flag = False
         self.survey_g2_threshold: float = 0.4
@@ -636,7 +646,7 @@ class GUI_OPX():
             dpg.set_value(item="inInt_survey_g2_timeout", value=sender.survey_g2_timeout)
             print("Set survey_g2_timeout to: " + str(sender.survey_g2_timeout))
 
-    def toggel_stop_survey(sender, app_data, user_data):
+    def toggle_stop_survey(sender, app_data, user_data):
             sender.stop_survey = (bool(user_data))
             time.sleep(0.001)
             dpg.set_value(item="chkbox_stop_survey", value=sender.stop_survey)
@@ -2506,7 +2516,7 @@ class GUI_OPX():
                             assign(self.tracking_signal, 0)
                             with for_(self.idx, 0, self.idx < self.tTrackingIntegrationCycles, self.idx + 1):
                                 play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                                measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, self.time_in_multiples_cycle_time(self.Tcounter), self.tracking_signal_tmp))
+                                measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(self.times_ref, self.time_in_multiples_cycle_time(self.Tcounter), self.tracking_signal_tmp))
                                 assign(self.tracking_signal,self.tracking_signal+self.tracking_signal_tmp)
                             align()
 
@@ -2518,7 +2528,7 @@ class GUI_OPX():
                             # reference sequence
                             with for_(self.idx, 0, self.idx < self.tTrackingIntegrationCycles, self.idx + 1):
                                 play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
-                                measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, self.time_in_multiples_cycle_time(self.Tcounter), self.tracking_signal_tmp))
+                                measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(self.times_ref, self.time_in_multiples_cycle_time(self.Tcounter), self.tracking_signal_tmp))
                                 assign(self.tracking_signal,self.tracking_signal+self.tracking_signal_tmp)
                             assign(self.track_idx,0)
                         
@@ -2747,12 +2757,34 @@ class GUI_OPX():
         # if self.exp == Experiment.RandomBenchmark:
         #     self.Random_Benchmark_QUA_PGM(Generate_QUA_sequance = True)
 
-    def QUA_measure_with_sum_counters(self,detector1:str, detector2:Optional[str], time_vector:QuaVariableType, measure_time:int,
-                                      counts:QuaVariableType,total_counts:QuaVariableType,counts2:Optional[QuaVariableType]=None, measure_waveform:str = "min_readout", sum_counters:bool=False):
-        measure(measure_waveform,detector1 , None,time_tagging.digital(time_vector,measure_time, counts))
+    def QUA_measure_with_sum_counters(self, detector1: str, detector2: Optional[str], time_vector: QuaVariableType,
+                                      measure_time: int, counts: QuaVariableType, total_counts: QuaVariableType,
+                                      counts2: Optional[QuaVariableType] = None, measure_waveform: str = "min_readout",
+                                      sum_counters: bool = False):
+        """
+        Perform a QUA measurement and optionally sum counters, using either digital or analog tagging.
+
+        :param detector1: The primary detector name.
+        :param detector2: The secondary detector name for summed measurements.
+        :param time_vector: The QUA time vector.
+        :param measure_time: Duration of the measurement.
+        :param counts: The counter variable for the primary detector.
+        :param total_counts: The variable holding the accumulated count.
+        :param counts2: The counter variable for the secondary detector (if any).
+        :param measure_waveform: The measurement waveform identifier.
+        :param measure_type: The type of measurement (digital or analog).
+        :param sum_counters: Whether to perform and sum a secondary counter measurement.
+        :return: The updated total_counts variable.
+        """
+
+        # Measure with the primary detector
+        measure(measure_waveform, detector1, None, self.time_tagging_fn(time_vector, measure_time, counts))
+
+        # Measure with the secondary detector and add counts if requested
         if sum_counters:
-            measure(measure_waveform,detector2, None,time_tagging.digital(time_vector,measure_time, counts2))
+            measure(measure_waveform, detector2, None, self.time_tagging_fn(time_vector, measure_time, counts2))
             assign(total_counts, total_counts + counts2)
+
         assign(total_counts, total_counts + counts)
         return total_counts
 
@@ -3483,7 +3515,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # measure signal
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         assign(counts_tmp_squared, counts_tmp * counts_tmp)
                         assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp_squared)
@@ -3545,7 +3577,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # measure signal
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -3609,7 +3641,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # measure signal
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts_ref2[idx_vec_qua[idx]], counts_ref2[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -3618,7 +3650,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -3636,7 +3668,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -3779,7 +3811,7 @@ class GUI_OPX():
                             play("Turn_ON", "Laser", duration=self.scan_param)
                             assign(self.wait_param,self.scan_param-self.t_measure//4)
                             wait(self.wait_param,"Detector_OPD")
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, self.t_measure, counts_tmp))
+                            measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times, self.t_measure, counts_tmp))
                             assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                             assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_tmp)
                             wait(self.t_wait//4)
@@ -3803,7 +3835,7 @@ class GUI_OPX():
                             align("MW","Laser")
                             play("Turn_ON", "Laser", duration=self.tLaser // 4)
                             align("MW","Detector_OPD")
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, self.tLaser, counts_tmp))
+                            measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times, self.tLaser, counts_tmp))
                             align()
 
                             wait(self.MeasProcessTime//4)
@@ -3819,7 +3851,7 @@ class GUI_OPX():
                             # Take reference (without pi pulse)
                             wait(self.tMW // 4)
                             play("Turn_ON", "Laser", duration=self.tLaser // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, self.tLaser, counts_ref_tmp))
+                            measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times_ref, self.tLaser, counts_ref_tmp))
                             align()
 
                             wait(self.MeasProcessTime//4)
@@ -3837,7 +3869,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
@@ -3850,7 +3882,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
 
@@ -3971,7 +4003,7 @@ class GUI_OPX():
             # play Laser
             # align("MW", "Detector_OPD")
             # measure signal 
-            measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, self.tMeasure, self.counts_tmp))
+            measure("readout", "Detector_OPD", None, self.time_tagging_fn(self.times, self.tMeasure, self.counts_tmp))
             assign(self.counts[self.idx_vec_qua[self.idx]], self.counts[self.idx_vec_qua[self.idx]] + self.counts_tmp)
             align()
 
@@ -3983,7 +4015,7 @@ class GUI_OPX():
             # Play laser
             play("Turn_ON", "Laser", duration=(self.tLaser) // 4)
             # Measure ref
-            measure("readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, self.tMeasure, self.counts_ref_tmp))
+            measure("readout", "Detector_OPD", None, self.time_tagging_fn(self.times_ref, self.tMeasure, self.counts_ref_tmp))
             assign(self.counts_ref[self.idx_vec_qua[self.idx]], self.counts_ref[self.idx_vec_qua[self.idx]] + self.counts_ref_tmp)
         if execute_qua:
             self.Nuclear_Pol_ESR_QUA_PGM(generate_params=True)
@@ -4321,7 +4353,7 @@ class GUI_OPX():
         # Play laser
         play("Turn_ON", "Laser", duration=tLaser // 4)
         # Measure ref
-        measure("readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, tMeasure, self.counts_tmp))
+        measure("readout", "Detector_OPD", None, self.time_tagging_fn(self.times_ref, tMeasure, self.counts_tmp))
         assign(self.counts[idx], self.counts[idx] + self.counts_tmp)
 
     def QUA_ref0(self,idx,tPump,tLaser,tMeasure,tWait1,tWait2):
@@ -4334,7 +4366,7 @@ class GUI_OPX():
         # measure
         align()
         play("Turn_ON", "Laser", duration=tLaser // 4)
-        measure("readout", "Detector_OPD", None,time_tagging.digital(self.times_ref, tMeasure, self.counts_ref_tmp))
+        measure("readout", "Detector_OPD", None,self.time_tagging_fn(self.times_ref, tMeasure, self.counts_ref_tmp))
         assign(self.counts_ref[idx], self.counts_ref[idx] + self.counts_ref_tmp)
 
     def QUA_ref1(self,idx,tPump,tLaser,tMeasure,tWait1,tWait2,t_mw,f_mw1,f_mw2,p_mw):
@@ -4356,7 +4388,7 @@ class GUI_OPX():
         align()
         # measure
         play("Turn_ON", "Laser", duration=tLaser // 4)
-        measure("readout", "Detector_OPD", None,time_tagging.digital(self.times_ref, tMeasure, self.counts_ref2_tmp))
+        measure("readout", "Detector_OPD", None,self.time_tagging_fn(self.times_ref, tMeasure, self.counts_ref2_tmp))
         assign(self.counts_ref2[idx], self.counts_ref2[idx] + self.counts_ref2_tmp)
 
     def Entanglement_gate_tomography_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):
@@ -4767,9 +4799,8 @@ class GUI_OPX():
                 assign(iteration_number, iteration_number + 1)
 
                 play("Turn_ON", "Laser")
-                #ToDo :change to analog according to system
-                measure("readout", "Detector_OPD", None, time_tagging.digital(times_1, self.Tcounter, counts_1))
-                measure("readout", "Detector2_OPD", None, time_tagging.digital(times_2, self.Tcounter, counts_2))
+                measure("readout", "Detector_OPD", None, self.time_tagging_fn(times_1, self.Tcounter, counts_1))
+                measure("readout", "Detector2_OPD", None, self.time_tagging_fn(times_2, self.Tcounter, counts_2))
 
                 with if_((counts_1 > 0) & (counts_2 > 0)):
                     g2 = self.MZI_g2(g2, times_1, counts_1, times_2, counts_2, correlation_width)
@@ -4893,7 +4924,7 @@ class GUI_OPX():
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -4907,7 +4938,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                         align()
@@ -4917,7 +4948,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -4931,7 +4962,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -5108,7 +5139,7 @@ class GUI_OPX():
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -5144,7 +5175,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                         align()
@@ -5181,7 +5212,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref2_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref2_tmp))
                         assign(counts_ref2[idx_vec_qua[idx]], counts_ref2[idx_vec_qua[idx]] + counts_ref2_tmp)
 
                         align()
@@ -5191,7 +5222,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -5205,7 +5236,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -5337,7 +5368,7 @@ class GUI_OPX():
                         # play Laser
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # measure signal 
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
                         # play MW
@@ -5348,7 +5379,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # Measure ref
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
@@ -5356,7 +5387,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -5370,7 +5401,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -5528,7 +5559,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -5562,7 +5593,7 @@ class GUI_OPX():
                         # Measure ref
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
@@ -5570,7 +5601,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -5584,7 +5615,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -5747,7 +5778,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -5785,7 +5816,7 @@ class GUI_OPX():
                         # Measure ref
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
@@ -5793,7 +5824,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -5807,7 +5838,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -5979,7 +6010,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser  // 4)
                         # measure signal 
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -6017,7 +6048,7 @@ class GUI_OPX():
                         # Measure ref
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
@@ -6025,7 +6056,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -6039,7 +6070,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -6212,7 +6243,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=(tLaser) // 4)
                         # measure signal 
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -6227,7 +6258,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=(tLaser) // 4)
                         # Measure ref
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
@@ -6235,7 +6266,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -6249,7 +6280,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -6416,7 +6447,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # measure signal 
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -6450,7 +6481,7 @@ class GUI_OPX():
                         # Measure ref
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                     with else_():
@@ -6458,7 +6489,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -6472,7 +6503,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -6611,7 +6642,7 @@ class GUI_OPX():
                         # play Laser
                         align("MW", "Detector_OPD")
                         # measure signal 
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -6621,14 +6652,14 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=(tLaser + tMeasureProcess) // 4)
                         # Measure ref
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -6642,7 +6673,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -6770,7 +6801,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -6795,7 +6826,7 @@ class GUI_OPX():
                         # play measure after MW
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
@@ -6803,7 +6834,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -6817,7 +6848,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -6983,7 +7014,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
@@ -7011,7 +7042,7 @@ class GUI_OPX():
                         # play measure after MW
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
-                                time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
                     with else_():
@@ -7019,7 +7050,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -7033,7 +7064,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -7141,7 +7172,7 @@ class GUI_OPX():
                         align("MW", "Detector_OPD")
                         if self.sum_counters_flag:
                             align("MW", "Detector2_OPD")
-                        # measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        # measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         # assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         self.QUA_measure_with_sum_counters("Detector_OPD",
                                                            "Detector2_OPD",
@@ -7160,7 +7191,7 @@ class GUI_OPX():
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         # measure("readout", "Detector_OPD", None,
-                        #         time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        #         self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         # assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         self.QUA_measure_with_sum_counters("Detector_OPD",
                                                            "Detector2_OPD",
@@ -7176,7 +7207,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
@@ -7190,7 +7221,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter),
                                                          tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
@@ -7315,7 +7346,7 @@ class GUI_OPX():
                         align("MW", "Detector_OPD")
                         if self.sum_counters_flag:
                             align( "Detector2_OPD", "Detector_OPD")
-                        # measure("min_readout_pulse", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        # measure("min_readout_pulse", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         # assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
 
                         self.QUA_measure_with_sum_counters("Detector_OPD",
@@ -7341,7 +7372,7 @@ class GUI_OPX():
                         wait(12,"Detector_OPD")
                         if self.sum_counters_flag:
                             wait(12, "Detector_OPD")
-                        # measure("min_readout_pulse", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        # measure("min_readout_pulse", "Detector_OPD", None, self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         # assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
                         self.QUA_measure_with_sum_counters("Detector_OPD",
                                                            "Detector2_OPD",
@@ -7358,7 +7389,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
@@ -7371,7 +7402,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
 
@@ -7471,7 +7502,7 @@ class GUI_OPX():
                         play("cw", "MW", duration=tMW // 4)  # play microwave pulse
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         wait(tSettle // 4, "Detector_OPD")
-                        # measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+                        # measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
                         # assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         self.QUA_measure_with_sum_counters("Detector_OPD",
                                                            "Detector2_OPD",
@@ -7487,7 +7518,7 @@ class GUI_OPX():
                         # don't play MW
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         wait(tSettle // 4, "Detector_OPD")
-                        # measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, counts_ref_tmp))
+                        # measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
                         # assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
 
                         self.QUA_measure_with_sum_counters("Detector_OPD",
@@ -7503,7 +7534,7 @@ class GUI_OPX():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=tLaser // 4)
-                            measure("min_readout", "Detector_OPD", None, time_tagging.digital(times_ref, tMeasure, tracking_signal_tmp))
+                            measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times_ref, tMeasure, tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         align()
 
@@ -7516,7 +7547,7 @@ class GUI_OPX():
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
                             play("Turn_ON", "Laser", duration=self.time_in_multiples_cycle_time(self.Tcounter) // 4)
                             measure("min_readout", "Detector_OPD", None,
-                                    time_tagging.digital(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
+                                    self.time_tagging_fn(times_ref, self.time_in_multiples_cycle_time(self.Tcounter), tracking_signal_tmp))
                             assign(tracking_signal, tracking_signal + tracking_signal_tmp)
                         assign(track_idx, 0)
 
@@ -7558,7 +7589,7 @@ class GUI_OPX():
                 assign(total_counts_tracking, 0)
                 with for_(n, 0, n < n_count, n + 1):  # number of averages / total integation time
                     play("Turn_ON", "Laser", duration=tMeasure // 4)
-                    measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure), counts_tracking)
+                    measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure), counts_tracking)
                     assign(total_counts_tracking, total_counts_tracking + counts_tracking)
 
                 save(total_counts_tracking, counts_tracking_st)
@@ -7603,10 +7634,9 @@ class GUI_OPX():
                         play("Turn_ON", "Resonant_Laser", duration=int(self.Tcounter * self.u.ns // 4))  #
                     else:
                         play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
-                    #ToDo: change to general measure
-                    measure("min_readout", "Detector_OPD", None, time_tagging.analog(self.times, int(self.Tcounter * self.u.ns), self.counts))
-                    # measure("min_readout", "Detector2_OPD", None, time_tagging.digital(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
-                    measure("min_readout", "Detector2_OPD", None, time_tagging.analog(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(self.times, int(self.Tcounter * self.u.ns), self.counts))
+                    # measure("min_readout", "Detector2_OPD", None, self.time_tagging_fn(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
+                    measure("min_readout", "Detector2_OPD", None, self.time_tagging_fn(self.times_ref, int(self.Tcounter * self.u.ns), self.counts_ref))
 
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
                     if self.sum_counters_flag:
@@ -7654,11 +7684,11 @@ class GUI_OPX():
                 align()
                 with for_(self.n, 0, self.n < self.total_integration_time * self.u.ms, self.n + self.Tcounter):  # number of averages / total integation time
                     play("Turn_ON", self.laser_type, duration=int(self.Tcounter * self.u.ns // 4))  #
-                    measure("min_readout", "Detector_OPD", None, time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts))
+                    measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(self.times, int(self.Tcounter * self.u.ns), self.counts))
 
                     if self.sum_counters_flag:
                         measure("min_readout", "Detector2_OPD", None,
-                                time_tagging.digital(self.times, int(self.Tcounter * self.u.ns), self.counts_ref))
+                                self.time_tagging_fn(self.times, int(self.Tcounter * self.u.ns), self.counts_ref))
                         assign(self.total_counts, self.total_counts + self.counts_ref)  # assign is equal in qua language  # align()
                     assign(self.total_counts, self.total_counts + self.counts)  # assign is equal in qua language  # align()
                 save(self.total_counts, self.counts_st)
@@ -7711,11 +7741,11 @@ class GUI_OPX():
                         wait(delay//4,"Detector_OPD")
                         wait(delay//4,"Detector2_OPD")
                         #todo: change to general measure function
-                        measure("min_readout", "Detector_OPD", None, time_tagging.analog(times, single_integration_time, counts))
+                        measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times, single_integration_time, counts))
 
                         # with if_(self.sum_counters_flag == True):
                         if self.sum_counters_flag:
-                            measure("min_readout", "Detector2_OPD", None, time_tagging.analog(times2, single_integration_time, counts2))
+                            measure("min_readout", "Detector2_OPD", None, self.time_tagging_fn(times2, single_integration_time, counts2))
                             assign(total_counts[i], total_counts[i] + counts2)
 
                         assign(total_counts[i], total_counts[i] + counts)
@@ -7782,7 +7812,7 @@ class GUI_OPX():
                     # Tracking pulse
                     play("Turn_ON", configs.QUAConfigBase.Elements.LASER.value, duration=tracking_pulse_time)
                     with for_(n, 0, n < num_tracking_signal_loops, n + 1):
-                        measure("min_readout", "Detector_OPD", None, time_tagging.digital(times, tracking_measure_time, counts))
+                        measure("min_readout", "Detector_OPD", None, self.time_tagging_fn(times, tracking_measure_time, counts))
                         assign(total_counts, total_counts + counts)
                     save(total_counts, counts_ref_st)
                     align()
@@ -7799,7 +7829,7 @@ class GUI_OPX():
                             # we have 28ns delay between measure command and actual measure start due to tof delay
                             with for_(n, 0, n < n_count, n + 1):
                                 play("Turn_ON", configs.QUAConfigBase.Elements.RESONANT_LASER.value,duration=single_integration_time//4)
-                                measure("readout", "Detector_OPD", None,time_tagging.digital(times, single_integration_time, counts))
+                                measure("readout", "Detector_OPD", None,self.time_tagging_fn(times, single_integration_time, counts))
                                 assign(total_counts,total_counts + counts)
                         save(total_counts, counts_st)
                         assign(meas_idx, meas_idx + 1)
@@ -8059,7 +8089,7 @@ class GUI_OPX():
                 self.Common_updateGraph(_xLabel="times", _yLabel="counts")
             if self.exp == Experiment.G2:
                 dpg.set_item_label("graphXY",
-                                   f"{self.exp.name}, Iteration = {self.iteration}, Total Counts = {round(self.g2_totalCounts, 0)}, g2 = {np.min(self.Y_vec)/self.Y_vec[0]:.3f}")
+                                   f"{self.exp.name}, Iteration = {self.iteration}, Total Counts = {round(self.g2_totalCounts, 0)}, g2 = {self.calculate_g2(self.Y_vec):.3f}")
                 dpg.set_value("series_counts", [self.X_vec, self.Y_vec])
                 dpg.set_value("series_counts_ref", [[], []])
                 dpg.set_value("series_counts_ref2", [[], []])
@@ -8531,11 +8561,12 @@ class GUI_OPX():
             :param read_in_pos_fn: A callable that accepts an axis index (int) and ensures that axis is in position.
             :param get_positions_fn: A callable that returns the current positions after reading all axes.
             :param move_only: boolean that controls if the survey only moves to positions or performs the measurements as well.
-            :param search_peak_intensity_near_positions: boolean that contorls if peak search is required around each location
+            :param search_peak_intensity_near_positions: boolean that controls if peak search is required around each location
             """
             try:
                 # Set survey flag to indicate that the survey is running
                 self.survey = True
+                self.survey_stop_flag = False
                 total_points = len(points)
 
                 if self.HW.atto_scanner:
@@ -8591,8 +8622,10 @@ class GUI_OPX():
                         try:
                             if hasattr(self, 'MAxSignalTh') and self.MAxSignalTh is not None:
                                 print("Waiting for MAxSignal thread to complete...")
-                                self.MAxSignalTh.join()
+                                while self.MAxSignalTh.is_alive():
+                                    time.sleep(0.1)
                                 print("MAxSignal thread completed.")
+                                time.sleep(3)
                             else:
                                 print("MAxSignal thread not found; proceeding without waiting.")
                         except Exception as thread_error:
@@ -9056,9 +9089,9 @@ class GUI_OPX():
 
             if not self.exp == Experiment.SCAN:
                 if hasattr(self, 'fetchTh'):
-                    if (self.fetchTh.is_alive()):
-                        if not(self.pgm_end):
-                            self.fetchTh.join()
+                    while self.fetchTh.is_alive():
+                        # if not(self.pgm_end):
+                        time.sleep(0.1)
             else:
                 dpg.enable_item("btnOPX_StartScan")
 
@@ -11150,3 +11183,26 @@ class GUI_OPX():
         self.X_vec = self.X_vec if self.X_vec else 0
         self.Y_vec = self.Y_vec if self.Y_vec else 0
         self.Z_vec = self.Z_vec if self.Z_vec else 0
+
+    def calculate_g2(self,correlated_histogram: Union[List[float], np.ndarray]) -> float:
+        # Ensure that correlated_histogram has at least 40 elements
+        if len(correlated_histogram) < 40:
+            print("correlated_histogram should have at least 40 elements.")
+            return 1
+
+        # Compute the average of the first 10 points
+        avg_first_10 = np.mean(correlated_histogram[:10])
+
+        # Compute the center index (center of the array)
+        center_index = len(correlated_histogram) // 2
+
+        # Compute the indices for the 10 points around the center (+-5 from the center)
+        start_idx = max(center_index - 5, 0)
+        end_idx = min(center_index + 5 + 1, len(correlated_histogram))
+
+        # Compute the average of the 10 points around the center
+        avg_center_10 = np.mean(correlated_histogram[start_idx:end_idx])
+
+        # Return the ratio: average of the first 10 points divided by the average of the center points
+
+        return np.min([avg_first_10 / (avg_center_10 + np.finfo(float).eps ),1])
