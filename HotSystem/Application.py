@@ -415,7 +415,7 @@ class PyGuiOverlay(Layer):
         self.mwGUI = None
         self.system_type: Optional[SystemType] = None
         self.system_config: Optional[SystemConfig] = None
-        self.mff_101_gui: Optional[SystemConfig] = None
+        self.mff_101_gui: Optional[list[GUI_MFF]] = []
         # Initialize instruments based on the system configuration
 
         self.smaract_thread = None
@@ -878,10 +878,18 @@ class PyGuiOverlay(Layer):
 
                 elif instrument == Instruments.MFF_101:
                     # if self.mff_101_gui is None:
-                    #     self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices(simulation=self.simulation).mff_101)
+                    #     self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices().mff_101_list)
                     # else:
                     #     self.mff_101_gui.add_new_button(serial_number=device.serial_number)
-                    # self.mff_101_gui = GUI_MFF(serial_number=device.serial_number,device=hw_devices.HW_devices().mff_101)
+                    # self.mff_101_gui = GUI_MFF(serial_number=device.serial_number,device=hw_devices.HW_devices().mff_101_list)
+                    flipper_list = hw_devices.HW_devices().mff_101_list
+                    matching_device = next(
+                        (flipper for flipper in flipper_list if str(flipper.serial_no) == device.serial_number),
+                        None  # Default if no match is found
+                    )
+                    self.mff_101_gui.append(GUI_MFF(serial_number=matching_device.serial_no, device = matching_device))
+                    # last_gui = self.mff_101_gui[-1]
+                    # last_gui.create_gui_into_zelux()
                     pass
 
                 elif instrument == Instruments.ARDUINO:

@@ -88,6 +88,7 @@ class FilterFlipperController:
         try:
             # self.connect()
             self.get_device_info()
+            print(f"Device serial Number: {self.serial_no}")
 
             # Retrieve the current position.
             current_position = self.device.Position  # Assumes device.Position returns an integer or comparable value.

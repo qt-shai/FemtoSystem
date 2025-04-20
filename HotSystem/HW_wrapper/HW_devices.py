@@ -46,7 +46,7 @@ class HW_devices:
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
             self.arduino: Optional[ArduinoController] = None
             self.kdc_101: Optional[MotorStage] = None
-            self.mff_101: Optional[MotorStage] = None
+            self.mff_101_list: Optional[list[FilterFlipperController]] = []
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
             self.ni_daq_controller: Optional[NI_DAQ_Controller]= None
             self._initialize()
@@ -214,8 +214,9 @@ class HW_devices:
                     pass
 
                 elif instrument == Instruments.MFF_101:
-                    # self.mff_101 = FilterFlipperController(device.serial_number)
-                    # self.mff_101.connect()
+                    current_flipper = FilterFlipperController(device.serial_number)
+                    current_flipper.connect()
+                    self.mff_101_list.append(current_flipper)
                     pass
 
                 elif instrument == Instruments.ARDUINO:

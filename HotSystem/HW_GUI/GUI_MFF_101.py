@@ -28,7 +28,7 @@ class GUI_MFF(GUIMotor):
         self.toggle_label = "Down" if toggle_state == 2 else "Up"
 
     def get_toggle_theme(self,toggle_label):
-        return "OnTheme" if toggle_label == "Down" else "OffTheme"
+        return "OnTheme" if self.toggle_state == 2 else "OffTheme"
 
     def create_gui_into_zelux(self):
         if dpg.does_item_exist("groupZeluxControls"):
@@ -136,11 +136,15 @@ class GUI_MFF(GUIMotor):
 #                 dpg.add_theme_color(dpg.mvThemeCol_Button, (250, 100, 100), category=dpg.mvThemeCat_Core)
 #
 #     def add_new_button(self, serial_number):
-#         self.serial_number = serial_number
-#         self.unique_id = self._get_unique_id_from_device()
-#         dpg.add_text(f"Flipper_{self.unique_id}", parent = self.window_tag)
-#         dpg.add_button(label=f"Toggle ({self.toggle_label})", tag=self.button_tag, width=100, height=50,
-#                        callback=self.toggle_callback, parent = self.window_tag)
+#         try:
+#             self.serial_number = serial_number
+#             self.unique_id = self._get_unique_id_from_device()
+#             button_tag = f"button_{self.unique_id}"
+#             dpg.add_text(f"Flipper_{self.unique_id}", parent = self.window_tag)
+#             dpg.add_button(label=f"Toggle ({self.toggle_label})", tag=button_tag, width=100, height=50,
+#                            callback=self.toggle_callback, parent = self.window_tag)
+#         except Exception as e:
+#             print(e)
 #
 #     def create_gui(self):
 #         self.toggle_state = self.get_opposite_state(self.toggle_state)
@@ -152,5 +156,5 @@ class GUI_MFF(GUIMotor):
 #             self.change_theme()
 #             dpg.set_exit_callback(self.on_exit_callback)
 #
-
-
+#
+#
