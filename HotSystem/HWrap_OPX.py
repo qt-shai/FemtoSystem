@@ -9633,6 +9633,9 @@ class GUI_OPX():
         # init measurements index
         previousMeas_idx = 0  # used as workaround to reapet line if an error occur in number of measurements
         meas_idx = 0
+        self.all_hwp_angles = []
+        self.all_att_percent = []
+        self.all_y_scan = []
 
         for i in range(self.N_scan[2]):  # Z
             if self.stopScan:
@@ -9660,6 +9663,8 @@ class GUI_OPX():
                         while abs(current_hwp - new_hwp_angle) > 0.01:
                             time.sleep(0.2)
                             current_hwp = self.kdc_101.get_current_position()
+                        self.all_y_scan.append(self.V_scan[1][j])
+                        self.all_hwp_angles.append(current_hwp)
                     else:
                         attenuator_value = j*p_femto["femto_increment_att"]+p_femto["femto_attenuator"]
                         if attenuator_value > 100:
@@ -9671,6 +9676,8 @@ class GUI_OPX():
                         while abs(get_attenuator_value - attenuator_value) > 0.1:
                             time.sleep(0.1)
                             get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+                        self.all_y_scan.append(self.V_scan[1][j])
+                        self.all_att_percent.append(attenuator_value)
 
                 Line_time_start = time.time()
                 for k in range(self.N_scan[0]):
@@ -9693,7 +9700,7 @@ class GUI_OPX():
                     self.scan_get_current_pos()
 
                     if self.Shoot_Femto_Pulses:
-                        print(f"Pulse! | Y = {self.V_scan[1][j]} | HWP = {current_hwp:.2f}°")
+                        print(f"Pulse! x={self.V_scan[0][k]} | Y = {self.V_scan[1][j]} | HWP = {current_hwp:.2f}°")
                         self.pharos.enablePp()
                         time.sleep(0.2)
                         current_state = self.pharos.getAdvancedIsPpEnabled()
@@ -9755,6 +9762,7 @@ class GUI_OPX():
         # Restore HWP or attenuator value after scan
         if self.Shoot_Femto_Pulses:
             if p_femto["femto_increment_att"] == 0:
+                name_addition = "hwp"
                 print(f"Restoring HWP to {current_hwp_angle:.2f} deg")
                 self.kdc_101.MoveABSOLUTE(current_hwp_angle)
                 time.sleep(0.2)
@@ -9764,12 +9772,17 @@ class GUI_OPX():
                     time.sleep(0.2)
                     current_hwp = float(str(self.kdc_101.get_current_position()))
             else:
+                name_addition = "att"
                 print(f"Restoring attenuator to {original_attenuator_value:.2f}%")
                 self.pharos.setBasicTargetAttenuatorPercentage(original_attenuator_value)
                 get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
                 while abs(get_attenuator_value - original_attenuator_value) > 0.1:
                     time.sleep(0.1)
                     get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+            file_name = self.create_scan_file_name()
+            fileName = file_name + "_" + name_addition
+            RawData_to_save = {'y_data': self.all_y_scan, name_addition: self.all_hwp_angles}
+            self.save_to_cvs(fileName + ".csv", RawData_to_save)
 
         # save data to csv
         self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1], min_position_x_scan=self.V_scan[0][0],

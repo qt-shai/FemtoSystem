@@ -33,7 +33,7 @@ class GUI_MFF(GUIMotor):
     def create_gui_into_zelux(self):
         if dpg.does_item_exist("groupZeluxControls"):
             toggle_to_state = self.get_opposite_state(self.toggle_state)
-            motor_str = "Motor"
+            motor_str = "M"
             motor_label = motor_str + " " + self.serial_number[-2:]
             self.get_toggle_label(toggle_to_state)
             dpg.add_slider_int(label=motor_label,
