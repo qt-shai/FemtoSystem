@@ -1282,7 +1282,7 @@ class GUI_OPX():
             self.use_picomotor = self.map.use_picomotor
             self.expNotes = self.map.exp_notes
 
-            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=-1, width=1200,
+            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1300, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
                     # Left side: Scan settings and controls
@@ -2021,9 +2021,9 @@ class GUI_OPX():
             print(f"Error setting texture tag value: {e}")
 
     def UpdateGuiDuringScan(self, Array2D, use_fast_rgb: bool = False):
-        # If self.limit is true, cap the values in Array2D at 200
+        # If self.limit is true, cap the values in Array2D at dz (nm) value
         if self.limit:
-            Array2D = np.where(Array2D > 500, 500, Array2D)
+            Array2D = np.where(Array2D > self.dL_scan[2], self.dL_scan[2], Array2D)
 
         val = Array2D.reshape(-1)
         idx = np.where(val != 0)[0]

@@ -13,8 +13,24 @@ class ZeluxGUI():
         self.flipper = None
         self.flipper_serial_number = ""
         self.show_center_cross = False
+        self.background_image = None
+        self.subtract_background = False
+        self.HW = hw_devices.HW_devices()
+        self.positioner = self.HW.positioner
+        try:
+            self.background_image = np.load("zelux_background.npy")
+            print("Background image loaded.")
+        except FileNotFoundError:
+            self.background_image = None
+            print("No background image found.")
 
         self.AddNewWindow()
+
+    def CaptureBackground(self):
+        self.background_image = np.copy(self.cam.lateset_image_buffer)
+        print("Background image captured.")
+        np.save("zelux_background.npy", self.background_image)
+        print("Background image saved.")
 
     def StartLive(self):
         global stopBtn
@@ -52,7 +68,38 @@ class ZeluxGUI():
         dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width * self.cam.ratio, parent=self.window_tag)
         dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width * self.cam.ratio), uv_min=(0, 0),
                        uv_max=(1, 1), parent="image_drawlist")
-        dpg.set_value("image_id", self.cam.lateset_image_buffer)
+
+        # dpg.set_value("image_id", self.cam.lateset_image_buffer)
+        height = self.cam.camera.image_height_pixels
+        width = self.cam.camera.image_width_pixels
+
+        if self.subtract_background and self.background_image is not None:
+            # Reshape to (H, W, 4)
+            img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
+            bg_rgba = self.background_image.reshape((height, width, 4))
+
+            # Convert both to grayscale using RGB channels only
+            gray = np.mean(img_rgba[:, :, :3], axis=2)
+            bg_gray = np.mean(bg_rgba[:, :, :3], axis=2)
+
+            offset = 0.25  # try values from 0.02 to 0.1 depending on noise level
+            subtracted = gray - bg_gray + offset
+            subtracted = np.clip(subtracted, 0, None)
+
+            gamma = 0.98
+            norm = np.clip(subtracted / (subtracted.max() + 1e-6), 0, 1)  # avoid div by 0
+            bright = np.power(norm, gamma)
+
+            # Convert grayscale back to RGBA
+            rgba_img = np.stack([bright] * 3 + [np.ones_like(bright)], axis=-1)  # add alpha = 1
+            img = rgba_img.astype(np.float32).reshape(-1)
+
+        else:
+            # Just use the raw RGBA buffer as-is
+            img = self.cam.lateset_image_buffer.astype(np.float32)
+
+        dpg.set_value("image_id", img)
+        # print(f"Live image range after subtraction: min={img.min():.3f}, max={img.max():.3f}")
 
         # Draw cross if enabled
         if self.show_center_cross:
@@ -62,6 +109,21 @@ class ZeluxGUI():
                           parent="image_drawlist")
             dpg.draw_line((center_x, center_y - 100), (center_x, center_y + 100), color=(0, 255, 0, 255), thickness=1,
                           parent="image_drawlist")
+
+            # Get current absolute position (stage coordinates)
+            try:
+                self.positioner.GetPosition()  # updates AxesPositions
+                abs_x = self.positioner.AxesPositions[0]*1e-6
+                abs_y = self.positioner.AxesPositions[1]*1e-6
+                abs_z = self.positioner.AxesPositions[2]*1e-6
+                coord_text = f"X = {abs_x:.1f}, Y = {abs_y:.1f}, Z = {abs_z:.1f}"
+            except Exception as e:
+                coord_text = "Stage position not available"
+
+            # Draw coordinate text at bottom-left
+            dpg.draw_text((10, _width * self.cam.ratio - 20), coord_text,
+                          size=16, color=(0, 255, 0, 255), parent="image_drawlist")
+
 
     def UpdateExposure(sender, app_data, user_data):
         # a = dpg.get_value(sender)
@@ -101,37 +163,6 @@ class ZeluxGUI():
             dpg.add_button(label="Start Live", callback=self.StartLive, tag="btnStartLive", parent="groupZeluxControls")
             dpg.add_button(label="Save Image", callback=self.cam.saveImage, tag="btnSave", parent="groupZeluxControls")
 
-            # try:
-            #     flipper1_serial_number = "37008855"
-            #     flipper2_serial_number = "37008948"
-            #     self.flipper = FilterFlipperController(serial_number=flipper1_serial_number)
-            #     self.flipper.connect()
-            #     flipper1_position = self.flipper.get_position()
-            #     self.flipper.disconnect()
-            #     self.flipper = FilterFlipperController(serial_number=flipper2_serial_number)
-            #     self.flipper.connect()
-            #     flipper2_position = self.flipper.get_position()
-            #     self.flipper.disconnect()
-            #
-            #     dpg.add_slider_int(label="Motor 1",
-            #                        tag="on_off_slider", width=80,
-            #                        default_value=flipper1_position - 1, parent="groupZeluxControls",
-            #                        min_value=0, max_value=1,
-            #                        callback=self.on_off_slider_callback, indent=-1,
-            #                        format="Up" if flipper1_position == 2 else "Down")
-            #     dpg.add_slider_int(label="Motor 2",
-            #                        tag="on_off_slider_2", width=80,
-            #                        default_value=flipper2_position - 1, parent="groupZeluxControls",
-            #                        min_value=0, max_value=1,
-            #                        callback=self.on_off_slider_callback, indent=-1,
-            #                        format="Up" if flipper2_position == 2 else "Down")
-            #
-            #     dpg.bind_item_theme("on_off_slider", "OnTheme" if flipper1_position == 2 else "OffTheme")
-            #     dpg.bind_item_theme("on_off_slider_2", "OnTheme" if flipper2_position == 2 else "OffTheme")
-            #
-            # except Exception as e:
-            #     print(e)
-
             dpg.bind_item_theme(item="btnStartLive", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnSave", theme="btnBlueTheme")
 
@@ -155,6 +186,12 @@ class ZeluxGUI():
             dpg.add_checkbox(label="+", tag="chkShowCross", parent="groupZeluxControls",
                              callback=self.toggle_center_cross)
 
+            dpg.add_button(label="Capture BG", callback=lambda: self.CaptureBackground(), parent="groupZeluxControls")
+            dpg.add_checkbox(label="Subtract BG", tag="chkSubtractBG", parent="groupZeluxControls",
+                             callback=lambda s, a, u: setattr(self, 'subtract_background', a))
+            dpg.add_button(label="SvIm", tag="btnSaveProcessedImage",
+                           callback=self.SaveProcessedImage, parent="groupZeluxControls")
+
             # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
             # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
 
@@ -177,6 +214,70 @@ class ZeluxGUI():
 
             self.GUI_controls(isConnected=True)
             pass
+
+    def SaveProcessedImage(self):
+        import os
+        import cv2
+        import numpy as np
+
+        height = self.cam.camera.image_height_pixels
+        width = self.cam.camera.image_width_pixels
+
+        # Prepare RGB image (with or without background subtraction)
+        if self.subtract_background and self.background_image is not None:
+            img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
+            bg_rgba = self.background_image.reshape((height, width, 4))
+
+            gray = np.mean(img_rgba[:, :, :3], axis=2)
+            bg_gray = np.mean(bg_rgba[:, :, :3], axis=2)
+
+            offset = 0.25
+            subtracted = gray - bg_gray + offset
+            subtracted = np.clip(subtracted, 0, None)
+
+            gamma = 0.98
+            norm = np.clip(subtracted / (subtracted.max() + 1e-6), 0, 1)
+            bright = np.power(norm, gamma)
+
+            img_rgb = (np.stack([bright] * 3, axis=-1) * 255).astype(np.uint8)
+        else:
+            img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
+            img_rgb = (img_rgba[:, :, :3] * 255).astype(np.uint8)
+
+        # --- Overlay: draw cross and coordinates using OpenCV ---
+        if self.show_center_cross:
+            center_x = width // 2
+            center_y = height // 2
+
+            # Draw cross
+            cv2.line(img_rgb, (center_x - 100, center_y), (center_x + 100, center_y), (0, 255, 0), 1)
+            cv2.line(img_rgb, (center_x, center_y - 100), (center_x, center_y + 100), (0, 255, 0), 1)
+
+            # Get current absolute position (stage coordinates)
+            try:
+                self.positioner.GetPosition()
+                abs_x = self.positioner.AxesPositions[0] * 1e-6  # microns to mm
+                abs_y = self.positioner.AxesPositions[1] * 1e-6
+                abs_z = self.positioner.AxesPositions[2] * 1e-6
+                coord_text = f"X = {abs_x:.1f}, Y = {abs_y:.1f}, Z = {abs_z:.1f}"
+            except Exception:
+                coord_text = "Stage position not available"
+
+            # Draw coordinates in bottom-left
+            cv2.putText(img_rgb, coord_text, (10, height - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1, cv2.LINE_AA)
+
+        # --- Save to disk ---
+        folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/'
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+
+        timeStamp = getCurrentTimeStamp()
+        filename = os.path.join(folder_path, f"Zelux_Image_{timeStamp}.png")
+
+        # Save using OpenCV (convert RGB to BGR)
+        cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
+        print(f"Image saved with overlays to: {filename}")
 
     def toggle_center_cross(self, sender, app_data, user_data=None):
         self.show_center_cross = app_data  # True or False
