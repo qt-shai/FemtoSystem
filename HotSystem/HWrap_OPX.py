@@ -2482,7 +2482,7 @@ class GUI_OPX():
         else:
             number_of_gates = 24
 
-        self.tRF = self.rf_pulse_time //4
+        self.tRF = self.rf_pulse_time //4 # why is it divided by 4? in """def NuclearRABI_QUA_PGM""" it is without the 4
         Npump = self.n_nuc_pump
 
         # frequency scan vector
@@ -2902,6 +2902,102 @@ class GUI_OPX():
                 counts_ref_st3.buffer(len(self.t_vec)).average().save("counts_ref3")
 
         self.qm, self.job = self.QUA_execute()
+
+
+    def single_shot_play_list_of_gates(self):
+        align("MW", "RF")
+        play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF // 4)
+        frame_rotation_2pi(0.5, "RF")
+        play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF // 4)
+        frame_rotation_2pi(0.5, "RF")
+        align("RF", "Laser")
+
+    def single_shot_measure_nuclear_spin(self, t_wait):
+        #Change N_pump to a new N parameter that is resposible for this
+        if t_wait>16:
+            wait(t_wait)
+        with for_(self.n_m, 0, self.n_m < self.n_measure, self.n_m + 1):
+            self.MW_and_reverse(p_mw = self.mw_P_amp, t_mw = (self.t_mw / 2) // 4)
+            align("MW","Laser")
+            align("MW","Detector_OPD")
+            play("Turn_ON", "Laser", duration=self.tLaser // 4)
+            measure("readout", "Detector_OPD", None, time_tagging.digital(self.times, self.tMeasure, self.counts_tmp))
+            assign(self.total_counts, self.total_counts + self.counts_tmp)
+
+    def Single_shot_QUA_PGM(self, generate_params=False, Generate_QUA_sequance=False, execute_qua=False):
+        if generate_params:
+            # sequence parameters
+            self.tMeasureProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime) // 4
+            # self.tPump = self.time_in_multiples_cycle_time(self.Tpump) //4
+            self.tLaser = self.time_in_multiples_cycle_time(self.Tpump)
+            self.tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed) // 4
+            # self.tMeasure = 50
+            self.fMW_2 = self.time_in_multiples_cycle_time(self.mw_freq_2)
+            self.tMW = self.time_in_multiples_cycle_time(self.t_mw)
+            self.tMW2 = self.time_in_multiples_cycle_time(self.t_mw2) // 4
+            self.tWait = self.time_in_multiples_cycle_time(self.Twait * 1e3)  # [nsec]
+            self.rf_pulse_time = 1000
+            self.tRF = self.time_in_multiples_cycle_time(self.rf_pulse_time)
+            self.Npump = self.n_nuc_pump
+            self.t_wait_benchmark = self.time_in_multiples_cycle_time(self.Twait * 1000) // 4
+            self.mw_dif_freq_2 = self.MW_dif  # [MHz] to [GHz]
+
+            # frequency scan vector
+            # self.scan_param_vec = self.GenVector(min=0 * self.u.MHz, max=self.mw_freq_scan_range * self.u.MHz,
+            #                                      delta=self.mw_df * self.u.MHz, asInt=False)
+            self.scan_param_vec = [1]
+
+            # length and idx vector
+            self.vectorLength = len(self.scan_param_vec)  # size of arrays
+            self.array_length = len(self.scan_param_vec)  # frquencies vector size
+            self.idx_vec_ini = np.arange(0, self.array_length, 1)  # indexes vector
+
+            # Simulation
+            self.random_int = [random.randint(0, 100) for _ in range(100)]
+
+            # tracking signal
+            self.tSequencePeriod = ((self.tMW + self.tLaser) * (
+                    self.Npump + 2) + self.tRF * self.Npump) * self.array_length
+            self.tGetTrackingSignalEveryTime_nsec = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
+            self.tTrackingSignaIntegrationTime_usec = int(self.tTrackingSignaIntegrationTime * 1e6)  # []
+            self.tTrackingIntegrationCycles = self.tTrackingSignaIntegrationTime_usec // self.time_in_multiples_cycle_time(
+                self.Tcounter)
+            self.trackingNumRepeatition = self.tGetTrackingSignalEveryTime_nsec // (
+                self.tSequencePeriod) if self.tGetTrackingSignalEveryTime_nsec // (self.tSequencePeriod) > 1 else 1
+
+        if Generate_QUA_sequance:
+            if not self.benchmark_switch_flag:
+                play("Turn_ON", "Laser", duration=self.tLaser // 4)
+                # qubit = |Mn>|0e>
+
+                # Pumping: MW + RF + Laser (In that order)
+                self.QUA_Pump(t_pump=self.tLaser, t_mw=self.tMW / 2, t_rf=self.tRF, f_mw=self.mw_freq * self.u.MHz,
+                              f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=self.t_wait_benchmark)
+                # First set of pi/2 half pulses with frequency f_2
+                update_frequency("MW", self.mw_freq * self.u.MHz)
+                self.MW_and_reverse(p_mw=self.mw_P_amp, t_mw=(self.t_mw / 2) // 4)
+                # Second set of pi/2 half pulses with frequency f_1
+                update_frequency("MW", (self.mw_freq + self.mw_dif_freq_2) * self.u.MHz)
+                self.MW_and_reverse(p_mw=self.mw_P_amp, t_mw=(self.t_mw / 2) // 4)
+                # Implementing all the gates
+                self.single_shot_play_list_of_gates()
+                play("Turn_ON", "Laser", duration=self.tLaser // 4)
+                align("Laser", "MW")
+                # Add wait time
+                self.single_shot_measure_nuclear_spin(t_wait=self.t_wait_benchmark)
+                align()
+            else:
+                assign(self.total_counts, 0)
+                update_frequency("MW", (self.mw_freq + self.mw_dif_freq_2) * self.u.MHz)
+                self.single_shot_measure_nuclear_spin(t_wait=self.t_wait_benchmark)
+                align()
+
+        if execute_qua:
+            self.Single_shot_QUA_PGM(generate_params=True)
+            self.QUA_PGM()
+
+
 
     def Test_Crap_QUA_PGM(self):
         if self.test_type == Experiment.test_electron_spinPump:
