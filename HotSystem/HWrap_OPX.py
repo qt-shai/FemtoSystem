@@ -1744,6 +1744,10 @@ class GUI_OPX():
         play("xPulse" * amp(p_mw), "MW", duration=t_mw)
         play("-xPulse" * amp(p_mw), "MW", duration=t_mw)
 
+    def MW_and_reverse_general(self, p_mw, t_mw, first_pulse: str = "xPulse", second_pulse: str = "-xPulse"):
+        play(first_pulse * amp(p_mw), "MW", duration=t_mw)
+        play(second_pulse * amp(p_mw), "MW", duration=t_mw)
+
     def QUA_Pump(self,t_pump,t_mw, t_rf, f_mw,f_rf, p_mw, p_rf,t_wait):
         align()
         
@@ -2458,8 +2462,15 @@ class GUI_OPX():
         play("-xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)  # pi pulse
         # qubit = |0n>|1e>
 
-    def benchmark_state_readout(self, counts):
-        pass
+    def benchmark_state_readout(self, current_counts_, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure):
+        #Make sure to have align with laser before
+
+        play("Turn_ON", "Laser", duration=tLaser // 4)
+        # measure signal
+        align("MW", "Detector_OPD")
+        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
+        assign(current_counts_[idx_vec_qua[idx]], current_counts_[idx_vec_qua[idx]] + counts_tmp)
+
 
     def Random_Benchmark_QUA_PGM(self):
         # sequence parameters
@@ -2636,27 +2647,15 @@ class GUI_OPX():
                         else: # 1 qubit
                             self.benchmark_play_list_of_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx)
                             # qubit = |0n>|1e>
-                        #align("RF", "MW")
-                        wait(t_wait)
-                        # play Laser
-                        align("RF", "MW")
-                        # play("Turn_ON", "Laser", duration=tSettle // 4)
-                        # align("Laser","MW")
-
-                        # play MW
-                        #play("xPulse" * amp(self.mw_P_amp2), "MW", duration=tMW // 4)
-                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua) # pi pulse
-                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua) # pi pulse
-                        # qubit = |0n>|0e>
 
                         """signal 1 measurement part"""
-                        # play Laser
+                        wait(t_wait)
+                        align("RF", "MW")
+                        self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua)
+                        # qubit = |0n>|0e>
+
                         align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        # measure signal
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
+                        self.benchmark_state_readout(counts, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
                         assign(counts_tmp_squared, counts_tmp * counts_tmp)
                         assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp_squared)
                         align()
@@ -2698,25 +2697,13 @@ class GUI_OPX():
                             else:
                                 wait(self.total_rf_wait)
                         wait(t_wait)
-                        # play Laser
-                        # align("RF", "Laser")
-                        # play("Turn_ON", "Laser", duration=tSettle // 4)
-                        # align("Laser","MW")
-
-                        # play MW
-                        #play("xPulse" * amp(self.mw_P_amp2), "MW", duration=tMW // 4)
-                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
-                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
+                        self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua, first_pulse = "-xPulse", second_pulse = "xPulse")
                         # qubit = |0n>|0e>
 
-                        """measurment signal 2 (reference 1)"""
+                        """measurement signal 2 (reference 1)"""
                         # play Laser
                         align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        # measure signal
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_tmp)
+                        self.benchmark_state_readout(counts_ref, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
                         align()
 
                         """reference 2"""
@@ -2760,26 +2747,13 @@ class GUI_OPX():
                                 align("RF","MW")
                                 wait(t_wait)
                         #wait(t_wait)
-                        # play Laser
-                        # align("RF", "Laser")
-                        # play("Turn_ON", "Laser", duration=tSettle // 4)
-                        # align("Laser","MW")
-
-                        # play MW
-                        # play("xPulse" * amp(self.mw_P_amp2), "MW", duration=tMW // 4)
-                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
-                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
+                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="xPulse",
+                                                    second_pulse="-xPulse")
                         # qubit = |0n>|0e>
-
-
                         """measurment reference 2"""
                         # play Laser
                         align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        # measure signal
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts_ref2[idx_vec_qua[idx]], counts_ref2[idx_vec_qua[idx]] + counts_tmp)
+                        self.benchmark_state_readout(counts_ref2, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
                         align()
 
                         """reference 3"""
@@ -2822,25 +2796,17 @@ class GUI_OPX():
                                 align("RF", "MW")
                                 wait(t_wait)
                         # wait(t_wait)
-                        # play Laser
-                        # align("RF", "Laser")
-                        # play("Turn_ON", "Laser", duration=tSettle // 4)
-                        # align("Laser","MW")
 
                         # # play MW
-                        # # play("xPulse" * amp(self.mw_P_amp2), "MW", duration=tMW // 4)
+                        # self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="xPulse", second_pulse="-xPulse")
                         # play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
                         # play("-xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
                         # # qubit = |0n>|0e>
 
-                        """measurment reference 3"""
+                        """measurement reference 3"""
                         # play Laser
                         align("MW", "Laser")
-                        play("Turn_ON", "Laser", duration=tLaser // 4)
-                        # measure signal
-                        align("MW", "Detector_OPD")
-                        measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
-                        assign(counts_ref3[idx_vec_qua[idx]], counts_ref3[idx_vec_qua[idx]] + counts_tmp)
+                        self.benchmark_state_readout(counts_ref3, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
                         align()
 
 
