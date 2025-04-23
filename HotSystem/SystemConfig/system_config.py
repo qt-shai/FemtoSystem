@@ -6,6 +6,12 @@ from enum import Enum
 from typing import List, Optional
 from Utils import remove_overlap_from_string
 import socket
+from pylablib.devices import Thorlabs
+import serial
+import serial.tools.list_ports
+import clr
+clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\Thorlabs.MotionControl.DeviceManagerCLI.dll")
+from Thorlabs.MotionControl.DeviceManagerCLI import *
 
 class SystemType(Enum):
     HOT_SYSTEM = "HotSystem"
@@ -30,11 +36,16 @@ class Instruments(Enum):
     ZELUX = "zelux"
     OPX = "OPX"
     ELC_POWER_SUPPLY = "elc_power_supply"
+    SIMULATION = "simulation"
     KEYSIGHT_AWG = "keysight_awg"
     SIM960 = "sim960"
     CLD1011LP = "CLD1011LP"
     ARDUINO = "ARDUINO"
     WAVEMETER = "wavemeter"
+    MOKU = "moku"
+    NI_DAQ = "ni_daq"
+    KDC_101 = "KDC_101"
+    MFF_101 = "MFF_101"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.70"
@@ -44,10 +55,9 @@ class InstrumentsAddress(Enum):
     KEYSIGHT_AWG_33600A = "TCPIP::A-33600-00000.local::5025::SOCKET"
     Rhode_Schwarz_hot_system = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     Rhode_Schwarz_atto = "192.168.101.50"
-    # AWG_33600A = "192.168.101.159"
-    # AWG_33500B = "192.168.101.62"
     atto_positioner = "192.168.101.53"  # todo replace with search for device IP and address and some CNFG files
     atto_scanner = "192.168.101.20"
+    moku_ip = "192.168.101.52"
     opx_hot_system_ip = '192.168.101.56'
     opx_femto_system_ip = '192.168.101.61'
     opx_atto_system_ip = '192.168.101.157'
@@ -55,7 +65,6 @@ class InstrumentsAddress(Enum):
     opx_hot_system_cluster = 'Cluster_1'
     opx_femto_system_cluster = 'Cluster_2'
     opx_atto_system_cluster = 'Cluster_3'
-
     SRS_MAINFRAME = 'COM10'
 
 class Device:
@@ -334,5 +343,41 @@ def find_ethernet_device(ip_address: str, instrument: Instruments) -> Optional[D
             print(f"Device at {ip_address} is not available.")
 
     return None
+
+def connect_thorlabs_motor_device_by_serial(instrument) -> Optional[List[Device]]:
+    available_devices = []
+    try:
+        available_motors = get_thorlabs_motor_serial_nums(instrument)
+        if len(available_motors) > 0:
+            for device in available_motors:
+                if device not in available_devices:
+                    available_devices.append(Device(
+                        instrument=instrument,
+                        ip_address='N/A',
+                        mac_address='N/A',
+                        serial_number=device,
+                        com_port='N/A'
+                    ))
+    except Exception as e:
+        print(f"Could not find Thorlabs Motor. Error: {e}")
+    return available_devices
+
+def get_thorlabs_motor_serial_nums(intrument) -> List[str]:
+    # DeviceManagerCLI.BuildDeviceList()
+    # # Assuming GetDeviceList returns a comma-separated string of serial numbers
+    # device_list_dotnet = DeviceManagerCLI.GetDeviceList()
+    # available_serials = [str(sn) for sn in device_list_dotnet]
+    # print(f"Available USB devices: {available_serials}")
+    device_type_list = Thorlabs.list_kinesis_devices(filter_ids=True)
+    print(f"Available devices types: {device_type_list}")
+    available_serials = []
+    try:
+        if intrument == Instruments.KDC_101:
+            available_serials = [device_id for device_id, device_type in device_type_list if device_type == 'Brushed Motor Controller']
+        elif intrument == Instruments.MFF_101:
+            available_serials = [device_id for device_id, device_type in device_type_list if device_type == 'APT Filter Flipper']
+        return available_serials
+    except Exception as e:
+        print(f"Could not find Thorlabs Motor. Error: {e}")
 
 

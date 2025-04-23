@@ -547,10 +547,30 @@ class smaractMCS2():
         if len(self.LoggedPoints)<3:
             print(f"Please log at least three points prior to calculating u & v")
             return
-        p1, p2, p3 = self.LoggedPoints[-3:]
+        
+        p1, p2, p3 = np.array(self.LoggedPoints[-3:])
+        p = np.array(self.LoggedPoints[-3:])
+        U = p2 - p1
+        V = p3 - p1
+        U = U / np.linalg.norm(U)
+        V = V / np.linalg.norm(V)
+
+        N = np.cross(U, V)
+        # Ax + By + Cz + D = 0
+        D = -1 * np.sum(N * p2)
+        # Create Pnew as a stack of points, with [1e6, 0, 0] and [0, 1e6, 0] as the other two points
+        Pnew = np.vstack([p1, p1+[1e6, 0, 0], p1+[0, 1e6, 0]])
+        # Calculate Znew
+        Znew = ((np.dot([N[0], N[1], 0], Pnew.T) + D) / (-1 * N[2]))
+
+        # Output the results as a combination of the first two columns of Pnew and Znew
+        out = np.hstack([Pnew[:3, :2], Znew.reshape(-1, 1)])
+        
+        print(out)
+
+        p1, p2, p3 = out
         self.U = self.calculate_vector(p1, p2)
-        self.V = self.calculate_vector(p2, p3)
-        print(f"Smaract: U={self.U}, V={self.V}")
+        self.V = self.calculate_vector(p1, p3)
 
     def calculate_vector(self, p1, p2):
         difference = [p2[i] - p1[i] for i in range(len(p1))]

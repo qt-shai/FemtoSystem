@@ -13,9 +13,9 @@ class HotSystemQuaConfig(QUAConfigBase):
             "con1": {
                 "type": "opx1",
                 "analog_outputs": {
-                    1: {"offset": 0.0, "delay": self.mw_delay, "shareable": False}, # MW I, for unknonw reason need to be in all system
-                    2: {"offset": 0.0, "delay": self.mw_delay, "shareable": False}, # MW Q
-                    3: {"offset": 0.0, "delay": self.rf_delay, "shareable": False}, # RF
+                    1: {"offset": -0.0055, "delay": self.mw_delay, "shareable": False}, # MW I, for unknonw reason need to be in all system
+                    2: {"offset": -0.0057, "delay": self.mw_delay, "shareable": False}, # MW Q
+                    3: {"offset": -0.01, "delay": self.rf_delay, "shareable": False}, # RF
                 },
                 "digital_outputs": {
                     # 1: {"shareable": False}, # laser 520nm
@@ -23,7 +23,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                     3: {"shareable": False}, # laser 520nm
                 },
                 "analog_inputs": {
-                    1: {"offset": 0.00979, "gain_db": 0, "shareable": True}, # for unknonw reason need to be in all system
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # for unknonw reason need to be in all system
                 },
                 "digital_inputs": {
                     1: {"polarity": "RISING", "deadtime": 4, "threshold": self.signal_threshold_OPD, "shareable": False,},
@@ -58,7 +58,9 @@ class HotSystemQuaConfig(QUAConfigBase):
                 },
                 "operations": {
                     "xPulse": "x_pulse",
+                    "-xPulse": "-x_pulse",
                     "yPulse": "y_pulse",
+                    "-yPulse": "-y_pulse",
                     "cw": "const_pulse",
                     "pi": "x180_pulse",
                     "pi_half": "x90_pulse",

@@ -3,7 +3,7 @@ import time
 import threading
 
 class ThorlabsCLD1011LP:
-    def __init__(self,simulation=False):#, resource_name: str):
+    def __init__(self, simulation=False):
         """
         Initialize the Thorlabs CLD1011LP laser diode driver.
         
@@ -13,13 +13,14 @@ class ThorlabsCLD1011LP:
         self.rm = pyvisa.ResourceManager()
         avDevices = self.rm.list_resources()
         self.device = self.rm.open_resource('USB0::0x1313::0x804F::M01080605::INSTR')
-        self.device.timeout = 5000  # Set timeout to 5 seconds
+        self.device.timeout = 500  # Set timeout to 0.5 seconds
         self.endC = '\n'
         self.lock = threading.Lock()
         self.maxI = 250.0 #mA
         self.minI = 0.0 # mA
-        self.disable_modulation()
         self.get_device_info()
+        self.disable_modulation()
+        print('Successfully initialized Thorlabs CLD1011LP')
 
     def write_cmd(self,cmd):
         self.lock.acquire()

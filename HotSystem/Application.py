@@ -1,29 +1,23 @@
 import inspect
-import os
-import sys
-import threading
-import time
+import pdb
 from typing import Optional
-
-import dearpygui.dearpygui as dpg
 import dearpygui.demo as DPGdemo
-import glfw
 import imgui
-import numpy as np
 from OpenGL.GL import glGetString
 from imgui.integrations.glfw import GlfwRenderer
 from pyglet.gl import GL_VERSION, glClearColor, glClear, GL_COLOR_BUFFER_BIT
-
-import HW_wrapper.HW_devices as hw_devices
+from PIL import Image
 from Common import Common_Counter_Singletone, KeyboardKeys
 from EventDispatcher import EventDispatcher
-from ExpSequenceGui import ExpSequenceGui
+#from ExpSequenceGui import ExpSequenceGui
 from HW_GUI import GUI_CLD1011LP as gui_CLD1011LP
 from HW_GUI import GUI_Cobolt as gui_Cobolt
 from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_NI_DAQ import GUIDAQ
+from HW_GUI.GUI_Picomotor import GUI_picomotor
 from HW_GUI.GUI_arduino import GUIArduino
 from HW_GUI.GUI_atto_scanner import GUIAttoScanner
 from HW_GUI.GUI_highland_eom import GUIHighlandT130
@@ -32,11 +26,26 @@ from HW_GUI.GUI_mattise import GUIMatisse
 from HW_GUI.GUI_wavemeter import GUIWavemeter
 from HW_GUI.GUI_motor_atto_positioner import GUIMotorAttoPositioner
 from HW_GUI.GUI_motors import GUIMotor
+from HW_GUI.GUI_KDC101 import GUI_KDC101
+from HW_GUI.GUI_MFF_101 import GUI_MFF
 from HW_GUI.GUI_sim960PID import GUISIM960
-from HWrap_OPX import GUI_OPX
+from HW_GUI.GUI_moku import GUIMoku
+from HW_wrapper.Wrapper_moku import Moku
+from HWrap_OPX import GUI_OPX, Experiment
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Utils.Common import calculate_z_series
+from Common import WindowNames
 from Window import Window_singleton
+from Outout_to_gui import DualOutput
+import threading
+import glfw
+import dearpygui.dearpygui as dpg
+import os
+import time
+import HW_wrapper.HW_devices as hw_devices
+import sys
+from Utils.Common import calculate_z_series
+import numpy as np
 
 
 class Layer:
@@ -107,7 +116,7 @@ class ImGuiOverlay(Layer):
         simulation = False
         if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
             simulation = True
-        self.exSeq = ExpSequenceGui()
+        #self.exSeq = ExpSequenceGui()
         try:
             self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(simulation)
         except:
@@ -123,7 +132,7 @@ class ImGuiOverlay(Layer):
         else:
             self.guiID = Common_Counter_Singletone()
             self.guiID.Reset()
-            self.exSeq.controls()
+            #self.exSeq.controls()
             if self.mwGUI:
                 self.mwGUI.controls()
             # self.smaractGUI.controls()
@@ -390,14 +399,23 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.viewport_h = None
+        self.allow_bring_to_front = 1
+        self.viewport_w = None
+        self.selected_points = []
+        self.moku_gui: Optional[Moku] = None
+        self.DAQ_gui: Optional[GUIDAQ] = None
+        self.picomotorGUI:Optional[GUI_picomotor] = None
         self.arduino_gui: Optional[GUIArduino] = None
         self.srs_pid_gui: list[GUISIM960] = []
         self.atto_scanner_gui: Optional[GUIMotor] = None
         self.keysight_gui: Optional[GUIKeysight33500B] = None
         self.mattise_gui: Optional[GUIMatisse] = None
+        self.moku: Optional[GUIMoku] = None
         self.mwGUI = None
         self.system_type: Optional[SystemType] = None
         self.system_config: Optional[SystemConfig] = None
+        self.mff_101_gui: Optional[list[GUI_MFF]] = []
         # Initialize instruments based on the system configuration
 
         self.smaract_thread = None
@@ -413,11 +431,19 @@ class PyGuiOverlay(Layer):
         self.CLD1011LP_thread = None
         self.GetScreenSize()
         self.CURRENT_KEY = None
+        self.main_parent = "MainWindow"
+        self.active_instrument_list = []
+        self.window_positions = {}
+        self.messages = []
+        self.command_history = []
+        self.MAX_HISTORY = 10  # Store last 5 commands
 
     def on_render(self):
         jobs = dpg.get_callback_queue() # retrieves and clears queue
         dpg.run_callbacks(jobs)
         dpg.render_dearpygui_frame()
+
+        self.track_window_position()
 
         if getattr(self, 'cam', None) and getattr(self.cam, 'cam', None):
             cam_obj = self.cam.cam
@@ -557,6 +583,9 @@ class PyGuiOverlay(Layer):
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
     def Callback_mouse_release(self,sender,app_data):
+        if self.allow_bring_to_front == 1:
+            #dpg.focus_item("Main_Window")
+            pass
         if False:
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
@@ -652,13 +681,34 @@ class PyGuiOverlay(Layer):
                             resizable=True,
                             vsync=True, decorated=True, clear_color=True,
                             disable_close=False)
+        self.viewport_w, self.viewport_h = dpg.get_viewport_client_width(), dpg.get_viewport_client_height()
         dpg.setup_dearpygui()
         dpg.show_viewport()
         pass
+
+    def track_window_position(self):
+        """
+        Periodically checks the position of tracked windows and logs changes.
+        """
+        for window in WindowNames:
+            win_name = window.value
+            if dpg.does_item_exist(win_name):
+                current_pos = dpg.get_item_pos(win_name)
+                if win_name not in self.window_positions or self.window_positions[win_name] != current_pos:
+                    # print(f"Window '{win_name}' moved. New position: {current_pos}")
+                    self.window_positions[win_name] = current_pos
+
     def on_attach(self):
 
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
+        self.setup_main_exp_buttons()
         self.setup_instruments()
+        dpg.focus_item("Main_Window")
+
+        self.create_console_gui()
+        # Redirect stdout and stderr to both the GUI console and the original outputs
+        sys.stdout = DualOutput(sys.__stdout__)
+        sys.stderr = DualOutput(sys.__stderr__)
 
     def setup_instruments(self) -> None:
         """
@@ -685,13 +735,16 @@ class PyGuiOverlay(Layer):
 
                 if instrument == Instruments.ROHDE_SCHWARZ:
                     pass
-                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(device.simulation)
+                    # self.mwGUI = gui_RohdeSchwarz.GUI_RS_SGS100a(self.simulation)
                     # dpg.set_item_pos(self.mwGUI.window_tag, [20, y_offset])
                     # y_offset += dpg.get_item_height(self.mwGUI.window_tag) + vertical_spacing
 
                 elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
                     self.smaractGUI = gui_Smaract.GUI_smaract(simulation=device.simulation,
                                                               serial_number=device.serial_number)
+                    self.create_bring_window_button(self.smaractGUI.window_tag, button_label="Smaract",
+                                                    tag="Smaract_button", parent="focus_group")
+                    self.active_instrument_list.append(self.smaractGUI.window_tag)
                     dpg.set_item_pos(self.smaractGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.smaractGUI.window_tag) + vertical_spacing
 
@@ -700,15 +753,21 @@ class PyGuiOverlay(Layer):
                         self.smaract_thread.start()
 
                 elif instrument == Instruments.CLD1011LP:
-                    self.CLD1011LP_gui = gui_CLD1011LP.GUI_CLD1011LP(self.simulation)
+                    self.CLD1011LP_gui = gui_CLD1011LP.GUI_CLD1011LP(device.simulation)
+                    self.create_bring_window_button(self.CLD1011LP_gui.window_tag, button_label="CLD1011LP",
+                                                    tag="CLD1011LP_button", parent="focus_group")
+                    self.active_instrument_list.append(self.CLD1011LP_gui.window_tag)
                     dpg.set_item_pos(self.CLD1011LP_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.CLD1011LP_gui.window_tag) + vertical_spacing
-                    if not self.simulation:
+                    if not device.simulation:
                         self.CLD1011LP_thread = threading.Thread(target=self.render_CLD1011LP)
                         self.CLD1011LP_thread.start()
 
                 elif instrument == Instruments.COBOLT:
                     self.coboltGUI = gui_Cobolt.GUI_Cobolt(device.simulation, com_port = device.com_port)
+                    self.create_bring_window_button(self.coboltGUI.window_tag, button_label="Cobolt",
+                                                    tag="Cobolt_button", parent="focus_group")
+                    self.active_instrument_list.append(self.coboltGUI.window_tag)
                     dpg.set_item_pos(self.coboltGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.coboltGUI.window_tag) + vertical_spacing
                     if not device.simulation:
@@ -717,6 +776,9 @@ class PyGuiOverlay(Layer):
 
                 elif instrument == Instruments.PICOMOTOR:
                     self.picomotorGUI = gui_Picomotor.GUI_picomotor(simulation=device.simulation)
+                    self.create_bring_window_button(self.picomotorGUI.window_tag, button_label="picomotor",
+                                                    tag="picomotor_button", parent="focus_group")
+                    self.active_instrument_list.append(self.picomotorGUI.window_tag)
                     dpg.set_item_pos(self.picomotorGUI.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.picomotorGUI.window_tag) + vertical_spacing
 
@@ -726,6 +788,8 @@ class PyGuiOverlay(Layer):
 
                 elif instrument == Instruments.ZELUX:
                     self.cam = gui_Zelux.ZeluxGUI()
+                    self.create_bring_window_button(self.cam.window_tag, button_label="Zelux", tag="Zelux_button", parent="focus_group")
+                    self.active_instrument_list.append(self.cam.window_tag)
                     if len(self.cam.cam.available_cameras) > 0:
                         self.cam.Controls()
                         dpg.set_item_pos(self.cam.window_tag, [self.Monitor_width-dpg.get_item_width(self.cam.window_tag)-vertical_spacing, vertical_spacing])
@@ -733,6 +797,10 @@ class PyGuiOverlay(Layer):
                 elif instrument == Instruments.OPX:
                     self.opx = GUI_OPX(device.simulation)
                     self.opx.controls()
+                    self.create_bring_window_button(self.opx.window_tag, button_label="OPX", tag="OPX_button",
+                                                    parent="focus_group")
+                    self.create_sequencer_button()
+                    self.active_instrument_list.append(self.opx.window_tag)
                     dpg.set_item_pos(self.opx.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.opx.window_tag) + vertical_spacing
 
@@ -742,6 +810,9 @@ class PyGuiOverlay(Layer):
                         instrument=Instruments.ATTO_POSITIONER,
                         simulation=device.simulation
                     )
+                    self.create_bring_window_button(self.atto_positioner_gui.window_tag, button_label="ATTO_POSITIONER",
+                                                    tag="ATTO_POSITIONER_button", parent="focus_group")
+                    self.active_instrument_list.append(self.atto_positioner_gui.window_tag)
                     dpg.set_item_pos(self.atto_positioner_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.atto_positioner_gui.window_tag) + vertical_spacing
 
@@ -750,6 +821,9 @@ class PyGuiOverlay(Layer):
                         device=hw_devices.HW_devices().highland_eom_driver,
                         simulation=device.simulation
                     )
+                    self.create_bring_window_button(self.highland_gui.window_tag, button_label="Highland",
+                                                    tag="Highland_button", parent="focus_group")
+                    self.active_instrument_list.append(self.highland_gui.window_tag)
                     dpg.set_item_pos(self.highland_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.highland_gui.window_tag) + vertical_spacing
 
@@ -758,10 +832,15 @@ class PyGuiOverlay(Layer):
                         device=hw_devices.HW_devices().matisse_device,
                         simulation=device.simulation
                     )
+                    self.create_bring_window_button(self.mattise_gui.window_tag, button_label="MATTISE",
+                                                    tag="MATTISE_button", parent="focus_group")
+                    self.active_instrument_list.append(self.mattise_gui.window_tag)
                     dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
                 elif instrument == Instruments.WAVEMETER:
                     self.wlm_gui = GUIWavemeter(device=hw_devices.HW_devices().wavemeter, instrument=instrument, simulation=device.simulation)
+                    self.create_bring_window_button(self.wlm_gui.window_tag, button_label="WAVEMETER",
+                                                    tag="WAVEMETER_button", parent="focus_group")
                     dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
 
@@ -770,6 +849,9 @@ class PyGuiOverlay(Layer):
                         device= hw_devices.HW_devices().keysight_awg_device,
                         simulation=device.simulation
                     )
+                    self.create_bring_window_button(self.keysight_gui.window_tag, button_label="KEYSIGHT_AWG",
+                                                    tag="keysight_button", parent="focus_group")
+                    self.active_instrument_list.append(self.keysight_gui.window_tag)
                     dpg.set_item_pos(self.keysight_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.keysight_gui.window_tag) + vertical_spacing
 
@@ -780,22 +862,71 @@ class PyGuiOverlay(Layer):
                         instrument=Instruments.ATTO_SCANNER,
                         simulation=device.simulation
                     )
+                    self.create_bring_window_button(self.atto_scanner_gui.window_tag, button_label="ATTO_SCANNER",
+                                                    tag="ATTO_SCANNER_button", parent="focus_group")
+                    self.active_instrument_list.append(self.atto_scanner_gui.window_tag)
                     dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
+                elif instrument == Instruments.KDC_101:
+                    self.kdc_101_gui = GUI_KDC101(serial_number = device.serial_number, device = hw_devices.HW_devices().kdc_101)
+                    dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
+                    self.create_bring_window_button(self.kdc_101_gui.window_tag, button_label="kdc_101",
+                                                    tag="kdc_101_button", parent="focus_group")
+                    self.active_instrument_list.append(self.kdc_101_gui.window_tag)
+
+                elif instrument == Instruments.MFF_101:
+                    # if self.mff_101_gui is None:
+                    #     self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices().mff_101_list)
+                    # else:
+                    #     self.mff_101_gui.add_new_button(serial_number=device.serial_number)
+                    # self.mff_101_gui = GUI_MFF(serial_number=device.serial_number,device=hw_devices.HW_devices().mff_101_list)
+                    flipper_list = hw_devices.HW_devices().mff_101_list
+                    matching_device = next(
+                        (flipper for flipper in flipper_list if str(flipper.serial_no) == device.serial_number),
+                        None  # Default if no match is found
+                    )
+                    self.mff_101_gui.append(GUI_MFF(serial_number=matching_device.serial_no, device = matching_device))
+                    # last_gui = self.mff_101_gui[-1]
+                    # last_gui.create_gui_into_zelux()
+                    pass
+
                 elif instrument == Instruments.ARDUINO:
+                    self.create_bring_window_button(self.arduino_gui.window_tag, button_label="Arduino",
+                                                    tag="Arduino_button", parent="focus_group")
+                    self.active_instrument_list.append(self.arduino_gui.window_tag)
                     self.arduino_gui = GUIArduino(hw_devices.HW_devices().arduino)
 
                 elif instrument == Instruments.SIM960:
+                    print('Initializing PID HW list')
                     srs_pid_list=hw_devices.HW_devices().SRS_PID_list
-                    matching_device = next(
-                        (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
-                        None  # Default if no match is found
-                    )
+                    print(f'SRS PID list: {srs_pid_list}')
+                    if device.simulation:
+                        device.ip_address=0
+                        matching_device=srs_pid_list[0]
+                    else:
+                        matching_device = next(
+                            (sim_device for sim_device in srs_pid_list if str(sim_device.slot) == device.ip_address),
+                            None  # Default if no match is found
+                        )
+                    print('Initializing PID GUI')
                     self.srs_pid_gui.append(GUISIM960(
                         sim960=matching_device,
                         simulation=device.simulation
                     ))
+                    self.create_bring_window_button(self.srs_pid_gui[0].win_tag, button_label="SIM960",
+                                                    tag="SIM960_button", parent="focus_group")
+                    self.active_instrument_list.append(self.srs_pid_gui[0].win_tag)
+
+                elif instrument == Instruments.MOKU:
+                    self.moku_gui = GUIMoku(hw_devices.HW_devices().moku)
+
+                elif instrument == Instruments.NI_DAQ:
+                    self.DAQ_gui = GUIDAQ(daq=hw_devices.HW_devices().ni_daq_controller)
+
+                else:
+                    print(f"Unknown instrument {instrument} ")
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
@@ -971,7 +1102,7 @@ class PyGuiOverlay(Layer):
                     if dpg.does_item_exist("map_image"):
                         item_x, item_y = dpg.get_item_pos("map_image")
                     else:
-                        print("map_image does not exist")
+                        # print("map_image does not exist")
                         return
 
                     if duplicate_or_add_area:
@@ -1039,7 +1170,7 @@ class PyGuiOverlay(Layer):
                     if dpg.does_item_exist("map_image"):
                         item_x, item_y = dpg.get_item_pos("map_image")
                     else:
-                        print("map_image does not exist")
+                        # print("map_image does not exist")
                         return
 
                     if duplicate_or_add_area:
@@ -1106,14 +1237,17 @@ class PyGuiOverlay(Layer):
         try:
             if key_data_enum == KeyboardKeys.S_KEY: # Save all even if keyboard disabled
                 #pdb.set_trace()  # Insert a manual breakpoint
-                self.smaractGUI.save_log_points()
-                self.picomotorGUI.save_log_points()
-                self.smaractGUI.save_pos()
+                if self.smaractGUI:
+                    self.smaractGUI.save_log_points()
+                    self.smaractGUI.save_pos()
+                if self.picomotorGUI:
+                    self.picomotorGUI.save_log_points()
+
                 if hasattr(self.opx, 'map') and self.opx.map is not None:
                     self.opx.map.save_map_parameters()
                 return
 
-            if self.smaractGUI.dev.KeyboardEnabled:
+            if self.smaractGUI and self.smaractGUI.dev.KeyboardEnabled:
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
                     self.smaract_log_points()
@@ -1368,11 +1502,202 @@ class PyGuiOverlay(Layer):
         self.Btn_colorTheme(_tag = "btnRedTheme",_color = (150, 100, 100))
         self.Btn_colorTheme(_tag = "btnGreenTheme",_color = (100, 150, 100))
         self.Btn_colorTheme(_tag = "btnBlueTheme",_color = (100, 100, 150))
+        self.Btn_colorTheme(_tag="btnPurpleTheme", _color=(195, 177, 255))
 
         # Create a theme to highlight the new container (group or child window)
         with dpg.theme(tag="highlighted_header_theme"):
             with dpg.theme_component(dpg.mvText):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 0), category=dpg.mvThemeCat_Core)  # Black text
+
+    def bring_window_to_front(self, window_id: str):
+        """
+        Brings the specified window to the front by its Dear PyGui ID
+        by setting the keyboard focus on it.
+        """
+        try:
+            dpg.focus_item(window_id)
+        except Exception as e:
+            print(f"Error bringing window '{window_id}' to front: {e}")
+
+    def create_bring_window_button(self, window_id: str, tag: str,parent: Optional[str] = None,
+                                   button_label: str = "Instrument"):
+        def bring_window_callback(sender, app_data, user_data):
+            self.bring_window_to_front(window_id)
+
+        kwargs = {"label": button_label, "callback": bring_window_callback, "tag": tag}
+        if parent is not None:
+            kwargs["parent"] = parent
+        dpg.add_button(**kwargs)
+
+    def create_sequencer_button(self, parent: Optional[str] = "sequencer_group"):
+        dpg.add_text("Show current sequence:", parent = parent)
+        dpg.add_button(label="Show Sequence", parent = parent, callback=self.png_sequencer)
+
+    def clamp(self, n, min_n, max_n):
+        return max(min(max_n, n), min_n)
+
+    def create_instrument_window_section(self):
+        for window in self.active_instrument_list:
+            # If the window is hovered, check and clamp its position.
+            if dpg.is_item_hovered(window):
+                x, y = dpg.get_item_pos(window)
+                w, h = dpg.get_item_rect_size(window)
+                min_x, min_y, max_x, max_y = 0,0, self.viewport_w//1.1, self.viewport_h*1.3
+                new_x = self.clamp(x, min_x, max_x - w)
+                new_y = self.clamp(y, min_y, max_y - h)
+                if (new_x, new_y) != (x, y):
+                    dpg.set_item_pos(window, (new_x, new_y))
+                    time.sleep(0.1)
+
+
+    def check_sequence_type(self):
+        """
+        Functions that checks the sequence type and uploads a corresponding image.
+        The image data is hardcoded.
+        """
+        exp_to_path = {
+            #Todo: Add the rest of the experiments.
+            Experiment.COUNTER: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Counter.png",
+            Experiment.ODMR_CW: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\CW_ODMR.png",
+            Experiment.PULSED_ODMR: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Pulsed_ODMR.png",
+            Experiment.ODMR_Bfield: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\ODMR_Bfield.png",
+            Experiment.NUCLEAR_MR: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_MR.png",
+            Experiment.RABI: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Rabi.png",
+            Experiment.NUCLEAR_POL_ESR: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_Pol_ESR.png",
+            Experiment.Nuclear_spin_lifetimeS0: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_spin_lifetime_S0.png",
+            Experiment.Nuclear_spin_lifetimeS1: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_spin_lifetime_S1.png",
+            Experiment.Hahn: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Electron_Hahn.png", #Todo: Update Hahn to actual sequence
+            Experiment.NUCLEAR_RABI: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_Rabi.png",
+            Experiment.Nuclear_Ramsay: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Nuclear_Ramsay_S0.png", #Todo: Figure out which Ramsay
+            Experiment.Electron_lifetime: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\T1_Electron_lifetime.png",
+            Experiment.Nuclear_Fast_Rot: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\nuclear_fast_rot.png",
+            Experiment.TIME_BIN_ENTANGLEMENT: "Q:\\QT-Quantum_Optic_Lab\\Tutorials\\Sequences_for_QuTi_in_png\\Time_bin.png"
+        }
+        if self.opx.exp not in exp_to_path:
+            print(f"Warning: No known image for experiment type: {self.opx.exp}")
+            return None
+        path = exp_to_path[self.opx.exp]
+        try:
+            width, height, channels, data = dpg.load_image(path)
+            return width, height, channels, data
+        except Exception as e:
+            print(f"Failed loading image file at '{path}': {e}")
+            return None
+
+    def png_sequencer(self):
+        try:
+            image_data = self.check_sequence_type()
+            if image_data is None:
+                print("No valid image data. Check image loading.")
+                return
+            width, height, channels, data = image_data
+            with dpg.texture_registry():
+                if not dpg.does_item_exist("texture_tag"):
+                    dpg.add_static_texture(width, height, data, tag="texture_tag")
+            if not dpg.does_item_exist("image_tag"):
+                dpg.add_image("texture_tag", tag = "image_tag",parent="ShowSequence", width = int(540*1.3), height = int(234*1.3))
+            dpg.show_item("ShowSequence")
+            dpg.focus_item("ShowSequence")
+        except Exception as e:
+            print("Exception occurred:", e)
+
+
+    def setup_main_exp_buttons(self):
+        with dpg.window(label="Main Buttons Group", tag="Main_Window",
+                          autosize=True, no_move=True):
+            with dpg.group(label="Main Buttons Group", horizontal=True):
+                dpg.add_text("Bring Instrument to front:")
+                with dpg.group(tag = "focus_group",horizontal=True):
+                    pass
+            with dpg.group(tag="sequencer_group", horizontal=True):
+                pass
+
+        with dpg.window(label="Sequence", tag="ShowSequence",
+                        autosize=True, no_move=False, show = False):
+            pass
+        with dpg.item_handler_registry(tag="left_region_handler"):
+            pass
+        with dpg.item_handler_registry(tag="right_region_handler"):
+            pass
+    #Can be used after fixes later
+        with dpg.window(label="Viewport Window", tag="Viewport_Window", no_resize=True, no_move=True,width = self.viewport_w, height = self.viewport_h):
+            dpg.add_drawlist(tag="full_drawlist", width=800, height=600)
+        dpg.set_primary_window("Viewport_Window", True)
+        # dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
+
+
+    def create_console_gui(self):
+        """Creates a console GUI window for displaying logs and user inputs."""
+        with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Clear Console", callback=self.clear_console)
+                dpg.add_combo(items=[], tag="command_history", width=120, callback=self.fill_input)
+                dpg.add_button(label="Save Logs", callback=self.save_logs)
+
+            # Console log display
+            with dpg.child_window(tag="console_output", autosize_x=True, height=270):
+                dpg.add_text("Console initialized.", tag="console_log", wrap=800)
+
+            # Input field for sending commands or messages
+            with dpg.group(horizontal=True):
+                dpg.add_input_text(label="", tag="console_input", width=300)
+                dpg.add_button(label="Send", callback=self.send_console_input)
+
+    def clear_console(self):
+        """Clears the console log."""
+        if isinstance(sys.stdout, DualOutput):
+            sys.stdout.messages.clear()
+        dpg.set_value("console_log", "")
+
+    def save_logs(self):
+        """Saves the console log to a file."""
+        logs = dpg.get_value("console_log")
+        with open("console_logs.txt", "w") as file:
+            file.write(logs)
+        print("Logs saved to console_logs.txt")
+
+    def send_console_input(self):
+        """Sends the input text to the console."""
+        input_text = dpg.get_value("console_input")
+        if input_text:
+            try:
+                # Check if the command is an expression (like `2+2`)
+                result = eval(input_text)
+                print(f">>> {input_text}")  # Show the executed command
+                print(result)  # Print the result to console (DualOutput will capture it)
+            except SyntaxError:
+                # If it's not an expression, try executing it as a statement
+                try:
+                    exec(input_text, globals(), locals())
+                    print(f">>> {input_text}")  # Show the executed command
+                except Exception as e:
+                    print(f"Execution Error: {e}")
+            except Exception as e:
+                print(f"Evaluation Error: {e}")
+
+            self.update_command_history(input_text)
+            dpg.set_value("console_input", "")  # Clear the input field
+
+    def update_command_history(self, command):
+        """Updates the command history combo box."""
+        if command in self.command_history:
+            self.command_history.remove(command)  # Remove duplicate before re-adding
+
+        self.command_history.insert(0, command)  # Insert at the top
+        if len(self.command_history) > self.MAX_HISTORY:
+            self.command_history.pop()  # Remove the oldest entry
+
+        # Update the combo box
+        dpg.configure_item("command_history", items=self.command_history)
+
+    def fill_input(self, sender, app_data):
+        """Fills the input field with the selected command."""
+        dpg.set_value("console_input", app_data)
+
+    def on_detach(self):
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        dpg.destroy_context()
 
 
 

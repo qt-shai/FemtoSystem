@@ -1,4 +1,4 @@
-from HW_GUI.GUI_motors import GUIMotor
+from HW_GUI.GUI_motors import GUIMotor, GUIMotorConfig
 from HW_wrapper.Attocube import Anc300Wrapper, ANC300Modes
 from SystemConfig import Instruments
 import dearpygui.dearpygui as dpg
@@ -16,7 +16,12 @@ class GUIAttoScanner(GUIMotor):
         :param instrument: The associated instrument.
         :param simulation: Simulation mode flag.
         """
-        super().__init__(motor=motor, instrument=instrument, simulation=simulation)
+        config_options = [GUIMotorConfig.CREATE_INSTRUMENT_IMAGE,
+                          GUIMotorConfig.CREATE_ABSOLUTE_POSITION_CONTROLS,
+                          GUIMotorConfig.CREATE_MOVEMENT_CONTROLS,
+                          GUIMotorConfig.CREATE_POSITION_CONTROLS]
+
+        super().__init__(motor=motor, instrument=instrument, simulation=simulation, config_options= config_options)
         self.dev: Anc300Wrapper = motor
         with dpg.group(horizontal=True, parent=f"{self.window_tag}"):
             self._add_mode_controls()
@@ -32,9 +37,9 @@ class GUIAttoScanner(GUIMotor):
             mode = ANC300Modes(mode_value)
             self.dev.set_mode(ch, mode)
         except ValueError as e:
-            print(f"Error: {e}")
+            print(f"Value Error in gui atto scanner: {e}")
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error in gui atto scanner: {e}")
 
     def btn_get_mode(self, sender, app_data, ch: int) -> None:
         """

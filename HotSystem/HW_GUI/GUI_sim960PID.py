@@ -1,7 +1,8 @@
-from datetime import datetime, timedelta
-import time
-import threading
 import asyncio
+import threading
+import time
+from datetime import datetime
+from typing import List
 
 import dearpygui.dearpygui as dpg
 import numpy as np
@@ -9,6 +10,8 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960, AutoTuneMethod
+from SystemConfig import Instruments
+
 
 def run_asyncio_loop(loop):
     """Helper function to run an asyncio loop in a separate thread."""
@@ -28,13 +31,15 @@ class GUISIM960:
     This follows a style similar to the example provided in the prompt.
     """
 
-    def __init__(self, sim960: SRSsim960, simulation: bool = False) -> None:
+    def __init__(self, sim960: SRSsim960, instrument: Instruments = Instruments.SIM960, simulation: bool = False) -> None:
         """
         Create the GUI for an SRSsim960 device.
 
         :param sim960: An instance of SRSsim960 wrapper (the device to control).
         :param simulation: Whether we are in simulation mode (disables hardware actions).
         """
+        self.lower_limit = -10
+        self.upper_limit = 10
         self.continuous_read_active = False
         self.stabilize_iterations = 1
         self.stabilize_measure_delay = 0.5
@@ -46,16 +51,11 @@ class GUISIM960:
         self.dev = sim960
         self.simulation = simulation
         self.is_collapsed = False
+        self.instrument = instrument
         self.unique_id = self._get_unique_id_from_device()
-        self.win_tag = f"SIM960Win_{self.unique_id}"
+        self.win_tag = "SIM960_Win"
         self.win_label = f"SRS SIM960, slot {self.dev.slot} ({self.unique_id})"
-        self.background_loop = asyncio.new_event_loop()
-        t = threading.Thread(
-            target=run_asyncio_loop,
-            args=(self.background_loop,),
-            daemon=True
-        )
-        t.start()
+        self.lock = threading.Lock()
 
         if self.simulation:
             self.win_label += " [SIMULATION]"
@@ -63,7 +63,7 @@ class GUISIM960:
 
         # Create a main window for the device
         with dpg.window(tag=self.win_tag, label=self.win_label,
-                        no_title_bar=False, height=400, width=1700, pos=[100, 100], collapsed=False):
+                        no_title_bar=False, height=400, width=1200, pos=[100, 100], collapsed=True):
             with dpg.group(horizontal=True):
                 self.create_device_image()
                 self.create_pid_controls()
@@ -72,6 +72,7 @@ class GUISIM960:
                 self.create_stabilize_controls()
 
                 # We can start an update loop if needed
+        self.dev.update_thread.start()
         # For example, we might poll the device periodically to update displays:
         # In the real code, you'd start a thread or use a dearpygui timer. For brevity, omitted here.
 
@@ -95,8 +96,14 @@ class GUISIM960:
         In a real application, you'd load a texture or an icon. We'll just make a dummy button.
         """
         with dpg.group(horizontal=False, tag=f"column_img_{self.unique_id}"):
-            dpg.add_button(
-                label="SIM960",
+            # dpg.add_button(
+            #     label="SIM960",
+            #     width=80, height=80,
+            #     callback=self.toggle_gui_collapse
+            # )
+            # Use your actual texture tag or remove the image if not available
+            dpg.add_image_button(
+                f"{self.instrument.value}_texture",  # e.g. "WAVEMETER_texture"
                 width=80, height=80,
                 callback=self.toggle_gui_collapse
             )
@@ -105,71 +112,43 @@ class GUISIM960:
         """
         Create controls for setting and reading P, I, D values, enabling/disabling them, etc.
         """
-        with dpg.group(horizontal=False, tag=f"pid_controls_{self.unique_id}", width=250):
+        with dpg.group(horizontal=False, tag=f"pid_controls_{self.unique_id}"):
             try:
                 gain = self.dev.get_proportional_gain()
             except Exception as e:
                 print("Session invalid. Reinitializing the connection...")
                 self.dev.mf.disconnect()
                 self.dev.mf.connect()
+                time.sleep(1)
                 gain = self.dev.get_proportional_gain()
-
 
             dpg.add_text("PID Gains")
             # Proportional
             with dpg.group(horizontal=True):
-                dpg.add_input_float(
-                    label="P Gain", default_value=gain,
-                    # callback=self.cb_set_proportional_gain,
-                    tag=f"p_gain_{self.unique_id}",
-                    format="%.4f", step=0.1, step_fast=1.0
-                )
-                dpg.add_checkbox(
-                    label="", default_value=True,
-                    callback=self.cb_enable_p, tag=f"enable_p_{self.unique_id}"
-                )
+                dpg.add_input_float(label="P Gain", default_value=gain, # callback=self.cb_set_proportional_gain,
+                    tag=f"p_gain_{self.unique_id}", format="%.4f", step=0.1, step_fast=1.0,width=100)
+                dpg.add_checkbox(label="", default_value=True, callback=self.cb_enable_p, tag=f"enable_p_{self.unique_id}")
             # Integral
             with dpg.group(horizontal=True):
-                dpg.add_input_float(
-                    label="I Gain", default_value=self.dev.get_integral_gain(),
-                    # callback=self.cb_set_integral_gain,
-                    tag=f"i_gain_{self.unique_id}",
-                    format="%.6f", step=0.1, step_fast=1.0
-                )
-                dpg.add_checkbox(
-                    label="", default_value=False,
-                    callback=self.cb_enable_i, tag=f"enable_i_{self.unique_id}"
-                )
+                dpg.add_input_float(label="I Gain", default_value=self.dev.get_integral_gain(), # callback=self.cb_set_integral_gain,
+                    tag=f"i_gain_{self.unique_id}", format="%.6f", step=0.1, step_fast=1.0,width=100)
+                dpg.add_checkbox(label="", default_value=False, callback=self.cb_enable_i, tag=f"enable_i_{self.unique_id}")
             # Derivative
             with dpg.group(horizontal=True):
-                dpg.add_input_float(
-                    label="D Gain", default_value=self.dev.get_derivative_gain(),
-                    # callback=self.cb_set_derivative_gain,
-                    tag=f"d_gain_{self.unique_id}",
-                    format="%.6f", step=0.1, step_fast=1.0
-                )
-                dpg.add_checkbox(
-                    label="", default_value=False,
-                    callback=self.cb_enable_d, tag=f"enable_d_{self.unique_id}"
-                )
+                dpg.add_input_float(label="D Gain", default_value=self.dev.get_derivative_gain(), # callback=self.cb_set_derivative_gain,
+                    tag=f"d_gain_{self.unique_id}", format="%.6f", step=0.1, step_fast=1.0,width=100)
+                dpg.add_checkbox(label="", default_value=False, callback=self.cb_enable_d, tag=f"enable_d_{self.unique_id}")
 
             self.dev.enable_proportional(True)
             self.dev.enable_integral(True)            
 
-            dpg.add_button(
-                label="Get PID Gains",
-                callback=self.cb_get_pid_gains,
-                tag=f"get_pid_gains_{self.unique_id}"
-            )
+            dpg.add_button(label="Get PID Gains", callback=self.cb_get_pid_gains, tag=f"get_pid_gains_{self.unique_id}")
 
-            dpg.add_button(
-                label="Set PID Gains",
-                callback=self.cb_set_pid_gains,
-                tag=f"set_pid_gains_{self.unique_id}"
-            )
+            dpg.add_button(label="Set PID Gains", callback=self.cb_set_pid_gains, tag=f"set_pid_gains_{self.unique_id}")
 
             # Read the current setpoint from the device
             try:
+                self.dev.mf.flush_output()
                 current_setpoint = self.dev.read_setpoint()
             except Exception as e:
                 print(f"Error reading setpoint during initialization: {e}")
@@ -178,37 +157,17 @@ class GUISIM960:
         # # --- The new combo to select an auto-tune method ---
             with dpg.group(horizontal=False):
                 dpg.add_text("Auto-Tune Method:")
-                dpg.add_combo(
-                    label="Method",
-                    items=["ZIEGLER_NICHOLS", "COHEN_COON", "TYREUS_LUYBEN", "OTHER"],  # or any you want
-                    default_value="ZIEGLER_NICHOLS",
-                    tag=f"auto_tune_method_{self.unique_id}",
-                    width=150
-                )
+                dpg.add_combo(label="Method", items=["ZIEGLER_NICHOLS", "COHEN_COON", "TYREUS_LUYBEN", "OTHER"],  # or any you want
+                    default_value="ZIEGLER_NICHOLS", tag=f"auto_tune_method_{self.unique_id}", width=100)
                 # --- Button to run auto-tuning ---
-                dpg.add_button(
-                    label="Auto-Tune PID",
-                    callback=self.cb_run_auto_tune,
-                    user_data=None  # We can pass self here if needed
+                dpg.add_button(label="Auto-Tune PID", callback=self.cb_run_auto_tune, user_data=None  # We can pass self here if needed
                 )
                 # Button to halt auto-tune
-                dpg.add_button(
-                    label="Halt Auto-Tune",
-                    callback=self.cb_halt_auto_tune
-                )
+                dpg.add_button(label="Halt Auto-Tune", callback=self.cb_halt_auto_tune)
 
                 # New setpoint control
-                dpg.add_input_float(
-                    label="Setpoint [V]",
-                    default_value=current_setpoint,
-                    callback=self.cb_set_new_setpoint,
-                    tag=f"setpoint_{self.unique_id}",
-                    format="%.3f"
-                )
-                dpg.add_button(
-                    label="Set New Setpoint",
-                    callback=self.cb_apply_new_setpoint
-                )
+                dpg.add_input_float(label="Setpoint [V]", default_value=current_setpoint, callback=self.cb_set_new_setpoint, tag=f"setpoint_{self.unique_id}", format="%.3f", width=100)
+                dpg.add_button(label="Set New Setpoint", callback=self.cb_apply_new_setpoint)
 
             # A button to reset the device
             dpg.add_button(label="Reset Device", callback=self.cb_reset_device)
@@ -220,9 +179,10 @@ class GUISIM960:
         """
         try:
             # Fetch PID gains from the device
-            p_gain = self.dev.get_proportional_gain()
-            i_gain = self.dev.get_integral_gain()
-            d_gain = self.dev.get_derivative_gain()
+            with self.lock:
+                p_gain = self.dev.get_proportional_gain()
+                i_gain = self.dev.get_integral_gain()
+                d_gain = self.dev.get_derivative_gain()
 
             # Update the GUI fields
             dpg.set_value(f"p_gain_{self.unique_id}", p_gain)
@@ -288,7 +248,7 @@ class GUISIM960:
         Create controls for setting the device to manual mode or PID mode,
         and controlling manual output voltage, offset, etc.
         """
-        with dpg.group(horizontal=False, tag=f"manual_controls_{self.unique_id}", width=250):
+        with dpg.group(horizontal=False, tag=f"manual_controls_{self.unique_id}"):
             dpg.add_text("Output Mode")
             # Mode radio: manual or PID
             dpg.add_radio_button(
@@ -299,33 +259,53 @@ class GUISIM960:
 
             # Manual output input
             dpg.add_text("Manual Output")
-            dpg.add_input_float(
-                label="Voltage [V]", default_value=0.0,
-                callback=self.cb_set_manual_output,
-                tag=f"manual_out_{self.unique_id}",
-                format="%.3f"
-                )
+            dpg.add_input_float(label="Voltage", default_value=0.0, callback=self.cb_set_manual_output, tag=f"manual_out_{self.unique_id}", format="%.3f",width=100)
 
             # Output Offset
             dpg.add_text("Output Offset")
-            dpg.add_input_float(
-                label="Offset [V]", default_value=self.dev.get_output_offset(),
-                callback=self.cb_set_output_offset,
-                tag=f"output_offset_{self.unique_id}",
-                format="%.3f"
-                )
+            dpg.add_input_float(label="Offset [V]", default_value=self.dev.get_output_offset(), callback=self.cb_set_output_offset, tag=f"output_offset_{self.unique_id}", format="%.3f",width=100)
 
             dpg.add_text("Step for Max Extinction")
-            dpg.add_input_float(
-                label="Step [V]",
-                default_value=1.5,  # or whatever you prefer
-                tag=f"goto_step_{self.unique_id}",
-                format="%.3f"
-            )
+            dpg.add_input_float(label="Step [V]", default_value=1.5,  # or whatever you prefer
+                tag=f"goto_step_{self.unique_id}", format="%.3f",width=100)
 
             dpg.add_button(label="Stabilize",callback=self.cb_stabilize)
             dpg.add_button(label="Goto max extinction", callback=self.goto_max_ext)
             dpg.add_button(label="Jump to Zero", callback=self.cb_jump_to_zero)
+
+    def cb_apply_pid_preset(self, sender, app_data):
+        """
+        Callback to apply a PID preset when selected from the combo box.
+        """
+        preset = dpg.get_value(sender)
+
+        # Define the presets
+        presets = {
+            "CW": {"P": 2, "I": 1, "D": 0, "enable_p": True, "enable_i": True, "enable_d": False},
+            "Pulsed": {"P": 0.1, "I": 0.5, "D": 0, "enable_p": True, "enable_i": True, "enable_d": False},
+            "No I": {"P": 1, "I": 0, "D": 0, "enable_p": True, "enable_i": False, "enable_d": False}
+        }
+
+        # Apply the selected preset
+        if preset in presets:
+            preset_values = presets[preset]
+            dpg.set_value(f"p_gain_{self.unique_id}", preset_values["P"])
+            dpg.set_value(f"i_gain_{self.unique_id}", preset_values["I"])
+            dpg.set_value(f"d_gain_{self.unique_id}", preset_values["D"])
+            dpg.set_value(f"enable_p_{self.unique_id}", preset_values["enable_p"])
+            dpg.set_value(f"enable_i_{self.unique_id}", preset_values["enable_i"])
+            dpg.set_value(f"enable_d_{self.unique_id}", preset_values["enable_d"])
+
+            # Update device with the preset values (if not in simulation)
+            if not self.simulation:
+                self.dev.set_proportional_gain(preset_values["P"])
+                self.dev.set_integral_gain(preset_values["I"])
+                self.dev.set_derivative_gain(preset_values["D"])
+                self.dev.enable_proportional(preset_values["enable_p"])
+                self.dev.enable_integral(preset_values["enable_i"])
+                self.dev.enable_derivative(preset_values["enable_d"])
+
+            print(f"Applied PID Preset: {preset}")
 
     def create_stabilize_controls(self):
         """
@@ -375,6 +355,7 @@ class GUISIM960:
                     with dpg.plot_axis(dpg.mvYAxis, label="Input Voltage (V)", tag=y_axis_tag):
                         dpg.add_line_series([], [], label="Measurement Input", tag=f"measurement_series_input_{self.unique_id}")
 
+
                 # Output Voltage Plot
                 with dpg.plot(label="Output Voltage", height=200, width=400):
                     x_axis_tag = f"output_x_axis_{self.unique_id}"
@@ -383,7 +364,7 @@ class GUISIM960:
                     with dpg.plot_axis(dpg.mvYAxis, label="Output Voltage (V)", tag=y_axis_tag):
                         dpg.add_line_series([], [], label="Output Voltage", tag=f"measurement_series_output_{self.unique_id}")
 
-
+        self.dev.measurement_observable.add_observer(self.on_measurement_update_wrapper)
 
     def cb_update_stabilize_param(self, sender, app_data):
         """
@@ -601,48 +582,50 @@ class GUISIM960:
         """
         Create controls for reading the measured input or output.
         """
-        with dpg.group(horizontal=False, tag=f"monitor_controls_{self.unique_id}", width=250):
+        with dpg.group(horizontal=False, tag=f"monitor_controls_{self.unique_id}"):
             dpg.add_text("Monitoring")
             # We'll show measure input or output
             dpg.add_button(label="Update Readings", callback=self.cb_update_measurement)
-            dpg.add_text("Measure Input:", tag=f"measure_input_{self.unique_id}")
+            dpg.add_text("Measure Input:", tag=f"input_voltage_{self.unique_id}")
             dpg.add_text("Output Voltage:", tag=f"output_voltage_{self.unique_id}")
-            dpg.add_button(label="Start/Stop Continuous Read", callback=self.cb_toggle_continuous_read)
+            dpg.add_button(label="Reset Graphs", callback=self.reset_graphs)
 
             dpg.add_text("Output Limits")
-            dpg.add_input_float(
-                label="Upper Limit [V]",
-                default_value=self.dev.get_upper_limit(),  # Fetch initial value from device
-                callback=self.cb_set_upper_limit,
-                tag=f"upper_limit_{self.unique_id}",
-                format="%.3f"
-            )
-            dpg.add_button(
-                label="Set Upper",
-                callback=self.cb_apply_upper_limit
-            )
+            dpg.add_input_float(label="Upper Lim", default_value=self.dev.get_upper_limit(),  # Fetch initial value from device
+                callback=self.cb_set_upper_limit, tag=f"upper_limit_{self.unique_id}", format="%.3f",width=100)
+            dpg.add_button(label="Set Upper", callback=self.cb_apply_upper_limit)
+            dpg.add_input_float(label="Lower Lim", default_value=self.dev.get_lower_limit(),  # Fetch initial value from device
+                callback=self.cb_set_lower_limit, tag=f"lower_limit_{self.unique_id}", format="%.3f",width=100)
+            dpg.add_button(label="Set Lower", callback=self.cb_apply_lower_limit)
+            dpg.add_button(label="Get Limits", callback=self.cb_get_limits)
+            dpg.add_input_float(label="Unwind Th", default_value=self.dev.unwind_th,  # Fetch initial value from device
+                                callback=self.cb_update_unwind_th, tag=f"unwind_th_{self.unique_id}", format="%.3f", width=100)
+            # Preset selection combo
+            with dpg.group(horizontal=False):
+                dpg.add_combo(
+                    label="PID Preset",
+                    items=["CW", "Pulsed", "No I"],
+                    callback=self.cb_apply_pid_preset,
+                    tag=f"pid_preset_{self.unique_id}",
+                    width=100
+                )
 
-            dpg.add_input_float(
-                label="Lower Limit [V]",
-                default_value=self.dev.get_lower_limit(),  # Fetch initial value from device
-                callback=self.cb_set_lower_limit,
-                tag=f"lower_limit_{self.unique_id}",
-                format="%.3f"
-            )
-            dpg.add_button(
-                label="Set Lower",
-                callback=self.cb_apply_lower_limit
-            )
+    def cb_update_unwind_th(self, sender, app_data):
+        """
+        Callback to update the upper threshold.
 
-            # Button to fetch current limits
-            dpg.add_button(
-                label="Get Limits",
-                callback=self.cb_get_limits
-            )
+        :param sender: The DPG sender ID.
+        :param app_data: The new value of the input field.
+        """
+        print(f"Upper threshold updated to: {app_data}")
+        self.dev.unwind_th = app_data  # Directly update the device threshold
 
     def cb_set_upper_limit(self, sender, app_data):
         """Callback to set the new upper limit."""
-        self.upper_limit = float(dpg.get_value(sender))
+        if self.simulation:
+            print(f'cannot set limits in simulation mode, setting value would be: {float(dpg.get_value(sender))}')
+        else:
+            self.upper_limit = float(dpg.get_value(sender))
 
     def cb_apply_upper_limit(self):
         """Apply the new upper limit to the device."""
@@ -657,7 +640,10 @@ class GUISIM960:
 
     def cb_set_lower_limit(self, sender, app_data):
         """Callback to set the new lower limit."""
-        self.lower_limit = float(dpg.get_value(sender))
+        if self.simulation:
+            print(f'cannot set limits in simulation mode, setting value would be: {float(dpg.get_value(sender))}')
+        else:
+            self.lower_limit = float(dpg.get_value(sender))
 
     def cb_apply_lower_limit(self):
         """Apply the new lower limit to the device."""
@@ -682,137 +668,6 @@ class GUISIM960:
             print(f"Current Limits: Upper = {upper:.3f} V, Lower = {lower:.3f} V")
         except Exception as e:
             print(f"Error fetching limits: {e}")
-
-    def cb_toggle_continuous_read(self):
-        """
-        Toggle continuous reading of measurement for the SRS device.
-        Similar logic to the Arduino version: check loop, toggle active flag,
-        and schedule or cancel the background task.
-        """
-
-        # 1) Check if the background loop exists
-        if not self.background_loop:
-            print("Error: No background loop. Cannot schedule continuous read.")
-            return
-
-        # 2) If continuous reading is already active, stop it
-        if self.continuous_read_active:
-            self.continuous_read_active = False
-            print("Stopping continuous read...")
-
-        # 3) Otherwise, start continuous reading
-        else:
-            self.continuous_read_active = True
-            print("Starting continuous read...")
-
-            # 4) Schedule the _continuous_read_task on the background loop
-            # Option A: If your background_loop is an asyncio loop in another thread
-            # you can do run_coroutine_threadsafe():
-            asyncio.run_coroutine_threadsafe(self._continuous_read_task(), self.background_loop)
-
-            # OR Option B: If you're *inside* the same thread running an asyncio loop:
-            # self.background_loop.create_task(self._continuous_read_task())
-
-    async def _continuous_read_task(self):
-        """
-        Continuously reads the device measurement once per second and prints the result.
-        """
-        time_values = []
-        measurement_inputs = []
-        output_voltages = []
-        start_time = time.time()
-        v_pi = 2.5
-
-        while self.continuous_read_active:
-            try:
-                # In real code, check for self.simulation or device read:
-                if not self.simulation:
-                    current_time = time.time() - start_time
-                    output_voltage = self.dev.read_output_voltage()
-                    measurement_input  = self.dev.read_measure_input()
-
-                    time_values.append(current_time)
-                    measurement_inputs.append(measurement_input)
-                    output_voltages.append(output_voltage)
-
-                    # Limit the data to avoid memory overflow (e.g., keep the last 1000 points)
-                    if len(time_values) > 1000:
-                        time_values.pop(0)
-                        measurement_inputs.pop(0)
-                        output_voltages.pop(0)
-
-                    # Update the graph
-                    if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
-                        dpg.set_value(f"measurement_series_input_{self.unique_id}", [time_values, measurement_inputs])
-                        x_axis_tag = f"input_x_axis_{self.unique_id}"
-                        y_axis_tag = f"input_y_axis_{self.unique_id}"
-                        dpg.fit_axis_data(x_axis_tag)
-                        dpg.fit_axis_data(y_axis_tag)
-
-                    if dpg.does_item_exist(f"measurement_series_output_{self.unique_id}"):
-                        dpg.set_value(f"measurement_series_output_{self.unique_id}", [time_values, output_voltages])
-                        x_axis_tag = f"output_x_axis_{self.unique_id}"
-                        y_axis_tag = f"output_y_axis_{self.unique_id}"
-                        dpg.fit_axis_data(x_axis_tag)
-                        dpg.fit_axis_data(y_axis_tag)
-
-
-                    # Update GUI display with current measurement values
-                    dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {measurement_input:.5f} V")
-                    dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {output_voltage:.5f} V")
-
-                    if abs(output_voltage) > 10:
-                        print('SRS is not stable.')
-                        sign = 1 if output_voltage > 0 else -1
-                        offset = v_pi * 4 * sign
-                        print(f"jumping to {output_voltage + offset:.3f}")
-                        self.dev.set_manual_output(output_voltage + offset)
-                        self.dev.set_output_mode(True)
-
-                        print(f"val = {self.dev.read_output_voltage()}")
-                        self.dev.set_manual_output(output_voltage + offset)
-                        await asyncio.sleep(0.5)
-                        self.dev.set_manual_output(output_voltage + offset)
-                        print(f"val = {self.dev.read_output_voltage()}")
-                        await asyncio.sleep(1.0)
-                        self.dev.set_output_mode(False)
-                        # self.dev.mf.flush_output()
-                        self.dev.is_stable = False
-                        self.dev.last_stable_timestamp = datetime.now()
-                    else:
-                        if not self.dev.is_stable and datetime.now() > self.dev.last_stable_timestamp + timedelta(seconds=self.dev.stability_recovery_time_seconds):
-                            print('SRS is not stable. Trying to recover...')
-                            if np.isclose(self.dev.read_setpoint(), self.dev.read_setpoint(), self.dev.stability_tolerance):
-                                print('SRS is stable.')
-                                self.dev.is_stable = True
-                else:
-                    # In simulation mode, mock data
-                    current_time = time.time() - start_time
-                    simulated_input = np.sin(current_time)  # Example: sine wave data
-                    simulated_output = np.cos(current_time)  # Example: cosine wave data
-
-                    time_values.append(current_time)
-                    measurement_inputs.append(simulated_input)
-                    output_voltages.append(simulated_output)
-
-                    if len(time_values) > 1000:
-                        time_values.pop(0)
-                        measurement_inputs.pop(0)
-                        output_voltages.pop(0)
-
-                    if dpg.does_item_exist(f"measurement_series_input_{self.unique_id}"):
-                        dpg.set_value(f"measurement_series_input_{self.unique_id}", [time_values, measurement_inputs])
-
-                    if dpg.does_item_exist(f"measurement_series_output_{self.unique_id}"):
-                        dpg.set_value(f"measurement_series_output_{self.unique_id}", [time_values, output_voltages])
-
-            except Exception as e:
-                # Handle errors gracefully
-                dpg.set_value(f"measure_input_{self.unique_id}", f"Error reading input: {e}")
-                break
-
-            # Sleep for 1 second in the asyncio world
-            await asyncio.sleep(1.0)
 
     def cb_jump_to_zero(self):
         """
@@ -890,15 +745,17 @@ class GUISIM960:
         Moves the output by the amount specified in the 'Step for Max Extinction' float input.
         """
         # Read the current output voltage
-        meas_output = self.dev.read_output_voltage()
+        with self.lock:
+            meas_output = self.dev.read_output_voltage()
 
         # Retrieve the user-entered step size
         step_value = dpg.get_value(f"goto_step_{self.unique_id}")
 
         # Now move output by step_value
-        self.dev.set_manual_output(meas_output + step_value)
+        with self.lock:
+            self.dev.set_manual_output(meas_output + step_value)
 
-        self.dev.set_output_mode(True)
+            self.dev.set_output_mode(True)
         dpg.set_value(f"output_mode_{self.unique_id}", True)
 
     def cb_set_output_mode(self, sender, app_data):
@@ -909,11 +766,13 @@ class GUISIM960:
         manual = (mode_str == "Manual")
 
         if manual: # set manual output to the PID value
-            meas_output = self.dev.read_output_voltage()
-            self.dev.set_manual_output(meas_output)
+            with self.lock:
+                meas_output = self.dev.read_output_voltage()
+                self.dev.set_manual_output(meas_output)
 
         if not self.simulation:
-            self.dev.set_output_mode(manual)
+            with self.lock:
+                self.dev.set_output_mode(manual)
 
 
     def cb_set_manual_output(self, sender, app_data):
@@ -922,7 +781,8 @@ class GUISIM960:
         """
         new_val = dpg.get_value(sender)
         if not self.simulation:
-            self.dev.set_manual_output(new_val)
+            with self.lock:
+                self.dev.set_manual_output(new_val)
 
     def cb_set_output_offset(self, sender, app_data):
         """
@@ -930,23 +790,29 @@ class GUISIM960:
         """
         new_val = round(dpg.get_value(sender),3)
         if not self.simulation:
-            self.dev.set_output_offset(new_val)
+            with self.lock:
+                self.dev.set_output_offset(new_val)
 
     def cb_update_measurement(self):
         """
         Read the measure input and output from the device and update the labels.
         """
-        if not self.simulation:
-            meas_input = self.dev.read_measure_input()
-            meas_output = self.dev.read_output_voltage()
-            middle = self.dev.get_output_offset()
-            print(f"Offset = {middle}")
-            dpg.set_value(f"measure_input_{self.unique_id}", f"Measure Input: {meas_input:.5f} V")
-            dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {meas_output:.5f} V")
-        else:
-            # In simulation, just display dummy values
-            dpg.set_value(f"measure_input_{self.unique_id}", "Measure Input: 123.456 (sim)")
-            dpg.set_value(f"output_voltage_{self.unique_id}", "Output Voltage: 3.333 (sim)")
+        try:
+            with self.lock:  # Ensure thread-safe access
+                if not self.simulation:
+                    meas_input = self.dev.read_measure_input()
+                    meas_output = self.dev.read_output_voltage()
+                    middle = self.dev.get_output_offset()
+                    print(f"Offset = {middle}")
+
+                    dpg.set_value(f"input_voltage_{self.unique_id}", f"Measure Input: {meas_input:.5f} V")
+                    dpg.set_value(f"output_voltage_{self.unique_id}", f"Output Voltage: {meas_output:.5f} V")
+                else:
+                    # In simulation, just display dummy values
+                    dpg.set_value(f"input_voltage_{self.unique_id}", "Measure Input: 123.456 (sim)")
+                    dpg.set_value(f"output_voltage_{self.unique_id}", "Output Voltage: 3.333 (sim)")
+        except Exception as e:
+            print(f"Error during measurement update: {e}")
 
     def toggle_gui_collapse(self):
         """
@@ -1030,4 +896,23 @@ class GUISIM960:
         """
         dpg.show_item(self.win_tag)
 
+    def on_measurement_update(self,is_input:bool, time_values: List[float],measurement_values: List[float]):
+        dpg.set_value(f"measurement_series_{'input' if is_input else 'output'}_{self.unique_id}",[time_values, measurement_values])
+        x_axis_tag = f"{'input' if is_input else 'output'}_x_axis_{self.unique_id}"
+        y_axis_tag = f"{'input' if is_input else 'output'}_y_axis_{self.unique_id}"
+        dpg.fit_axis_data(x_axis_tag)
+        dpg.fit_axis_data(y_axis_tag)
+        dpg.set_value(f"{'input' if is_input else 'output'}_voltage_{self.unique_id}", f"Measure {'input' if is_input else 'output'}: {measurement_values[-1]:.5f} V")
 
+    def on_measurement_update_wrapper(self, data: List[List[float]] ):
+        time_values: List[float] = data[0]
+        input_values: List[float] = data[1]
+        output_values: List[float] = data[2]
+        self.on_measurement_update(True,time_values,input_values)
+        self.on_measurement_update(False, time_values, output_values)
+
+    def reset_graphs(self):
+       self.dev.time_values = []
+       self.dev.input_values = []
+       self.dev.output_values = []
+       self.dev.measurement_observable.set([[],[],[]])

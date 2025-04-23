@@ -1,6 +1,6 @@
 from HW_wrapper import SRSsim900, SRSsim960
 
-mainframe_port = "COM6"
+mainframe_port = "COM10"
 temp_mainframe = SRSsim900(mainframe_port)
 temp_mainframe.connect()
 

@@ -11,15 +11,18 @@ from .SmarAct.smaract_stream_manager import StreamManager
 from .wrapper_mattise import SirahMatisse
 from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
 from .Wrapper_KDC101 import MotorStage
+from .Wrapper_MFF_101 import FilterFlipperController
+from .Arduino.arduino_wrapper import ArduinoController
 from .SRS_PID.wrapper_sim960_pid import SRSsim960
 from .SRS_PID.wrapper_sim900_mainframe import SRSsim900
 from .NovatechDDS.wrapper_novatech_dds import NovatechDDS426A
-from .Arduino.arduino_wrapper import ArduinoController
+from .wrapper_ni_daq import NI_DAQ_Controller
 
 
 __all__ = [
     "AttoDry800",
     "ALR3206T",
+    "ArduinoController",
     "RS_SGS100a",
     "smaractMCS2",
     "Zelux",
@@ -36,8 +39,12 @@ __all__ = [
     'SirahMatisse',
     'Keysight33500B',
     'ConnectorMode',
+    'MotorStage',
+    'FilterFlipperController'
+    'ConnectorMode',
     'SRSsim960',
     'SRSsim900',
     'NovatechDDS426A',
-    'ArduinoController'
+    'ArduinoController',
+    'NI_DAQ_Controller'
 ]

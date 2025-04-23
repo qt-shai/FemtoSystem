@@ -45,11 +45,16 @@ packages = [
     "rohdeschwarz",
     "qm-qua",
     "qualang-tools",
+    "moku",
+    "zeroconf",
+    "nidaqmx",
+    "qm_saas",
     "C:\\SmarAct\\MCS2\\SDK\\Python\\packages\\smaract.ctl-1.4.3.zip",
     "C:\\SmarAct\\MCS2\\SDK\\Python\\packages\\smaract.hsdr-1.0.0.zip",
     "C:\\SmarAct\\MCS2\\SDK\\Python\\packages\\smaract.si-2.1.6.zip",
     os.path.join(install_path,
         "ExampleZeluxCam\\Scientific Camera Interfaces\\SDK\\Python Toolkit\\thorlabs_tsi_camera_python_sdk_package.zip".lstrip("\\")),
+    "pywin32",
 ]
 
 b_install = True

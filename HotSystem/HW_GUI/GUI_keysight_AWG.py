@@ -42,6 +42,7 @@ class GUIKeysight33500B:
             f"column_offset_{self.unique_id}",
             f"column_duty_cycle_{self.unique_id}",
             f"column_phase_{self.unique_id}",
+            f"column_phase_{self.unique_id}",
             f"column_output_{self.unique_id}",
         ]
 
@@ -220,7 +221,7 @@ class GUIKeysight33500B:
             self.dev.set_frequency(frequency)
             print(f"Frequency set to {frequency} Hz")
         except ValueError as e:
-            print(f"Error: {e}")
+            print(f"Error in keysight GUI: {e}")
 
     def btn_set_amplitude(self):
         """
@@ -247,7 +248,7 @@ class GUIKeysight33500B:
             self.dev.set_offset(offset)
             print(f"Offset set to {offset} V")
         except ValueError as e:
-            print(f"Error: {e}")
+            print(f"Error in keysight set offset: {e}")
 
     def btn_set_duty_cycle(self):
         """

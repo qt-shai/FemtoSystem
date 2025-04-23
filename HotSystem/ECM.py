@@ -57,9 +57,9 @@ except ImportError:
     import visa
 
 # smaract
-import smaract.si as si
+#import smaract.si as si
 import smaract.ctl as ctl
-import smaract.hsdr as hsdr
+#import smaract.hsdr as hsdr
 
 #qua
 from qm import QuantumMachinesManager

@@ -1,5 +1,6 @@
 import logging
-from typing import List
+import threading
+from typing import List, Optional
 
 from Utils import SerialDevice, ObservableField
 
@@ -29,6 +30,8 @@ class ArduinoController(SerialDevice):
         self.time_interval_us: ObservableField[int] = ObservableField(1000)  # Default in microseconds
         self.pulse_width_us = ObservableField(1000)
         self.pulse_spacing_us = ObservableField(5000)
+        self.last_measured_value: Optional[float] = None
+        self.lock = threading.Lock()
 
     def start_measurement(self) -> None:
         """
@@ -52,8 +55,6 @@ class ArduinoController(SerialDevice):
         except Exception as e:
             logging.error(f"error {e}. this is akum. Reconnecting")
             self.reconnect()
-
-
 
     def read_measurement(self) -> None:
         """

@@ -2,9 +2,6 @@ from typing import Optional
 import pyvisa
 
 
-
-
-
 class SerialDevice:
     """
     Base class to manage communication with devices over serial or TCP/IP using pyvisa, with support for simulation.
@@ -63,7 +60,11 @@ class SerialDevice:
         try:
             if self.rm is None:
                 print("Initializing resource manager")
-                self.rm = pyvisa.ResourceManager()
+                # Use the pyvisa-py backend for serial devices (e.g., Arduino) because it handles COM ports better.
+                if self.address.upper().startswith("COM") or self.address.upper().startswith("ASRL"):
+                    self.rm = pyvisa.ResourceManager('@py')
+                else:
+                    self.rm = pyvisa.ResourceManager()
                 print("Resource Manager initialized.")
 
             if self._connection is None:
@@ -93,27 +94,47 @@ class SerialDevice:
         """
         try:
             if 'TCPIP' in self.address:
-                # Handle TCP/IP connections
-                self._connection = self.rm.open_resource(
-                    self.address,
-                    timeout=self.timeout,
-                    **({"read_termination": self.read_terminator, "write_termination": self.write_terminator}
-                       if "SOCKET" not in self.address else {})
-                )
+                if "SOCKET" not in self.address:
+                    self._connection = self.rm.open_resource(
+                        self.address,
+                        timeout=self.timeout,
+                        read_termination=self.read_terminator,
+                        write_termination=self.write_terminator,
+                    )
+                else:
+                    self._connection = self.rm.open_resource(
+                        self.address,
+                        timeout=self.timeout,
+                    )
                 print(f"TCP/IP connection opened on {self.address}.")
             else:
                 # Handle Serial connections
-                serial_address = (f"ASRL{self.address[3:]}::INSTR"
-                                  if self.address.upper().startswith("COM")
-                                  else self.address)
-                self._connection = self.rm.open_resource(
-                    serial_address,
-                    baud_rate=self.baudrate,
-                    timeout=self.timeout,
-                    read_termination=self.read_terminator,
-                    write_termination=self.write_terminator,
-                )
-                print(f"Serial connection opened on {serial_address}.")
+                try:
+                    # Attempt normal serial connection
+                    self._connection = self.rm.open_resource(
+                        self.address,
+                        baud_rate=self.baudrate,
+                        timeout=self.timeout,
+                        read_termination=self.read_terminator,
+                        write_termination=self.write_terminator,
+                    )
+                    print(f"Serial connection opened on {self.address}.")
+                except Exception as e:
+                    print(f"Failed to open connection on {self.address}: {e}")
+                    # Fallback: convert COM port to ASRL format.
+                    serial_address = (
+                        f"ASRL{self.address[3:]}::INSTR"
+                        if self.address.upper().startswith("COM")
+                        else self.address
+                    )
+                    self._connection = self.rm.open_resource(
+                        serial_address,
+                        baud_rate=self.baudrate,
+                        timeout=self.timeout,
+                        read_termination=self.read_terminator,
+                        write_termination=self.write_terminator,
+                    )
+                    print(f"Serial connection opened on {serial_address}.")
         except Exception as e:
             print(f"Error initializing connection: {e}")
             self._connection = None

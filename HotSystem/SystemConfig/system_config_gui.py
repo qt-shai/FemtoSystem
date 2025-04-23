@@ -4,6 +4,11 @@ import pdb
 import xml.etree.ElementTree as ET
 from typing import List, Optional, Dict
 # from numpy.array_api import trunc
+# import sys
+# # Add the project root (C:\WC\HotSystem) to sys.path
+# project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# if project_root not in sys.path:
+#     sys.path.append(project_root)
 
 from Utils import remove_overlap_from_string, get_square_matrix_size, scan_com_ports
 import dearpygui.dearpygui as dpg
@@ -12,7 +17,7 @@ import HW_wrapper.Wrapper_Picomotor as Picomotor
 import HW_wrapper.Wrapper_Zelux as ZeluxCamera
 import HW_wrapper.SRS_PID.wrapper_sim960_pid as wrapper_sim960_pid
 import HW_wrapper.SRS_PID.wrapper_sim900_mainframe as wrapper_sim900_mainframe
-from SystemConfig import SystemConfig, find_ethernet_device, InstrumentsAddress
+from SystemConfig import (SystemConfig, find_ethernet_device, InstrumentsAddress, connect_thorlabs_motor_device_by_serial,get_thorlabs_motor_serial_nums)
 from SystemConfig import SystemType, Instruments, Device, load_system_from_xml
 
 # Initialize the devices list and selection dictionary
@@ -78,6 +83,11 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                     dev.misc = InstrumentsAddress.opx_femto_system_cluster.value
                 elif dev.ip_address == InstrumentsAddress.opx_atto_system_ip.value:
                     dev.misc = InstrumentsAddress.opx_atto_system_cluster.value
+    if (instrument == Instruments.KDC_101) or (instrument == Instruments.MFF_101):
+        #get_thorlabs_motor_serial_nums()
+        devices = connect_thorlabs_motor_device_by_serial(instrument)
+    if not isinstance(devices, list) and devices:
+        devices = [devices]
 
         if not isinstance(devices, list) and devices:
             devices = [devices]
@@ -92,9 +102,13 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
         # ports = scan_com_ports()
         mainframe_port = next((port for port, description in ports.items() if "sim900" in description.lower()),None)
         sim960_list = []
+
         if mainframe_port:
-            temp_mainframe = wrapper_sim900_mainframe.SRSsim900(mainframe_port)
-            temp_mainframe.connect()
+            try:
+                temp_mainframe = wrapper_sim900_mainframe.SRSsim900(mainframe_port)
+                temp_mainframe.connect()
+            except Exception as e:
+                print(f"failed mainframe. Error: {e}")
 
             # Loop over channels 1 to 8 and check for connected modules
             try:
@@ -106,6 +120,7 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                     temp_mainframe.disconnect()
             except Exception as e:
                 print(f"failed to detect channels in SRS900 mainframe. Error: {e}")
+
     elif instrument == Instruments.KEYSIGHT_AWG:
         ip_list = [InstrumentsAddress.KEYSIGHT_AWG_33522B.value, InstrumentsAddress.KEYSIGHT_AWG_33600A.value]
         devices = find_device_list_from_ip(instrument, ip_list)
@@ -139,7 +154,8 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
     elif instrument == Instruments.OPX:
         ip_list = [
             InstrumentsAddress.opx_hot_system_ip.value,
-            InstrumentsAddress.opx_femto_system_ip.value
+            InstrumentsAddress.opx_femto_system_ip.value,
+            InstrumentsAddress.opx_atto_system_ip.value
         ]
         devices = find_device_list_from_ip(instrument, ip_list)
 
@@ -149,6 +165,8 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                     dev.misc = "Cluster_1"
                 elif dev.ip_address == "192.168.101.61":
                     dev.misc = "Cluster_2"
+                elif dev.ip_address == "192.168.101.157":
+                    dev.misc = "Cluster_3"
 
     # Return as a list or None
     if not isinstance(devices, list) and devices:

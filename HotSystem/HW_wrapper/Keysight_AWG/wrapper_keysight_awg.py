@@ -19,6 +19,7 @@ class Keysight33500B(SerialDevice):
         :param simulation: If True, operate in simulation mode (default is False).
         """
         super().__init__(address, baudrate, timeout, simulation)
+        self.frequency = None
 
     def connect(self):
         """
@@ -59,7 +60,11 @@ class Keysight33500B(SerialDevice):
             raise ValueError("Frequency must be between 20 Hz and 20 MHz.")
         command = f"source{channel}:FREQ {frequency}"
         self._send_command(command)
+        self.frequency = frequency
         time.sleep(0.1)
+
+    def get_frequency(self):
+        return self.frequency
 
     def set_amplitude(self, amplitude: float, channel: int = 1):
         """

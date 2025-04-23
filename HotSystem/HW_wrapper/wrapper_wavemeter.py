@@ -1,4 +1,7 @@
+import threading
 from typing import Optional
+
+import numpy as np
 from pylablib.devices.HighFinesse import wlm
 
 
@@ -17,6 +20,9 @@ class HighFinesseWLM:
         self.index = index
         self.simulation = simulation
         self.dev: Optional[wlm.WLM] = None
+        self.measurement_times:Optional[list[float]] = []
+        self.measured_wavelength: Optional[list[float]] = []
+        self.lock = threading.Lock()
 
     def __del__(self):
         """
@@ -90,7 +96,7 @@ class HighFinesseWLM:
         :return: The current wavelength in nm, or None if simulation/not connected.
         """
         if self.simulation or self.dev is None:
-            return None
+            return (np.random.uniform(10,1000)*1e6+4.77e14)
         return self.dev.get_frequency()
 
     def set_exposure(self, exposure_time: int, channel: int = 0):

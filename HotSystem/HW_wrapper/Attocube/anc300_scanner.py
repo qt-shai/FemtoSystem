@@ -56,7 +56,8 @@ class Anc300Wrapper(Motor):
             try:
                 self.device = Attocube.ANC300(self.conn)
                 # Try to get device info to confirm connection
-                device_info = self.device.get_device_info()
+                with self._lock:
+                    device_info = self.device.get_device_info()
                 print(f"Connected to ANC300: Serial={device_info.serial}, Version={device_info.version}")
                 self._connected = True
             except Exception as e:
@@ -72,7 +73,8 @@ class Anc300Wrapper(Motor):
         else:
             try:
                 if self.device is not None:
-                    self.device.close()
+                    with self._lock:
+                        self.device.close()
                 self._connected = False
                 print("Successfully disconnected from the ANC300.")
             except Exception as e:
@@ -87,8 +89,9 @@ class Anc300Wrapper(Motor):
         else:
             try:
                 # Try to get device info to confirm connection
-                device_info = self.device.get_device_info()
-                return True
+                with self._lock:
+                    device_info = self.device.get_device_info()
+                return device_info is not None
             except Exception:
                 return False
 
@@ -98,7 +101,8 @@ class Anc300Wrapper(Motor):
             self._simulate_action("stop all axes")
         else:
             for channel in self.channels:
-                self.device.stop(channel)  # channel indices start from 1 in pylablib
+                with self._lock:
+                    self.device.stop(channel)  # channel indices start from 1 in pylablib
             print("All axes stopped.")
 
     def move_to_home(self, channel: int) -> None:
@@ -138,10 +142,12 @@ class Anc300Wrapper(Motor):
         """
         if self.simulation:
             self._simulate_action(f"set zero position for channel {channel}")
-            self.axes_positions[channel].set( 0.0)
+            with self._lock:
+                self.axes_positions[channel].set( 0.0)
         else:
             # There is no direct method to set the position to zero in hardware, so we adjust our internal tracking
-            self.axes_positions[channel].set( 0.0)
+            with self._lock:
+                self.axes_positions[channel].set( 0.0)
             print(f"Channel {channel} position set to zero.")
 
     def get_status(self, channel: int) -> str:
@@ -154,8 +160,8 @@ class Anc300Wrapper(Motor):
         self.verify_channel(channel)
         if self.simulation:
             return "Idle"
-
-        is_moving = self.device.is_moving(channel)
+        with self._lock:
+            is_moving = self.device.is_moving(channel)
         return "Moving" if is_moving else "Idle"
 
     def readInpos(self, channel: int) -> bool:
@@ -168,7 +174,8 @@ class Anc300Wrapper(Motor):
         self.verify_channel(channel)
         if self.simulation:
             return True
-        return not self.device.is_moving(channel)
+        with self._lock:
+            return not self.device.is_moving(channel)
 
     def generatePulse(self, channel: int) -> None:
         """
@@ -202,7 +209,8 @@ class Anc300Wrapper(Motor):
             if channel not in self.channels:
                 raise ValueError(f"Channel {channel} does not exist.")
             try:
-                self.device.set_offset(channel, voltage)
+                with self._lock:
+                    self.device.set_offset(channel, voltage)
             except Exception:
                 print(f"Failed to set offset voltage for channel {channel}.")
 
@@ -218,7 +226,9 @@ class Anc300Wrapper(Motor):
             return 0.0
 
         try:
-            return self.device.get_offset(channel)
+            with self._lock:
+                result = self.device.get_offset(channel)
+            return result
         except Exception:
             print(f"Failed to get offset voltage for channel {channel}.")
             return -1.0
@@ -236,7 +246,8 @@ class Anc300Wrapper(Motor):
                 self._simulate_action(f"set position for channel {channel} to {position}")
                 self.axes_positions[channel].set( position)
             if not self.simulation and self.device is not None:
-                self.device.set_offset(channel, voltage)
+                with self._lock:
+                    self.device.set_offset(channel, voltage)
         except OSError as e:
             print(f"Error setting position for channel {channel}: {e}")
         except Exception as e:
@@ -251,9 +262,10 @@ class Anc300Wrapper(Motor):
             return self.axes_positions[channel].get()
         try:
             if self.device is not None:
-                voltage = self.device.get_offset(channel)
-                position = self._convert_units_to_meters(voltage)
-                self.axes_positions[channel].set(position)
+                with self._lock:
+                    voltage = self.device.get_output(channel)
+                    position = self._convert_units_to_meters(voltage)
+                    self.axes_positions[channel].set(position)
                 return position
         except Exception as e:
             print(f"Error getting position for channel {channel}: {e}")
@@ -307,8 +319,8 @@ class Anc300Wrapper(Motor):
         self.verify_channel(channel)
         if self.simulation:
             return
-        self.device.set_external_input_modes(channel, dcin, acin)
-
+        with self._lock:
+            self.device.set_external_input_modes(channel, dcin, acin)
 
     def get_external_input_modes(self, channel: int) -> Tuple[bool,bool]:
         """
@@ -320,7 +332,9 @@ class Anc300Wrapper(Motor):
         if self.simulation:
             return True,True
         if channel in self.channels:
-            return self.device.get_external_input_modes(channel)
+            with self._lock:
+                result = self.device.get_external_input_modes(channel)
+            return result
 
 
     def set_mode(self, channel: int, mode: ANC300Modes) -> None:
@@ -340,7 +354,8 @@ class Anc300Wrapper(Motor):
         if self.simulation:
             print(f"Simulating setting mode for channel {channel} to {mode.value}")
             return
-        self.device.set_mode(channel, mode.value)
+        with self._lock:
+            self.device.set_mode(channel, mode.value)
 
     def get_mode(self, channel: int) -> ANC300Modes:
         """
@@ -355,7 +370,8 @@ class Anc300Wrapper(Motor):
         if self.simulation:
             print(f"Simulating getting mode for channel {channel}")
             return ANC300Modes.GND  # Default simulated mode
-        mode_value = self.device.get_mode(channel)
+        with self._lock:
+            mode_value = self.device.get_mode(channel)
         try:
             return ANC300Modes(mode_value)
         except ValueError:
@@ -374,10 +390,11 @@ class Anc300Wrapper(Motor):
         self.verify_channel(channel)
         if self.simulation:
             print(f"Simulating getting mode for channel {channel}")
-            with self._lock():
+            with self._lock:
                 return self.axes_positions[channel].get()  # Default simulated mode
         try:
-            return self.device.get_output(channel)
+            with self._lock:
+                return self.device.get_output(channel)
         except ValueError:
             print(f"Unsupported output channel value '{channel}' returned for channel {channel}")
         except Exception as e:

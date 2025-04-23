@@ -1,7 +1,9 @@
 from typing import Optional
-
 from pylablib.devices import Sirah
 
+import tkinter as tk
+from tkinter import messagebox
+import time
 
 class SirahMatisse:
     """
@@ -20,11 +22,14 @@ class SirahMatisse:
         self.simulation = simulation
 
         self.scan_device = "Slow Piezo"
-        self.scan_range = 2000
+        self.scan_range = 9000
         self.scan_speed = 100.0
         self.num_scan_points = 100
         self.slow_piezo_to_mhz = 81500.0
         self.ref_cell_to_mhz = 81500.0
+        self.check_srs_stability = False
+        self.ple_waiting_time=0.2
+        self.last_warning_time = None
 
     def __del__(self):
         self.close()
@@ -296,55 +301,38 @@ class SirahMatisse:
             return
         return self.dev.get_slowpiezo_ctl_status()
 
-    def move_wavelength(self, scan_device, mhz_shift):
-        """
-        Move the wavelength by a specified shift in MHz.
-
-        :param scan_device: The scan device to use (0 for "Slow Piezo", 1 for "Ref Cell",
-                            or the corresponding string name).
-        :param mhz_shift: The desired shift in MHz.
-        """
+    def move_wavelength(self, channel, mhz_shift):
         if self.simulation:
-            print(f"Simulating move_wavelength with device: {scan_device}, MHz shift: {mhz_shift}")
+            print(f"Simulating move_wavelength with device: {self.scan_device}, MHz shift: {mhz_shift}")
             return
 
-        # Map integer input to device names
-        if scan_device == 0:
-            scan_device = "Slow Piezo"
-        elif scan_device == 1:
-            scan_device = "Ref Cell"
-
-        if scan_device == "Slow Piezo":
+        if self.scan_device == "Slow Piezo":
             position_shift = mhz_shift / self.slow_piezo_to_mhz
             self.set_slowpiezo_position(position_shift)
-        elif scan_device == "Ref Cell":
+        elif self.scan_device == "Ref Cell":
             position_shift = mhz_shift / self.ref_cell_to_mhz
             self.set_refcell_position(position_shift)
         else:
             raise ValueError("Invalid scan device. Choose 0, 1, 'Slow Piezo', or 'Ref Cell'.")
 
-    def get_wavelength_position(self, scan_device):
-        """
-        Get the current wavelength position in MHz based on the scan device.
+        if position_shift < 0.1 or position_shift > 0.7:
+            current_time = time.time()
+            if self.last_warning_time is None or current_time - self.last_warning_time > 300:
+                root = tk.Tk()
+                root.withdraw()  # Hide the root window
+                messagebox.showwarning("Warning", "Position shift is too close to the edge.")
+                root.destroy()
+                self.last_warning_time = current_time
 
-        :param scan_device: The scan device to use (0 for "Slow Piezo", 1 for "Ref Cell",
-                            or the corresponding string name).
-        :return: The current wavelength position in MHz.
-        """
+    def get_wavelength_position(self, scan_device):
         if self.simulation:
             print(f"Simulating get_wavelength_position for device: {scan_device}")
-            return 0.0  # Return a mock value for simulation
+            return np.random.uniform(10,1000)  # Return a mock value for simulation
 
-        # Map integer input to device names
-        if scan_device == 0:
-            scan_device = "Slow Piezo"
-        elif scan_device == 1:
-            scan_device = "Ref Cell"
-
-        if scan_device == "Slow Piezo":
+        if self.scan_device == "Slow Piezo":
             position = self.get_slowpiezo_position()
             return position * self.slow_piezo_to_mhz
-        elif scan_device == "Ref Cell":
+        elif self.scan_device == "Ref Cell":
             position = self.get_refcell_position()
             return position * self.ref_cell_to_mhz
         else:

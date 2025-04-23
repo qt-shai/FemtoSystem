@@ -13,12 +13,16 @@ import csv
 from tkinter import filedialog
 import numpy as np
 import pandas as pd
-from typing import Tuple, Union, List
+from abc import ABC
+from typing import Tuple, Union, List, Optional, Generic, Any, Callable, TypeVar
 from matplotlib import pyplot as plt
 import os
+import dearpygui.dearpygui as dpg
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 
+
+T = TypeVar('T')
 
 def load_scan_plane_calibration_data(file_path: str) -> np.ndarray:
     """
@@ -273,33 +277,40 @@ def get_square_matrix_size(num_items):
     size = math.ceil(math.sqrt(num_items))
     return size
 
-def open_file_dialog(initial_folder: str ="", title:str = "", filetypes=None) -> str:
-    """
-    Open a file dialog to select an XML file.
 
-    :param initial_folder: The initial folder path to open in the file dialog.
-    :param title: The title of the dialog.
-    :param filetypes: A tuple of file types to open in the dialog.
-    :return: The selected file path or None if no file is selected.
+def open_file_dialog(initial_folder: str = "", title: str = "", filetypes=None, select_folder: bool = False) -> str:
     """
+    Open a file dialog to select an XML file or a folder.
+
+    :param initial_folder: The initial folder path to open in the dialog.
+    :param title: The title of the dialog.
+    :param filetypes: A tuple of file types to open in the dialog (ignored if select_folder is True).
+    :param select_folder: If True, open a folder selection dialog instead of a file selection dialog.
+    :return: The selected file or folder path, or an empty string if nothing is selected.
+    """
+    import tkinter as tk
+    from tkinter import filedialog
+
     if filetypes is None:
         filetypes = [("All Files", "*.*")]
+
     root = tk.Tk()  # Create the root window
     root.withdraw()  # Hide the main window
-    file_path = filedialog.askopenfilename(
-        initialdir=initial_folder,  # Set the initial directory
-        title=title,
-        filetypes=filetypes
-    )  # Open a file dialog
 
-    if file_path:  # Check if a file was selected
-        print(f"Selected file: {file_path}")  # Log the selected file
+    if select_folder:
+        path = filedialog.askdirectory(initialdir=initial_folder, title=title)
     else:
-        print("No file selected")  # Log if no file was selected
+        path = filedialog.askopenfilename(initialdir=initial_folder, title=title, filetypes=filetypes)
+
+    if path:
+        print(f"Selected {'folder' if select_folder else 'file'}: {path}")
+    else:
+        print(f"No {'folder' if select_folder else 'file'} selected")
 
     root.destroy()  # Close the main window
 
-    return file_path
+    return path
+
 
 def remove_overlap_from_string(left_string: str, right_string: str) -> str:
     """
@@ -572,3 +583,211 @@ def find_parabola_minimum(a: float, b: float, c: float) -> Optional[float]:
         return None  # Parabola has a maximum, not a minimum
 
     return -b / (2.0 * a)
+
+def create_gaussian_vector(nx: int, center: float = 2, width: float = 4) -> np.ndarray:
+    """
+    Create a NumPy vector with Nx points, with a Gaussian centered at Nx/center and a width of Nx/width.
+
+    :param nx: Number of points in the vector.
+    :param center: Factor to determine the center of the Gaussian as Nx/center. Default is 2.
+    :param width: Factor to determine the width of the Gaussian as Nx/width. Default is 4.
+    :return: NumPy array containing the Gaussian vector.
+    """
+    if nx <= 0:
+        raise ValueError("Number of points (nx) must be a positive integer.")
+
+    x = np.linspace(0, nx - 1, nx)  # Create an array of Nx points
+    center_value = nx / center  # Gaussian center
+    width_value = nx / width  # Gaussian width (standard deviation)
+
+    gaussian = np.exp(-((x - center_value) ** 2) / (2 * (width_value ** 2)))  # Gaussian formula
+    return gaussian
+
+def create_counts_vector(vector_size: int) -> np.ndarray:
+    # Define the valid indices where 1 can appear:
+    valid_indices = list(range(0, 26)) + list(range(46, 72)) + list(range(71, 96))
+
+    # Initialize a 2D NumPy array of zeros (num_vectors rows, k columns)
+    counts = np.zeros((vector_size), dtype=int)
+    if np.random.rand() < 0.5:
+        # Pick one random valid index
+        i = np.random.choice(valid_indices)
+        counts[i] = 1
+    return counts
+
+def set_on_off_themes():
+    if not dpg.does_item_exist("OnTheme"):
+        with dpg.theme(tag="OnTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 180, 0))  # handle when pressed
+                # Optionally color the track:
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (50, 70, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (60, 80, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 90, 70))
+
+    # OFF Theme: keep the slider handle red in all states.
+    if not dpg.does_item_exist("OffTheme"):
+        with dpg.theme(tag="OffTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (180, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (70, 50, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))
+
+def reshape_and_pad_scan_counts(scan_counts: np.ndarray, Nx: int, Ny: int, Nz: int) -> np.ndarray:
+    """
+    Reshape and pad a partially filled 1D array into a 3D array with dimensions (Nx, Ny, Nz).
+
+    :param scan_counts: Flattened array of scan counts (partially filled).
+    :param Nx: Target size of the X-dimension.
+    :param Ny: Nominal size of the Y-dimension.
+    :param Nz: Target size of the Z-dimension.
+    :return: Reshaped and padded 3D array of scan counts.
+    """
+    # Flatten the input array to ensure compatibility
+    flattened_data = np.array(scan_counts).flatten()
+
+    # Calculate the total number of elements in a single XY slice
+    slice_size = Nx * Nz
+
+    # Calculate the total number of required elements for the full 3D array
+    total_required_elements = Nx * Ny * Nz
+
+    # Pad the flattened array to match the total required elements
+    if len(flattened_data) < total_required_elements:
+        padding_size = total_required_elements - len(flattened_data)
+        flattened_data = np.pad(flattened_data, (0, padding_size), constant_values=0)
+    elif len(flattened_data) > total_required_elements:
+        flattened_data = flattened_data[:total_required_elements]
+
+    # Reshape the padded array into the desired 3D shape
+    reshaped_data = flattened_data.reshape(Nx, Ny, Nz)
+
+    return reshaped_data
+
+def test_reshape_and_pad_scan_counts():
+    """Run a series of tests on the reshape_and_pad_scan_counts function."""
+    # Test case 1: Perfectly filled array
+    scan_counts = np.arange(50)  # 10x5x1
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 5, 1), f"Unexpected shape: {result.shape}"
+
+    # Test case 2: Incomplete array requiring padding
+    scan_counts = np.arange(48)  # 10x5x1 with padding needed
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 5, 1), f"Unexpected shape: {result.shape}"
+    assert result[-1, -1, -1] == 0, "Padding not applied correctly"
+
+    # Test case 3: Empty array
+    scan_counts = np.array([])  # No elements
+    Nx, Ny, Nz = 10, 5, 1
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 0, 1), f"Unexpected shape: {result.shape}"
+
+    # Test case 4: Single element array
+    scan_counts = np.array([42])  # One element
+    Nx, Ny, Nz = 2, 2, 2
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (2, 1, 2), f"Unexpected shape: {result.shape}"
+    assert result[0, 0, 0] == 42, "Element not placed correctly"
+
+    # Test case 5: Uneven elements
+    scan_counts = np.arange(23)  # Incomplete last slice
+    Nx, Ny, Nz = 3, 3, 3
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (3, 3, 3), f"Unexpected shape: {result.shape}"
+    assert result[-1, -1, -1] == 0, "Padding not applied correctly"
+
+    # Test case 6: Large array with multiple slices
+    scan_counts = np.arange(120)  # 10x6x2
+    Nx, Ny, Nz = 10, 6, 2
+    result = reshape_and_pad_scan_counts(scan_counts, Nx, Ny, Nz)
+    assert result.shape == (10, 6, 2), f"Unexpected shape: {result.shape}"
+
+    print("All tests passed!")
+
+
+import csv
+import os
+import matplotlib.pyplot as plt
+from typing import List, Tuple
+
+def generate_survey_csv(first_position: Tuple[float, float], dx: float, dy: float, nx: int, ny: int) -> List[Tuple[float, float]]:
+    """
+    Generate a CSV file containing survey points for an S-shaped scan and plot the trajectory.
+
+    The function computes survey points starting at 'first_position' with displacements 'dx' and 'dy'
+    over 'nx' columns and 'ny' rows. Points are sorted in a serpentine (S-shape) order for efficient scanning.
+    It then prompts the user for a file path using open_file_dialog, writes the points to the file,
+    and plots the resulting trajectory.
+
+    :param first_position: A tuple (x, y) representing the starting coordinates.
+    :param dx: Displacement in the x direction between adjacent points.
+    :param dy: Displacement in the y direction between adjacent rows.
+    :param nx: Number of points in the x direction (columns).
+    :param ny: Number of rows in the y direction.
+    :return: A list of (x, y) tuples representing the survey points.
+    """
+    try:
+        # Generate survey points in serpentine (S-shape) order.
+        points: List[Tuple[float, float]] = []
+        start_x, start_y = first_position
+        for row in range(ny):
+            row_points = []
+            for col in range(nx):
+                x = start_x + col * dx
+                y = start_y + row * dy
+                row_points.append((x, y))
+            # Reverse every other row for S-shape scanning
+            if row % 2 == 1:
+                row_points.reverse()
+            points.extend(row_points)
+
+        # Prompt user for a file path to save the CSV file using the existing open_file_dialog function.
+        folder_path = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")], select_folder=True)
+        if not folder_path:
+            print("No folder selected. Aborting CSV generation.")
+            return points
+        # Ensure the file name ends with .csv
+        file_path = os.path.join(folder_path, "survey_g2_point_map.csv")
+        if os.path.exists(file_path):
+            base = os.path.join(folder_path, "survey_g2_point_map")
+            ext = ".csv"
+            counter = 1
+            while os.path.exists(f"{base}_{counter:03d}{ext}"):
+                counter += 1
+            file_path = f"{base}_{counter:03d}{ext}"
+
+        # Write the survey points to the CSV file.
+        with open(file_path, mode='w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            for pt in points:
+                writer.writerow(pt)
+        print(f"CSV file successfully saved to: {file_path}")
+
+        # Plot the survey trajectory.
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        plt.figure()
+        plt.plot(xs, ys, marker='o', linestyle='-')
+        plt.title("Survey Trajectory (S-Shape Scan)")
+        plt.xlabel("X Position")
+        plt.ylabel("Y Position")
+        plt.grid(False)
+        plt.show()
+
+        return points
+
+    except Exception as e:
+        print(f"An error occurred during CSV generation: {e}")
+        return []
+
+
+# Run tests
+if __name__ == "__main__":
+    survey_points = generate_survey_csv((2371.1, 2367.1), -5, -5, 20, 20)
+

@@ -48,7 +48,7 @@ class GUIMotor:
         self.hw_devices = HW_devices()
 
         with dpg.window(tag=self.window_tag, label=f"{self.window_label}",
-                        no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
+                        no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=True):
             with dpg.group(horizontal=True):
                 if GUIMotorConfig.CREATE_INSTRUMENT_IMAGE in config_options:
                     self.create_instrument_image()

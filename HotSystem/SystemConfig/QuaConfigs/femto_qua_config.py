@@ -9,8 +9,14 @@ class FemtoQuaConfig(configs.QUAConfigBase):
         # Readout parameters
         self.signal_threshold = -500  # in ADC units with 20dB attenuation we measured 0.2V on the oscilloscope
         self.signal_threshold_2 = -350  # in ADC units with 20dB attenuation we measured 0.2V on the oscilloscope
-        self.signal_threshold_OPD = 1  # in voltage (with 20dB attenuation it was 0.1)
+        self.signal_threshold_OPD = 1 # in voltage (with 20dB attenuation it was 0.1)
         self.system_name = SystemType.FEMTO.value
+
+        # Delays
+        self.detection_delay = 100  # ns
+        self.detection2_delay = 100  # ns
+        self.mw_delay = 0  # ns
+        self.laser_delay = 116 # ns
 
     def get_controllers(self) -> Dict[str, Any]:
         return {
@@ -29,8 +35,8 @@ class FemtoQuaConfig(configs.QUAConfigBase):
                     10: {"shareable": False},  # pharos trigger
                 },
                 "analog_inputs": {
-                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False},  # 20db 0.2V electrical
-                    2: {"offset": 0.00979, "gain_db": -12, "shareable": False},  # 6db 1V -->~0.25V
+                    1: {"offset": 0.00979, "gain_db": 0, "shareable": False}, # 20db 0.2V electrical
+                    2: {"offset": 0.00979, "gain_db": -12, "shareable": False}, # 6db 1V -->~0.25V
                 },
                 # "digital_inputs": {
                 #     2: {'polarity': 'RISING', 'deadtime': 4, "threshold": self.signal_threshold_OPD, "shareable": False},  #4 to 16nsec,
@@ -53,14 +59,14 @@ class FemtoQuaConfig(configs.QUAConfigBase):
                     "Turn_ON": "laser_ON",
                 },
             },
-            "Detector_OPD": {  # actual analog
+            "Detector_OPD": { # actual analog
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
-                    # "marker": {
-                    #     "port": ("con1", 3),
-                    #     "delay": self.detection_delay,
-                    #     "buffer": 0,
-                    # },
+                    "marker": {
+                        "port": ("con1", 3),
+                        "delay": self.detection_delay,
+                        "buffer": 0,
+                    },
                 },
                 "operations": {
                     "readout": "readout_pulse",
@@ -78,14 +84,14 @@ class FemtoQuaConfig(configs.QUAConfigBase):
                 "smearing": 0,
             },
 
-            "Detector2_OPD": {  # actual analog
+            "Detector2_OPD": { # actual analog
                 "singleInput": {"port": ("con1", 1)},
                 "digitalInputs": {
-                    # "marker": {
-                    #     "port": ("con1", 4),
-                    #     "delay": self.detection_delay,
-                    #     "buffer": 0,
-                    # },
+                    "marker": {
+                        "port": ("con1", 4),
+                        "delay": self.detection2_delay,
+                        "buffer": 0,
+                    },
                 },
                 "operations": {
                     "readout": "readout_pulse",
@@ -99,7 +105,7 @@ class FemtoQuaConfig(configs.QUAConfigBase):
                     "derivativeThreshold": 1023,
                     "derivativePolarity": "below",
                 },
-                "time_of_flight": self.detection_delay,
+                "time_of_flight": self.detection2_delay,
                 "smearing": 0,
             },
 
@@ -125,7 +131,7 @@ class FemtoQuaConfig(configs.QUAConfigBase):
             #     "time_of_flight": self.detection_delay_OPD,
             #     "smearing": 0,
             # },
-
+            
             "SmaractTrigger": {  # Send trigger to Smaract to go to next point in motion stream
                 "digitalInputs": {  # for the OPX it is digital outputs
                     "marker": {  # marker is arbitrary name
@@ -139,3 +145,5 @@ class FemtoQuaConfig(configs.QUAConfigBase):
                 },
             },
         }
+
+    

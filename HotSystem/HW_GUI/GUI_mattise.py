@@ -26,9 +26,9 @@ class GUIMatisse:
         self.instrument = instrument
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
-        self.window_tag = f"MatisseWin_{self.unique_id}"
+        self.window_tag = "Matisse_Win"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
-                        no_title_bar=False, height=320, width=1800, pos=[0, 0], collapsed=False):
+                        no_title_bar=False, height=320, width=1000, pos=[20, 20], collapsed=True):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
                 self.create_diode_power_controls(red_button_theme)
@@ -72,7 +72,7 @@ class GUIMatisse:
             )
 
     def create_diode_power_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_diode_power_{self.unique_id}", width=150):
+        with dpg.group(horizontal=False, tag=f"column_diode_power_{self.unique_id}", width=140):
             dpg.add_text("Diode Power")
             dpg.add_text("Current Power:", tag=f"DiodePower_{self.unique_id}")
             dpg.add_text("Low-level Cutoff:")
@@ -82,7 +82,7 @@ class GUIMatisse:
             dpg.bind_item_theme(dpg.last_item(), theme)
 
     def create_thin_etalon_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_thin_etalon_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_thin_etalon_{self.unique_id}", width=120):
             dpg.add_text("Thin Etalon Motor")
             dpg.add_text("Position:", tag=f"ThinEtalonPosition_{self.unique_id}")
             dpg.add_input_int(default_value=0, tag=f"ThinEtalonMoveTo_{self.unique_id}", width=100)
@@ -97,7 +97,7 @@ class GUIMatisse:
                           callback=self.btn_set_thin_etalon_ctl_status, width=100)
 
     def create_bifi_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_bifi_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_bifi_{self.unique_id}", width=120):
             dpg.add_text("Birefringent Filter Motor")
             dpg.add_text("Position:", tag=f"BifiPosition_{self.unique_id}")
             dpg.add_input_int(default_value=0, tag=f"BifiMoveTo_{self.unique_id}", width=100)
@@ -109,7 +109,7 @@ class GUIMatisse:
             dpg.bind_item_theme(dpg.last_item(), theme)
 
     def create_piezo_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_piezo_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_piezo_{self.unique_id}", width=120):
             dpg.add_text("Piezo Controls")
             dpg.add_text("Slow Piezo Position:", tag=f"SlowPiezoPosition_{self.unique_id}")
             dpg.add_input_float(default_value=0.0, tag=f"SlowPiezoSetPos_{self.unique_id}",
@@ -137,7 +137,7 @@ class GUIMatisse:
                           callback=self.btn_set_fastpiezo_ctl_status, width=100)
 
     def create_scan_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_scan_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_scan_{self.unique_id}", width=120):
             dpg.add_text("Scan Controls")
             dpg.add_text("Scan Status:")
             dpg.add_combo(["run", "stop"], default_value="stop", tag=f"ScanStatus_{self.unique_id}",
@@ -151,13 +151,53 @@ class GUIMatisse:
             dpg.bind_item_theme(dpg.last_item(), theme)
 
     def create_refcell_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_refcell_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_refcell_{self.unique_id}", width=120):
             dpg.add_text("Reference Cell Controls")
             dpg.add_text("Reference cell Position (0-1):", tag=f"RefcellPosition_{self.unique_id}")
             dpg.add_input_float(default_value=0.0, tag=f"RefcellSetPos_{self.unique_id}",
                                 format='%.4f', width=100, callback=self.validate_refcell_position)
             dpg.add_button(label="Set", callback=self.btn_set_refcell_position)
             dpg.bind_item_theme(dpg.last_item(), theme)
+            dpg.add_text("PLE additional controls")
+            dpg.add_checkbox(label="Check Stability", tag=f"RefcellCheckStability_{self.unique_id}",
+                             callback=self.check_stability_callback)
+            dpg.add_text("Waiting Time (seconds):")
+            dpg.add_input_float(default_value=1.0, format="%.2f", width=100,
+                                tag=f"WaitingTime_{self.unique_id}", callback=self.waiting_time_callback)
+
+    def waiting_time_callback(self, sender, app_data, user_data):
+        """
+        Callback for the 'Waiting Time' input field.
+
+        :param sender: The ID of the item that triggered the callback.
+        :param app_data: The value of the input field (waiting time in seconds).
+        :param user_data: Additional user data passed to the callback (not used here).
+        """
+        waiting_time = round(app_data,3)  # Get the entered waiting time value
+        if waiting_time < 0:
+            print("Invalid waiting time. Must be a positive value.")
+            dpg.set_value(sender, 1.0)
+            waiting_time = 1.0
+        else:
+            print(f"Waiting time set to: {waiting_time} seconds")
+
+        self.dev.ple_waiting_time = waiting_time  # Store the waiting time in a class variable
+
+    def check_stability_callback(self, sender, app_data, user_data):
+        """
+        Callback for the 'Check Stability' checkbox.
+
+        :param sender: The ID of the item that triggered the callback.
+        :param app_data: The value of the checkbox (True if checked, False otherwise).
+        :param user_data: Additional user data passed to the callback (not used here).
+        """
+        is_checked = app_data  # True if the checkbox is checked, False otherwise
+        if is_checked:
+            print("Stability check enabled.")
+            self.dev.check_srs_stability=True
+        else:
+            print("Stability check disabled.")
+            self.dev.check_srs_stability = False
 
     def validate_refcell_position(self, sender, app_data, user_data):
         """
@@ -265,7 +305,7 @@ class GUIMatisse:
             dpg.set_item_label(self.window_tag, f"{self.dev.__class__.__name__} not connected")
 
     def create_scanning_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_scanning_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_scanning_{self.unique_id}", width=120):
             dpg.add_text("Scanning Controls")
 
             # Scan Device Selector
@@ -278,7 +318,7 @@ class GUIMatisse:
                 width=150
             )
 
-            dpg.add_input_float(label="Scan Range (MHz)", default_value=2000.0, tag=f"ScanRange_{self.unique_id}",
+            dpg.add_input_float(label="Scan Range (MHz)", default_value=9000.0, tag=f"ScanRange_{self.unique_id}",
                                 format="%.2f", width=150, callback=self.update_scanning_parameters)
             dpg.add_input_float(label="Scan Speed (MHz/s)", default_value=100.0, tag=f"ScanSpeed_{self.unique_id}",
                                 format="%.2f", width=150, callback=self.update_scanning_parameters)
@@ -310,7 +350,7 @@ class GUIMatisse:
 
             # Initialize wrapper attributes
             self.dev.scan_device = "Slow Piezo"
-            self.dev.scan_range = 2000.0
+            self.dev.scan_range = 9000.0
             self.dev.scan_speed = 100.0
             self.dev.num_scan_points = 100
             self.dev.slow_piezo_to_mhz = 81500.0

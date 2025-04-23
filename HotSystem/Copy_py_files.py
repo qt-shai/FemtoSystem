@@ -22,7 +22,7 @@ def copy_files(source_dir, destination_dirs):
             # Check if the directory exists
             if not os.path.exists(destination_dir):
                 # Fallback logic
-                alternative_dir = "C:\\Users\\ice\\Work Folders\\Documents"
+                alternative_dir = "C:\\Users\\Femto\\Work Folders\\Documents"
                 print(f"{destination_dir} does not exist. Falling back to {alternative_dir}.")
                 destination_dir = alternative_dir
 
@@ -31,7 +31,7 @@ def copy_files(source_dir, destination_dirs):
 
             # Iterate over all directories and subdirectories in the source directory
             for root, dirs, files in os.walk(source_dir):
-                dirs[:] = [d for d in dirs if d not in {'.idea', '.venv', '__pycache__', '.vscode'}]
+                dirs[:] = [d for d in dirs if d not in {'.idea', '.venv', '__pycache__', '.vscode','venv','dlls'}]
 
                 for file_name in files:
                     if file_name.endswith(('.py', '.xml')):  # Check for .py and .xml files

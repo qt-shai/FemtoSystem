@@ -329,18 +329,20 @@ def save_scan_stack_visualization(volume_data: np.ndarray, output_file: str) -> 
 
 
 def create_scan_vectors(initial_scan_location: List[float], l_scan: List[float], step_sizes: List[float],
-                        bounds: Tuple[List[float], List[float]]) -> Tuple[List[float], List[float], List[float]]:
+                        bounds: Tuple[List[float], List[float]]) -> Tuple[List[float], ...]:
     """
-    Create x, y, and z vectors for a scan based on initial location, scan dimensions, step sizes, and bounds.
+    Create scan vectors for 2 or 3 axes based on initial location, scan dimensions, step sizes, and bounds.
 
-    :param initial_scan_location: Initial scan location as a list [x, y, z].
-    :param l_scan: Scan dimensions (half-lengths) as a list [Lx, Ly, Lz].
-    :param step_sizes: Step sizes for each dimension as a list [step_x, step_y, step_z].
+    :param initial_scan_location: Initial scan location as a list [x, y] or [x, y, z].
+    :param l_scan: Scan dimensions (half-lengths) as a list [Lx, Ly] or [Lx, Ly, Lz].
+    :param step_sizes: Step sizes for each dimension as a list [step_x, step_y] or [step_x, step_y, step_z].
     :param bounds: Tuple of two lists [lower_bounds, upper_bounds] defining the clipping bounds for each axis.
-    :return: Tuple containing x, y, and z vectors for the scan.
+                   Each list should have length equal to the number of axes (2 or 3).
+    :return: A tuple containing the scan vectors for each axis.
     """
-    if not (len(initial_scan_location) == len(l_scan) == len(step_sizes) == len(bounds[0]) == len(bounds[1]) == 3):
-        raise ValueError("All input lists must have a length of 3.")
+    num_axes = len(initial_scan_location)
+    if not (len(l_scan) == len(step_sizes) == len(bounds[0]) == len(bounds[1]) and num_axes in [2, 3]):
+        raise ValueError("All input lists must have the same length of 2 or 3.")
 
     def calculate_vector(center: float, half_length: float, step_size: float, lower_bound: float, upper_bound: float) -> List[float]:
         """
@@ -355,17 +357,19 @@ def create_scan_vectors(initial_scan_location: List[float], l_scan: List[float],
         """
         if step_size <= 0:
             raise ValueError("Step size must be positive.")
-
         if half_length <= 0:
-            return [max(lower_bound, min(center, upper_bound))]  # Single point if no scan length
-
-        num_points = max(int((2 * half_length) / step_size) + 1, 2)  # At least 2 points if scanning
-        vector = [np.clip(v,lower_bound, upper_bound) for v in np.linspace(center - half_length, center + half_length, num_points)]
+            return [np.clip(center, lower_bound, upper_bound)]
+        num_points = max(int((2 * half_length) / step_size) + 1, 2)  # Ensure at least 2 points
+        vector = np.linspace(center - half_length, center + half_length, num_points)
+        # Clip vector to bounds and remove duplicates (if any)
+        vector = np.clip(vector, lower_bound, upper_bound)
         return list(np.unique(vector))
 
-    # Generate scan vectors for each dimension
-    x_vec = calculate_vector(initial_scan_location[0], l_scan[0], step_sizes[0], bounds[0][0], bounds[1][0])
-    y_vec = calculate_vector(initial_scan_location[1], l_scan[1], step_sizes[1], bounds[0][1], bounds[1][1])
-    z_vec = calculate_vector(initial_scan_location[2], l_scan[2], step_sizes[2], bounds[0][2], bounds[1][2])
+    # Generate scan vectors for each axis
+    vectors = []
+    for i in range(num_axes):
+        vec = calculate_vector(initial_scan_location[i], l_scan[i], step_sizes[i], bounds[0][i], bounds[1][i])
+        vectors.append(vec)
 
-    return x_vec, y_vec, z_vec
+    return tuple(vectors)
+

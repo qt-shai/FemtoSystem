@@ -3,14 +3,16 @@ from typing import Optional, Callable, Dict, DefaultDict
 import threading
 
 from Common import KeyboardKeys
-from HW_wrapper import AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor, \
-    SirahMatisse, Keysight33500B, ArduinoController
+from HW_wrapper import (AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor,
+    SirahMatisse, Keysight33500B, MotorStage, ArduinoController, Motor, FilterFlipperController,
+                        SirahMatisse, Keysight33500B, ArduinoController, NI_DAQ_Controller)
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
-from HW_wrapper.Wrapper_Cobolt import CoboltLaser
+from HW_wrapper.Wrapper_Cobolt import CoboltLaser, Cobolt06MLD
 from HW_wrapper.Wrapper_CLD1011 import ThorlabsCLD1011LP
 from HW_wrapper.wrapper_wavemeter import HighFinesseWLM
+from HW_wrapper.Wrapper_moku import Moku
 
 from SystemConfig import SystemConfig, Instruments, SystemType, run_system_config_gui, load_system_config, InstrumentsAddress, Device
 from Utils import ObservableField
@@ -36,12 +38,17 @@ class HW_devices:
             self.cobolt:Optional[CoboltLaser] = None
             self.matisse_device: Optional[SirahMatisse] = None
             self.wavemeter:Optional[HighFinesseWLM] = None
+            self.moku: Optional[Moku] = None
             self.atto_scanner: Optional[Anc300Wrapper] = None
             self.keysight_awg_device: Optional[Keysight33500B] = None
             self.SRS_PID_list: Optional[list[SRSsim960]] = None
             self.arduino: Optional[ArduinoController] = None  # Add Arduino
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
+            self.arduino: Optional[ArduinoController] = None
+            self.kdc_101: Optional[MotorStage] = None
+            self.mff_101_list: Optional[list[FilterFlipperController]] = []
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
+            self.ni_daq_controller: Optional[NI_DAQ_Controller]= None
             self._initialize()
 
     def __new__(cls) -> 'HW_devices':
@@ -102,7 +109,7 @@ class HW_devices:
 
                 elif instrument == Instruments.CLD1011LP:
                     CLD1011LP_config: Device = [x for x in self.config.devices if x.instrument is Instruments.CLD1011LP][0]
-                    self.CLD1011LP = ThorlabsCLD1011LP(simulation=Device.simulation)
+                    self.CLD1011LP = ThorlabsCLD1011LP(simulation=device.simulation)
 
                 elif instrument == Instruments.PICOMOTOR:
                     self.picomotor = newportPicomotor(device.simulation)
@@ -150,9 +157,14 @@ class HW_devices:
                     # Initialize SRS SIM960 PID controller
                     # pdb.set_trace()
                     sim900_config: list[Device] = [x for x in self.config.devices if x.instrument is Instruments.SIM960]
-                    mainframe = SRSsim900(f"ASRL{sim900_config[0].com_port[-1]}::INSTR")
-                    mainframe.connect()
-                    mainframe.initialize()
+                    mainframe = SRSsim900(sim900_config[0].com_port)
+                    if sim900_config[0].simulation:
+                        print("SIM960 in simulation mode skipping connection")
+                        sim900_config[0].ip_address = '0'
+                    else:
+                        mainframe.connect()
+                        mainframe.initialize()
+
                     self.SRS_PID_list = [SRSsim960(
                         mainframe = mainframe,
                         slot = int(dev.ip_address),
@@ -171,15 +183,56 @@ class HW_devices:
                         self.arduino.connect()
                     print(f"Arduino {'(Simulated)' if device.simulation else 'Connected'} at {device.com_port}")
 
+                elif instrument == Instruments.MOKU:
+                    self.moku = Moku(mokugo_ip=InstrumentsAddress.moku_ip.value)
+
                 elif instrument == Instruments.KEYSIGHT_AWG:
                     self.keysight_awg_device = Keysight33500B(address=f'TCPIP::{device.ip_address.replace(":","::")}::SOCKET',
                                                               simulation=device.simulation)
                     self.keysight_awg_device.connect()
 
+                elif instrument == Instruments.NI_DAQ:
+                    config = {
+                        "apd_input": f"{device.com_port}/ai0",
+                        "sample_clk": "PFI1",
+                        "start_trig": "PFI0",
+                        "max_samp_rate": 50e3,
+                        "min_voltage": -10.0,
+                        "max_voltage": 10.0,
+                        "number_measurements": 10,
+                        "time_interval_us": 1000,
+                        "pulse_width_us": 1000,
+                        "pulse_spacing_us": 5000,
+                    }
+                    self.ni_daq_controller = NI_DAQ_Controller(configuration=config)
+
+                elif instrument == Instruments.KDC_101:
+                    # # KDC_101 Rotational Stage for the Lambda/2 Plate
+                    # # TODO: Make serial number into an input to the Motor Stage
+                    self.kdc_101 = MotorStage(device.serial_number)
+                    self.kdc_101.connect()
+                    pass
+
+                elif instrument == Instruments.MFF_101:
+                    current_flipper = FilterFlipperController(device.serial_number)
+                    current_flipper.connect()
+                    self.mff_101_list.append(current_flipper)
+                    pass
+
+                elif instrument == Instruments.ARDUINO:
+                    # Initialize ArduinoController
+                    self.arduino = ArduinoController(
+                        address=f"ASRL{device.com_port}::INSTR" if device.com_port != "N/A" else None,
+                        baudrate=9600,
+                        timeout=1000,
+                        simulation=self.simulation
+                    )
+
 
                 else:
                     # Handle unknown instrument case
                     print(f"Unknown instrument: {instrument}")
+
             except Exception as e:
                 print(f"Failed to connect to instrument {instrument} with error: {e}")
 

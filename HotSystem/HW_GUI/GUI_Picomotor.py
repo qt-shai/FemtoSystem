@@ -182,7 +182,8 @@ class GUI_picomotor():
                 print("Logged points loaded successfully.")
 
         except FileNotFoundError:
-            print("map_config.txt not found.")
+            # print("map_config.txt not found.")
+            pass
         except Exception as e:
             print(f"Error loading logged points: {e}")
 

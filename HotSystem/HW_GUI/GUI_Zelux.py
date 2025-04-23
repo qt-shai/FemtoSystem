@@ -1,13 +1,36 @@
-from ECM import *
+# from ECM import *
 from ImGuiwrappedMethods import *
 from Common import *
 from HW_wrapper import HW_devices as hw_devices
+from HW_wrapper.Wrapper_MFF_101 import FilterFlipperController
+
 
 class ZeluxGUI():
     def __init__(self):
         self.window_tag = "Zelux Window"
         self.HW = hw_devices.HW_devices()
         self.cam = self.HW.camera
+        self.flipper = None
+        self.flipper_serial_number = ""
+        self.show_center_cross = False
+        self.background_image = None
+        self.subtract_background = False
+        self.HW = hw_devices.HW_devices()
+        self.positioner = self.HW.positioner
+        try:
+            self.background_image = np.load("zelux_background.npy")
+            print("Background image loaded.")
+        except FileNotFoundError:
+            self.background_image = None
+            print("No background image found.")
+
+        self.AddNewWindow()
+
+    def CaptureBackground(self):
+        self.background_image = np.copy(self.cam.lateset_image_buffer)
+        print("Background image captured.")
+        np.save("zelux_background.npy", self.background_image)
+        print("Background image saved.")
 
     def StartLive(self):
         global stopBtn
@@ -15,100 +38,300 @@ class ZeluxGUI():
         self.LiveTh = threading.Thread(target=self.cam.LiveTh)
         self.LiveTh.setDaemon(True)
         self.LiveTh.start()
-        stopBtn = dpg.add_button(label="Stop Live", before="btnStartLive", parent=self.window_tag,tag="btnStopLive", callback=self.StopLive)
+        stopBtn = dpg.add_button(label="Stop Live", before="btnStartLive", parent=self.window_tag, tag="btnStopLive",
+                                 callback=self.StopLive)
         dpg.delete_item("btnStartLive")
         # dpg.delete_item("btnSave")
-        dpg.bind_item_theme(item = "btnStopLive", theme = "btnRedTheme")
+        dpg.bind_item_theme(item="btnStopLive", theme="btnRedTheme")
 
     def StopLive(self):
         global startBtn
         self.cam.constantGrabbing = False
         self.LiveTh.join()
-        startBtn = dpg.add_button(label="Start Live", before="btnStopLive",parent=self.window_tag,tag="btnStartLive", callback=self.StartLive)
+        startBtn = dpg.add_button(label="Start Live", before="btnStopLive", parent=self.window_tag, tag="btnStartLive",
+                                  callback=self.StartLive)
         # dpg.add_button(label="Save Image", before="btnStopLive", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
         dpg.delete_item("btnStopLive")
-        dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
+        dpg.bind_item_theme(item="btnStartLive", theme="btnGreenTheme")
 
     def UpdateImage(self):
-        dpg.set_value("image_id", self.cam.lateset_image_buffer)
-        
+        window_size = dpg.get_item_width(self.window_tag), dpg.get_item_height(self.window_tag)
+        _width, _height = window_size
+        _width = _width * 0.9
+        _height = _height * 0.9
+
+        # Update image dimensions to match the new window size
+        dpg.set_item_width("image_id", _width)
+        dpg.set_item_height("image_id", _height)
+
+        dpg.delete_item("image_drawlist")
+        dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width * self.cam.ratio, parent=self.window_tag)
+        dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width * self.cam.ratio), uv_min=(0, 0),
+                       uv_max=(1, 1), parent="image_drawlist")
+
+        # dpg.set_value("image_id", self.cam.lateset_image_buffer)
+        height = self.cam.camera.image_height_pixels
+        width = self.cam.camera.image_width_pixels
+
+        if self.subtract_background and self.background_image is not None:
+            # Reshape to (H, W, 4)
+            img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
+            bg_rgba = self.background_image.reshape((height, width, 4))
+
+            # Convert both to grayscale using RGB channels only
+            gray = np.mean(img_rgba[:, :, :3], axis=2)
+            bg_gray = np.mean(bg_rgba[:, :, :3], axis=2)
+
+            offset = 0.25  # try values from 0.02 to 0.1 depending on noise level
+            subtracted = gray - bg_gray + offset
+            subtracted = np.clip(subtracted, 0, None)
+
+            gamma = 0.98
+            norm = np.clip(subtracted / (subtracted.max() + 1e-6), 0, 1)  # avoid div by 0
+            bright = np.power(norm, gamma)
+
+            # Convert grayscale back to RGBA
+            rgba_img = np.stack([bright] * 3 + [np.ones_like(bright)], axis=-1)  # add alpha = 1
+            img = rgba_img.astype(np.float32).reshape(-1)
+
+        else:
+            # Just use the raw RGBA buffer as-is
+            img = self.cam.lateset_image_buffer.astype(np.float32)
+
+        dpg.set_value("image_id", img)
+        # print(f"Live image range after subtraction: min={img.min():.3f}, max={img.max():.3f}")
+
+        # Draw cross if enabled
+        if self.show_center_cross:
+            center_x = _width / 2
+            center_y = (_width * self.cam.ratio) / 2
+            dpg.draw_line((center_x - 100, center_y), (center_x + 100, center_y), color=(0, 255, 0, 255), thickness=1,
+                          parent="image_drawlist")
+            dpg.draw_line((center_x, center_y - 100), (center_x, center_y + 100), color=(0, 255, 0, 255), thickness=1,
+                          parent="image_drawlist")
+
+            # Get current absolute position (stage coordinates)
+            try:
+                self.positioner.GetPosition()  # updates AxesPositions
+                abs_x = self.positioner.AxesPositions[0]*1e-6
+                abs_y = self.positioner.AxesPositions[1]*1e-6
+                abs_z = self.positioner.AxesPositions[2]*1e-6
+                coord_text = f"X = {abs_x:.1f}, Y = {abs_y:.1f}, Z = {abs_z:.1f}"
+            except Exception as e:
+                coord_text = "Stage position not available"
+
+            # Draw coordinate text at bottom-left
+            dpg.draw_text((10, _width * self.cam.ratio - 20), coord_text,
+                          size=16, color=(0, 255, 0, 255), parent="image_drawlist")
+
+
     def UpdateExposure(sender, app_data, user_data):
         # a = dpg.get_value(sender)
-        sender.cam.SetExposureTime(int(user_data*1e3))
+        sender.cam.SetExposureTime(int(user_data * 1e3))
         time.sleep(0.001)
-        dpg.set_value(item = "slideExposure", value=sender.cam.camera.exposure_time_us/1e3)
-        print("Actual exposure time: " + str(sender.cam.camera.exposure_time_us/1e3 )+ "milisecond")
+        dpg.set_value(item="slideExposure", value=sender.cam.camera.exposure_time_us / 1e3)
+        print("Actual exposure time: " + str(sender.cam.camera.exposure_time_us / 1e3) + "milisecond")
         pass
 
     def UpdateGain(sender, app_data, user_data):
         # a = dpg.get_value(sender)
         sender.cam.SetGain(user_data)
         time.sleep(0.001)
-        dpg.set_value(item = "slideGain", value=sender.cam.camera.convert_gain_to_decibels(sender.cam.camera.gain))
-        print("Actual gain time: " + str(sender.cam.camera.convert_gain_to_decibels(sender.cam.camera.gain))+ "db")
+        dpg.set_value(item="slideGain", value=sender.cam.camera.convert_gain_to_decibels(sender.cam.camera.gain))
+        print("Actual gain time: " + str(sender.cam.camera.convert_gain_to_decibels(sender.cam.camera.gain)) + "db")
         pass
-    
-    def AddNewWindow(self, _width = 800):
-        dpg.add_window(label=self.window_tag, tag=self.window_tag,
-                        pos = [15,15],
-                        width=int(_width*1.0), 
-                        height=int(_width*self.cam.ratio*1.2))
-        pass
+
+    def AddNewWindow(self, _width=800):
+
+        _width = 1000
+
+        with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar=False,
+                        pos=[15, 15],
+                        width=int(_width * 1.0),
+                        height=int(_width * self.cam.ratio * 1.2)):
+            pass
 
     def DeleteMainWindow(self):
         dpg.delete_item(item=self.window_tag)
         pass
-    
-    
-    def GUI_controls(self, isConnected = False, _width = 800):
+
+    def GUI_controls(self, isConnected=False, _width=800):
         dpg.delete_item("groupZeluxControls")
+        self.set_all_themes()
         if isConnected:
-            dpg.add_group(tag="groupZeluxControls", parent=self.window_tag,horizontal=True)
-            dpg.add_button(label="Start Live", callback=self.StartLive,tag="btnStartLive", parent="groupZeluxControls")
-            dpg.add_button(label="Save Image", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
+            dpg.add_group(tag="groupZeluxControls", parent=self.window_tag, horizontal=True)
+            dpg.add_button(label="Start Live", callback=self.StartLive, tag="btnStartLive", parent="groupZeluxControls")
+            dpg.add_button(label="Save Image", callback=self.cam.saveImage, tag="btnSave", parent="groupZeluxControls")
 
-            dpg.bind_item_theme(item = "btnStartLive", theme = "btnGreenTheme")
-            dpg.bind_item_theme(item = "btnSave", theme = "btnBlueTheme")
+            dpg.bind_item_theme(item="btnStartLive", theme="btnGreenTheme")
+            dpg.bind_item_theme(item="btnSave", theme="btnBlueTheme")
 
+            minExp = min(self.cam.camera.exposure_time_range_us) / 1e3
+            maxExp = max(self.cam.camera.exposure_time_range_us) / 1e3
+            slider_exposure = dpg.add_slider_int(label="exposure", tag="slideExposure", parent="groupZeluxControls",
+                                                 width=100, callback=self.UpdateExposure,
+                                                 default_value=self.cam.camera.exposure_time_us / 1e3,
+                                                 min_value=minExp if minExp > 0 else 1,
+                                                 max_value=maxExp if maxExp < 1000 else 1000)
 
-            minExp = min(self.cam.camera.exposure_time_range_us)/1e3
-            maxExp = max(self.cam.camera.exposure_time_range_us)/1e3
-            slider_exposure = dpg.add_slider_int(label="exposure", tag="slideExposure", parent="groupZeluxControls", 
-                                                    width=100, callback=self.UpdateExposure,
-                                                    default_value=self.cam.camera.exposure_time_us/1e3,
-                                                    min_value= minExp if minExp >0 else 1,
-                                                    max_value= maxExp if maxExp <1000 else 1000)
-            
             minGain = self.cam.camera.convert_gain_to_decibels(min(self.cam.camera.gain_range))
             maxGain = self.cam.camera.convert_gain_to_decibels(max(self.cam.camera.gain_range))
             slider_gain = dpg.add_slider_int(label="gain", tag="slideGain", parent="groupZeluxControls",
-                                                    width=100, callback=self.UpdateGain,
-                                                    default_value=self.cam.camera.convert_gain_to_decibels(self.cam.camera.gain),
-                                                    min_value= minGain,
-                                                    max_value= maxGain)
+                                             width=100, callback=self.UpdateGain,
+                                             default_value=self.cam.camera.convert_gain_to_decibels(
+                                                 self.cam.camera.gain),
+                                             min_value=minGain,
+                                             max_value=maxGain)
 
-            with dpg.drawlist(width=_width, height=_width*self.cam.ratio):
-                dpg.draw_image("image_id", (0, 0), (_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1))
+            dpg.add_checkbox(label="+", tag="chkShowCross", parent="groupZeluxControls",
+                             callback=self.toggle_center_cross)
+
+            dpg.add_button(label="Capture BG", callback=lambda: self.CaptureBackground(), parent="groupZeluxControls")
+            dpg.add_checkbox(label="Subtract BG", tag="chkSubtractBG", parent="groupZeluxControls",
+                             callback=lambda s, a, u: setattr(self, 'subtract_background', a))
+            dpg.add_button(label="SvIm", tag="btnSaveProcessedImage",
+                           callback=self.SaveProcessedImage, parent="groupZeluxControls")
+
+            # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
+            # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
+
         else:
-            dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=False)
+            dpg.add_group(tag="ZeluxControls", parent=self.window_tag, horizontal=False)
             dpg.add_text("camera is probably not connected")
 
     def Controls(self):
-        # _width, _height, _channels, _data = dpg.load_image('C:\\Users\\amir\\Desktop\\Untitled2.png') # 0: width, 1: height, 2: channels, 3: data
+        dpg.add_group(tag="ZeluxControls", parent=self.window_tag, horizontal=True)
 
-        with dpg.texture_registry(show=False):
-            dpg.add_dynamic_texture(width=self.cam.camera.image_width_pixels, 
-                                    height=self.cam.camera.image_height_pixels, 
-                                    default_value=self.cam.lateset_image_buffer, 
-                                    tag="image_id")
+        if len(self.cam.available_cameras) < 1:
+            self.GUI_controls(isConnected=False, _width=700)
+            pass
+        else:
+            with dpg.texture_registry(tag="image_tag", show=False):
+                dpg.add_dynamic_texture(width=self.cam.camera.image_width_pixels,
+                                        height=self.cam.camera.image_height_pixels,
+                                        default_value=self.cam.lateset_image_buffer,
+                                        tag="image_id", parent="image_tag")
 
-        _width = 1000
-        with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar = False,
-                        pos = [15,15],
-                        width=int(_width*1.0), 
-                        height=int(_width*self.cam.ratio*1.2)):
-            dpg.add_group(tag="ZeluxControls", parent=self.window_tag,horizontal=True)
-            if len(self.cam.available_cameras) < 1:
-                self.GUI_controls(isConnected = False, _width = 700)
+            self.GUI_controls(isConnected=True)
+            pass
+
+    def SaveProcessedImage(self):
+        import os
+        import cv2
+        import numpy as np
+
+        height = self.cam.camera.image_height_pixels
+        width = self.cam.camera.image_width_pixels
+
+        # Prepare RGB image (with or without background subtraction)
+        if self.subtract_background and self.background_image is not None:
+            img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
+            bg_rgba = self.background_image.reshape((height, width, 4))
+
+            gray = np.mean(img_rgba[:, :, :3], axis=2)
+            bg_gray = np.mean(bg_rgba[:, :, :3], axis=2)
+
+            offset = 0.25
+            subtracted = gray - bg_gray + offset
+            subtracted = np.clip(subtracted, 0, None)
+
+            gamma = 0.98
+            norm = np.clip(subtracted / (subtracted.max() + 1e-6), 0, 1)
+            bright = np.power(norm, gamma)
+
+            img_rgb = (np.stack([bright] * 3, axis=-1) * 255).astype(np.uint8)
+        else:
+            img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
+            img_rgb = (img_rgba[:, :, :3] * 255).astype(np.uint8)
+
+        # --- Overlay: draw cross and coordinates using OpenCV ---
+        if self.show_center_cross:
+            center_x = width // 2
+            center_y = height // 2
+
+            # Draw cross
+            cv2.line(img_rgb, (center_x - 100, center_y), (center_x + 100, center_y), (0, 255, 0), 1)
+            cv2.line(img_rgb, (center_x, center_y - 100), (center_x, center_y + 100), (0, 255, 0), 1)
+
+            # Get current absolute position (stage coordinates)
+            try:
+                self.positioner.GetPosition()
+                abs_x = self.positioner.AxesPositions[0] * 1e-6  # microns to mm
+                abs_y = self.positioner.AxesPositions[1] * 1e-6
+                abs_z = self.positioner.AxesPositions[2] * 1e-6
+                coord_text = f"X = {abs_x:.1f}, Y = {abs_y:.1f}, Z = {abs_z:.1f}"
+            except Exception:
+                coord_text = "Stage position not available"
+
+            # Draw coordinates in bottom-left
+            cv2.putText(img_rgb, coord_text, (10, height - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1, cv2.LINE_AA)
+
+        # --- Save to disk ---
+        folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/'
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+
+        timeStamp = getCurrentTimeStamp()
+        filename = os.path.join(folder_path, f"Zelux_Image_{timeStamp}.png")
+
+        # Save using OpenCV (convert RGB to BGR)
+        cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
+        print(f"Image saved with overlays to: {filename}")
+
+    def toggle_center_cross(self, sender, app_data, user_data=None):
+        self.show_center_cross = app_data  # True or False
+        self.UpdateImage()  # Re-draw with or without the cross
+
+    def on_off_slider_callback(self, sender, app_data):
+        # app_data is the new slider value (0 or 1)
+        flipper_1_serial_number = "37008855"
+        flipper_2_serial_number = "37008948"
+        if sender == "on_off_slider":
+            self.flipper_serial_number = flipper_1_serial_number
+        elif sender == "on_off_slider_2":
+            self.flipper_serial_number = flipper_2_serial_number
+        if app_data == 1:
+            self.Move_flipper(self.flipper_serial_number)
+            flipper_position = self.flipper.get_position()
+            if flipper_position == 2:
+                dpg.configure_item(sender, format="Up")
             else:
-                self.GUI_controls(isConnected = True)
+                dpg.configure_item(sender, format="Down")
+            dpg.bind_item_theme(sender, "OnTheme")
+        else:
+            self.Move_flipper(self.flipper_serial_number)
+
+            flipper_position = self.flipper.get_position()
+            if flipper_position == 2:
+                dpg.configure_item(sender, format="Up")
+            else:
+                dpg.configure_item(sender, format="Down")
+            dpg.bind_item_theme(sender, "OffTheme")
+
+    def Move_flipper(self, serial_number):
+        try:
+            self.flipper = FilterFlipperController(serial_number=serial_number)
+            self.flipper.connect()
+            self.flipper.toggle()
+        except Exception as e:
+            print(e)
+
+    def set_all_themes(self):
+        with dpg.theme(tag="OnTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 180, 0))  # handle when pressed
+                # Optionally color the track:
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (50, 70, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (60, 80, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (70, 90, 70))
+
+        # OFF Theme: keep the slider handle red in all states.
+        with dpg.theme(tag="OffTheme"):
+            with dpg.theme_component(dpg.mvSliderInt):
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (200, 0, 0))  # idle handle color
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (180, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (70, 50, 50))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))
