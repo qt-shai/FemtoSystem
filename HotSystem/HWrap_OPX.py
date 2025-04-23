@@ -2444,7 +2444,7 @@ class GUI_OPX():
                 assign(self.temp_idx, idx - jdx - 1)
                 assign(self.idx_vec_ini_shaffle_qua_reversed[jdx],self.idx_vec_ini_shaffle_qua[self.temp_idx])
 
-    def benchmark_state_preparation(self, m, Npump, tPump, t_wait, final_state = 1):
+    def benchmark_state_preparation(self, m, Npump, tPump, t_wait, final_state_qua):
         # pumping
         # The values are written in python and processed to QUA in QUA_PUMP function
         # self.fMW_res is defined in random_benchmark
@@ -2455,10 +2455,11 @@ class GUI_OPX():
         align()
         # qubit = |0n>|0e>
 
-        with switch_(final_state):
-            with case_(0):
-                # qubit = |0n>|0e>
-                pass
+
+        with switch_(final_state_qua):
+            # with case_(0):
+            #     # qubit = |0n>|0e>
+            #     pass
             with case_(1):
                 # qubit = |0n>|1e>
                 # set MW frequency to second resonance frequency
@@ -2467,14 +2468,14 @@ class GUI_OPX():
                 self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
                 # qubit = |0n>|1e>
                 update_frequency("MW", self.back_freq)  # MIC: @Daniel!! add self.keep_phase
-            with case_(2):
-                # qubit = |1n>|0e>
-                #TBD @MIC
-                pass
-            with case_(3):
-                # qubit = |1n>|1e>
-                #TBD @MIC
-                pass
+            # with case_(2):
+            #     # qubit = |1n>|0e>
+            #     #TBD @MIC
+            #     pass
+            # with case_(3):
+            #     # qubit = |1n>|1e>
+            #     #TBD @MIC
+            #     pass
 
     def benchmark_state_readout(self, current_counts_, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure):
         #Make sure to have align with laser before
@@ -2544,6 +2545,8 @@ class GUI_OPX():
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
+            final_state_qua = declare(int)
+            assign(final_state_qua,1)
             times_ref = declare(int, size=100)
             self.reverse_rf_amp = declare(int)
             self.temp_idx = declare(int)
@@ -2644,7 +2647,7 @@ class GUI_OPX():
 
                         """signal 1 state preparation part"""
                         # MIC: @Daniel add set(self.keep_phase,False)
-                        self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state = 1)
+                        self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua)
                         # qubit = |0n>|1e>
 
                         """signal 1 - manipulation part"""
@@ -2678,7 +2681,7 @@ class GUI_OPX():
 
                         """reference 1 - (signal 2) - same as signal 1 but self.keep_phase = True"""
                         # MIC: @Daniel add set(self.keep_phase,True)
-                        self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait)
+                        self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua)
                         # qubit = |0n>|1e>
 
                         """signal 2 - manipulation part"""
@@ -2726,7 +2729,7 @@ class GUI_OPX():
                         align()
 
                         """reference 2 - waiting without gates - and measuring as |0n>|0e>"""
-                        self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait)
+                        self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua)
                         # qubit = |0n>|1e>
 
                         """reference 2 - manipulation part"""
@@ -2774,7 +2777,7 @@ class GUI_OPX():
                         align()
 
                         """reference 3 - waiting without gates - and measuring as |0n>|1e>"""
-                        self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait)
+                        self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait, final_state_qua = final_state_qua)
                         # qubit = |0n>|1e>
 
                         """reference 3 - manipulation part"""
