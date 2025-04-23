@@ -7508,7 +7508,7 @@ class GUI_OPX():
 
             # raw data
             if self.exp == Experiment.RandomBenchmark:
-                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,'Gate_Order': self.benchmark_number_order, 'Y_vec_squared': self.Y_vec_squared}
+                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,'Gate_Order': self.benchmark_number_order, 'Y_vec_squared': self.Y_vec_squared, 'Y_ref3': self.Y_vec_ref3}
             else:
                 RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2, 'Y_resCalc': self.Y_resCalculated}
 
