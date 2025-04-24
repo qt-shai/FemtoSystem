@@ -252,6 +252,7 @@ class GUI_OPX():
         self.update_from_xml()
         self.connect_to_QM_OPX = False
         self.benchmark_switch_flag = True
+        # self.keep_phase = False
         self.benchmark_one_gate_only = True
         self.bScanChkbox = False
 
@@ -2444,7 +2445,7 @@ class GUI_OPX():
                 assign(self.temp_idx, idx - jdx - 1)
                 assign(self.idx_vec_ini_shaffle_qua_reversed[jdx],self.idx_vec_ini_shaffle_qua[self.temp_idx])
 
-    def benchmark_state_preparation(self, m, Npump, tPump, t_wait, final_state_qua):
+    def benchmark_state_preparation(self, m, Npump, tPump, t_wait, final_state_qua, keep_phase = False):
         # pumping
         # The values are written in python and processed to QUA in QUA_PUMP function
         # self.fMW_res is defined in random_benchmark
@@ -2463,11 +2464,13 @@ class GUI_OPX():
             with case_(1):
                 # qubit = |0n>|1e>
                 # set MW frequency to second resonance frequency
-                update_frequency("MW", self.fMW_2nd_res) # @Daniel!! add self.keep_phase
+                update_frequency("MW", self.fMW_2nd_res, keep_phase = keep_phase) # @Daniel!! add self.keep_phase
                 # play MW
                 self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                update_frequency("MW", self.fMW_res, keep_phase=keep_phase)  # @Daniel!! add self.keep_phase
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
                 # qubit = |0n>|1e>
-                update_frequency("MW", self.back_freq)  # MIC: @Daniel!! add self.keep_phase
+                update_frequency("MW", self.back_freq, keep_phase=keep_phase)  # MIC: @Daniel!! add self.keep_phase
             # with case_(2):
             #     # qubit = |1n>|0e>
             #     #TBD @MIC
@@ -2478,11 +2481,11 @@ class GUI_OPX():
             #     pass
 
     def benchmark_state_readout(self, current_counts_, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure):
-        #Make sure to have align with laser before
-
+        """Make sure to have align with laser before"""
+        align()
         play("Turn_ON", "Laser", duration=tLaser // 4)
-        # measure signal
-        align("MW", "Detector_OPD") ## MIC: @daniel - why align with MW? I think we should align laser and OPD before turning on laser
+        """measure signal"""
+        # align("MW", "Detector_OPD") ## MIC: @daniel - why align with MW? I think we should align laser and OPD before turning on laser
         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
         assign(current_counts_[idx_vec_qua[idx]], current_counts_[idx_vec_qua[idx]] + counts_tmp)
 
@@ -2669,7 +2672,11 @@ class GUI_OPX():
                         """signal 1 measurement part"""
                         wait(t_wait)
                         align("RF", "MW")
+                        update_frequency("MW", self.fMW_res, keep_phase=False)  # @Daniel!! add self.keep_phase
+                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                        update_frequency("MW", self.fMW_2nd_res, keep_phase = False)  # @Daniel!! add self.keep_phase
                         self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua, first_pulse = "-xPulse", second_pulse = "xPulse")
+                        update_frequency("MW", self.back_freq, keep_phase = False)  # @Daniel!! add self.keep_phase
                         # qubit = |0n>|0e>
 
                         # play Laser
@@ -2681,7 +2688,7 @@ class GUI_OPX():
 
                         """reference 1 - (signal 2) - same as signal 1 but self.keep_phase = True"""
                         # MIC: @Daniel add set(self.keep_phase,True)
-                        self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua)
+                        self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua, keep_phase = True)
                         # qubit = |0n>|1e>
 
                         """signal 2 - manipulation part"""
@@ -2719,7 +2726,13 @@ class GUI_OPX():
                         """measurement signal 2 (reference 1)"""
                         wait(t_wait)
                         align("RF", "MW")
-                        self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua, first_pulse = "-xPulse", second_pulse = "xPulse")
+                        update_frequency("MW", self.fMW_res, keep_phase=True)  # @Daniel!! add self.keep_phase
+                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
+                                                    second_pulse="xPulse")
+                        update_frequency("MW", self.fMW_2nd_res, keep_phase=True)  # @Daniel!! add self.keep_phase
+                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
+                                                    second_pulse="xPulse")
+                        update_frequency("MW", self.back_freq, keep_phase=True)  # @Daniel!! add self.keep_phase
                         # qubit = |0n>|0e>
 
 
@@ -2768,7 +2781,13 @@ class GUI_OPX():
                         """measurment reference 2"""
                         wait(t_wait)
                         align("RF", "MW")
-                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                        update_frequency("MW", self.fMW_res)  # @Daniel!! add self.keep_phase
+                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
+                                                    second_pulse="xPulse")
+                        update_frequency("MW", self.fMW_2nd_res)  # @Daniel!! add self.keep_phase
+                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
+                                                    second_pulse="xPulse")
+                        update_frequency("MW", self.back_freq)  # @Daniel!! add self.keep_phase
                         # qubit = |0n>|0e>
 
                         # play Laser

@@ -23,7 +23,7 @@ class QUAConfigBase(ABC):
         self.very_long_meas_len = 25e3  # in ns
 
         # MW parameters
-        self.mw_amp_NV = 0.5  # in units of volts
+        self.mw_amp_NV = 0.4  # in units of volts
         self.mw_len_NV = 100  # in units of ns
 
         self.pi_amp_NV = 0.5  # in units of volts
