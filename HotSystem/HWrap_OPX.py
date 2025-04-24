@@ -2449,7 +2449,9 @@ class GUI_OPX():
         # pumping
         # The values are written in python and processed to QUA in QUA_PUMP function
         # self.fMW_res is defined in random_benchmark
+        align()
         with for_(m, 0, m < Npump, m + 1):
+            play("Turn_ON", "Laser", duration=tPump // 4)
             self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time * 2,
                           f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
                           p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
@@ -2661,6 +2663,7 @@ class GUI_OPX():
                             align("RF", "MW")
                             wait(t_wait)
                             self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx, keep_phase = False)
+                            wait(duration=4)
                             align("MW","RF")
                             # qubit = |+n>|1e>
                             play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
@@ -2699,7 +2702,7 @@ class GUI_OPX():
                                 # qubit = |+n>|1e>
                                 align("RF", "MW")
                                 wait(t_wait)
-
+                                wait(duration=4)
 
                                 align("MW", "RF")
                                 play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
@@ -2716,6 +2719,7 @@ class GUI_OPX():
                                 self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua,
                                                                             self.idx_vec_ini_shaffle_qua_reversed, n,
                                                                             idx, keep_phase = True)
+                                wait(duration=4)
                                 align("MW", "RF")
                                 # qubit = |+n>|1e>
                                 play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
@@ -2752,7 +2756,7 @@ class GUI_OPX():
                                 play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
                                 wait(t_wait)
                                 # qubit = |+n>|1e>
-
+                                wait(duration=4)
                                 play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
                                 # qubit = |0n>|1e>
                             else: # 1 qubit
@@ -2806,7 +2810,7 @@ class GUI_OPX():
                                 play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
                                 wait(t_wait)
                                 # qubit = |+n>|1e>
-
+                                wait(duration=4)
                                 play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
                                 # qubit = |0n>|1e>
                             else:  # 1 qubit
