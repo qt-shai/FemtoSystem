@@ -2470,8 +2470,8 @@ class GUI_OPX():
                 update_frequency("MW", self.fMW_2nd_res, keep_phase = keep_phase) # @Daniel!! add self.keep_phase
                 # play MW
                 self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
-                update_frequency("MW", self.fMW_res, keep_phase=keep_phase)  # @Daniel!! add self.keep_phase
-                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                #update_frequency("MW", self.fMW_res, keep_phase=keep_phase)  # @Daniel!! add self.keep_phase
+                #self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
                 # qubit = |0n>|1e>
                 update_frequency("MW", self.back_freq, keep_phase=keep_phase)  # MIC: @Daniel!! add self.keep_phase
             # with case_(2):
@@ -2674,10 +2674,10 @@ class GUI_OPX():
                         """signal 1 measurement part"""
                         wait(t_wait)
                         align("RF", "MW")
-                        update_frequency("MW", self.fMW_res, keep_phase=False)  # @Daniel!! add self.keep_phase
-                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
-                        update_frequency("MW", self.fMW_2nd_res, keep_phase = False)  # @Daniel!! add self.keep_phase
-                        self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua, first_pulse = "-xPulse", second_pulse = "xPulse")
+                        ##update_frequency("MW", self.fMW_res, keep_phase=False)  # @Daniel!! add self.keep_phase
+                        ##self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                        #update_frequency("MW", self.fMW_2nd_res, keep_phase = False)  # @Daniel!! add self.keep_phase
+                        #self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua, first_pulse = "-xPulse", second_pulse = "xPulse")
                         update_frequency("MW", self.back_freq, keep_phase = False)  # @Daniel!! add self.keep_phase
                         # qubit = |0n>|0e>
 
@@ -2729,12 +2729,10 @@ class GUI_OPX():
                         """measurement signal 2 (reference 1)"""
                         wait(t_wait)
                         align("RF", "MW")
-                        update_frequency("MW", self.fMW_res, keep_phase=True)  # @Daniel!! add self.keep_phase
-                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
-                                                    second_pulse="xPulse")
-                        update_frequency("MW", self.fMW_2nd_res, keep_phase=True)  # @Daniel!! add self.keep_phase
-                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
-                                                    second_pulse="xPulse")
+                        ##update_frequency("MW", self.fMW_res, keep_phase=True)  # @Daniel!! add self.keep_phase
+                        ##self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                        #update_frequency("MW", self.fMW_2nd_res, keep_phase=True)  # @Daniel!! add self.keep_phase
+                        #self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
                         update_frequency("MW", self.back_freq, keep_phase=True)  # @Daniel!! add self.keep_phase
                         # qubit = |0n>|0e>
 
@@ -2784,12 +2782,10 @@ class GUI_OPX():
                         """measurment reference 2"""
                         wait(t_wait)
                         align("RF", "MW")
-                        update_frequency("MW", self.fMW_res)  # @Daniel!! add self.keep_phase
-                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
-                                                    second_pulse="xPulse")
+                        #update_frequency("MW", self.fMW_res)  # @Daniel!! add self.keep_phase
+                        #self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
                         update_frequency("MW", self.fMW_2nd_res)  # @Daniel!! add self.keep_phase
-                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
-                                                    second_pulse="xPulse")
+                        self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
                         update_frequency("MW", self.back_freq)  # @Daniel!! add self.keep_phase
                         # qubit = |0n>|0e>
 
