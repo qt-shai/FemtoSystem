@@ -1363,7 +1363,7 @@ class GUI_OPX():
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
-                        dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
+                        dpg.add_button(label="Get Log from MSC", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
                     _width = 150
                     with dpg.group(horizontal=False):
@@ -1406,6 +1406,7 @@ class GUI_OPX():
                     # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
                     self.map.create_map_gui(win_size, win_pos)
                     dpg.set_frame_callback(1, self.load_pos)
+                    self.load_pos()
         else:
             self.map.delete_map_gui()
             del self.map
@@ -1502,71 +1503,6 @@ class GUI_OPX():
     def load_pos(self):
         try:
             load_window_positions()
-            # # Check if map_config.txt exists and read the contents
-            # if not os.path.exists("map_config.txt"):
-            #     # print("map_config.txt not found.")
-            #     return
-            #
-            # # Dictionaries to store positions, sizes, and collapsed states
-            # window_positions = {}
-            # window_sizes = {}
-            # window_collapsed = {}
-            #
-            # with open("map_config.txt", "r") as file:
-            #     lines = file.readlines()
-            #     for line in lines:
-            #         # Split the line to get key and value
-            #         parts = line.split(": ")
-            #         if len(parts) != 2:
-            #             continue  # Skip lines that don't have the expected format
-            #
-            #         key = parts[0].strip()
-            #         value = parts[1].strip()
-            #
-            #         # Check if the key is a window position entry
-            #         if "_Pos" in key:
-            #             window_name = key.replace("_Pos", "")
-            #             x, y = value.split(", ")
-            #             window_positions[window_name] = (float(x), float(y))
-            #
-            #         # Check if the key is a window size entry
-            #         elif "_Size" in key:
-            #             window_name = key.replace("_Size", "")
-            #             width, height = value.split(", ")
-            #             window_sizes[window_name] = (int(width), int(height))
-            #
-            #         # Check if the key is a window collapsed entry
-            #         elif "_Collapsed" in key:
-            #             window_name = key.replace("_Collapsed", "")
-            #             window_collapsed[window_name] = value == "True"
-            #
-            # # Update window positions, sizes, and collapsed states in Dear PyGui if the windows exist
-            # for window_name, pos in window_positions.items():
-            #     if dpg.does_item_exist(window_name):
-            #         dpg.set_item_pos(window_name, pos)
-            #         print(f"Loaded position for {window_name}: {pos}")
-            #     else:
-            #         print(f"{window_name} does not exist in the current context.")
-            #
-            # for window_name, size in window_sizes.items():
-            #     if window_name == "main_viewport":
-            #         dpg.set_viewport_width(size[0])
-            #         dpg.set_viewport_height(size[1])
-            #         print(f"Loaded main viewport size: {size}")
-            #     elif dpg.does_item_exist(window_name):
-            #         dpg.set_item_width(window_name, size[0])
-            #         dpg.set_item_height(window_name, size[1])
-            #         print(f"Loaded size for {window_name}: {size}")
-            #     else:
-            #         print(f"{window_name} does not exist in the current context.")
-            #
-            # for window_name, collapsed in window_collapsed.items():
-            #     if dpg.does_item_exist(window_name):
-            #         dpg.configure_item(window_name, collapsed=collapsed)
-            #         print(f"Loaded collapsed state for {window_name}: {collapsed}")
-            #     else:
-            #         print(f"{window_name} does not exist in the current context.")
-
         except Exception as e:
             print(f"Error loading window data: {e}")
 
