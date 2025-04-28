@@ -44,6 +44,8 @@ from qualang_tools.units import unit
 
 import SystemConfig as configs
 from Common import WindowNames
+from Common import load_window_positions
+
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
 from SystemConfig import SystemType
@@ -236,7 +238,7 @@ class GUI_OPX():
         self.queried_plane = None  # 0 - XY, 1 - YZ, 2 -XZ
         self.bScanChkbox = False
         self.L_scan = [5000, 5000, 5000]  # [nm]
-        self.dL_scan = [100, 100, 100]  # [nm]
+        self.dL_scan = [300, 300, 300]  # [nm]
         self.b_Scan = [True, True, False]
         self.b_Zcorrection = False
         self.use_picomotor = False
@@ -342,11 +344,11 @@ class GUI_OPX():
         self.waitForMW = 0.05  # [sec], time to wait till mw settled (slow ODMR)
 
         # G2 correlation width
-        self.correlation_width = 223 # [nsec]
+        self.correlation_width = 500 # [nsec]
 
         self.dN  = 10
         self.back_freq = self.mw_2ndfreq_resonance
-        self.n_measure = 30
+        self.n_measure = 6
         self.MW_dif = 3  # [MHz]
         self.Wait_time_benchmark = 10
         self.t_wait_benchmark = 0
@@ -877,7 +879,7 @@ class GUI_OPX():
                              callback=self.toggle_sum_counters, indent=-1,
                              default_value=self.sum_counters_flag)
             dpg.add_checkbox(label="Stop Survey", tag="chkbox_stop_survey", parent="chkbox_group",
-                             callback=self.toggel_stop_survey, indent=-1,
+                             callback=self.toggle_stop_survey, indent=-1,
                              default_value=self.stop_survey)
 
             # Create a single collapsible header to contain all controls, collapsed by default
@@ -1229,7 +1231,7 @@ class GUI_OPX():
             dpg.add_button(label="Start G2", parent="G2_Controls", tag="btnOPX_G2", callback=self.btnStartG2, indent=-1, width=200)
             dpg.add_input_int(label="", tag="inInt_G2_correlation_width", indent=-1, parent="G2_Controls", width=150, callback=self.UpdateCorrelationWidth, default_value=self.correlation_width,
                               min_value=1, max_value=50000, step=1)
-            dpg.add_button(label="Start G2 Survey", parent="Buttons_Controls", tag="btnOPX_StartG2Survey", callback=self.btnStartG2, indent=-1,
+            dpg.add_button(label="Start G2 Survey", parent="Buttons_Controls", tag="btnOPX_StartG2Survey", callback=self.btnStartG2Survey, indent=-1,
                            width=_width)
             dpg.add_button(label="Eilon's", parent="Buttons_Controls", tag="btnOPX_Eilons",
                            callback=self.btnStartEilons, indent=-1, width=_width)
@@ -1259,6 +1261,8 @@ class GUI_OPX():
             dpg.bind_item_theme("on_off_slider_OPX", "OnTheme_OPX")
             dpg.bind_item_theme(item="btnOPX_StartG2Survey", theme="btnPurpleTheme")
 
+            dpg.set_frame_callback(1, self.load_pos)
+
         else:
             dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=True)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
@@ -1281,7 +1285,7 @@ class GUI_OPX():
             self.use_picomotor = self.map.use_picomotor
             self.expNotes = self.map.exp_notes
 
-            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1300, width=1200,
+            with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
                     # Left side: Scan settings and controls
@@ -1359,7 +1363,7 @@ class GUI_OPX():
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
-                        dpg.add_button(label="Get Log from Pico", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
+                        dpg.add_button(label="Get Log from MSC", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
 
                     _width = 150
                     with dpg.group(horizontal=False):
@@ -1381,6 +1385,7 @@ class GUI_OPX():
                         dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
                                          default_value=self.limit)
                         dpg.add_button(label="fill Z", callback=self.fill_z)
+                        dpg.add_button(label="fill Max", callback=self.set_moveabs_to_max_intensity)
 
                     with dpg.group(horizontal=False):
                         dpg.add_input_float(label="Step (um)", default_value=0.2, width=_width, tag="step_um",
@@ -1401,10 +1406,30 @@ class GUI_OPX():
                     # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
                     self.map.create_map_gui(win_size, win_pos)
                     dpg.set_frame_callback(1, self.load_pos)
+                    self.load_pos()
         else:
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
+
+    def set_moveabs_to_max_intensity(self):
+        try:
+            # Find the (row, col) index of the maximum intensity in the first Z slice
+            max_idx = np.unravel_index(np.argmax(self.scan_intensities[:, :, 0]), self.scan_intensities[:, :, 0].shape)
+            row = max_idx[0]
+            col = max_idx[1]
+
+            # Get corresponding X and Y positions
+            x_pos = self.V_scan[0][row] * 1e-6  # convert from micron to meter if needed
+            y_pos = self.V_scan[1][col] * 1e-6
+
+            # Set the values to MoveABS input fields
+            dpg.set_value("mcs_ch0_ABS", x_pos)
+            dpg.set_value("mcs_ch1_ABS", y_pos)
+
+            print(f"Set MoveAbsX = {x_pos:.6f} m, MoveAbsY = {y_pos:.6f} m (Max Intensity)")
+        except Exception as e:
+            print(f"Failed to set MoveABS from max intensity: {e}")
 
     def fill_z(self):
         # Calculate Z value (if needed, otherwise set to 0)
@@ -1477,71 +1502,7 @@ class GUI_OPX():
 
     def load_pos(self):
         try:
-            # Check if map_config.txt exists and read the contents
-            if not os.path.exists("map_config.txt"):
-                # print("map_config.txt not found.")
-                return
-
-            # Dictionaries to store positions, sizes, and collapsed states
-            window_positions = {}
-            window_sizes = {}
-            window_collapsed = {}
-
-            with open("map_config.txt", "r") as file:
-                lines = file.readlines()
-                for line in lines:
-                    # Split the line to get key and value
-                    parts = line.split(": ")
-                    if len(parts) != 2:
-                        continue  # Skip lines that don't have the expected format
-
-                    key = parts[0].strip()
-                    value = parts[1].strip()
-
-                    # Check if the key is a window position entry
-                    if "_Pos" in key:
-                        window_name = key.replace("_Pos", "")
-                        x, y = value.split(", ")
-                        window_positions[window_name] = (float(x), float(y))
-
-                    # Check if the key is a window size entry
-                    elif "_Size" in key:
-                        window_name = key.replace("_Size", "")
-                        width, height = value.split(", ")
-                        window_sizes[window_name] = (int(width), int(height))
-
-                    # Check if the key is a window collapsed entry
-                    elif "_Collapsed" in key:
-                        window_name = key.replace("_Collapsed", "")
-                        window_collapsed[window_name] = value == "True"
-
-            # Update window positions, sizes, and collapsed states in Dear PyGui if the windows exist
-            for window_name, pos in window_positions.items():
-                if dpg.does_item_exist(window_name):
-                    dpg.set_item_pos(window_name, pos)
-                    print(f"Loaded position for {window_name}: {pos}")
-                else:
-                    print(f"{window_name} does not exist in the current context.")
-
-            for window_name, size in window_sizes.items():
-                if window_name == "main_viewport":
-                    dpg.set_viewport_width(size[0])
-                    dpg.set_viewport_height(size[1])
-                    print(f"Loaded main viewport size: {size}")
-                elif dpg.does_item_exist(window_name):
-                    dpg.set_item_width(window_name, size[0])
-                    dpg.set_item_height(window_name, size[1])
-                    print(f"Loaded size for {window_name}: {size}")
-                else:
-                    print(f"{window_name} does not exist in the current context.")
-
-            for window_name, collapsed in window_collapsed.items():
-                if dpg.does_item_exist(window_name):
-                    dpg.configure_item(window_name, collapsed=collapsed)
-                    print(f"Loaded collapsed state for {window_name}: {collapsed}")
-                else:
-                    print(f"{window_name} does not exist in the current context.")
-
+            load_window_positions()
         except Exception as e:
             print(f"Error loading window data: {e}")
 
@@ -1938,7 +1899,7 @@ class GUI_OPX():
             # Normalize and multiply by 255
             result_array = (array_2d * 255) / max_value
         except ZeroDivisionError:
-            print("Division by zero encountered. Setting entire array to zero.")
+            # print("Division by zero encountered. Setting entire array to zero.")
             result_array = np.zeros_like(array_2d)  # Set entire array to zeros
         except Exception as e:
             print(f"An unexpected error occurred during array normalization: {e}")
@@ -2007,7 +1968,7 @@ class GUI_OPX():
             item_width = dpg.get_item_width("plotImaga")
             item_height = dpg.get_item_height("plotImaga")
             dpg.set_item_width("Scan_Window", item_width + 150)
-            dpg.set_item_height("Scan_Window", item_height + 200)
+            dpg.set_item_height("Scan_Window", item_height + 300)
         except Exception as e:
             print(f"Error updating window size: {e}")
 
@@ -8741,7 +8702,7 @@ class GUI_OPX():
         """
         try:
             # Prompt user for CSV file path
-
+            system_name=None
             file_path = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
             points = []
             with open(file_path, 'r') as csvfile:
@@ -8764,16 +8725,22 @@ class GUI_OPX():
                 move_fn = self.HW.atto_positioner.MoveABSOLUTE
                 get_positions_fn = self.HW.atto_positioner.get_position
                 read_in_pos_fn = lambda ax: self.HW.atto_positioner.wait_for_axes_to_stop([ax], max_wait_time=20.0)
+                system_name = "Atto"
             elif hasattr(self, "positioner") and hasattr(self.positioner, "MoveABSOLUTE"):
                 move_fn = self.positioner.MoveABSOLUTE
-                get_positions_fn = self.positioner.get_position
+                get_positions_fn = self.positioner.GetPosition
                 read_in_pos_fn = lambda ch: self.positioner.ReadIsInPosition(ch)
+                system_name = "Femto"
             else:
                 print("No valid move function found.")
                 return
 
             # Determine the expected number of axes based on the current positions
-            positions = [get_positions_fn(x) for x in range(len(points[0]))]
+            if system_name == "Femto":
+                get_positions_fn()
+                positions = [self.positioner.AxesPositions[x] for x in range(len(points[0]))]
+            else:
+                positions = [get_positions_fn(x) for x in range(len(points[0]))]
             if not positions:
                 print("Unable to retrieve current positions. Aborting survey.")
                 return
@@ -8867,6 +8834,9 @@ class GUI_OPX():
                     if self.HW.atto_scanner:
                         self.HW.atto_scanner.MoveABSOLUTE(1, 25)
                         self.HW.atto_scanner.MoveABSOLUTE(2, 25)
+                        system_name="Atto"
+                    else:
+                        system_name="Femto"
 
                     # Move to the specified point using the provided move function
                     try:
@@ -10064,6 +10034,16 @@ class GUI_OPX():
                 estimated_time_left = delta * ((self.N_scan[2] - i - 1) * self.N_scan[1] + (self.N_scan[1] - j - 1))
                 estimated_time_left = estimated_time_left if estimated_time_left > 0 else 0
                 dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
+
+            # Save after each Z slice
+            current_z_um = int(self.V_scan[2][i])  # already in microns (because *1e3 earlier)
+            slice_filename = self.create_scan_file_name(local=True) + f"_z{current_z_um}"
+            self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1],
+                                   min_position_x_scan=self.V_scan[0][0],
+                                   start_pos=[int(self.V_scan[0][0]),
+                                              int(self.V_scan[1][0]),
+                                              int(self.V_scan[2][i])])  # current Z
+            self.save_scan_data(Nx, Ny, Nz, slice_filename)
 
         # back to start position
         for i in self.positioner.channels:
@@ -11341,7 +11321,7 @@ class GUI_OPX():
                                           "startLoc", "endLoc", "Xv", "Yv", "Zv", "viewport_width", "viewport_height",
                                           "window_scale_factor",
                                           "timeStamp", "counter", "maintain_aspect_ratio", "scan_intensities",
-                                          "initial_scan_Location", "V_scan",
+                                          "V_scan",
                                           "absPosunits", "Scan_intensity", "Scan_matrix", "image_path", "f_vec",
                                           "signal", "ref_signal", "tracking_ref", "t_vec", "t_vec_ini"]
                 ):

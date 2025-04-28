@@ -1,6 +1,7 @@
 from functools import partial
 import dearpygui.dearpygui as dpg
 import numpy as np
+import pyperclip
 
 from Common import DpgThemes
 from HW_wrapper import HW_devices as hw_devices
@@ -13,6 +14,7 @@ from datetime import datetime
 import re
 
 from SystemConfig import Instruments
+from Common import load_window_positions
 
 
 class GUI_smaract():
@@ -90,6 +92,7 @@ class GUI_smaract():
                     dpg.add_text(" Ref.")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Ref. " + str(ch))
+                    dpg.add_button(label="Paste XY", callback=self.paste_clipboard_to_moveabs)
 
                 with dpg.group(horizontal=False, tag="_column 5_", width=child_width):
                     dpg.add_text("  Zero   ")
@@ -174,6 +177,27 @@ class GUI_smaract():
             self.dev.AxesKeyBoardSmallStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Fset") * self.dev.StepsIn1mm / 1e6) for ch in range(3)]
 
 
+    def paste_clipboard_to_moveabs(self):
+        try:
+            # Read clipboard text
+            clipboard_text = pyperclip.paste()
+            print(f"Clipboard text: {clipboard_text}")
+
+            # Parse X and Y
+            x_str = clipboard_text.split('X=')[1].split(',')[0]
+            y_str = clipboard_text.split('Y=')[1].split(']')[0]
+
+            x_value = float(x_str.strip())
+            y_value = float(y_str.strip())
+
+            # Set values to MoveABS input fields
+            dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
+            dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
+
+            print(f"Set MoveAbsX = {x_value}, MoveAbsY = {y_value}")
+        except Exception as e:
+            print(f"Failed to parse clipboard: {e}")
+
     def save_pos(self):
         # Define the list of windows to check and save positions for
         window_names = [
@@ -221,56 +245,7 @@ class GUI_smaract():
 
     def load_pos(self):
         try:
-            # Check if win_pos.txt exists and read the contents
-            if not os.path.exists("win_pos.txt"):
-                print("win_pos.txt not found.")
-                return
-
-            # Dictionaries to store positions and sizes loaded from the file
-            window_positions = {}
-            window_sizes = {}
-
-            with open("win_pos.txt", "r") as file:
-                lines = file.readlines()
-                for line in lines:
-                    # Split the line to get key and value
-                    parts = line.split(": ")
-                    if len(parts) != 2:
-                        continue  # Skip lines that don't have the expected format
-
-                    key = parts[0].strip()
-                    value = parts[1].strip()
-
-                    # Check if the key is a window position entry
-                    if "_Pos" in key:
-                        # Extract window name and coordinates
-                        window_name = key.replace("_Pos", "")
-                        x, y = value.split(", ")
-                        window_positions[window_name] = (float(x), float(y))
-
-                    # Check if the key is a window size entry
-                    elif "_Size" in key:
-                        # Extract window name and dimensions
-                        window_name = key.replace("_Size", "")
-                        width, height = value.split(", ")
-                        window_sizes[window_name] = (int(width), int(height))
-
-            # Update window positions and sizes in Dear PyGui if the windows exist
-            for window_name, pos in window_positions.items():
-                if dpg.does_item_exist(window_name):
-                    dpg.set_item_pos(window_name, pos)
-                    print(f"Loaded position for {window_name}: {pos}")
-                else:
-                    print(f"{window_name} does not exist in the current context.")
-
-            for window_name, size in window_sizes.items():
-                if dpg.does_item_exist(window_name):
-                    dpg.set_item_width(window_name, size[0])
-                    dpg.set_item_height(window_name, size[1])
-                    print(f"Loaded size for {window_name}: {size}")
-                else:
-                    print(f"{window_name} does not exist in the current context.")
-
+            load_window_positions()
         except Exception as e:
             print(f"Error loading window positions and sizes: {e}")
 
