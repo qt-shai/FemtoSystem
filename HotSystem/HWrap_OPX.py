@@ -2645,10 +2645,8 @@ class GUI_OPX():
                     assign(self.total_rf_wait, 4)
                     assign(self.total_mw_wait, 4)
                     with if_(sequenceState == 0):
-                        """ signal """
-                        # polarize (@fMW_res @ fRF_res)
-                        # play("Turn_ON", "Laser", duration=tPump // 4)
-                        # align("Laser", "MW")
+                        """ Experiment start """
+
 
                         """signal 1 state preparation part"""
                         # MIC: @Daniel add set(self.keep_phase,False)
