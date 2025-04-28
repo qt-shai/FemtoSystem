@@ -3363,16 +3363,16 @@ class GUI_OPX():
            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
         
-        with if_(site_state == 3): #|11>
+        with if_(site_state == 3): #|11> if pumping and 50% |11> and 50% |00> if not
            # pump
            with for_(self.m, 0, self.m < self.Npump, self.m + 1):
                self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_2nd_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=self.tWait)
            # play MW
            #update_frequency("MW", self.fMW_2nd_res)
            #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.tMW // 4)
-           update_frequency("MW", self.fMW_1st_res)
-           play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
-           play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+           update_frequency("MW", self.fMW_2nd_res)
+           play("yPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+           play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
         
         with if_(site_state == 4): #|00>+|11>
            # pump
@@ -3381,8 +3381,8 @@ class GUI_OPX():
            align()
            # play MW
            update_frequency("MW", self.fMW_2nd_res)
-           play("xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
-           play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+           play("yPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+           play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
            #update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
            #play("xPulse"* amp(self.mw_P_amp2), "MW", duration=self.t_mw2 // 4)
         
@@ -3393,8 +3393,8 @@ class GUI_OPX():
            frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
            wait(self.tWait //4)
            align("RF","MW")
-           play("xPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
-           play("-xPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
+           play("-yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
+           play("yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
 
 
         with if_(site_state == 5):  # |00>+|11> through echo-protected CeNOTn
@@ -3436,9 +3436,10 @@ class GUI_OPX():
     '''
     def QUA_measure(self,m_state,idx,tLaser,tMeasure,t_rf,t_mw,t_mw2,p_rf):
         align()
-        # durations of all measurements should be t_rf+2*t_mw    
+        # durations of all measurements should be t_rf+2*t_mw+t_wait
         # populations
         with if_(m_state==1):
+            #pass
             wait(int(t_rf+2*t_mw+self.tWait) // 4)
 
         with if_(m_state==2):
@@ -3465,51 +3466,51 @@ class GUI_OPX():
         
         # e-coherences
         with if_(m_state==4):
-            #update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            #play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            #wait(int((t_rf+2*t_mw-t_mw2/2) // 4))
             update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            play("-yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            update_frequency("MW", self.fMW_2nd_res)
+            play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            wait(int((t_rf+2*t_mw-t_mw2/2+self.tWait) // 4))
+            #update_frequency("MW", self.fMW_1st_res)
+            #play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            #play("-yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #wait(int((t_rf+t_mw-t_mw2+self.tWait) // 4))
+        with if_(m_state==5):
+            update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
+            play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            #update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
+            #play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            #play("-yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            wait(int((t_rf+t_mw-t_mw2/2+self.tWait) // 4))
+            #wait(int((t_rf+2*t_mw-t_mw2/2) // 4))
+            update_frequency("MW", self.fMW_1st_res)
             play("yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
-            wait(int((t_rf+t_mw-t_mw2+self.tWait) // 4))
-        with if_(m_state==5):
-            #update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            #play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            play("-yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            wait(int((t_rf+2*t_mw-t_mw2+self.tWait) // 4))
-            #wait(int((t_rf+2*t_mw-t_mw2/2) // 4))
-            #update_frequency("MW", self.fMW_1st_res)
-            #play("xPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
-            #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             #update_frequency("MW", self.fMW_2nd_res)
             #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==6):
-            #update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            #play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            #wait(int((t_rf+2*t_mw-t_mw2/2) // 4))
             update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            play("-xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            update_frequency("MW", self.fMW_2nd_res)
-            play("xPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
-            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
-            wait(int((t_rf+t_mw-t_mw2+self.tWait) // 4))
-        with if_(m_state==7):
+            play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            wait(int((t_rf+2*t_mw-t_mw2/2+self.tWait) // 4))
             #update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            #play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            #wait(int((t_rf+t_mw-t_mw2/2) // 4))
-            update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            play("-xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            wait(int((t_rf+2*t_mw-t_mw2) // 4))
-            #update_frequency("MW", self.fMW_1st_res)
+            #play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            #play("-xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
             #play("xPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #wait(int((t_rf+t_mw-t_mw2+self.tWait) // 4))
+        with if_(m_state==7):
+            update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
+            play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            #wait(int((t_rf+t_mw-t_mw2/2) // 4))
+            #update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
+            #play("xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            #play("-xPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
+            wait(int((t_rf+t_mw-t_mw2/2) // 4))
+            update_frequency("MW", self.fMW_1st_res)
+            play("yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             #update_frequency("MW", self.fMW_2nd_res)
             #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
 
@@ -3535,38 +3536,38 @@ class GUI_OPX():
             #update_frequency("MW", self.fMW_2nd_res)
             #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==10):
-            #update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
-            #play("xPulse"* amp(self.mw_P_amp2), "MW", duration=t_mw2 // 4)
-            update_frequency("MW", self.fMW_1st_res)
-            play("yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
-            play("-yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
-            update_frequency("MW", self.fMW_2nd_res)
-            play("yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
-            play("-yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
+            play("yPulse"* amp(self.mw_P_amp2), "MW", duration=t_mw2 // 4)
+            #update_frequency("MW", self.fMW_1st_res)
+            #play("yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #play("-yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #play("-yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             align("MW","RF")
             play("const" * amp(p_rf), "RF", duration=(t_rf/2) // 4)
             align("RF","MW")
-            wait(int((t_rf/2-t_mw+self.tWait) // 4))
+            wait(int((t_rf/2+t_mw-t_mw2+self.tWait) // 4))
             update_frequency("MW", self.fMW_1st_res)
             play("yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             #update_frequency("MW", self.fMW_2nd_res)
             #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
         with if_(m_state==11):
-            #update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
-            #play("xPulse"* amp(self.mw_P_amp2), "MW", duration=t_mw2 // 4)
-            update_frequency("MW", (self.fMW_1st_res + self.fMW_2nd_res)/2)
-            play("yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            play("-yPulse"* amp(self.mw_P_amp2), "MW", duration=(t_mw2/2) // 4)
-            update_frequency("MW", self.fMW_2nd_res)
-            play("yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
-            play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
+            play("yPulse"* amp(self.mw_P_amp2), "MW", duration=t_mw2 // 4)
+            #update_frequency("MW", self.fMW_1st_res)
+            #play("yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #play("-yPulse"* amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #update_frequency("MW", self.fMW_2nd_res)
+            #play("yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            #play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             align("MW","RF")
             frame_rotation_2pi(0.25,"RF") # RF Y pulse
             play("const" * amp(p_rf), "RF", duration=(t_rf/2) // 4)
             frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
             align("RF","MW")
-            wait(int((t_rf/2-t_mw+self.tWait) // 4))
+            wait(int((t_rf/2+t_mw-t_mw2+self.tWait) // 4))
             update_frequency("MW", self.fMW_1st_res)
             play("yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
             play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
@@ -3753,11 +3754,11 @@ class GUI_OPX():
             self.f_rf = self.rf_resonance_freq
 
             # length and idx vector
-            self.first_state = 4 # serial number of first initial state
-            self.last_state = 4 # serial number of last initial state
+            self.first_state = 3 # serial number of first initial state
+            self.last_state = 3 # serial number of last initial state
             self.number_of_states = 1 # number of initial states
-            self.number_of_measurement = 15 # number of measurements
-            self.measurements = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+            self.number_of_measurement = 3 # number of measurements
+            self.measurements = [1,2,3] #,4,5,6,7,8,9,10,11,12,13,14,15]
             self.vectorLength = self.number_of_states*self.number_of_measurement  # total number of measurements
             self.idx_vec_ini = np.arange(0, self.vectorLength, 1) # for visualization purpose
 
@@ -6165,6 +6166,7 @@ class GUI_OPX():
                         # play MW for time Tmw
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         #update_frequency("MW", self.fMW_2nd_res)
+                        update_frequency("MW", 0)
                         play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         # Don't play RF after MW just wait
@@ -6438,9 +6440,9 @@ class GUI_OPX():
                         # play MW for time t
                         #update_frequency("MW", 0)
                         update_frequency("MW", self.fMW_1st_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
-                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
-                        #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
                         # update_frequency("MW", self.fMW_2nd_res)
                         # ## play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
                         # play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
