@@ -1746,6 +1746,7 @@ class GUI_OPX():
         play("-xPulse" * amp(p_mw), "MW", duration=t_mw)
 
     def MW_and_reverse_general(self, p_mw, t_mw, first_pulse: str = "xPulse", second_pulse: str = "-xPulse"):
+        # Todo  add option for pulses with duration not divided by 4
         play(first_pulse * amp(p_mw), "MW", duration=t_mw) # pi pulse
         play(second_pulse * amp(p_mw), "MW", duration=t_mw) # pi pulse
 
@@ -2460,9 +2461,9 @@ class GUI_OPX():
 
 
         with switch_(final_state_qua):
-            # with case_(0):
-            #     # qubit = |0n>|0e>
-            #     pass
+            with case_(0):
+                # qubit = |0n>|0e>
+                pass
             with case_(1):
                 # qubit = |0n>|1e>
                 # set MW frequency to second resonance frequency
@@ -2475,11 +2476,11 @@ class GUI_OPX():
                 update_frequency("MW", self.back_freq, keep_phase=keep_phase)  # MIC: @Daniel!! add self.keep_phase
             # with case_(2):
             #     # qubit = |1n>|0e>
-            #     #TBD @MIC
+            #     Todo @MIC
             #     pass
             # with case_(3):
             #     # qubit = |1n>|1e>
-            #     #TBD @MIC
+            #     Todo @MIC
             #     pass
 
     def benchmark_state_readout(self, current_counts_, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure):
