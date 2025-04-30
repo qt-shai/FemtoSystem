@@ -34,10 +34,10 @@ class GUI_MFF(GUIMotor):
         if dpg.does_item_exist("groupZeluxControls"):
             toggle_to_state = self.get_opposite_state(self.toggle_state)
             motor_str = "M"
-            motor_label = motor_str + " " + self.serial_number[-2:]
+            motor_label = motor_str + self.serial_number[-2:]
             self.get_toggle_label(toggle_to_state)
             dpg.add_slider_int(label=motor_label,
-                               tag=f"on_off_slider_{self.unique_id}", width=80,
+                               tag=f"on_off_slider_{self.unique_id}", width=60,
                                default_value=self.toggle_state - 1, parent="groupZeluxControls",
                                min_value=0, max_value=1,
                                callback=self.on_off_slider_callback, indent=-1,

@@ -81,39 +81,35 @@ class GUI_smaract():
                             dpg.add_button(label="+", width=25, callback=self.move_c_f, user_data=(ch, 'neg', 'f'))
                             dpg.bind_item_theme(dpg.last_item(), red_button_theme)
                             dpg.add_input_float(label="", default_value=100, tag=f"{self.prefix}_ch" + str(ch) + "_Fset",
-                                                indent=-1, format='%.1f', width=200, step=10, step_fast=100,callback=self.ipt_small_step)
+                                                indent=-1, format='%.1f', width=150, step=10, step_fast=100,callback=self.ipt_small_step)
                             dpg.add_text("nm  ", indent=-10)
                     with dpg.group(horizontal=True):
                         dpg.add_button(label="connect", callback=self.btn_connect, tag=f"{self.prefix}_Connect")
                         dpg.add_button(label="Log", callback=self.btnLogPoint, tag=f"{self.prefix}_Log")
                         dpg.add_button(label="Del", callback=self.btnDelPoint)
                         dpg.add_text(tag=f"{self.prefix}logged_points", label="")
-                with dpg.group(horizontal=False, tag="_column 4_", width=child_width):
+                with dpg.group(horizontal=False, tag="_column 4_", width=child_width*0.8):
                     dpg.add_text(" Ref.")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Ref. " + str(ch))
                     dpg.add_button(label="Paste XY", callback=self.paste_clipboard_to_moveabs)
 
-                with dpg.group(horizontal=False, tag="_column 5_", width=child_width):
+                with dpg.group(horizontal=False, tag="_column 5_", width=child_width*0.8):
                     dpg.add_text("  Zero   ")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Zero " + str(ch), callback=self.btn_zero, user_data=ch)
                     # dpg.add_button(label="Calc V",tag=f"{self.prefix}_calc_v", callback=self.btn_calc_v)
 
-                with dpg.group(horizontal=False, tag="_column 6_", width=child_width):
+                with dpg.group(horizontal=False, tag="_column 6_", width=child_width/3):
                     dpg.add_text(" Move UV")
                     for ch in range(2):
                         with dpg.group(horizontal=True):
-                            if ch == 0:
-                                dpg.add_text("  U")
-                            else:
-                                dpg.add_text("  V")
-                            dpg.add_button(label="-", width=20, callback=self.move_uv, user_data=(ch, -1, True))
+                            dpg.add_button(label="-", width=10, callback=self.move_uv, user_data=(ch, -1, True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
-                            dpg.add_button(label="+", width=20, callback=self.move_uv, user_data=(ch, 1, True))
+                            dpg.add_button(label="+", width=10, callback=self.move_uv, user_data=(ch, 1, True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
 
-                with dpg.group(horizontal=False, tag="_column 7_", width=child_width+100):
+                with dpg.group(horizontal=False, tag="_column 7_", width=child_width*1.3):
                     dpg.add_text("Move Abs. (um)")
                     for ch in range(self.dev.no_of_channels):
                         with dpg.group(horizontal=True):
