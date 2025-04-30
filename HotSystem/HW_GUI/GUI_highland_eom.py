@@ -24,8 +24,8 @@ class GUIHighlandT130:
         self.height = 170
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
-        self.window_tag = "HighlandT130_Win"
-        with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
+        self.window_tag = f"HighlandT130_Win_{self.unique_id}"
+        with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}_{self.dev.serial_number}",
                         no_title_bar=False, height=self.height, width=self.width, pos=[0, 0], collapsed=True):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
@@ -232,7 +232,7 @@ class GUIHighlandT130:
     def get_status(self):
         try:
             status = self.dev.get_device_status() or self.instrument.value
-            dpg.set_item_label(self.window_tag, f'{status} ({"connected" if self.dev.is_connected else "disconnected"})')
+            dpg.set_item_label(self.window_tag, f'{status} {self.unique_id} ({"connected" if self.dev.is_connected else "disconnected"})')
             print(f"Status: {status}")
         except Exception as e:
             print(f"Error getting status: {e}")

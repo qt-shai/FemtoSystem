@@ -387,7 +387,7 @@ def select_csv_file() -> str:
 
 
 
-def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?\r\n"):
+def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?"):
     """
     Scans all available COM ports, attempts to query each device for an IDN,
     and returns a dictionary of {port: IDN response} for ports that respond successfully.
@@ -419,6 +419,9 @@ def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?\r\n"):
         # If no COM ports are found, return an empty dictionary or handle as needed
         return results
 
+    # List of baudrates to try (default first, then fallbacks)
+    baudrate_list = list({baudrate, 115200, 57600, 38400, 19200, 9600})
+
     # Iterate over each detected port
     for port_info in available_ports:
         port_name = port_info.device
@@ -431,24 +434,57 @@ def scan_com_ports(baudrate=9600, timeout=1, query_command="*IDN?\r\n"):
             continue
 
         try:
-            with serial.Serial(port=port_name, baudrate=baudrate, timeout=timeout, write_timeout=timeout) as ser:
-                # Clear buffers before use
-                ser.reset_input_buffer()
-                ser.reset_output_buffer()
+            # Flag to break out once we get a valid response
+            success = False
 
+            for br in baudrate_list:
+                try:
+                    print(f"  Trying baudrate {br}…")
+                    with serial.Serial(port=port_name,
+                                       baudrate=br,
+                                       timeout=timeout,
+                                       write_timeout=timeout) as ser:
 
-                time.sleep(50e-3)
-                # Send the query command
-                ser.write(query_command.encode("utf-8"))
+                        # send the query with proper terminator
+                        time.sleep(50e-3)
+                        cmd = f"{query_command}\r\n"
+                        ser.write(cmd.encode("utf-8"))
+                        ser.flush()
 
-                time.sleep(50e-3)
-                # Read the response (try reading one line or up to a certain size)
-                response = ser.readline().decode(errors="ignore").strip()
+                        # wait up to timeout for any reply bytes
+                        deadline = time.time() + 50e-3
+                        while time.time() < deadline and ser.in_waiting == 0:
+                            time.sleep(0.01)
 
-                # If no response, keep the default
-                if response:
-                    results[port_name] = response
-                    print(f"Established connection with port {port_name}")
+                        # now read the full line (including everything up to '\n')
+                        raw = ser.readline()
+                        response = raw.decode(errors="ignore").strip()
+
+                        if response:
+                            ser.write(cmd.encode("utf-8"))
+                            ser.flush()
+
+                            # wait up to timeout for any reply bytes
+                            deadline = time.time() + 50e-3
+                            while time.time() < deadline and ser.in_waiting == 0:
+                                time.sleep(0.01)
+
+                            # now read the full line (including everything up to '\n')
+                            raw = ser.readline()
+                            response = raw.decode(errors="ignore").strip()
+
+                            results[port_name] = response
+                            print(f"    ✅ Success on {port_name} @ {br} baud: {response}")
+                            success = True
+                            break
+                        else:
+                            print(f"    ⚠️ No response at {br} baud, retrying…")
+
+                except serial.SerialException as e:
+                    print(f"    ❌ Could not open {port_name} at {br} baud: {e}")
+
+            if not success:
+                print(f"  ❎ Failed to communicate on {port_name} after trying {baudrate_list}")
 
         except serial.SerialException as e:
             # Catch any serial-related errors (e.g., access denied, device removal, etc.)

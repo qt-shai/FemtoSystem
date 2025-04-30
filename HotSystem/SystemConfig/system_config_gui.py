@@ -1,6 +1,7 @@
 import ast
 import os
 import pdb
+import re
 import xml.etree.ElementTree as ET
 from typing import List, Optional, Dict
 # from numpy.array_api import trunc
@@ -167,6 +168,40 @@ def get_available_devices(instrument: Instruments, ports: Dict[str, str | OSErro
                     dev.misc = "Cluster_2"
                 elif dev.ip_address == "192.168.101.157":
                     dev.misc = "Cluster_3"
+
+    elif instrument == Instruments.HIGHLAND:
+        highland_ports = []
+        highland_sn = []
+        for port, description in ports.items():
+            if 'T130-9C' in description:
+                highland_ports.append(''.join(ch for ch in port if ch.isdigit()))
+                m = re.search(r'\bsn\s+(\S+)', description, flags=re.IGNORECASE)
+                highland_sn.append(m.group(1))
+
+        if len(highland_ports):
+            highland_devices =[]
+            for port_num, sn in zip(highland_ports, highland_sn):
+                highland_devices.append(Device(
+                    instrument=Instruments.HIGHLAND,
+                    ip_address="N/A",
+                    mac_address="N/A",
+                    serial_number=sn,
+                    com_port=port_num,
+                    simulation=False,
+                ))
+            return highland_devices
+        else:
+            return [
+                Device(
+                    instrument=Instruments.HIGHLAND,
+                    ip_address="N/A",
+                    mac_address="N/A",
+                    serial_number="N/A",
+                    com_port="N/A",
+                    simulation=True,
+                )
+            ]
+        pass
 
     # Return as a list or None
     if not isinstance(devices, list) and devices:

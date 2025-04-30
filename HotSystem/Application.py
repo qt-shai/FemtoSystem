@@ -421,7 +421,7 @@ class PyGuiOverlay(Layer):
         self.smaract_thread = None
         self.smaractGUI = None
         self.atto_positioner_gui:Optional[GUIMotor] = None
-        self.highland_gui: Optional[GUIHighlandT130] = None
+        self.highland_gui: Optional[list[GUIHighlandT130]] = []
         self.lsr = None
         self.opx = None
         self.cam = None
@@ -728,6 +728,8 @@ class PyGuiOverlay(Layer):
         y_offset = 30
         vertical_spacing = 20  # Spacing between GUIs
 
+        self.highland_list = hw_devices.HW_devices().highland_eom_driver
+
         for device in self.system_config.devices:
             instrument = device.instrument
             print(f"loading instrument {instrument.value}")
@@ -817,15 +819,18 @@ class PyGuiOverlay(Layer):
                     y_offset += dpg.get_item_height(self.atto_positioner_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.HIGHLAND:
-                    self.highland_gui = GUIHighlandT130(
-                        device=hw_devices.HW_devices().highland_eom_driver,
-                        simulation=device.simulation
+                    matching_device = next(
+                        (highland for highland in self.highland_list if str(highland.serial_number) == device.serial_number),
+                        None  # Default if no match is found
                     )
-                    self.create_bring_window_button(self.highland_gui.window_tag, button_label="Highland",
-                                                    tag="Highland_button", parent="focus_group")
-                    self.active_instrument_list.append(self.highland_gui.window_tag)
-                    dpg.set_item_pos(self.highland_gui.window_tag, [20, y_offset])
-                    y_offset += dpg.get_item_height(self.highland_gui.window_tag) + vertical_spacing
+                    current_gui = GUIHighlandT130(matching_device)
+                    self.highland_gui.append(current_gui)
+                    # for highland_gui in self.highland_gui:
+                    self.create_bring_window_button(current_gui.window_tag, button_label=f"Highland sn:{matching_device.serial_number}",
+                                                    tag=f"Highland_button_{device.serial_number}", parent="focus_group")
+                    self.active_instrument_list.append(current_gui.window_tag)
+                    dpg.set_item_pos(current_gui.window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(current_gui.window_tag) + vertical_spacing
 
                 elif instrument == Instruments.MATTISE:
                     self.mattise_gui = GUIMatisse(
