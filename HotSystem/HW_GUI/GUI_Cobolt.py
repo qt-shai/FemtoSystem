@@ -132,7 +132,7 @@ class GUI_Cobolt():  # todo1: support several devices
     def inputCurrent(self, app_data, user_data):
         try:
             if user_data > self.laser.max_current:
-                user_data = self.self.laser.max_current
+                user_data = self.laser.max_current
             elif user_data < 0:
                 user_data = 0
             self.laser.set_current(user_data * 1e3)  # for cobolt 06 or 08 it expect Amps - we send mAmps

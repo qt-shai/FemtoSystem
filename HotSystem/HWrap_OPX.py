@@ -123,7 +123,7 @@ class GUI_OPX():
         # HW
 
         # TODO: Move measure_type definition to be read from config
-        measure_type = MeasurementType.ANALOG
+        measure_type = MeasurementType.DIGITAL
         self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
         self.stop_survey: bool = False
         self.survey_stop_flag = False
