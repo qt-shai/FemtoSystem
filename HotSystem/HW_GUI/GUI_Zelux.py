@@ -20,6 +20,7 @@ class ZeluxGUI():
         self.subtract_background = False
         self.HW = hw_devices.HW_devices()
         self.positioner = self.HW.positioner
+
         try:
             self.background_image = np.load("zelux_background.npy")
             print("Background image loaded.")
@@ -202,8 +203,11 @@ class ZeluxGUI():
                            callback=self.StitchFrames, parent="groupZeluxControls")
 
             dpg.add_combo(label="Sweep Mode", tag="StitchSweepMode",
-                          items=["XY", "X only", "Y only"], default_value="XY",
-                          width=80, parent="groupZeluxControls")
+                          items=["XY 15um", "X 15um", "Y 15um",
+                                 "XY 50um", "X 50um", "Y 50um",
+                                 "XY 100um", "X 100um", "Y 100um"],
+                          default_value="XY 15um",
+                          width=120, parent="groupZeluxControls")
 
             # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
             # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
@@ -292,9 +296,12 @@ class ZeluxGUI():
     def StitchFrames(self, sender, app_data, user_data=None):
         self.show_center_cross = True  # Show the cross
         dpg.set_value("chkShowCross", True)
-        sweep_mode = dpg.get_value("StitchSweepMode")  # "XY", "X only", or "Y only"
 
-        step_um = 15.0
+        sweep_mode_str = dpg.get_value("StitchSweepMode")  # e.g., "XY 50um"
+        tokens = sweep_mode_str.split()
+        sweep_mode = tokens[0]  # "XY", "X", or "Y"
+        step_um = float(tokens[1].replace("um", ""))  # 15, 50, 100
+
         step_pm = int(step_um * self.positioner.StepsIn1mm * 1e-3)
         num_frames = dpg.get_value("StitchNumFrames")  # Frames per side
         folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/Stitch/'
