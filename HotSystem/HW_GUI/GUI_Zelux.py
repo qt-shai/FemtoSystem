@@ -3,6 +3,9 @@ from ImGuiwrappedMethods import *
 from Common import *
 from HW_wrapper import HW_devices as hw_devices
 from HW_wrapper.Wrapper_MFF_101 import FilterFlipperController
+import os
+import cv2
+import numpy as np
 
 
 class ZeluxGUI():
@@ -38,7 +41,7 @@ class ZeluxGUI():
         self.LiveTh = threading.Thread(target=self.cam.LiveTh)
         self.LiveTh.setDaemon(True)
         self.LiveTh.start()
-        stopBtn = dpg.add_button(label="Stop Live", before="btnStartLive", parent=self.window_tag, tag="btnStopLive",
+        stopBtn = dpg.add_button(label="Stop", before="btnStartLive", parent=self.window_tag, tag="btnStopLive",
                                  callback=self.StopLive)
         dpg.delete_item("btnStartLive")
         # dpg.delete_item("btnSave")
@@ -160,24 +163,24 @@ class ZeluxGUI():
         self.set_all_themes()
         if isConnected:
             dpg.add_group(tag="groupZeluxControls", parent=self.window_tag, horizontal=True)
-            dpg.add_button(label="Start Live", callback=self.StartLive, tag="btnStartLive", parent="groupZeluxControls")
-            dpg.add_button(label="Save Image", callback=self.cam.saveImage, tag="btnSave", parent="groupZeluxControls")
+            dpg.add_button(label="Live", callback=self.StartLive, tag="btnStartLive", parent="groupZeluxControls")
+            dpg.add_button(label="Save", callback=self.cam.saveImage, tag="btnSave", parent="groupZeluxControls")
 
             dpg.bind_item_theme(item="btnStartLive", theme="btnGreenTheme")
             dpg.bind_item_theme(item="btnSave", theme="btnBlueTheme")
 
             minExp = min(self.cam.camera.exposure_time_range_us) / 1e3
             maxExp = max(self.cam.camera.exposure_time_range_us) / 1e3
-            slider_exposure = dpg.add_slider_int(label="exposure", tag="slideExposure", parent="groupZeluxControls",
-                                                 width=100, callback=self.UpdateExposure,
+            slider_exposure = dpg.add_slider_int(label="Exp", tag="slideExposure", parent="groupZeluxControls",
+                                                 width=70, callback=self.UpdateExposure,
                                                  default_value=self.cam.camera.exposure_time_us / 1e3,
                                                  min_value=minExp if minExp > 0 else 1,
                                                  max_value=maxExp if maxExp < 1000 else 1000)
 
             minGain = self.cam.camera.convert_gain_to_decibels(min(self.cam.camera.gain_range))
             maxGain = self.cam.camera.convert_gain_to_decibels(max(self.cam.camera.gain_range))
-            slider_gain = dpg.add_slider_int(label="gain", tag="slideGain", parent="groupZeluxControls",
-                                             width=100, callback=self.UpdateGain,
+            slider_gain = dpg.add_slider_int(label="G", tag="slideGain", parent="groupZeluxControls",
+                                             width=70, callback=self.UpdateGain,
                                              default_value=self.cam.camera.convert_gain_to_decibels(
                                                  self.cam.camera.gain),
                                              min_value=minGain,
@@ -186,11 +189,21 @@ class ZeluxGUI():
             dpg.add_checkbox(label="+", tag="chkShowCross", parent="groupZeluxControls",
                              callback=self.toggle_center_cross)
 
-            dpg.add_button(label="Capture BG", callback=lambda: self.CaptureBackground(), parent="groupZeluxControls")
-            dpg.add_checkbox(label="Subtract BG", tag="chkSubtractBG", parent="groupZeluxControls",
+            dpg.add_button(label="CapBG", callback=lambda: self.CaptureBackground(), parent="groupZeluxControls")
+            dpg.add_checkbox(label="SubBG", tag="chkSubtractBG", parent="groupZeluxControls",
                              callback=lambda s, a, u: setattr(self, 'subtract_background', a))
-            dpg.add_button(label="SvIm", tag="btnSaveProcessedImage",
+            dpg.add_button(label="Sv", tag="btnSaveProcessedImage",
                            callback=self.SaveProcessedImage, parent="groupZeluxControls")
+
+            dpg.add_input_int(label="#Frm", tag="StitchNumFrames", width=120,
+                              default_value=10, min_value=1, parent="groupZeluxControls")
+
+            dpg.add_button(label="St", tag="btnStitchFrames",
+                           callback=self.StitchFrames, parent="groupZeluxControls")
+
+            dpg.add_combo(label="Sweep Mode", tag="StitchSweepMode",
+                          items=["XY", "X only", "Y only"], default_value="XY",
+                          width=80, parent="groupZeluxControls")
 
             # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
             # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
@@ -216,9 +229,6 @@ class ZeluxGUI():
             pass
 
     def SaveProcessedImage(self):
-        import os
-        import cv2
-        import numpy as np
 
         height = self.cam.camera.image_height_pixels
         width = self.cam.camera.image_width_pixels
@@ -279,6 +289,97 @@ class ZeluxGUI():
         cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
         print(f"Image saved with overlays to: {filename}")
 
+    def StitchFrames(self, sender, app_data, user_data=None):
+        self.show_center_cross = True  # Show the cross
+        dpg.set_value("chkShowCross", True)
+        sweep_mode = dpg.get_value("StitchSweepMode")  # "XY", "X only", or "Y only"
+
+        step_um = 15.0
+        step_pm = int(step_um * self.positioner.StepsIn1mm * 1e-3)
+        num_frames = dpg.get_value("StitchNumFrames")  # Frames per side
+        folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/Stitch/'
+        os.makedirs(folder_path, exist_ok=True)
+
+        try:
+            self.positioner.GetPosition()
+            start_x = int(self.positioner.AxesPositions[0])
+            start_y = int(self.positioner.AxesPositions[1])
+            start_z = int(self.positioner.AxesPositions[2])
+        except Exception as e:
+            print(f"Cannot read stage position: {e}")
+            return
+
+        for j in range(num_frames if sweep_mode in ["XY", "Y only"] else 1):  # Y loop
+            for i in range(num_frames if sweep_mode in ["XY", "X only"] else 1):  # X loop
+                time.sleep(0.3)
+                try:
+                    self.positioner.GetPosition()
+                    current_x = self.positioner.AxesPositions[0]
+                    current_y = self.positioner.AxesPositions[1]
+
+                    # === Z Correction ===
+                    if len(self.positioner.LoggedPoints) == 3:
+                        current_pos = np.array([current_x, current_y, start_z])
+                        ref_pos = list(self.initial_scan_Location) if hasattr(self, "initial_scan_Location") else [
+                            start_x, start_y, start_z]
+                        ref_pos[2] = start_z
+                        corrected_z = int(self.Z_correction(ref_pos, current_pos))
+                        self.positioner.MoveABSOLUTE(2, corrected_z)
+                        time.sleep(0.001)
+                        while not self.positioner.ReadIsInPosition(2):
+                            time.sleep(0.001)
+
+                    time.sleep(0.3)
+
+                    self.positioner.GetPosition()
+                    abs_x = self.positioner.AxesPositions[0] * 1e-6  # mm
+                    abs_y = self.positioner.AxesPositions[1] * 1e-6
+                    abs_z = self.positioner.AxesPositions[2] * 1e-6
+                    coord_text = f"X = {abs_x:.3f}_Y = {abs_y:.3f}_Z = {abs_z:.3f}"
+                except Exception:
+                    coord_text = "StageUnavailable"
+
+                # Save with coordinate in filename
+                height = self.cam.camera.image_height_pixels
+                width = self.cam.camera.image_width_pixels
+                img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
+                img_rgb = (img_rgba[:, :, :3] * 255).astype(np.uint8)
+                filename = os.path.join(folder_path, f"Zelux_{coord_text}.png")
+                cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
+                print(f"Saved {filename}")
+
+                if i < num_frames - 1:
+                    ch = 0  # X
+                    self.positioner.MoveRelative(ch, step_pm)
+                    time.sleep(0.001)
+                    while not self.positioner.ReadIsInPosition(ch):
+                        time.sleep(0.001)
+
+            if j < num_frames - 1:
+                ch = 1  # Y
+                self.positioner.MoveRelative(ch, step_pm)
+                time.sleep(0.001)
+                while not self.positioner.ReadIsInPosition(ch):
+                    time.sleep(0.001)
+
+                # Return to start X for next row
+                ch = 0  # X
+                self.positioner.MoveABSOLUTE(ch, start_x)
+                time.sleep(0.001)
+                while not self.positioner.ReadIsInPosition(ch):
+                    time.sleep(0.001)
+
+        # === Return to starting position ===
+        print("Returning to starting position...")
+        for ch, pos in zip([0, 1, 2], [start_x, start_y, start_z]):
+            try:
+                self.positioner.MoveABSOLUTE(ch, pos)
+                time.sleep(0.001)
+                while not self.positioner.ReadIsInPosition(ch):
+                    time.sleep(0.001)
+            except Exception as e:
+                print(f"Error returning axis {ch} to position: {e}")
+
     def toggle_center_cross(self, sender, app_data, user_data=None):
         self.show_center_cross = app_data  # True or False
         self.UpdateImage()  # Re-draw with or without the cross
@@ -335,3 +436,31 @@ class ZeluxGUI():
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (70, 50, 50))
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))
+
+    def Z_correction(self, _refp: list, _point: list):
+        # Define the points (self.positioner.LoggedPoints equivalent)
+        P = np.array(self.positioner.LoggedPoints)
+        refP = np.array(_refp)
+        point = np.array(_point)
+
+        # Vector U and normalization
+        U = P[1, :] - P[0, :]
+        u = U / np.linalg.norm(U)
+
+        # Vector V and normalization
+        V = P[2, :] - P[0, :]
+        v = V / np.linalg.norm(V)
+
+        # Cross product to find the normal vector N
+        N = np.cross(u, v)
+
+        # Calculate D
+        D = -np.dot(refP, N)
+
+        # Calculate the new points Pnew
+        # Pnew = -(point[:, :2] @ N[:2] + D) / N[2]
+        Znew = -(point[:2] @ N[:2] + D) / N[2]
+
+        # print(Znew)
+
+        return Znew

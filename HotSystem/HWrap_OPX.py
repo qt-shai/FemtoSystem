@@ -237,7 +237,7 @@ class GUI_OPX():
         self.queried_area = None
         self.queried_plane = None  # 0 - XY, 1 - YZ, 2 -XZ
         self.bScanChkbox = False
-        self.L_scan = [5000, 5000, 5000]  # [nm]
+        self.L_scan = [3000, 3000, 3000]  # [nm]
         self.dL_scan = [300, 300, 300]  # [nm]
         self.b_Scan = [True, True, False]
         self.b_Zcorrection = False
@@ -11443,7 +11443,7 @@ class GUI_OPX():
         self.Y_vec = self.Y_vec if self.Y_vec else 0
         self.Z_vec = self.Z_vec if self.Z_vec else 0
 
-    def calculate_g2(self,correlated_histogram: Union[List[float], np.ndarray]) -> float:
+    def calculate_g2(self, correlated_histogram: Union[List[float], np.ndarray]) -> float:
         # Ensure that correlated_histogram has at least 40 elements
         if len(correlated_histogram) < 40:
             print("correlated_histogram should have at least 40 elements.")
@@ -11459,9 +11459,8 @@ class GUI_OPX():
         start_idx = max(center_index - 5, 0)
         end_idx = min(center_index + 5 + 1, len(correlated_histogram))
 
-        # Compute the average of the 10 points around the center
-        avg_center_10 = np.mean(correlated_histogram[start_idx:end_idx])
+        # Use the minimum of the 10 center values
+        min_center_10 = np.min(correlated_histogram[start_idx:end_idx])
 
-        # Return the ratio: average of the first 10 points divided by the average of the center points
-
-        return np.min([avg_first_10 / (avg_center_10 + np.finfo(float).eps ),1])
+        # Return the ratio: min(center 10) / avg(first 10)
+        return np.min([min_center_10 / (avg_first_10 + np.finfo(float).eps), 1])
