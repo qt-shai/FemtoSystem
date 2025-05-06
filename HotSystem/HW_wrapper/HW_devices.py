@@ -29,7 +29,7 @@ class HW_devices:
 
         if not getattr(self, 'initialized', False):
             self.elc_power_supply: Optional[ALR3206T] = None
-            self.highland_eom_driver: Optional[HighlandT130]  = None
+            self.highland_eom_driver: Optional[list[HighlandT130]]  = []
             self.microwave: Optional[RS_SGS100a] = None
             self.positioner: Optional[smaractMCS2|AttoDry800] = None
             self.camera: Optional[Zelux] = None
@@ -136,8 +136,8 @@ class HW_devices:
 
                 elif instrument == Instruments.HIGHLAND:
                     # Initialize Highland Electronics Device
-                    highland_config: Device = [x for x in self.config.devices if x.instrument is Instruments.HIGHLAND][0]
-                    self.highland_eom_driver = HighlandT130(address=highland_config.com_port, simulation=device.simulation)
+                    self.highland_eom_driver.append(HighlandT130(address=device.com_port, simulation=device.simulation, serial_number = device.serial_number))
+
 
                 elif instrument == Instruments.SMARACT_SCANNER:
                     # Initialize SmarAct Scanner

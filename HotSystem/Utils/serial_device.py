@@ -39,7 +39,7 @@ class SerialDevice:
             try:
                 self._connection.query('*IDN?')
                 return True
-            except pyvisa.VisaIOError:
+            except (pyvisa.VisaIOError, pyvisa.errors.InvalidSession):
                 return False
         return False
 
@@ -153,15 +153,15 @@ class SerialDevice:
         else:
             print("Connection was not open.")
 
-        if self.rm:
-            try:
-                self.rm.close()
-                print("Resource Manager closed.")
-            except Exception as e:
-                print(f"Error closing Resource Manager: {e}")
+        # if self.rm:
+        #     try:
+        #         self.rm.close()
+        #         print("Resource Manager closed.")
+        #     except Exception as e:
+        #         print(f"Error closing Resource Manager: {e}")
 
         self._connection = None
-        self.rm = None
+        # self.rm = None
 
     def _send_command(self, command: str, get_response: bool = False, verbose: bool = False) -> Optional[str]:
         """
@@ -221,5 +221,11 @@ class SerialDevice:
     def __exit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[object]) -> None:
         """ Exit method for context management. """
         self.disconnect()
+        if self.rm:
+            try:
+                self.rm.close()
+                print("Resource Manager closed.")
+            except Exception as e:
+                print(f"Error closing Resource Manager: {e}")
         if exc_type:
             print(f"Exception occurred: {exc_type}, {exc_val}")
