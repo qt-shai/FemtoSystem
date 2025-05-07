@@ -1858,9 +1858,17 @@ class GUI_OPX():
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]),
                               parent="plotImaga")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImaga", tag="plotImaga_Y")
+
+            if self.system_name == SystemType.FEMTO.value:
+                bounds_min_xy = [float(self.startLoc[0]) / 1e6, float(self.startLoc[1]) / 1e6]
+                bounds_max_xy = [float(self.endLoc[0]) / 1e6, float(self.endLoc[1]) / 1e6]
+            else:
+                bounds_min_xy = [float(self.startLoc[0]), float(self.startLoc[1])]
+                bounds_max_xy = [float(self.endLoc[0]), float(self.endLoc[1])]
+
             dpg.add_image_series(texture_tag="textureXY_tag",
-                                 bounds_min=[float(self.startLoc[0])/1e6, float(self.startLoc[1])/1e6],
-                                 bounds_max=[float(self.endLoc[0])/1e6, float(self.endLoc[1])/1e6],
+                                 bounds_min=bounds_min_xy,
+                                 bounds_max=bounds_max_xy,
                                  label="Scan data",
                                  parent="plotImaga_Y")
 
