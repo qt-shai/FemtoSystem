@@ -20,6 +20,7 @@ class ZeluxGUI():
         self.subtract_background = False
         self.HW = hw_devices.HW_devices()
         self.positioner = self.HW.positioner
+
         try:
             self.background_image = np.load("zelux_background.npy")
             print("Background image loaded.")
@@ -202,8 +203,11 @@ class ZeluxGUI():
                            callback=self.StitchFrames, parent="groupZeluxControls")
 
             dpg.add_combo(label="Sweep Mode", tag="StitchSweepMode",
-                          items=["XY", "X only", "Y only"], default_value="XY",
-                          width=80, parent="groupZeluxControls")
+                          items=["XY 15um", "X 15um", "Y 15um",
+                                 "XY 50um", "X 50um", "Y 50um",
+                                 "XY 100um", "X 100um", "Y 100um"],
+                          default_value="XY 15um",
+                          width=120, parent="groupZeluxControls")
 
             # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
             # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
@@ -292,9 +296,12 @@ class ZeluxGUI():
     def StitchFrames(self, sender, app_data, user_data=None):
         self.show_center_cross = True  # Show the cross
         dpg.set_value("chkShowCross", True)
-        sweep_mode = dpg.get_value("StitchSweepMode")  # "XY", "X only", or "Y only"
 
-        step_um = 15.0
+        sweep_mode_str = dpg.get_value("StitchSweepMode")  # e.g., "XY 50um"
+        tokens = sweep_mode_str.split()
+        sweep_mode = tokens[0]  # "XY", "X", or "Y"
+        step_um = float(tokens[1].replace("um", ""))  # 15, 50, 100
+
         step_pm = int(step_um * self.positioner.StepsIn1mm * 1e-3)
         num_frames = dpg.get_value("StitchNumFrames")  # Frames per side
         folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/Stitch/'
@@ -309,65 +316,73 @@ class ZeluxGUI():
             print(f"Cannot read stage position: {e}")
             return
 
-        for j in range(num_frames if sweep_mode in ["XY", "Y only"] else 1):  # Y loop
-            for i in range(num_frames if sweep_mode in ["XY", "X only"] else 1):  # X loop
-                time.sleep(0.3)
-                try:
-                    self.positioner.GetPosition()
-                    current_x = self.positioner.AxesPositions[0]
-                    current_y = self.positioner.AxesPositions[1]
+        # Precompute target positions
+        target_positions = []
+        for j in range(num_frames if sweep_mode in ["XY", "Y"] else 1):  # Y loop
+            for i in range(num_frames if sweep_mode in ["XY", "X"] else 1):  # X loop
+                x_pos = start_x + i * step_pm
+                y_pos = start_y + j * step_pm
+                target_positions.append((i, j, x_pos, y_pos))
 
-                    # === Z Correction ===
-                    if len(self.positioner.LoggedPoints) == 3:
-                        current_pos = np.array([current_x, current_y, start_z])
-                        ref_pos = list(self.initial_scan_Location) if hasattr(self, "initial_scan_Location") else [
-                            start_x, start_y, start_z]
-                        ref_pos[2] = start_z
-                        corrected_z = int(self.Z_correction(ref_pos, current_pos))
-                        self.positioner.MoveABSOLUTE(2, corrected_z)
-                        time.sleep(0.001)
-                        while not self.positioner.ReadIsInPosition(2):
-                            time.sleep(0.001)
 
-                    time.sleep(0.3)
+        for i, j, x_target, y_target in target_positions:
+            abs_x = x_target * 1e-6
+            abs_y = y_target * 1e-6
 
-                    self.positioner.GetPosition()
-                    abs_x = self.positioner.AxesPositions[0] * 1e-6  # mm
-                    abs_y = self.positioner.AxesPositions[1] * 1e-6
-                    abs_z = self.positioner.AxesPositions[2] * 1e-6
-                    coord_text = f"X = {abs_x:.3f}_Y = {abs_y:.3f}_Z = {abs_z:.3f}"
-                except Exception:
-                    coord_text = "StageUnavailable"
+            # Format coordinate string exactly as in filename (3 decimals)
+            x_str = f"{round(abs_x, 2):.2f}"
+            y_str = f"{round(abs_y, 2):.2f}"
 
-                # Save with coordinate in filename
-                height = self.cam.camera.image_height_pixels
-                width = self.cam.camera.image_width_pixels
-                img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
-                img_rgb = (img_rgba[:, :, :3] * 255).astype(np.uint8)
-                filename = os.path.join(folder_path, f"Zelux_{coord_text}.png")
-                cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
-                print(f"Saved {filename}")
+            search_str = f"Zelux_X = {x_str}_Y = {y_str}_"
+            already_saved = any(search_str in fname for fname in os.listdir(folder_path))
+            if already_saved:
+                print(f"Skipping ({x_str}, {y_str}) — already saved.")
+                continue
 
-                if i < num_frames - 1:
-                    ch = 0  # X
-                    self.positioner.MoveRelative(ch, step_pm)
-                    time.sleep(0.001)
-                    while not self.positioner.ReadIsInPosition(ch):
-                        time.sleep(0.001)
-
-            if j < num_frames - 1:
-                ch = 1  # Y
-                self.positioner.MoveRelative(ch, step_pm)
+            # === Move to X ===
+            if abs(self.positioner.AxesPositions[0] - x_target) > 1:
+                self.positioner.MoveABSOLUTE(0, x_target)
                 time.sleep(0.001)
-                while not self.positioner.ReadIsInPosition(ch):
+                while not self.positioner.ReadIsInPosition(0):
                     time.sleep(0.001)
 
-                # Return to start X for next row
-                ch = 0  # X
-                self.positioner.MoveABSOLUTE(ch, start_x)
+            # === Move to Y ===
+            if abs(self.positioner.AxesPositions[1] - y_target) > 1:
+                self.positioner.MoveABSOLUTE(1, y_target)
                 time.sleep(0.001)
-                while not self.positioner.ReadIsInPosition(ch):
+                while not self.positioner.ReadIsInPosition(1):
                     time.sleep(0.001)
+
+            # === Optional Z correction ===
+            if len(self.positioner.LoggedPoints) == 3:
+                current_pos = np.array([x_target, y_target, start_z])
+                ref_pos = list(self.initial_scan_Location) if hasattr(self, "initial_scan_Location") else [start_x,
+                                                                                                           start_y,
+                                                                                                           start_z]
+                ref_pos[2] = start_z
+                corrected_z = int(self.Z_correction(ref_pos, current_pos))
+                self.positioner.MoveABSOLUTE(2, corrected_z)
+                time.sleep(0.2)
+                while not self.positioner.ReadIsInPosition(2):
+                    time.sleep(0.001)
+
+            # Capture image
+            self.positioner.GetPosition()
+            abs_x = x_target * 1e-6
+            abs_y = y_target * 1e-6
+            abs_z = round(self.positioner.AxesPositions[2] * 1e-6, 2)
+
+            coord_text = f"X = {abs_x:.2f}_Y = {abs_y:.2f}_Z = {abs_z:.2f}"
+            img_rgba = self.cam.lateset_image_buffer.reshape((self.cam.camera.image_height_pixels,
+                                                              self.cam.camera.image_width_pixels, 4))
+            img_rgb = img_rgba[:, :, :3]
+            # Normalize *before* converting to uint8
+            img_rgb = img_rgb / (img_rgb.max() + 1e-6)  # Normalize to 0–1
+            img_rgb = (img_rgb * 255).astype(np.uint8)
+
+            filename = os.path.join(folder_path, f"Zelux_{coord_text}.png")
+            cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
+            print(f"Saved {filename}")
 
         # === Return to starting position ===
         print("Returning to starting position...")

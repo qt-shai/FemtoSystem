@@ -1331,7 +1331,7 @@ class GUI_OPX():
                                                   default_value=self.L_scan[2], min_value=0, max_value=500000, step=1)
 
                             with dpg.group(horizontal=True):
-                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=600,
+                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=450,
                                                    callback=self.saveExperimentsNotes, default_value=self.expNotes)
 
                             dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
@@ -1364,6 +1364,9 @@ class GUI_OPX():
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         dpg.add_button(label="Get Log from MSC", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
+                        with dpg.group(horizontal=True):
+                            dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100)
+                            dpg.add_button(label="Mv", callback=self.move_last_saved_files)
 
                     _width = 150
                     with dpg.group(horizontal=False):
@@ -1411,6 +1414,39 @@ class GUI_OPX():
             self.map.delete_map_gui()
             del self.map
             dpg.delete_item("Scan_Window")
+
+    def move_last_saved_files(self, sender=None, app_data=None, user_data=None):
+        try:
+            if not (hasattr(self, 'timeStamp') and self.timeStamp):
+                print("No timestamp found. Save data first.")
+                return
+
+            # folder_path = f'Q:\QT-Quantum_Optic_Lab\expData\scan\{self.HW.config.system_type}'
+            if self.survey:
+                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/{self.exp.name}"
+            else:
+                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/{self.exp.name}/{self.HW.config.system_type}"
+
+            base_file = os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_{self.expNotes}")
+            subfolder = dpg.get_value("MoveSubfolderInput")
+            if not subfolder:
+                print("Subfolder name is empty.")
+                return
+
+            new_folder = os.path.join(folder_path, subfolder)
+            if not os.path.exists(new_folder):
+                os.makedirs(new_folder)
+
+            # Move all relevant files
+            for ext in [".csv", ".jpg", ".xml",".png"]:
+                src = base_file + ext
+                dst = os.path.join(new_folder, os.path.basename(src))
+                if os.path.exists(src):
+                    shutil.move(src, dst)
+                    print(f"Moved {src} → {dst}")
+
+        except Exception as e:
+            print(f"Error moving files: {e}")
 
     def set_moveabs_to_max_intensity(self):
         try:
@@ -1822,9 +1858,17 @@ class GUI_OPX():
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]),
                               parent="plotImaga")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImaga", tag="plotImaga_Y")
+
+            if self.system_name == SystemType.FEMTO.value:
+                bounds_min_xy = [float(self.startLoc[0]) / 1e6, float(self.startLoc[1]) / 1e6]
+                bounds_max_xy = [float(self.endLoc[0]) / 1e6, float(self.endLoc[1]) / 1e6]
+            else:
+                bounds_min_xy = [float(self.startLoc[0]), float(self.startLoc[1])]
+                bounds_max_xy = [float(self.endLoc[0]), float(self.endLoc[1])]
+
             dpg.add_image_series(texture_tag="textureXY_tag",
-                                 bounds_min=[float(self.startLoc[0]), float(self.startLoc[1])],
-                                 bounds_max=[float(self.endLoc[0]), float(self.endLoc[1])],
+                                 bounds_min=bounds_min_xy,
+                                 bounds_max=bounds_max_xy,
                                  label="Scan data",
                                  parent="plotImaga_Y")
 
@@ -9378,19 +9422,21 @@ class GUI_OPX():
             self.timeStamp = self.getCurrentTimeStamp()
 
             if folder is None:
-                folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + (fr'Survey{self.HW.config.system_type}/' if self.survey else '') + self.exp.name + '/'
+                # folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + (fr'Survey{self.HW.config.system_type}/' if self.survey else '') + self.exp.name + '/'
+                folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/' + self.exp.name + f'/{self.HW.config.system_type}'
             else:
                 folder_path = folder + (fr'Survey{self.HW.config.system_type}/' if self.survey else '') + self.exp.name + '/'
+
             if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
                 os.makedirs(folder_path)
             if self.exp == Experiment.RandomBenchmark:
                 #self.added_comments = dpg.get_value("inTxtOPX_expText")
                 if self.added_comments is not None:
-                    fileName = os.path.join(folder_path, self.timeStamp + self.exp.name + '_' + self.added_comments)
+                    fileName = os.path.join(folder_path, self.timeStamp + '_' + self.exp.name + '_' + self.added_comments)
                 else:
-                    fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
+                    fileName = os.path.join(folder_path, self.timeStamp + '_' + self.exp.name)
             else:
-                fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
+                fileName = os.path.join(folder_path, self.timeStamp + '_' + self.exp.name+ '_' + self.expNotes)
             # fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
 
             # parameters + note        
@@ -9858,17 +9904,17 @@ class GUI_OPX():
         self.scan_get_current_pos(_isDebug=isDebug)
         self.initial_scan_Location = list(self.positioner.AxesPositions)
 
-        # List of item tags to retrieve values from
-        p_femto = {}
-        item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp"]
-        for tag in item_tags:
-            p_femto[tag] = dpg.get_value(tag)
-            print(f"{tag}: {p_femto[tag]}")
-        current_hwp_angle = self.kdc_101.get_current_position()
-        print(f"!!!!!!!!!! Current HWP position is {current_hwp_angle:.2f}")
-        # Store original attenuator value
-        original_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
-        print(f"!!!!!!!!!! Original attenuator value is {original_attenuator_value:.2f}")
+        if self.Shoot_Femto_Pulses:
+            p_femto = {}
+            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp"]
+            for tag in item_tags:
+                p_femto[tag] = dpg.get_value(tag)
+                print(f"{tag}: {p_femto[tag]}")
+            current_hwp_angle = self.kdc_101.get_current_position()
+            print(f"!!!!!!!!!! Current HWP position is {current_hwp_angle:.2f}")
+            # Store original attenuator value
+            original_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
+            print(f"!!!!!!!!!! Original attenuator value is {original_attenuator_value:.2f}")
 
         # Loop over three axes and populate scan coordinates
         scan_coordinates = []
@@ -10897,6 +10943,7 @@ class GUI_OPX():
                 print("Saving to local folder instead.")
                 return self.create_scan_file_name(local=True)
         fileName = os.path.join(folder_path, f"{timeStamp}_{self.exp.name}_{self.expNotes}")
+        self.timeStamp = timeStamp
         return fileName
 
     def move_single_step(self, ch, step):
