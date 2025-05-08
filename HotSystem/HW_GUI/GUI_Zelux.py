@@ -10,6 +10,7 @@ import numpy as np
 
 class ZeluxGUI():
     def __init__(self):
+        self.show_coords_grid = None
         self.window_tag = "Zelux Window"
         self.HW = hw_devices.HW_devices()
         self.cam = self.HW.camera
@@ -106,7 +107,7 @@ class ZeluxGUI():
         # print(f"Live image range after subtraction: min={img.min():.3f}, max={img.max():.3f}")
 
         # Draw cross if enabled
-        if self.show_center_cross:
+        if self.show_center_cross or self.show_coords_grid:
             center_x = _width / 2
             center_y = (_width * self.cam.ratio) / 2
             dpg.draw_line((center_x - 100, center_y), (center_x + 100, center_y), color=(0, 255, 0, 255), thickness=1,
@@ -128,6 +129,42 @@ class ZeluxGUI():
             dpg.draw_text((10, _width * self.cam.ratio - 20), coord_text,
                           size=16, color=(0, 255, 0, 255), parent="image_drawlist")
 
+        # Draw coordinate grid if enabled
+        if self.show_coords_grid:
+            step_px = 100
+            font_size = 14
+            pixel_to_um_x = 0.04  # um/pixel
+            pixel_to_um_y = 0.04  # um/pixel
+
+            # Apply shift (in microns)
+            x_shift_px = 2.38 / pixel_to_um_x
+            y_shift_px = 0.85 / pixel_to_um_y
+
+            # Horizontal lines (Y coords - reversed + shifted down)
+            y = 0
+            while y < (_width * self.cam.ratio) - step_px:
+                y_shifted = y + y_shift_px
+                offset_px = y_shifted - center_y
+                coord_y = abs_y + offset_px * pixel_to_um_y
+
+                dpg.draw_line((0, y_shifted), (_width, y_shifted), color=(100, 255, 100, 80), thickness=1,
+                              parent="image_drawlist")
+                dpg.draw_text((5, y_shifted + 2), f"{coord_y:.1f}", size=font_size,
+                              color=(0, 255, 0, 200), parent="image_drawlist")
+                y += step_px
+
+            # Vertical lines (X coords - reversed + shifted right)
+            x = 2 * step_px
+            while x < _width:
+                x_shifted = x + x_shift_px
+                offset_px = x_shifted - center_x
+                coord_x = abs_x - offset_px * pixel_to_um_x
+
+                dpg.draw_line((x_shifted, 0), (x_shifted, _width * self.cam.ratio), color=(100, 255, 100, 80),
+                              thickness=1, parent="image_drawlist")
+                dpg.draw_text((x_shifted + 2, _width * self.cam.ratio - 18), f"{coord_x:.1f}", size=font_size,
+                              color=(0, 255, 0, 200), parent="image_drawlist")
+                x += step_px
 
     def UpdateExposure(sender, app_data, user_data):
         # a = dpg.get_value(sender)
@@ -159,58 +196,53 @@ class ZeluxGUI():
         dpg.delete_item(item=self.window_tag)
         pass
 
+
     def GUI_controls(self, isConnected=False, _width=800):
-        dpg.delete_item("groupZeluxControls")
+        dpg.delete_item("groupZeluxControls", children_only=False)
         self.set_all_themes()
         if isConnected:
-            dpg.add_group(tag="groupZeluxControls", parent=self.window_tag, horizontal=True)
-            dpg.add_button(label="Live", callback=self.StartLive, tag="btnStartLive", parent="groupZeluxControls")
-            dpg.add_button(label="Save", callback=self.cam.saveImage, tag="btnSave", parent="groupZeluxControls")
+            with dpg.group(tag="groupZeluxControls", parent=self.window_tag, horizontal=True):  # vertical container
+                with dpg.group(tag="controls_row1_and2", horizontal=False):
+                    with dpg.group(tag="controls_row1", horizontal=True):
+                        dpg.add_button(label="Live", callback=self.StartLive, tag="btnStartLive")
+                        dpg.add_button(label="Save", callback=self.cam.saveImage, tag="btnSave")
 
-            dpg.bind_item_theme(item="btnStartLive", theme="btnGreenTheme")
-            dpg.bind_item_theme(item="btnSave", theme="btnBlueTheme")
+                        dpg.bind_item_theme("btnStartLive", "btnGreenTheme")
+                        dpg.bind_item_theme("btnSave", "btnBlueTheme")
 
-            minExp = min(self.cam.camera.exposure_time_range_us) / 1e3
-            maxExp = max(self.cam.camera.exposure_time_range_us) / 1e3
-            slider_exposure = dpg.add_slider_int(label="Exp", tag="slideExposure", parent="groupZeluxControls",
-                                                 width=70, callback=self.UpdateExposure,
-                                                 default_value=self.cam.camera.exposure_time_us / 1e3,
-                                                 min_value=minExp if minExp > 0 else 1,
-                                                 max_value=maxExp if maxExp < 1000 else 1000)
+                        minExp = min(self.cam.camera.exposure_time_range_us) / 1e3
+                        maxExp = max(self.cam.camera.exposure_time_range_us) / 1e3
+                        dpg.add_slider_int(label="Exp", tag="slideExposure",
+                                           width=70, callback=self.UpdateExposure,
+                                           default_value=self.cam.camera.exposure_time_us / 1e3,
+                                           min_value=minExp if minExp > 0 else 1,
+                                           max_value=maxExp if maxExp < 1000 else 1000)
 
-            minGain = self.cam.camera.convert_gain_to_decibels(min(self.cam.camera.gain_range))
-            maxGain = self.cam.camera.convert_gain_to_decibels(max(self.cam.camera.gain_range))
-            slider_gain = dpg.add_slider_int(label="G", tag="slideGain", parent="groupZeluxControls",
-                                             width=70, callback=self.UpdateGain,
-                                             default_value=self.cam.camera.convert_gain_to_decibels(
-                                                 self.cam.camera.gain),
-                                             min_value=minGain,
-                                             max_value=maxGain)
+                        minGain = self.cam.camera.convert_gain_to_decibels(min(self.cam.camera.gain_range))
+                        maxGain = self.cam.camera.convert_gain_to_decibels(max(self.cam.camera.gain_range))
+                        dpg.add_slider_int(label="G", tag="slideGain",
+                                           width=70, callback=self.UpdateGain,
+                                           default_value=self.cam.camera.convert_gain_to_decibels(self.cam.camera.gain),
+                                           min_value=minGain, max_value=maxGain)
 
-            dpg.add_checkbox(label="+", tag="chkShowCross", parent="groupZeluxControls",
-                             callback=self.toggle_center_cross)
+                        dpg.add_checkbox(label="+", tag="chkShowCross", callback=self.toggle_center_cross)
+                        dpg.add_button(label="CapBG", callback=self.CaptureBackground)
+                        dpg.add_checkbox(label="SubBG", tag="chkSubtractBG",
+                                         callback=lambda s, a, u: setattr(self, 'subtract_background', a))
+                    with dpg.group(tag="controls_row2", horizontal=True):
+                        dpg.add_button(label="Sv", tag="btnSaveProcessedImage", callback=self.SaveProcessedImage)
 
-            dpg.add_button(label="CapBG", callback=lambda: self.CaptureBackground(), parent="groupZeluxControls")
-            dpg.add_checkbox(label="SubBG", tag="chkSubtractBG", parent="groupZeluxControls",
-                             callback=lambda s, a, u: setattr(self, 'subtract_background', a))
-            dpg.add_button(label="Sv", tag="btnSaveProcessedImage",
-                           callback=self.SaveProcessedImage, parent="groupZeluxControls")
+                        dpg.add_input_int(label="#Frm", tag="StitchNumFrames", width=120, default_value=10, min_value=1)
+                        dpg.add_button(label="St", tag="btnStitchFrames", callback=self.StitchFrames)
 
-            dpg.add_input_int(label="#Frm", tag="StitchNumFrames", width=120,
-                              default_value=10, min_value=1, parent="groupZeluxControls")
+                        dpg.add_combo(label="", tag="StitchSweepMode",
+                                      items=["XY 15um", "X 15um", "Y 15um",
+                                             "XY 50um", "X 50um", "Y 50um",
+                                             "XY 100um", "X 100um", "Y 100um"],
+                                      default_value="XY 15um", width=120)
 
-            dpg.add_button(label="St", tag="btnStitchFrames",
-                           callback=self.StitchFrames, parent="groupZeluxControls")
+                        dpg.add_checkbox(label="Coords", tag="chkShowCoords", callback=self.toggle_coords_display)
 
-            dpg.add_combo(label="Sweep Mode", tag="StitchSweepMode",
-                          items=["XY 15um", "X 15um", "Y 15um",
-                                 "XY 50um", "X 50um", "Y 50um",
-                                 "XY 100um", "X 100um", "Y 100um"],
-                          default_value="XY 15um",
-                          width=120, parent="groupZeluxControls")
-
-            # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width*self.cam.ratio,parent=self.window_tag)
-            # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width*self.cam.ratio), uv_min=(0, 0), uv_max=(1, 1),parent="image_drawlist")
 
         else:
             dpg.add_group(tag="ZeluxControls", parent=self.window_tag, horizontal=False)
@@ -231,6 +263,10 @@ class ZeluxGUI():
 
             self.GUI_controls(isConnected=True)
             pass
+
+    def toggle_coords_display(self, sender, app_data, user_data=None):
+        self.show_coords_grid = app_data  # True or False
+        self.UpdateImage()
 
     def SaveProcessedImage(self):
 

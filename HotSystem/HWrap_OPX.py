@@ -1438,12 +1438,14 @@ class GUI_OPX():
                 os.makedirs(new_folder)
 
             # Move all relevant files
-            for ext in [".csv", ".jpg", ".xml",".png"]:
+            for ext in [".jpg", ".xml",".png",".csv"]:
                 src = base_file + ext
                 dst = os.path.join(new_folder, os.path.basename(src))
                 if os.path.exists(src):
                     shutil.move(src, dst)
                     print(f"Moved {src} → {dst}")
+                else:
+                    print(f"{src} does not exist")
 
         except Exception as e:
             print(f"Error moving files: {e}")

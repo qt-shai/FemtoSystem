@@ -1,6 +1,16 @@
 import sys
 import dearpygui.dearpygui as dpg
 
+# To copy the last message to the clipboard:
+# import pyperclip; pyperclip.copy(sys.stdout.messages[-2])
+
+# To copy all messages as a single block:
+# import pyperclip; pyperclip.copy("".join(sys.stdout.messages))
+
+# To extract and copy only the filename from the last message in your console
+# import pyperclip, os; pyperclip.copy(os.path.basename(sys.stdout.messages[-1].strip().split("→")[-1].strip()))
+
+
 class DualOutput:
     def __init__(self, original_stream):
         """
@@ -39,3 +49,6 @@ class DualOutput:
         Flush the output (required for compatibility with file-like objects).
         """
         self.original_stream.flush()
+
+
+
