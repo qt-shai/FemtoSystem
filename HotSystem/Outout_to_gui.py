@@ -67,15 +67,19 @@ def run(command: str):
     - 'sv' → call SaveProcessedImage()
     - 'mv' → call move_last_saved_files()
     - 'sub <folder>' → set MoveSubfolderInput to '<folder>_6-5-25'
+    - 'fn' → copy only filename from last message like: "Copied ... → .../file.ext"
     """
     command = command.strip().lower()
     try:
+        parent = getattr(sys.stdout, "parent", None)
+        cam = getattr(parent, "cam", None)
+
         if command == "c":
             copy_quti_window_to_clipboard()
 
         elif command == "sv":
-            if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "SaveProcessedImage"):
-                sys.stdout.parent.SaveProcessedImage()
+            if cam and hasattr(cam, "SaveProcessedImage"):
+                cam.SaveProcessedImage()
                 print("SaveProcessedImage executed.")
             else:
                 print("SaveProcessedImage not available.")
@@ -94,6 +98,20 @@ def run(command: str):
                 subprocess.run([sys.executable, "clog.py", arg])
             else:
                 print("Invalid clog argument. Use e, o, or p.")
+
+        elif command == "fn":
+            import pyperclip, os
+            if hasattr(sys.stdout, 'messages') and sys.stdout.messages:
+                last_msg = sys.stdout.messages[-1].strip()
+                if "→" in last_msg:
+                    filepath = last_msg.split("→")[-1].strip()
+                    filename = os.path.basename(filepath)
+                    pyperclip.copy(filename)
+                    print(f"Filename copied: {filename}")
+                else:
+                    print("No '→' found in last message.")
+            else:
+                print("No messages found in sys.stdout.")
 
 
         else:

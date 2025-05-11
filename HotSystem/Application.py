@@ -712,6 +712,7 @@ class PyGuiOverlay(Layer):
         self.create_console_gui()
         # Redirect stdout and stderr to both the GUI console and the original outputs
         sys.stdout = DualOutput(sys.__stdout__)
+        sys.stdout.parent = self
         sys.stderr = DualOutput(sys.__stderr__)
 
         dpg.set_frame_callback(100, lambda: dpg.focus_item("cmd_input"))
@@ -1016,6 +1017,10 @@ class PyGuiOverlay(Layer):
 
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
+                # Focus on cmd_input if Ctrl+D is pressed
+                if key_data_enum == KeyboardKeys.D_KEY:
+                    dpg.focus_item("cmd_input")
+                    return
                 self.handle_smaract_controls(key_data_enum, is_coarse)
 
             # Handle Picomotor controls
@@ -1281,9 +1286,9 @@ class PyGuiOverlay(Layer):
                 elif key_data_enum == KeyboardKeys.DEL_KEY:
                     self.smaract_keyboard_move_uv(0, -1, is_coarse)
                 elif key_data_enum == KeyboardKeys.HOME_KEY:
-                    self.smaract_keyboard_move_uv(1, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.END_KEY:
                     self.smaract_keyboard_move_uv(1, -1, is_coarse)
+                elif key_data_enum == KeyboardKeys.END_KEY:
+                    self.smaract_keyboard_move_uv(1, 1, is_coarse)
                 elif key_data_enum == KeyboardKeys.M_KEY:
                     print("Enabling map keyboard shortcuts")
                     self.opx.map.toggle_map_keyboard()
