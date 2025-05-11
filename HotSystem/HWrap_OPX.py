@@ -240,7 +240,7 @@ class GUI_OPX():
         self.L_scan = [3000, 3000, 3000]  # [nm]
         self.dL_scan = [300, 300, 300]  # [nm]
         self.b_Scan = [True, True, False]
-        self.b_Zcorrection = False
+        self.b_Zcorrection = True
         self.use_picomotor = False
         self.ZCalibrationData: np.ndarray | None = None
         self.Zcorrection_threshold = 10  # [nm]
@@ -1280,10 +1280,9 @@ class GUI_OPX():
 
         item_width = int(200 * self.window_scale_factor)
         if self.bScanChkbox:
-
-            self.map = Map(ZCalibrationData=self.ZCalibrationData, use_picomotor=self.use_picomotor)
-            self.use_picomotor = self.map.use_picomotor
-            self.expNotes = self.map.exp_notes
+            # self.map = Map(ZCalibrationData=self.ZCalibrationData, use_picomotor=self.use_picomotor)
+            # self.use_picomotor = self.map.use_picomotor
+            # self.expNotes = self.map.exp_notes
 
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
@@ -1407,12 +1406,12 @@ class GUI_OPX():
 
                     self.btnGetLoggedPoints()  # get logged points
                     # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
-                    self.map.create_map_gui(win_size, win_pos)
+                    # self.map.create_map_gui(win_size, win_pos)
                     dpg.set_frame_callback(1, self.load_pos)
                     self.load_pos()
         else:
-            self.map.delete_map_gui()
-            del self.map
+            # self.map.delete_map_gui()
+            # del self.map
             dpg.delete_item("Scan_Window")
 
     def move_last_saved_files(self, sender=None, app_data=None, user_data=None):
@@ -1421,7 +1420,6 @@ class GUI_OPX():
                 print("No timestamp found. Save data first.")
                 return
 
-            # folder_path = f'Q:\QT-Quantum_Optic_Lab\expData\scan\{self.HW.config.system_type}'
             if self.survey:
                 folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/{self.exp.name}"
             else:
@@ -1437,13 +1435,32 @@ class GUI_OPX():
             if not os.path.exists(new_folder):
                 os.makedirs(new_folder)
 
-            # Move all relevant files
-            for ext in [".csv", ".jpg", ".xml",".png"]:
+            extensions = [".jpg", ".xml", ".png", ".csv"]
+            moved_any = False
+
+            for ext in extensions:
                 src = base_file + ext
                 dst = os.path.join(new_folder, os.path.basename(src))
                 if os.path.exists(src):
                     shutil.move(src, dst)
                     print(f"Moved {src} → {dst}")
+                    moved_any = True
+                else:
+                    print(f"{src} does not exist")
+
+            # If no files moved, try from C:/temp/TempScanData
+            if not moved_any:
+                temp_folder = "C:/temp/TempScanData"
+                if not os.path.exists(temp_folder):
+                    print(f"Temp folder does not exist. Creating: {temp_folder}")
+                    os.makedirs(temp_folder)
+
+                for filename in os.listdir(temp_folder):
+                    if filename.startswith(self.timeStamp):
+                        src = os.path.join(temp_folder, filename)
+                        dst = os.path.join(new_folder, filename)
+                        shutil.move(src, dst)
+                        print(f"Moved {src} → {dst}")
 
         except Exception as e:
             print(f"Error moving files: {e}")

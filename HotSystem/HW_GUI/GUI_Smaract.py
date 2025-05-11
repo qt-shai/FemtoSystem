@@ -98,7 +98,7 @@ class GUI_smaract():
                     dpg.add_text("  Zero   ")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Zero " + str(ch), callback=self.btn_zero, user_data=ch)
-                    # dpg.add_button(label="Calc V",tag=f"{self.prefix}_calc_v", callback=self.btn_calc_v)
+                    dpg.add_button(label="Set XYZ", callback=self.fill_current_position_to_moveabs)
 
                 with dpg.group(horizontal=False, tag="_column 6_", width=child_width/3):
                     dpg.add_text(" Move UV")
@@ -172,6 +172,31 @@ class GUI_smaract():
             self.dev.AxesKeyBoardLargeStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Cset") * self.dev.StepsIn1mm / 1e3) for ch in range(3)]
             self.dev.AxesKeyBoardSmallStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Fset") * self.dev.StepsIn1mm / 1e6) for ch in range(3)]
 
+    def fill_current_position_to_moveabs(self):
+        try:
+            # Get current position from device or simulation
+            if self.dev.IsConnected:
+                self.dev.GetPosition()  # Ensure it's updated
+                pos = self.dev.AxesPositions  # [x, y, z] in pm
+            elif self.simulation:
+                pos = [random.uniform(-1e9, 1e9) for _ in range(3)]
+            else:
+                print("Device not connected.")
+                return
+
+            x_value = pos[0] * 1e-6  # convert pm to µm
+            y_value = pos[1] * 1e-6
+            z_value = pos[2] * 1e-6
+
+            # Update MoveABS fields
+            dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
+            dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
+            dpg.set_value(f"{self.prefix}_ch2_ABS", z_value)
+
+            print(f"Set MoveAbsX = {x_value:.2f} µm, MoveAbsY = {y_value:.2f} µm, MoveAbsZ = {z_value:.2f} µm")
+
+        except Exception as e:
+            print(f"Failed to set MoveABS from position: {e}")
 
     def paste_clipboard_to_moveabs(self):
         try:
@@ -299,46 +324,7 @@ class GUI_smaract():
             self.dev.calc_uv()
             dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
 
-    # def load_points(self):
-    #     try:
-    #         themes = DpgThemes()
-    #         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
 
-    #         with open("map_config.txt", "r") as file:
-    #             lines = file.readlines()
-
-    #             # Clear the existing LoggedPoints
-    #             self.dev.LoggedPoints = []
-    #             loading_points = False
-
-    #             for line in lines:
-    #                 # Start loading points after finding "LoggedPoint"
-    #                 if line.startswith(f"{self.prefix}LoggedPoint"):
-    #                     loading_points = True
-    #                     coords = line.split(": ")[1].split(", ")  # Process the logged point line
-
-    #                     if len(coords) == 3:  # Ensure we have 3 coordinates
-    #                         logged_point = (float(coords[0]), float(coords[1]), float(coords[2]))
-    #                         self.dev.LoggedPoints.append(logged_point)
-
-    #                         current_height = dpg.get_item_height(self.window_tag)
-    #                         new_height = current_height + 30  # Increase height by 50 units
-    #                         dpg.configure_item(self.window_tag, height=new_height)
-
-    #                         # Check how many points have been logged and calculate u or v
-    #                         if len(self.dev.LoggedPoints) == 3:
-    #                             self.dev.calc_uv()
-    #                             dpg.bind_item_theme(f"{self.prefix}_calc_uv", yellow_theme)
-
-    #             # Update the logged points indicator and table
-    #             dpg.set_value(f"{self.prefix}logged_points", "* " * len(self.dev.LoggedPoints))
-    #             self.update_logged_points_table()
-    #             print("Logged points loaded successfully.")
-
-    #     except FileNotFoundError:
-    #         print("map_config.txt not found.")
-    #     except Exception as e:
-    #         print(f"Error loading logged points: {e}")
 
     def load_logged_points_from_file(self):
         if os.path.exists('logged_points.txt'):
