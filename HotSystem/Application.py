@@ -1,5 +1,6 @@
 import inspect
 import pdb
+from operator import truediv
 from typing import Optional
 import dearpygui.demo as DPGdemo
 import imgui
@@ -46,6 +47,9 @@ import HW_wrapper.HW_devices as hw_devices
 import sys
 from Utils.Common import calculate_z_series
 import numpy as np
+
+import Outout_to_gui as outout
+from Common import wait_for_item_and_set
 
 
 class Layer:
@@ -710,6 +714,8 @@ class PyGuiOverlay(Layer):
         sys.stdout = DualOutput(sys.__stdout__)
         sys.stderr = DualOutput(sys.__stderr__)
 
+        dpg.set_frame_callback(100, lambda: dpg.focus_item("cmd_input"))
+
     def setup_instruments(self) -> None:
         """
         Set up instruments and dynamically arrange their GUIs based on the system configuration.
@@ -1003,7 +1009,6 @@ class PyGuiOverlay(Layer):
             else:
                 return
 
-
             # Handle OPX map logic if enabled
             if hasattr(self.opx, 'map') and self.opx.map is not None:
                 if self.opx.map.map_keyboard_enable:
@@ -1256,9 +1261,9 @@ class PyGuiOverlay(Layer):
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
                     self.smaract_log_points()
-                elif key_data_enum == KeyboardKeys.X_KEY:
-                    print('Deleting point')
-                    self.smaract_del_points()
+                # elif key_data_enum == KeyboardKeys.X_KEY:
+                #                 #     print('Deleting point')
+                #                 #     self.smaract_del_points()
                 elif key_data_enum == KeyboardKeys.LEFT_KEY:
                     self.smaract_keyboard_movement(0, 1, is_coarse)
                 elif key_data_enum == KeyboardKeys.RIGHT_KEY:
@@ -1647,6 +1652,8 @@ class PyGuiOverlay(Layer):
             with dpg.group(horizontal=True):
                 dpg.add_input_text(label="", tag="console_input", width=300)
                 dpg.add_button(label="Send", callback=self.send_console_input)
+                dpg.add_input_text(label="Cmd", tag="cmd_input", hint="Enter command (e.g. c, sv, mv, sub ELSC, clog e)",
+                                   on_enter=True, callback=lambda s, a, u: self.handle_cmd_input())
 
     def clear_console(self):
         """Clears the console log."""
@@ -1660,6 +1667,24 @@ class PyGuiOverlay(Layer):
         with open("console_logs.txt", "w") as file:
             file.write(logs)
         print("Logs saved to console_logs.txt")
+
+    def handle_cmd_input(self):
+        command = dpg.get_value("cmd_input").strip()
+        if command.startswith("sub "):
+            folder = command.split("sub ", 1)[1].strip()
+            suffix = "_6-5-25"
+            full_folder = f"{folder}{suffix}"
+
+            # Check if MoveSubfolderInput exists
+            if not dpg.does_item_exist("MoveSubfolderInput"):
+                dpg.set_value("chkbox_scan", True)
+                if hasattr(self, "opx"):
+                    self.opx.Update_scan(app_data=None, user_data=True)
+            wait_for_item_and_set("MoveSubfolderInput", full_folder)
+        else:
+            outout.run(command)
+
+        dpg.set_value("cmd_input", "")
 
     def send_console_input(self):
         """Sends the input text to the console."""
@@ -1682,6 +1707,7 @@ class PyGuiOverlay(Layer):
 
             self.update_command_history(input_text)
             dpg.set_value("console_input", "")  # Clear the input field
+
 
     def update_command_history(self, command):
         """Updates the command history combo box."""

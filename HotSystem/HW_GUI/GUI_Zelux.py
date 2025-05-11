@@ -1,4 +1,6 @@
 # from ECM import *
+import win32clipboard
+
 from ImGuiwrappedMethods import *
 from Common import *
 from HW_wrapper import HW_devices as hw_devices
@@ -6,7 +8,6 @@ from HW_wrapper.Wrapper_MFF_101 import FilterFlipperController
 import os
 import cv2
 import numpy as np
-
 
 class ZeluxGUI():
     def __init__(self):
@@ -268,6 +269,24 @@ class ZeluxGUI():
         self.show_coords_grid = app_data  # True or False
         self.UpdateImage()
 
+
+
+    # def copy_image_to_clipboard(self,image_path):
+    #     image = Image.open(image_path)
+    #
+    #     # Convert image to DIB format for Windows clipboard
+    #     output = io.BytesIO()
+    #     image.convert("RGB").save(output, "BMP")
+    #     data = output.getvalue()[14:]  # skip BMP header (14 bytes)
+    #     output.close()
+    #
+    #     # Set clipboard data
+    #     win32clipboard.OpenClipboard()
+    #     win32clipboard.EmptyClipboard()
+    #     win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    #     win32clipboard.CloseClipboard()
+    #     print("✔ Image copied to clipboard.")
+
     def SaveProcessedImage(self):
 
         height = self.cam.camera.image_height_pixels
@@ -328,6 +347,7 @@ class ZeluxGUI():
         # Save using OpenCV (convert RGB to BGR)
         cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
         print(f"Image saved with overlays to: {filename}")
+        copy_image_to_clipboard(filename)
 
     def StitchFrames(self, sender, app_data, user_data=None):
         self.show_center_cross = True  # Show the cross

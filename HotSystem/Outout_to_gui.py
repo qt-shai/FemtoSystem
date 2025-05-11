@@ -1,5 +1,6 @@
 import sys
 import dearpygui.dearpygui as dpg
+from Common import *
 
 # To copy the last message to the clipboard:
 # import pyperclip; pyperclip.copy(sys.stdout.messages[-2])
@@ -9,6 +10,14 @@ import dearpygui.dearpygui as dpg
 
 # To extract and copy only the filename from the last message in your console
 # import pyperclip, os; pyperclip.copy(os.path.basename(sys.stdout.messages[-1].strip().split("→")[-1].strip()))
+
+# To fill the Dear PyGui input field with tag "MoveSubfolderInput" with the text "Omri_6-5-25" from your console GUI, simply run this one-liner command:
+# dpg.set_value("MoveSubfolderInput", "Omri_6-5-25")
+# dpg.set_value("MoveSubfolderInput", "ELSC_6-5-25")
+
+# Terminal logged_points.txt commands:
+# python clog.py o
+# python clog.py e
 
 
 class DualOutput:
@@ -49,6 +58,54 @@ class DualOutput:
         Flush the output (required for compatibility with file-like objects).
         """
         self.original_stream.flush()
+
+def run(command: str):
+    """
+    Simple command handler for the Dear PyGui console.
+    Supports:
+    - 'c' → copy 'QuTi SW' window to clipboard
+    - 'sv' → call SaveProcessedImage()
+    - 'mv' → call move_last_saved_files()
+    - 'sub <folder>' → set MoveSubfolderInput to '<folder>_6-5-25'
+    """
+    command = command.strip().lower()
+    try:
+        if command == "c":
+            copy_quti_window_to_clipboard()
+
+        elif command == "sv":
+            if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "SaveProcessedImage"):
+                sys.stdout.parent.SaveProcessedImage()
+                print("SaveProcessedImage executed.")
+            else:
+                print("SaveProcessedImage not available.")
+
+        elif command == "mv":
+            if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "move_last_saved_files"):
+                sys.stdout.parent.move_last_saved_files()
+                print("move_last_saved_files executed.")
+            else:
+                print("move_last_saved_files not available.")
+
+        elif command.startswith("clog "):
+            arg = command.split("clog ", 1)[1].strip().lower()
+            if arg in ["e", "o", "p"]:
+                import subprocess
+                subprocess.run([sys.executable, "clog.py", arg])
+            else:
+                print("Invalid clog argument. Use e, o, or p.")
+
+
+        else:
+            print(f"Unknown command: {command}")
+    except Exception as e:
+        print(f"Error running command '{command}': {e}")
+
+import builtins
+builtins.run = run
+
+
+
 
 
 

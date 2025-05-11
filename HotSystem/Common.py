@@ -8,6 +8,9 @@ import os
 import dearpygui.dearpygui as dpg
 from matplotlib import pyplot as plt
 
+import win32clipboard
+from PIL import Image
+import io
 
 # add bubble sort
 class Common_Counter_Singletone:
@@ -253,3 +256,75 @@ def load_window_positions(file_name: str = "win_pos.txt") -> None:
     except Exception as e:
         print(f"Error loading window positions and sizes: {e}")
 
+def copy_image_to_clipboard(image_path):
+    image = Image.open(image_path)
+
+    # Convert image to DIB format for Windows clipboard
+    output = io.BytesIO()
+    image.convert("RGB").save(output, "BMP")
+    data = output.getvalue()[14:]  # skip BMP header (14 bytes)
+    output.close()
+
+    # Set clipboard data
+    win32clipboard.OpenClipboard()
+    win32clipboard.EmptyClipboard()
+    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    win32clipboard.CloseClipboard()
+    print("Image copied to clipboard.")
+
+import pyautogui
+import win32gui
+import win32clipboard
+from PIL import ImageGrab
+import io
+
+def copy_quti_window_to_clipboard():
+    window_title = "QuTi SW"
+    hwnd = win32gui.FindWindow(None, None)
+
+    def enum_handler(h, _):
+        if window_title.lower() in win32gui.GetWindowText(h).lower():
+            nonlocal hwnd
+            hwnd = h
+    win32gui.EnumWindows(enum_handler, None)
+
+    if hwnd == 0:
+        print("Window 'QuTi SW' not found.")
+        return
+
+    # Bring the window to front
+    win32gui.ShowWindow(hwnd, 5)  # SW_SHOW
+    win32gui.SetForegroundWindow(hwnd)
+    win32gui.BringWindowToTop(hwnd)
+
+    # Get window rectangle
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+
+    # Take screenshot of the window area
+    screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
+
+    # Convert to DIB format for clipboard
+    output = io.BytesIO()
+    screenshot.convert("RGB").save(output, "BMP")
+    data = output.getvalue()[14:]  # Skip BMP header
+    output.close()
+
+    # Copy to clipboard
+    win32clipboard.OpenClipboard()
+    win32clipboard.EmptyClipboard()
+    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    win32clipboard.CloseClipboard()
+
+    print("Copied 'QuTi SW' window to clipboard.")
+
+def wait_for_item_and_set(tag: str, value: str, max_retries=50, delay=0.1):
+    import threading, time
+    def check_loop():
+        for _ in range(max_retries):
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, value)
+                print(f"Set {tag} to: {value}")
+                return
+            time.sleep(delay)
+        print(f"[!] Failed to set {tag}, item not found after {max_retries} retries.")
+    threading.Thread(target=check_loop, daemon=True).start()
