@@ -2406,6 +2406,7 @@ class GUI_OPX():
 
 
     def benchmark_play_list_of_gates(self,N_vec, N_vec_reversed,n,idx):
+        assign(self.total_rf_wait, 4)
         with for_(self.n_m, 0, self.n_m < idx, self.n_m + 1):
             # Gates
             self.play_random_qua_gate(N_vec = N_vec, t_RF = self.tRF, amp_RF = self.rf_proportional_pwr)
@@ -2414,7 +2415,7 @@ class GUI_OPX():
             self.play_random_reverse_qua_gate(N_vec=N_vec_reversed, t_RF=self.tRF, amp_RF=-self.rf_proportional_pwr)
 
     def benchmark_play_list_of_two_qubit_gates(self, N_vec, N_vec_reversed, n, idx, keep_phase):
-        assign(self.total_mw_wait, 0)
+        assign(self.total_mw_wait, 4)
         with for_(self.n_m, 0, self.n_m < idx, self.n_m + 1):
             self.play_random_qua_two_qubit_gate(N_vec = N_vec, t_MW1 = (self.t_mw / 1), amp_MW1 = self.mw_P_amp,
                                                 t_MW2 = (self.t_mw2 / 1), amp_MW2 = self.mw_P_amp2, t_MW3 = (self.t_mw3 / 1),
@@ -2801,7 +2802,9 @@ class GUI_OPX():
                     if self.benchmark_switch_flag:
                         assign(self.t_RF_extra_qua,0)
                     else:
-                        assign(self.t_RF_extra_qua, (idx-array_length/2)*self.scan_t_dt)
+                        assign(self.t_RF_extra_qua, 0)
+                        pass
+                        #assign(self.t_RF_extra_qua, (idx-array_length/2)*self.scan_t_dt)
                     """Creates a vector of reversed gates for each iteration of idx"""
                     self.reverse_qua_vector(idx = idx,jdx = jdx)
                     assign(self.total_rf_wait, 4)
@@ -2847,7 +2850,7 @@ class GUI_OPX():
                                 self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua,first_pulse="-xPulse", second_pulse="xPulse")
                                 update_frequency("MW", self.fMW_back_freq, keep_phase=False)
                                 align()
-                                frame_rotation_2pi(0.25, "RF")
+                                #frame_rotation_2pi(0.25, "RF")
                                 play("const" * amp(-self.rf_proportional_pwr), "RF",
                                      duration=((self.rf_pulse_time + 0) >> 1) >> 2)
                                 wait(t_wait)
@@ -2862,11 +2865,24 @@ class GUI_OPX():
                             align()
 
                             """reference 4 (y^2) state preparation part"""
-                            if False:
+                            if True:
                                 assign(final_state_qua, 10)
                                 self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
                                                                  final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
-                                wait(self.total_mw_wait)
+                                self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua,
+                                                                            self.idx_vec_ini_shaffle_qua_reversed, n,
+                                                                            idx,
+                                                                            keep_phase=False)
+                                update_frequency("MW", self.fMW_res, keep_phase=False)
+                                # play MW
+                                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua,
+                                                            first_pulse="-xPulse", second_pulse="xPulse")
+                                update_frequency("MW", self.fMW_back_freq, keep_phase=False)
+                                align()
+                                play("const" * amp(-self.rf_proportional_pwr), "RF",
+                                     duration=((self.rf_pulse_time + 0) >> 1) >> 2)
+                                wait(t_wait)
+                                align()
                                 #wait(4)
                                 # play Laser
                                 self.benchmark_state_readout(counts_square, counts_tmp, tLaser, idx_vec_qua, idx, times,
@@ -2898,7 +2914,7 @@ class GUI_OPX():
                                                         second_pulse="xPulse")
                             update_frequency("MW", self.fMW_back_freq, keep_phase=False)
                             align()
-                            frame_rotation_2pi(0.25, "RF")
+                            #frame_rotation_2pi(0.25, "RF")
                             play("const" * amp(-self.rf_proportional_pwr), "RF",
                                  duration=((self.rf_pulse_time + 0) >> 1) >> 2)
                             wait(t_wait)
@@ -7377,7 +7393,7 @@ class GUI_OPX():
     def GlobalFetchData(self):
         self.lock.acquire()
 
-        data = [self.ensure_list(x) for x in self.results.fetch_all()]
+        # data = [self.ensure_list(x) for x in self.results.fetch_all()]
 
         if self.exp == Experiment.COUNTER:
             self.counter_Signal, self.ref_signal = self.results.fetch_all()
@@ -7513,7 +7529,7 @@ class GUI_OPX():
             self.benchmark_number_order = self.number_order
             # self.benchmark_reverse_number_order = self.reverse_number_order
             # self.benchmark_reverse_number_order = self.benchmark_reverse_number_order.tolist()
-            self.Y_vec_squared = self.signal_squared/ ((self.TcounterPulsed * 1e-9)*(self.TcounterPulsed * 1e-9)) / 1e6
+            self.Y_vec_squared = self.signal_squared/ (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_squared = self.Y_vec_squared.tolist()
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
             self.Y_vec_ref3 = self.ref_signal3 / (self.TcounterPulsed * 1e-9) / 1e3
