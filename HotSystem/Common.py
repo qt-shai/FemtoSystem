@@ -8,8 +8,10 @@ import os
 import dearpygui.dearpygui as dpg
 from matplotlib import pyplot as plt
 
+import pyautogui
+import win32gui
 import win32clipboard
-from PIL import Image
+from PIL import ImageGrab
 import io
 
 # add bubble sort
@@ -271,12 +273,6 @@ def copy_image_to_clipboard(image_path):
     win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
     win32clipboard.CloseClipboard()
     print("Image copied to clipboard.")
-
-import pyautogui
-import win32gui
-import win32clipboard
-from PIL import ImageGrab
-import io
 
 def copy_quti_window_to_clipboard():
     window_title = "QuTi SW"

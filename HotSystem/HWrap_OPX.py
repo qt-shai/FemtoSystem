@@ -1451,6 +1451,10 @@ class GUI_OPX():
             # If no files moved, try from C:/temp/TempScanData
             if not moved_any:
                 temp_folder = "C:/temp/TempScanData"
+                if not os.path.exists(temp_folder):
+                    print(f"Temp folder does not exist. Creating: {temp_folder}")
+                    os.makedirs(temp_folder)
+
                 for filename in os.listdir(temp_folder):
                     if filename.startswith(self.timeStamp):
                         src = os.path.join(temp_folder, filename)
