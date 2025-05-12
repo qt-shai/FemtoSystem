@@ -1675,20 +1675,7 @@ class PyGuiOverlay(Layer):
 
     def handle_cmd_input(self):
         command = dpg.get_value("cmd_input").strip()
-        if command.startswith("sub "):
-            folder = command.split("sub ", 1)[1].strip()
-            suffix = "_6-5-25"
-            full_folder = f"{folder}{suffix}"
-
-            # Check if MoveSubfolderInput exists
-            if not dpg.does_item_exist("MoveSubfolderInput"):
-                dpg.set_value("chkbox_scan", True)
-                if hasattr(self, "opx"):
-                    self.opx.Update_scan(app_data=None, user_data=True)
-            wait_for_item_and_set("MoveSubfolderInput", full_folder)
-        else:
-            outout.run(command)
-
+        outout.run(command)
         dpg.set_value("cmd_input", "")
 
     def send_console_input(self):
