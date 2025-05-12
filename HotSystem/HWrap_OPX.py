@@ -2663,7 +2663,7 @@ class GUI_OPX():
         fMW_res2 = self.fMW_2nd_res
 
         if self.benchmark_switch_flag:
-            number_of_gates = 2#10
+            number_of_gates = 10
         else:
             number_of_gates = 24
 
@@ -2865,29 +2865,28 @@ class GUI_OPX():
                             align()
 
                             """reference 4 (y^2) state preparation part"""
-                            if True:
-                                assign(final_state_qua, 10)
-                                self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
-                                                                 final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
-                                self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua,
-                                                                            self.idx_vec_ini_shaffle_qua_reversed, n,
-                                                                            idx,
-                                                                            keep_phase=False)
-                                update_frequency("MW", self.fMW_res, keep_phase=False)
-                                # play MW
-                                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua,
-                                                            first_pulse="-xPulse", second_pulse="xPulse")
-                                update_frequency("MW", self.fMW_back_freq, keep_phase=False)
-                                align()
-                                play("const" * amp(-self.rf_proportional_pwr), "RF",
-                                     duration=((self.rf_pulse_time + 0) >> 1) >> 2)
-                                wait(t_wait)
-                                align()
-                                #wait(4)
-                                # play Laser
-                                self.benchmark_state_readout(counts_square, counts_tmp, tLaser, idx_vec_qua, idx, times,
-                                                             tMeasure)
-                                align()
+                            assign(final_state_qua, 10)
+                            self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
+                                                             final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
+                            self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua,
+                                                                        self.idx_vec_ini_shaffle_qua_reversed, n,
+                                                                        idx,
+                                                                        keep_phase=False)
+                            update_frequency("MW", self.fMW_res, keep_phase=False)
+                            # play MW
+                            self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua,
+                                                        first_pulse="-xPulse", second_pulse="xPulse")
+                            update_frequency("MW", self.fMW_back_freq, keep_phase=False)
+                            align()
+                            play("const" * amp(-self.rf_proportional_pwr), "RF",
+                                 duration=((self.rf_pulse_time + 0) >> 1) >> 2)
+                            wait(t_wait)
+                            align()
+                            #wait(4)
+                            # play Laser
+                            self.benchmark_state_readout(counts_square, counts_tmp, tLaser, idx_vec_qua, idx, times,
+                                                         tMeasure)
+                            align()
 
                             """reference 2 - waiting without gates - and measuring as |0n>|0e>"""
                             assign(final_state_qua, 10)
