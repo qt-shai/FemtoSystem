@@ -13,7 +13,8 @@ def copy_logged_points(short_code: str):
     mapping = {
         "e": "logged_points_elsc.txt",
         "o": "logged_points_omri.txt",
-        "p": "logged_points_prawer.txt"
+        "p": "logged_points_prawer.txt",
+        "m": "logged_points_mdm.txt",
     }
 
     short_code = short_code.lower()

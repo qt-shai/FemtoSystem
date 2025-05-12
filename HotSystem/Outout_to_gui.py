@@ -1,6 +1,7 @@
 import sys
 import dearpygui.dearpygui as dpg
 from Common import *
+import pyperclip, os
 
 # To copy the last message to the clipboard:
 # import pyperclip; pyperclip.copy(sys.stdout.messages[-2])
@@ -19,6 +20,8 @@ from Common import *
 # python clog.py o
 # python clog.py e
 
+# self.mff_101_gui[0].on_off_slider_callback(self.mff_101_gui[0],1)
+# self.mff_101_gui[0].dev.get_position()
 
 class DualOutput:
     def __init__(self, original_stream):
@@ -68,6 +71,8 @@ def run(command: str):
     - 'mv' → call move_last_saved_files()
     - 'sub <folder>' → set MoveSubfolderInput to '<folder>_6-5-25'
     - 'fn' → copy only filename from last message like: "Copied ... → .../file.ext"
+    - 'sc or !sc' toggles both flippers using the existing on_off_slider_callback method only if each flipper is in position 1
+    - 'sub'
     """
     command = command.strip().lower()
     try:
@@ -93,14 +98,10 @@ def run(command: str):
 
         elif command.startswith("clog "):
             arg = command.split("clog ", 1)[1].strip().lower()
-            if arg in ["e", "o", "p"]:
-                import subprocess
-                subprocess.run([sys.executable, "clog.py", arg])
-            else:
-                print("Invalid clog argument. Use e, o, or p.")
+            import subprocess
+            subprocess.run([sys.executable, "clog.py", arg])
 
         elif command == "fn":
-            import pyperclip, os
             if hasattr(sys.stdout, 'messages') and sys.stdout.messages:
                 last_msg = sys.stdout.messages[-1].strip()
                 if "→" in last_msg:
@@ -112,6 +113,72 @@ def run(command: str):
                     print("No '→' found in last message.")
             else:
                 print("No messages found in sys.stdout.")
+
+        elif command == "sc":
+            try:
+                parent = sys.stdout.parent
+                cam = getattr(parent, "cam", None)
+                mff = getattr(parent, "mff_101_gui", [])
+
+                for flipper in mff:
+                    slider_tag = f"on_off_slider_{flipper.unique_id}"
+                    if flipper.dev.get_position() == 1:
+                        flipper.on_off_slider_callback(slider_tag,1)
+
+                # Stop live camera feed if active
+                if cam and hasattr(cam, "StopLive"):
+                    cam.StopLive()
+                    print("Camera live view stopped.")
+
+            except Exception as e:
+                print(f"Error running 'sc': {e}")
+
+        elif command == "!sc":
+            try:
+                parent = sys.stdout.parent
+                cam = getattr(parent, "cam", None)
+                mff = getattr(parent, "mff_101_gui", [])
+
+                # Flip flippers where position is 2
+                for flipper in mff:
+                    slider_tag = f"on_off_slider_{flipper.unique_id}"
+                    if flipper.dev.get_position() == 2:
+                        flipper.on_off_slider_callback(slider_tag, 0)
+
+                # Start live view
+                if cam and hasattr(cam, "StartLive"):
+                    cam.StartLive()
+                    print("Camera live view started.")
+            except Exception as e:
+                print(f"Error running '!sc': {e}")
+
+
+        elif command.startswith("sub "):
+            try:
+                folder = command.split("sub ", 1)[1].strip()
+                suffix_file = "folder_suffix.txt"
+
+                # Ensure the suffix file exists
+                if not os.path.exists(suffix_file):
+                    with open(suffix_file, "w") as f:
+                        pass  # Create empty file
+
+                # Read suffix (default to empty string if file is empty)
+                with open(suffix_file, "r") as f:
+                    suffix = f.read().strip()
+
+                full_folder = f"{folder}_{suffix}"
+
+                # Check if MoveSubfolderInput existss
+                if not dpg.does_item_exist("MoveSubfolderInput"):
+                    dpg.set_value("chkbox_scan", True)
+                    if hasattr(sys.stdout.parent, "opx"):
+                        sys.stdout.parent.opx.Update_scan(app_data=None, user_data=True)
+
+                wait_for_item_and_set("MoveSubfolderInput", full_folder)
+                print(f"Subfolder set to: {full_folder}")
+            except Exception as e:
+                print(f"Error in 'sub' command: {e}")
 
 
         else:

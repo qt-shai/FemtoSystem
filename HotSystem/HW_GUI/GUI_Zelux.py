@@ -269,24 +269,6 @@ class ZeluxGUI():
         self.show_coords_grid = app_data  # True or False
         self.UpdateImage()
 
-
-
-    # def copy_image_to_clipboard(self,image_path):
-    #     image = Image.open(image_path)
-    #
-    #     # Convert image to DIB format for Windows clipboard
-    #     output = io.BytesIO()
-    #     image.convert("RGB").save(output, "BMP")
-    #     data = output.getvalue()[14:]  # skip BMP header (14 bytes)
-    #     output.close()
-    #
-    #     # Set clipboard data
-    #     win32clipboard.OpenClipboard()
-    #     win32clipboard.EmptyClipboard()
-    #     win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
-    #     win32clipboard.CloseClipboard()
-    #     print("✔ Image copied to clipboard.")
-
     def SaveProcessedImage(self):
 
         height = self.cam.camera.image_height_pixels
@@ -314,7 +296,7 @@ class ZeluxGUI():
             img_rgb = (img_rgba[:, :, :3] * 255).astype(np.uint8)
 
         # --- Overlay: draw cross and coordinates using OpenCV ---
-        if self.show_center_cross:
+        if self.show_center_cross or self.show_coords_grid:
             center_x = width // 2
             center_y = height // 2
 
@@ -335,6 +317,35 @@ class ZeluxGUI():
             # Draw coordinates in bottom-left
             cv2.putText(img_rgb, coord_text, (10, height - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1, cv2.LINE_AA)
+
+        if self.show_coords_grid:
+            step_px = 100
+            pixel_to_um_x = 0.04  # um/pixel
+            pixel_to_um_y = 0.04
+            x_shift_px = 2.38 / pixel_to_um_x
+            y_shift_px = 0.85 / pixel_to_um_y
+
+            # Horizontal grid lines
+            y = 0
+            while y < height - step_px:
+                y_shifted = int(y + y_shift_px)
+                offset_px = y_shifted - center_y
+                coord_y = abs_y + offset_px * pixel_to_um_y
+                cv2.line(img_rgb, (0, y_shifted), (width, y_shifted), (100, 255, 100), 1, cv2.LINE_AA)
+                cv2.putText(img_rgb, f"{coord_y:.1f}", (5, y_shifted + 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                y += step_px
+
+            # Vertical grid lines
+            x = 2 * step_px
+            while x < width:
+                x_shifted = int(x + x_shift_px)
+                offset_px = x_shifted - center_x
+                coord_x = abs_x - offset_px * pixel_to_um_x
+                cv2.line(img_rgb, (x_shifted, 0), (x_shifted, height), (100, 255, 100), 1, cv2.LINE_AA)
+                cv2.putText(img_rgb, f"{coord_x:.1f}", (x_shifted + 2, height - 18),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                x += step_px
 
         # --- Save to disk ---
         folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/'
