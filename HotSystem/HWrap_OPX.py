@@ -3599,7 +3599,7 @@ class GUI_OPX():
                         self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua, first_pulse = "-xPulse", second_pulse = "xPulse")
                         # qubit = |0n>|0e>
 
-                        """measurement signal 2 (reference 1)"""
+                        """measurement signal 2 (reference 1 )"""
                         # play Laser
                         align("MW", "Laser")
                         self.benchmark_state_readout(counts_ref, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
