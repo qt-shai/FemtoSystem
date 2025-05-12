@@ -55,6 +55,8 @@ packages = [
     os.path.join(install_path,
         "ExampleZeluxCam\\Scientific Camera Interfaces\\SDK\\Python Toolkit\\thorlabs_tsi_camera_python_sdk_package.zip".lstrip("\\")),
     "pywin32",
+    "cv2",
+    "opencv-python"
 ]
 
 b_install = True
