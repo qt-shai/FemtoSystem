@@ -237,7 +237,7 @@ class GUI_OPX():
         self.queried_area = None
         self.queried_plane = None  # 0 - XY, 1 - YZ, 2 -XZ
         self.bScanChkbox = False
-        self.L_scan = [5000, 5000, 5000]  # [nm]
+        self.L_scan = [3000, 3000, 3000]  # [nm]
         self.dL_scan = [300, 300, 300]  # [nm]
         self.b_Scan = [True, True, False]
         self.b_Zcorrection = False
@@ -371,6 +371,7 @@ class GUI_OPX():
         self.update_from_xml()
         self.connect_to_QM_OPX = False
         self.benchmark_switch_flag = True
+        # self.keep_phase = False
         self.benchmark_one_gate_only = True
         self.bScanChkbox = False
 
@@ -1213,8 +1214,10 @@ class GUI_OPX():
             dpg.add_button(label="Counter", parent="Buttons_Controls", tag="btnOPX_StartCounter",callback=self.btnStartCounterLive, indent=-1, width=_width)
             dpg.add_button(label="ODMR_CW", parent="Buttons_Controls", tag="btnOPX_StartODMR", callback=self.btnStartODMR_CW, indent=-1, width=_width)
             dpg.add_button(label="Start Pulsed ODMR", parent="Buttons_Controls", tag="btnOPX_StartPulsedODMR", callback=self.btnStartPulsedODMR, indent=-1, width=_width)
+
             dpg.add_button(label="ODMR_Bfield", parent="Buttons_Controls", tag="btnOPX_StartODMR_Bfield", callback=self.btnStartODMR_Bfield, indent=-1, width=_width)
             dpg.add_button(label="NuclearFastRot", parent="Buttons_Controls", tag="btnOPX_StartNuclearFastRot", callback=self.btnStartNuclearFastRot, indent=-1, width=_width)
+
             dpg.add_button(label="RABI", parent="Buttons_Controls", tag="btnOPX_StartRABI", callback=self.btnStartRABI, indent=-1, width=_width)
             dpg.add_button(label="Start Nuclear RABI", parent="Buttons_Controls", tag="btnOPX_StartNuclearRABI", callback=self.btnStartNuclearRABI, indent=-1, width=_width)
             dpg.add_button(label="Start Nuclear MR", parent="Buttons_Controls", tag="btnOPX_StartNuclearMR", callback=self.btnStartNuclearMR, indent=-1, width=_width)
@@ -2443,13 +2446,17 @@ class GUI_OPX():
         update_frequency("MW", f_mw)
         update_frequency("RF", f_rf)
 
-        #print(t_wait)
-        # play MW
-        #play("xPulse"* amp(p_mw), "MW", duration=t_mw // 4)
+        ##print(t_wait)
+        ## play MW
+        ##play("xPulse"* amp(p_mw), "MW", duration=t_mw // 4)
+        #if self.exp == Experiment.RandomBenchmark:
+        #    self.MW_and_reverse_general(p_mw, (t_mw / 2) // 4,first_pulse="yPulse", second_pulse="-yPulse")
+        #else:
+        #    self.MW_and_reverse(p_mw, (t_mw / 2) // 4)
         self.MW_and_reverse(p_mw, (t_mw / 2) // 4)
         # play RF (@resonance freq & pulsed time)
         align("MW", "RF")
-        play("const" * amp(p_rf), "RF", duration=t_rf // 4)
+        play("const" * amp(p_rf), "RF", duration=(t_rf>>2))
         # turn on laser to polarize
         align("RF", "Laser")
         play("Turn_ON", "Laser", duration=t_pump // 4)
@@ -3300,6 +3307,7 @@ class GUI_OPX():
 
 
     def benchmark_play_list_of_gates(self,N_vec, N_vec_reversed,n,idx):
+        assign(self.total_rf_wait, 4)
         with for_(self.n_m, 0, self.n_m < idx, self.n_m + 1):
             # Gates
             self.play_random_qua_gate(N_vec = N_vec, t_RF = self.tRF, amp_RF = self.rf_proportional_pwr)
@@ -3308,15 +3316,16 @@ class GUI_OPX():
             self.play_random_reverse_qua_gate(N_vec=N_vec_reversed, t_RF=self.tRF, amp_RF=-self.rf_proportional_pwr)
 
     def benchmark_play_list_of_two_qubit_gates(self, N_vec, N_vec_reversed, n, idx, keep_phase):
+        assign(self.total_mw_wait, 4)
         with for_(self.n_m, 0, self.n_m < idx, self.n_m + 1):
             self.play_random_qua_two_qubit_gate(N_vec = N_vec, t_MW1 = (self.t_mw / 1), amp_MW1 = self.mw_P_amp,
                                                 t_MW2 = (self.t_mw2 / 1), amp_MW2 = self.mw_P_amp2, t_MW3 = (self.t_mw3 / 1),
-                                                amp_MW3 = self.mw_P_amp3, f_mw1 = self.fMW_res, f_mw2 = self.fMW_2nd_res, back_freq =self.back_freq, keep_phase = keep_phase)
+                                                amp_MW3 = self.mw_P_amp3, f_mw1 = self.fMW_res, f_mw2 = self.fMW_2nd_res, back_freq =self.fMW_back_freq, keep_phase = keep_phase)
         with for_(self.n_m, 0, self.n_m < idx, self.n_m + 1):
             self.play_random_reverse_qua_two_qubit_gate(N_vec = N_vec_reversed, t_MW1 = (self.t_mw / 1), amp_MW1 = self.mw_P_amp,
                                                         t_MW2 = (self.t_mw2 / 1), amp_MW2 = self.mw_P_amp2,
                                                         t_MW3 = (self.t_mw3 / 1), amp_MW3 = self.mw_P_amp3, f_mw1 = self.fMW_res,
-                                                        f_mw2 = self.fMW_2nd_res, back_freq =self.back_freq, keep_phase = keep_phase)
+                                                        f_mw2 = self.fMW_2nd_res, back_freq =self.fMW_back_freq, keep_phase = keep_phase)
 
 
     def create_random_qua_vector(self, jdx, vec_size, max_rand, n):
@@ -3344,69 +3353,212 @@ class GUI_OPX():
                 assign(self.temp_idx, idx - jdx - 1)
                 assign(self.idx_vec_ini_shaffle_qua_reversed[jdx],self.idx_vec_ini_shaffle_qua[self.temp_idx])
 
-    def benchmark_state_preparation(self, m, Npump, tPump, t_wait, final_state_qua, keep_phase = False):
+    def benchmark_state_preparation(self, m, Npump, tPump, t_wait, final_state_qua, t_rf_extra = 0, keep_phase = False):
         # pumping
         # The values are written in python and processed to QUA in QUA_PUMP function
         # self.fMW_res is defined in random_benchmark
         align()
         with for_(m, 0, m < Npump, m + 1):
             play("Turn_ON", "Laser", duration=tPump // 4)
-            self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time * 2,
-                          f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
-                          p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
-        align()
-        # qubit = |0n>|0e>
+
 
 
         with switch_(final_state_qua):
             with case_(0):
-                # qubit = |0n>|0e>
+                """qubit = |0e>|0n>"""
+                self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=(self.rf_pulse_time + t_rf_extra),  # 2
+                              f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>|0n>
                 pass
             with case_(1):
-                # qubit = |0n>|1e>
-        # set MW frequency to second resonance frequency
+                """qubit = |1e>|0n>"""
+                self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=(self.rf_pulse_time + t_rf_extra),  # 2
+                              f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>|0n>
+                # set MW frequency to second resonance frequency
                 update_frequency("MW", self.fMW_2nd_res, keep_phase = keep_phase) # @Daniel!! add self.keep_phase
-        # play MW
+                # play MW
                 self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
-                #update_frequency("MW", self.fMW_res, keep_phase=keep_phase)  # @Daniel!! add self.keep_phase
-                #self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
-        # qubit = |0n>|1e>
-                update_frequency("MW", self.back_freq, keep_phase=keep_phase)  # MIC: @Daniel!! add self.keep_phase
-            # with case_(2):
-            #     # qubit = |1n>|0e>
-            #     Todo @MIC
-            #     pass
-            # with case_(3):
-            #     # qubit = |1n>|1e>
-            #     Todo @MIC
-            #     pass
+                # qubit = |1e>|0n>
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)  # MIC: @Daniel!! add self.keep_phase
+            with case_(2):
+                """qubit = |0e>|1n>"""
+                self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=(self.rf_pulse_time + t_rf_extra),  # 2
+                              f_mw=self.fMW_2nd_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>|1n>
+                pass
+            with case_(3):
+                """qubit = |1e>|1n>"""
+                self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=(self.rf_pulse_time + t_rf_extra),  # 2
+                              f_mw=self.fMW_2nd_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>|1n>
+                # set MW frequency to second resonance frequency
+                update_frequency("MW", self.fMW_res, keep_phase = keep_phase) # @Daniel!! add self.keep_phase
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>|1n>
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)  # MIC: @Daniel!! add self.keep_phase
+            with case_(4):
+                """qubit = |0e>|0n>-i|1e>|1n>"""
+                self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time + t_rf_extra,  # 2
+                              f_mw=self.fMW_2nd_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>|1n>
+                # set MW frequency to second resonance frequency
+                update_frequency("MW", self.fMW_res, keep_phase = keep_phase)
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>|1n>
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)
+                align("MW", "RF")
+                play("const" * amp(self.rf_proportional_pwr), "RF", duration=((self.rf_pulse_time + t_rf_extra)>>1)>>2)
+                wait(t_wait)
+                # qubit = |1e>|-in>
+                align("RF", "MW")
+                update_frequency("MW", self.fMW_2nd_res, keep_phase=keep_phase)
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |0e>|0n>-i|1e>|1n>
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)
+            with case_(5):
+                """qubit = |0e>|0n>+i|1e>|1n> 2nd way"""
+                self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time + t_rf_extra,  # 2
+                              f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>|0n>
+                # set MW frequency to second resonance frequency
+                update_frequency("MW", self.fMW_2nd_res, keep_phase = keep_phase)
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>|0n>
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)
+                align("MW", "RF")
+                play("const" * amp(self.rf_proportional_pwr), "RF", duration=((self.rf_pulse_time + t_rf_extra)>>1)>>2)
+                wait(t_wait)
+                # qubit = |1e>|in>
+                align("RF", "MW")
+                update_frequency("MW", self.fMW_2nd_res, keep_phase=keep_phase)
+                #update_frequency("MW", self.fMW_res, keep_phase=keep_phase)
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |0e>|0n>+i|1e>|1n>
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)
+            with case_(6):
+                """qubit = |1e>|0n><1e|<0n|+|0e>|1n><0e|<1n|"""
+                #self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time + t_rf_extra,  # 2
+                #              f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                #              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>(|0n><0n|+|1n><1n|)
+                # set MW frequency to second resonance frequency
+                update_frequency("MW", self.fMW_2nd_res, keep_phase = keep_phase) # @Daniel!! add self.keep_phase
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>|0n><1e|<0n|+|0e>|1n><0e|<1n|
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)  # MIC: @Daniel!! add self.keep_phase
+            with case_(7):
+                """qubit = |0e>(|0n><0n|+|1n>|<1n|)"""
+                #self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time + t_rf_extra,  # 2
+                #              f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                #              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>(|0n><0n|+|1n><1n|)
+            with case_(8):
+                """qubit = |1e>(|0n><0n|+|1n>|<1n|)"""
+                # self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time + t_rf_extra,  # 2
+                #              f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                #              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>(|0n><0n|+|1n><1n|)
+                # set MW frequency to second resonance frequency
+        update_frequency("MW", self.fMW_2nd_res)
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>|0n><1e|<0n|+|0e>|1n><0e|<1n|
+                update_frequency("MW", self.fMW_res, keep_phase=keep_phase)  # @Daniel!! add self.keep_phase
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>(|0n><0n|+|1n>|<1n|)
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)
+            with case_(9):
+                """qubit = |1e>(|0n><0n|+|1n>|<1n|) - same as 8, but changing fMW order"""
+                # self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time + t_rf_extra,  # 2
+                #              f_mw=self.fMW_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                #              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>(|0n><0n|+|1n><1n|)
+                # set MW frequency to second resonance frequency
+                update_frequency("MW", self.fMW_res, keep_phase = keep_phase) # @Daniel!! add self.keep_phase
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>|0n><1e|<0n|+|0e>|1n><0e|<1n|
+                update_frequency("MW", self.fMW_2nd_res, keep_phase=keep_phase)  # @Daniel!! add self.keep_phase
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>(|0n><0n|+|1n>|<1n|)
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)
+            with case_(10):
+                """qubit = |1e>|0n>-i|0e>|1n>"""
+                self.QUA_Pump(t_pump=tPump, t_mw=self.t_mw, t_rf=self.rf_pulse_time + t_rf_extra,  # 2
+                              f_mw=self.fMW_2nd_res, f_rf=self.rf_resonance_freq * self.u.MHz,
+                              p_mw=self.mw_P_amp, p_rf=self.rf_proportional_pwr, t_wait=t_wait)
+                align()
+                # qubit = |0e>|1n>
+                # set MW frequency to second resonance frequency
+                update_frequency("MW", self.fMW_res, keep_phase = keep_phase)
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>|1n>
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)
+                align("MW", "RF")
+                play("const" * amp(self.rf_proportional_pwr), "RF", duration=((self.rf_pulse_time + t_rf_extra)>>1)>>2)
+                wait(t_wait)
+                # qubit = |1e>|-in>
+                align("RF", "MW")
+                update_frequency("MW", self.fMW_res, keep_phase=keep_phase)
+                # play MW
+                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                # qubit = |1e>|0n>-i|0e>|1n>
+                update_frequency("MW", self.fMW_back_freq, keep_phase=keep_phase)
+        align()
 
     def benchmark_state_readout(self, current_counts_, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure):
-        """Make sure to have align with laser before"""
-        align()
+        #Make sure to have align with laser before
+
         play("Turn_ON", "Laser", duration=tLaser // 4)
-        """measure signal"""
-        # align("MW", "Detector_OPD") ## MIC: @daniel - why align with MW? I think we should align laser and OPD before turning on laser
+        # measure signal
+        align("MW", "Detector_OPD")
         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
         assign(current_counts_[idx_vec_qua[idx]], current_counts_[idx_vec_qua[idx]] + counts_tmp)
 
 
     def Random_Benchmark_QUA_PGM(self):
         # sequence parameters
+        is_new_benchmark_code = True
         tMeasureProcess = self.MeasProcessTime
         tPump = self.time_in_multiples_cycle_time(self.Tpump)
-        self.tPump = self.time_in_multiples_cycle_time(self.Tpump)
         tSettle = self.time_in_multiples_cycle_time(self.Tsettle)
         tMeasueProcess = self.MeasProcessTime
         tLaser = self.time_in_multiples_cycle_time(self.TcounterPulsed + self.Tsettle + tMeasueProcess)
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
         self.tMW = self.t_mw
-        self.fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
+        self.fMW_res = (self.mw_freq_resonance - self.mw_freq_resonance) * self.u.GHz
         self.verify_insideQUA_FreqValues(self.fMW_res)
         fMW_res1 = self.fMW_res
         self.fMW_1st_res = self.fMW_res
-        self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz
+        self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq_resonance) * self.u.GHz
+        self.fMW_back_freq = (self.back_freq - self.mw_freq_resonance) * self.u.GHz
         self.verify_insideQUA_FreqValues(self.fMW_2nd_res)
         fMW_res2 = self.fMW_2nd_res
 
@@ -3461,6 +3613,7 @@ class GUI_OPX():
             self.one_gate_only_values_qua = declare(int)
 
             self.tRF_qua = declare(int)
+            self.t_RF_extra_qua = declare(int)
             self.t_mw_qua = declare(int)
             assign(self.t_mw_qua, (self.t_mw / 2) // 4)
             self.t_mw_qua2 = declare(int)
@@ -3546,6 +3699,12 @@ class GUI_OPX():
                 with for_(idx, 0, idx < array_length, idx + self.dN):
                     assign(sequenceState, IO1)
                     assign(self.tRF_qua, (self.tRF))
+                    if self.benchmark_switch_flag:
+                        assign(self.t_RF_extra_qua,0)
+                    else:
+                        assign(self.t_RF_extra_qua, 0)
+                        pass
+                        #assign(self.t_RF_extra_qua, (idx-array_length/2)*self.scan_t_dt)
                     """Creates a vector of reversed gates for each iteration of idx"""
                     self.reverse_qua_vector(idx = idx,jdx = jdx)
                     assign(self.total_rf_wait, 4)
@@ -3553,190 +3712,304 @@ class GUI_OPX():
                     with if_(sequenceState == 0):
                         """ Experiment start """
 
+                        if is_new_benchmark_code:
+                            """signal 1 state preparation part"""
+                            assign(final_state_qua, 10)
+                            self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
+                                                             final_state_qua=final_state_qua, t_rf_extra=0,
+                                                             keep_phase=False)
+                            self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx, keep_phase = False)
+                            # play Laser
+                            self.benchmark_state_readout(counts, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
+                            #assign(counts_tmp_squared, counts_tmp * counts_tmp)
+                            #assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp_squared)
+                            align()
 
-                        """signal 1 state preparation part"""
-                        # MIC: @Daniel add set(self.keep_phase,False)
-                        # self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua)
-                        # """qubit = |0n>|1e>"""
-                        self.QUA_prepare_state(6)
-                        """qubit = |+n>|1e>"""
+                            """reference 1 - (signal 2) - same as signal 1 but self.keep_phase = True"""
+                            assign(final_state_qua, 10)
+                            self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
+                                                             final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
+                            #wait(idx * (self.t_mw//4) + 4)
+                            self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua,
+                                                                        self.idx_vec_ini_shaffle_qua_reversed, n, idx,
+                                                                        keep_phase=False)
+                            if False:
+                                update_frequency("MW", self.fMW_res, keep_phase=False)
+                                # play MW
+                                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                                # qubit = |1e>|0n><1e|<0n|+|0e>|1n><0e|<1n|
+                                update_frequency("MW", self.fMW_2nd_res,
+                                                 keep_phase=False)  # @Daniel!! add self.keep_phase
+                                # play MW
+                                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
+                                # qubit = |1e>(|0n><0n|+|1n>|<1n|)
+                                update_frequency("MW", self.fMW_back_freq, keep_phase=False)
+                            else:
+                                update_frequency("MW", self.fMW_res, keep_phase=False)
+                                # play MW
+                                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua,first_pulse="-xPulse", second_pulse="xPulse")
+                                update_frequency("MW", self.fMW_back_freq, keep_phase=False)
+                                align()
+                                #frame_rotation_2pi(0.25, "RF")
+                                play("const" * amp(-self.rf_proportional_pwr), "RF",
+                                     duration=((self.rf_pulse_time + 0) >> 1) >> 2)
+                                wait(t_wait)
+                                align()
+                                update_frequency("MW", self.fMW_res, keep_phase=False)
+                                # play MW
+                                self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua,first_pulse="-xPulse", second_pulse="xPulse")
+                                update_frequency("MW", self.fMW_back_freq, keep_phase=False)
+                            # play Laser
+                            self.benchmark_state_readout(counts_ref, counts_tmp, tLaser, idx_vec_qua, idx, times,
+                                                         tMeasure)
+                            align()
 
-                        """signal 1 - manipulation part"""
-                        align("MW", "RF")
-                        if self.benchmark_switch_flag: # 2 qubit
-                            # play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            """qubit = |+n>|1e>"""
-                            align("RF", "MW")
+                            """reference 4 (y^2) state preparation part"""
+                            assign(final_state_qua, 10)
+                            self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
+                                                             final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
+                            self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua,
+                                                                        self.idx_vec_ini_shaffle_qua_reversed, n,
+                                                                        idx,
+                                                                        keep_phase=False)
+                            update_frequency("MW", self.fMW_res, keep_phase=False)
+                            # play MW
+                            self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua,
+                                                        first_pulse="-xPulse", second_pulse="xPulse")
+                            update_frequency("MW", self.fMW_back_freq, keep_phase=False)
+                            align()
+                            play("const" * amp(-self.rf_proportional_pwr), "RF",
+                                 duration=((self.rf_pulse_time + 0) >> 1) >> 2)
                             wait(t_wait)
-                            with if_((idx == 0)):  # no gates
-                                wait(duration=4)
-                            with else_():
-                                self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx, keep_phase = False)
-                            align("MW","RF")
-                            """qubit = |+n>|1e>"""
-                            # play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            """qubit = |0n>|1e>"""
-                        else: # 1 qubit
-                            self.benchmark_play_list_of_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx)
-                            # qubit = |0n>|1e>
+                            align()
+                            #wait(4)
+                            # play Laser
+                            self.benchmark_state_readout(counts_square, counts_tmp, tLaser, idx_vec_qua, idx, times,
+                                                         tMeasure)
+                            align()
 
-                        """signal 1 measurement part"""
-                        wait(t_wait)
-                        align("RF", "MW")
-                        ##update_frequency("MW", self.fMW_res, keep_phase=False)  # @Daniel!! add self.keep_phase
-                        ##self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
-                        #update_frequency("MW", self.fMW_2nd_res, keep_phase = False)  # @Daniel!! add self.keep_phase
-                        #self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua, first_pulse = "-xPulse", second_pulse = "xPulse")
-                        update_frequency("MW", self.back_freq, keep_phase = False)  # @Daniel!! add self.keep_phase
-                        # qubit = |0n>|0e>
+                            """reference 2 - waiting without gates - and measuring as |0n>|0e>"""
+                            assign(final_state_qua, 10)
+                            self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
+                                                             final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
+                            #self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
+                            #                                 final_state_qua=final_state_qua, t_rf_extra = self.t_RF_extra_qua, keep_phase = False)
+                            wait(self.total_mw_wait)
+                            # play Laser
+                            self.benchmark_state_readout(counts_ref2, counts_tmp, tLaser, idx_vec_qua, idx, times,
+                                                         tMeasure)
+                            align()
 
-                        # play Laser
-                        align("MW", "Laser")
-                        self.QUA_measure(m_state=2, idx=idx, tLaser=tLaser, tMeasure=tMeasure, t_rf=self.tRF,
-                                         t_mw=self.t_mw, t_mw2=self.t_mw2, p_rf=self.rf_proportional_pwr)
-                        self.benchmark_state_readout(counts, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
-                        assign(counts_tmp_squared, counts_tmp * counts_tmp) # MIC: @Daniel - does count_tmp updated outside of readout by readout?
-                        assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp_squared)
-                        align()
-
-                        """reference 1 - (signal 2) - same as signal 1 but self.keep_phase = True"""
-                        # MIC: @Daniel add set(self.keep_phase,True)
-                        # self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua, keep_phase = False)
-                        # """qubit = |0n>|1e>"""
-                        self.QUA_prepare_state(6)
-                        """qubit = |+n>|1e>"""
-
-                        """signal 2 - manipulation part"""
-                        align("MW", "RF")
-                        if self.benchmark_switch_flag: # 2 qubit
-                            # play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            """qubit = |+n>|1e>"""
-                            align("RF", "MW")
+                            """reference 3 - waiting without gates - and measuring as |0n>|1e>"""
+                            assign(final_state_qua, 10)
+                            self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
+                                                             final_state_qua=final_state_qua, t_rf_extra=0,
+                                                             keep_phase=False)
+                            wait(self.total_mw_wait)
+                            #wait(idx * (self.t_mw // 4) + 4)
+                            update_frequency("MW", self.fMW_res, keep_phase=False)
+                            # play MW
+                            self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
+                                                        second_pulse="xPulse")
+                            update_frequency("MW", self.fMW_back_freq, keep_phase=False)
+                            align()
+                            #frame_rotation_2pi(0.25, "RF")
+                            play("const" * amp(-self.rf_proportional_pwr), "RF",
+                                 duration=((self.rf_pulse_time + 0) >> 1) >> 2)
                             wait(t_wait)
-                            with if_((idx == 0)):  # no gates
-                                wait(duration=4)
-                            with else_():
-                                # making ref1 to end at the excited state
-                                self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed, n, idx, keep_phase=False)
+                            align()
+                            update_frequency("MW", self.fMW_res, keep_phase=False)
+                            # play MW
+                            self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse",
+                                                        second_pulse="xPulse")
+                            update_frequency("MW", self.fMW_back_freq, keep_phase=False)
+                            # play Laser
+                            self.benchmark_state_readout(counts_ref3, counts_tmp, tLaser, idx_vec_qua, idx, times,
+                                                         tMeasure)
+                            align()
+
+                        else:
+                            """old benchmark code"""
+                            """signal 1 state preparation part"""
+                            # MIC: @Daniel add set(self.keep_phase,False)
+                            # self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua)
+                            # """qubit = |0n>|1e>"""
+                            self.QUA_prepare_state(4)
+                            """qubit = |+n>|1e>"""
+
+                            """signal 1 - manipulation part"""
                             align("MW", "RF")
-                            # play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            """qubit = |0n>|1e>"""
-                        else: # 1 qubit
-                            with if_((idx == 0)):  # no gates
-                                pass
-                            with else_(): # idx gates
-                                wait(self.total_rf_wait)
-
-                        """measurement signal 2 (reference 1)"""
-                        wait(t_wait)
-                        align("RF", "MW")
-                        ##update_frequency("MW", self.fMW_res, keep_phase=True)  # @Daniel!! add self.keep_phase
-                        ##self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
-                        #update_frequency("MW", self.fMW_2nd_res, keep_phase=True)  # @Daniel!! add self.keep_phase
-                        #self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
-                        update_frequency("MW", self.back_freq, keep_phase=False)  # @Daniel!! add self.keep_phase
-                        # qubit = |0n>|0e>
-
-
-                        # play Laser
-                        align("MW", "Laser")
-                        self.QUA_measure(m_state = 3, idx = idx, tLaser = tLaser, tMeasure = tMeasure, t_rf = self.tRF, t_mw = self.t_mw, t_mw2 = self.t_mw2, p_rf = self.rf_proportional_pwr)
-                        self.benchmark_state_readout(counts_ref, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
-                        align()
-
-                        """reference 2 - waiting without gates - and measuring as |0n>|0e>"""
-                        # self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua)
-                        # """qubit = |0n>|1e>"""
-                        self.QUA_prepare_state(6)
-                        """qubit = |+n>|1e>"""
-
-                        """reference 2 - manipulation part"""
-                        align("MW", "RF")
-                        if self.benchmark_switch_flag: # 2 qubit
-                            # play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            # qubit = |+n>|1e>
-                            wait(t_wait)
-                            with if_((idx == 0)):
-                                wait(duration=4)
-                                # qubit = |0n>|1e>
-                            with else_():  # idx gates
-                                wait(self.total_mw_wait)
-                            align("MW", "RF")
-                            # qubit = |+n>|1e>
-                            # play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            # qubit = |0n>|1e>
-                        else: # 1 qubit
+                            if self.benchmark_switch_flag: # 2 qubit
                             play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
                             # qubit = |+n>|1e>
-                            with if_((idx == 0)):
-                                pass
-                            with else_():  # idx gates
-                                wait(self.total_rf_wait)
+                                align("RF", "MW")
+                                wait(t_wait)
+                            self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx, keep_phase = False)
+                            align("MW","RF")
+                            # qubit = |+n>|1e>
                             play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
                             # qubit = |0n>|1e>
-
-                        """measurment reference 2"""
-                        wait(t_wait)
-                        align("RF","MW")
-                        ##update_frequency("MW", self.fMW_res)  # @Daniel!! add self.keep_phase
-                        ##self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
-                        #update_frequency("MW", self.fMW_2nd_res)  # @Daniel!! add self.keep_phase
-                        #self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
-                        update_frequency("MW", self.back_freq)  # @Daniel!! add self.keep_phase
-                        # qubit = |0n>|0e>
-
-                        # play Laser
-                        align("MW", "Laser")
-                        self.QUA_measure(m_state=2, idx=idx, tLaser=tLaser, tMeasure=tMeasure, t_rf=self.tRF,
-                                         t_mw=self.t_mw, t_mw2=self.t_mw2, p_rf=self.rf_proportional_pwr)
-                        self.benchmark_state_readout(counts_ref2, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
-                        align()
-
-                        """reference 3 - waiting without gates - and measuring as |0n>|1e>"""
-                        # self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait, final_state_qua = final_state_qua)
-                        # """qubit = |0n>|1e>"""
-                        self.QUA_prepare_state(6)
-                        """qubit = |+n>|1e>"""
-
-                        """reference 3 - manipulation part"""
-                        align("MW", "RF")
-                        if self.benchmark_switch_flag:  # 2 qubit
-                            # play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            # qubit = |+n>|1e>
-                            wait(t_wait)
-                            with if_((idx == 0)):
-                                wait(duration=4)
+                            else: # 1 qubit
+                                self.benchmark_play_list_of_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx)
                                 # qubit = |0n>|1e>
-                            with else_():  # idx gates
-                                wait(self.total_mw_wait)
+
+                            """signal 1 measurement part"""
+                            wait(t_wait)
+                            align("RF", "MW")
+                            ##update_frequency("MW", self.fMW_res, keep_phase=False)  # @Daniel!! add self.keep_phase
+                            ##self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                            #update_frequency("MW", self.fMW_2nd_res, keep_phase = False)  # @Daniel!! add self.keep_phase
+                            #self.MW_and_reverse_general(p_mw = self.mw_P_amp,t_mw = self.t_mw_qua, first_pulse = "-xPulse", second_pulse = "xPulse")
+                            update_frequency("MW", self.fMW_back_freq, keep_phase = False)  # @Daniel!! add self.keep_phase
+                            # qubit = |0n>|0e>
+
+                            # play Laser
+                            align("MW", "Laser")
+                            self.QUA_measure(m_state=2, idx=idx, tLaser=tLaser, tMeasure=tMeasure, t_rf=self.tRF,
+                                             t_mw=self.t_mw, t_mw2=self.t_mw2, p_rf=self.rf_proportional_pwr)
+                            self.benchmark_state_readout(counts, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
+                            assign(counts_tmp_squared, counts_tmp * counts_tmp) # MIC: @Daniel - does count_tmp updated outside of readout by readout?
+                            assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp_squared)
+                            align()
+
+                            """reference 1 - (signal 2) - same as signal 1 but self.keep_phase = True"""
+                            # MIC: @Daniel add set(self.keep_phase,True)
+                            # self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua, keep_phase = False)
+                            # """qubit = |0n>|1e>"""
+                            self.QUA_prepare_state(4)
+                            """qubit = |+n>|1e>"""
+
+                            """signal 2 - manipulation part"""
                             align("MW", "RF")
+                            if self.benchmark_switch_flag:  # 2 qubit
+                                # play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                """qubit = |+n>|1e>"""
+                                align("RF", "MW")
+                                wait(t_wait)
+                                with if_((idx == 0)):  # no gates
+                                    wait(duration=4)
+                                with else_():
+                                    # making ref1 to end at the excited state
+                                    self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed, n, idx, keep_phase=False)
+                                align("MW", "RF")
+                                # play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                """qubit = |0n>|1e>"""
+                            else: # 1 qubit
+                                with if_((idx == 0)):  # no gates
+                                    pass
+                                with else_():  # idx gates
+                                    wait(self.total_rf_wait)
+
+                            """measurement signal 2 (reference 1)"""
+                            wait(t_wait)
+                            align("RF", "MW")
+                            ##update_frequency("MW", self.fMW_res, keep_phase=True)  # @Daniel!! add self.keep_phase
+                            ##self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                            #update_frequency("MW", self.fMW_2nd_res, keep_phase=True)  # @Daniel!! add self.keep_phase
+                            #self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                            update_frequency("MW", self.fMW_back_freq, keep_phase=False)  # @Daniel!! add self.keep_phase
+                            # qubit = |0n>|0e>
+
+
+                            # play Laser
+                            align("MW", "Laser")
+                            self.QUA_measure(m_state = 16, idx = idx, tLaser = tLaser, tMeasure = tMeasure, t_rf = self.tRF, t_mw = self.t_mw, t_mw2 = self.t_mw2, p_rf = self.rf_proportional_pwr)
+                            self.benchmark_state_readout(counts_ref, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
+                            align()
+
+                            """reference 2 - waiting without gates - and measuring as |0n>|0e>"""
+                            # self.benchmark_state_preparation(m = m, Npump = Npump, tPump = tPump, t_wait = t_wait, final_state_qua = final_state_qua)
+                            # """qubit = |0n>|1e>"""
+                            self.QUA_prepare_state(4)
+                            """qubit = |+n>|1e>"""
+
+                            """reference 2 - manipulation part"""
+                            align("MW", "RF")
+                            if self.benchmark_switch_flag:  # 2 qubit
+                                # play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |+n>|1e>
+                                wait(t_wait)
+                                with if_((idx == 0)):
+                                    wait(duration=4)
+                                    # qubit = |0n>|1e>
+                                with else_():  # idx gates
+                                    wait(self.total_mw_wait)
+                                align("MW", "RF")
+                                # qubit = |+n>|1e>
+                                # play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |0n>|1e>
+                            else:  # 1 qubit
+                                play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |+n>|1e>
+                                with if_((idx == 0)):
+                                    pass
+                                with else_():  # idx gates
+                                    wait(self.total_rf_wait)
+                                play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |0n>|1e>
+
+                            """measurment reference 2"""
+                            wait(t_wait)
+                            align("RF", "MW")
+                            ##update_frequency("MW", self.fMW_res)  # @Daniel!! add self.keep_phase
+                            ##self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                            #update_frequency("MW", self.fMW_2nd_res)  # @Daniel!! add self.keep_phase
+                            #self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="-xPulse", second_pulse="xPulse")
+                            update_frequency("MW", self.fMW_back_freq)  # @Daniel!! add self.keep_phase
+                            # qubit = |0n>|0e>
+
+                            # play Laser
+                            align("MW", "Laser")
+                            self.QUA_measure(m_state=17, idx=idx, tLaser=tLaser, tMeasure=tMeasure, t_rf=self.tRF,
+                                             t_mw=self.t_mw, t_mw2=self.t_mw2, p_rf=self.rf_proportional_pwr)
+                            self.benchmark_state_readout(counts_ref2, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
+                            align()
+
+                            """reference 3 - waiting without gates - and measuring as |0n>|1e>"""
+                            # self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait, final_state_qua = final_state_qua)
+                            # """qubit = |0n>|1e>"""
+                            self.QUA_prepare_state(4)
+                            """qubit = |+n>|1e>"""
+
+                            """reference 3 - manipulation part"""
+                            align("MW", "RF")
+                            if self.benchmark_switch_flag:  # 2 qubit
+                                # play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |+n>|1e>
+                                wait(t_wait)
+                                with if_((idx == 0)):
+                                    wait(duration=4)
+                                    # qubit = |0n>|1e>
+                                with else_():  # idx gates
+                                    wait(self.total_mw_wait)
+                                align("MW", "RF")
                                 # qubit = |+n>|1e>
                                 #play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
                                 # qubit = |0n>|1e>
-                        else: # 1 qubit
-                            play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            # qubit = |+n>|1e>
-                            with if_((idx == 0)):
-                                pass
-                            with else_():  # idx gates
-                                wait(self.total_rf_wait)
-                            play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            # qubit = |0n>|1e>
+                            else:  # 1 qubit
+                                play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |+n>|1e>
+                                with if_((idx == 0)):
+                                    pass
+                                with else_():  # idx gates
+                                    wait(self.total_rf_wait)
+                                play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |0n>|1e>
 
-                        """measurement reference 3"""
-                        wait(t_wait)
-                        align("RF", "MW")
-                        # self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="xPulse", second_pulse="-xPulse")
-                        # play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
-                        # play("-xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
-                        # # qubit = is still |0n>|1e> and not like ref2 |0n>|0e>
+                            """measurement reference 3"""
+                            wait(t_wait)
+                            align("RF", "MW")
+                            # self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua, first_pulse="xPulse", second_pulse="-xPulse")
+                            # play("xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
+                            # play("-xPulse" * amp(self.mw_P_amp), "MW", duration=self.t_mw_qua)
+                            # # qubit = is still |0n>|1e> and not like ref2 |0n>|0e>
 
 
-                        # play Laser
-                        align("MW", "Laser")
-                        self.QUA_measure(m_state = 3, idx = idx, tLaser = tLaser, tMeasure = tMeasure, t_rf = self.tRF, t_mw = self.t_mw, t_mw2 = self.t_mw2, p_rf = self.rf_proportional_pwr)
-                        self.benchmark_state_readout(counts_ref3, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
-                        align()
+                            # play Laser
+                            align("MW", "Laser")
+                            self.QUA_measure(m_state = 18, idx = idx, tLaser = tLaser, tMeasure = tMeasure, t_rf = self.tRF, t_mw = self.t_mw, t_mw2 = self.t_mw2, p_rf = self.rf_proportional_pwr)
+                            self.benchmark_state_readout(counts_ref3, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure)
+                            align()
 
 
 
@@ -4106,18 +4379,6 @@ class GUI_OPX():
         site_state = QUA varible
     '''
     def Nuclear_Pol_ESR_QUA_PGM(self, generate_params = False, Generate_QUA_sequance = False, execute_qua = False):  # NUCLEAR_POL_ESR
-        self.Entanglement_gate_tomography_QUA_PGM(Generate_QUA_sequance=True)
-        if self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
-            # for i in range(self.n_of_awg_changes):
-            #     self.change_AWG_freq(channel = 1)
-            #     if self.simulation:
-            #         self.awg_freq_list.append(self.current_awg_freq)
-            #     else:
-            #         self.awg_freq_list.append(self.awg.get_frequency())
-                self.time_bin_entanglement_QUA_PGM(Generate_QUA_sequance=True)
-
-    def Nuclear_Pol_ESR_QUA_PGM(self, generate_params=False, Generate_QUA_sequance=False,
-                                execute_qua=False):  # NUCLEAR_POL_ESR
         if generate_params:
             # sequence parameters
             self.tMeasureProcess = self.time_in_multiples_cycle_time(self.MeasProcessTime)
@@ -4236,12 +4497,11 @@ class GUI_OPX():
         align()
         play("Turn_ON", "Laser", self.tLaser // 4)
         align()
-        if self.exp == Experiment.RandomBenchmark:
-            # doing RandomBenchmark
-            t_wait = self.time_in_multiples_cycle_time(self.Twait * 1000) // 4
-            wait(t_wait)
-        else:
-            wait(int(self.tWait) // 4)
+        if self.exp != Experiment.RandomBenchmark:
+            wait(int(self.tWait)//4)
+        else: # doing RandomBenchmark
+            t_wait = self.time_in_multiples_cycle_time(self.Twait * 1000) //4
+            #wait(t_wait)
 
 
         with if_(site_state == 0): #|00>
@@ -4299,7 +4559,9 @@ class GUI_OPX():
            play("const" * amp(self.rf_proportional_pwr), "RF", duration=(self.tRF/2) // 4)
            frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
            wait(self.tWait //4)
-           align("RF","MW")
+            # --> |1+> Todo - check
+
+            align("RF","MW")
            play("-yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
            play("yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
 
@@ -4620,6 +4882,102 @@ class GUI_OPX():
         #     #update_frequency("MW", self.fMW_2nd_res)
         #     #play("xPulse"* amp(self.mw_P_amp), "MW", duration=self.t_mw // 4)
 
+
+        with if_(m_state==16):
+            """|01><01| + |10><10|"""
+            if self.exp != Experiment.RandomBenchmark:
+                wait((t_rf + t_mw + self.tWait) // 4)
+            update_frequency("MW", self.fMW_2nd_res)
+            if self.exp == Experiment.RandomBenchmark:
+                duration_divsor = 2
+            else:
+                duration_divsor = 2
+            self.MW_and_reverse_general(self.mw_P_amp, (self.tMW / duration_divsor) // 4, "-yPulse", "yPulse")
+            # play("yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            # play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(t_mw/2) // 4)
+            """|01><01| + |10><10| --> |01><01| + |00><00|"""
+            ##update_frequency("MW", self.fMW_2nd_res)
+            ##play("xPulse"* amp(self.mw_P_amp), "MW", duration=t_mw // 4)
+
+
+        with if_(m_state==17):
+            """|00> + |11>"""
+            if self.exp != Experiment.RandomBenchmark:
+                wait((t_rf + t_mw + self.tWait) // 4)
+            update_frequency("MW", self.fMW_2nd_res)
+            if self.exp == Experiment.RandomBenchmark:
+                duration_divsor = 2
+            else:
+                duration_divsor = 2
+            self.MW_and_reverse_general(self.mw_P_amp, (self.tMW / duration_divsor) // 4, "yPulse", "-yPulse")
+            # play("yPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            # play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            # --> |10>
+
+            ##update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
+            ##play("xPulse"* amp(self.mw_P_amp2), "MW", duration=self.t_mw2 // 4)
+
+            align("MW", "RF")
+            # RF Y pulse
+            frame_rotation_2pi(0.25, "RF")
+            if self.exp == Experiment.RandomBenchmark:
+                duration_divsor = 1
+            else:
+                duration_divsor = 4
+            play("const" * amp(-self.rf_proportional_pwr), "RF", duration=(self.tRF / 2) // duration_divsor)
+            frame_rotation_2pi(-0.25, "RF")  # reset phase back to zero
+            wait(self.tWait // 4)
+            # --> |1+> Todo - check
+
+            align("RF", "MW")
+            if self.exp == Experiment.RandomBenchmark:
+                duration_divsor = 2
+            else:
+                duration_divsor = 2
+            self.MW_and_reverse_general(self.mw_P_amp, (self.tMW / duration_divsor) // 4, "-yPulse", "yPulse")
+            # play("-yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
+            # play("yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
+            # --> |00>+|11> Todo - check
+
+        with if_(m_state==18):
+            """|00> - |11>"""
+            if self.exp != Experiment.RandomBenchmark:
+                wait((t_rf + t_mw + self.tWait) // 4)
+            update_frequency("MW", self.fMW_2nd_res)
+            if self.exp == Experiment.RandomBenchmark:
+                duration_divsor = 2
+            else:
+                duration_divsor = 2
+            self.MW_and_reverse_general(self.mw_P_amp, (self.tMW / duration_divsor) // 4, "yPulse", "-yPulse")
+            # play("yPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            # play("-yPulse"*amp(self.mw_P_amp), "MW", duration=(self.tMW/2) // 4)
+            # --> |10>
+
+            ##update_frequency("MW", (self.fMW_1st_res+self.fMW_2nd_res)/2)
+            ##play("xPulse"* amp(self.mw_P_amp2), "MW", duration=self.t_mw2 // 4)
+
+            align("MW", "RF")
+            # RF Y pulse
+            frame_rotation_2pi(0.25, "RF")
+            if self.exp == Experiment.RandomBenchmark:
+                duration_divsor = 1
+            else:
+                duration_divsor = 4
+            play("const" * amp(self.rf_proportional_pwr), "RF", duration=(self.tRF / 2) // duration_divsor)
+            frame_rotation_2pi(-0.25, "RF")  # reset phase back to zero
+            wait(self.tWait // 4)
+            # --> |1+> Todo - check
+
+            align("RF", "MW")
+            if self.exp == Experiment.RandomBenchmark:
+                duration_divsor = 2
+            else:
+                duration_divsor = 2
+            self.MW_and_reverse_general(self.mw_P_amp, (self.tMW / duration_divsor) // 4, "-yPulse", "yPulse")
+            # play("-yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
+            # play("yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
+            # --> |00>+|11> Todo - check
+
         if self.exp != Experiment.RandomBenchmark:
             align()
             # Play laser
@@ -4692,11 +5050,11 @@ class GUI_OPX():
             self.f_rf = self.rf_resonance_freq
 
             # length and idx vector
-            self.first_state = 4 # serial number of first initial state
-            self.last_state = 4 # serial number of last initial state
+            self.first_state = 3 # serial number of first initial state
+            self.last_state = 3 # serial number of last initial state
             self.number_of_states = 1 # number of initial states
-            self.number_of_measurement = 15 # number of measurements
-            self.measurements = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+            self.number_of_measurement = 3 # number of measurements
+            self.measurements = [1,2,3] #,4,5,6,7,8,9,10,11,12,13,14,15]
             self.vectorLength = self.number_of_states*self.number_of_measurement  # total number of measurements
             self.idx_vec_ini = np.arange(0, self.vectorLength, 1) # for visualization purpose
 
@@ -5303,8 +5661,7 @@ class GUI_OPX():
         # f2_GHz*1e9 + (b*V/(V + c))*1e9
         b = 0.0344
         c = 0.124
-        self.f_vec = ((fMW_res1 + fMW_res2) / 2 + (
-                    self.rf_Pwr_vec * b / (self.rf_Pwr_vec + c)) * 1e9)  # [Hz], frequencies vector
+        self.f_vec = ((fMW_res1+fMW_res2)/2 + (self.rf_Pwr_vec*b/(self.rf_Pwr_vec + c))*1e9)    # [Hz], frequencies vector
         self.f_vec = self.f_vec.astype(int)
 
         # length and idx vector
@@ -5314,20 +5671,18 @@ class GUI_OPX():
         idx_vec_ini = np.arange(0, array_length, 1)  # indexes vector
 
         # tracking signal
-        tSequencePeriod = ((tMW + tRF + tPump) * Npump + tBfield + tWait + tMW + tLaser) * 3 * array_length
-        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
+        tSequencePeriod = ((tMW+tRF+tPump)*Npump+tBfield+tWait+tMW+tLaser)*3*array_length 
+        tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9) # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
-        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        tTrackingIntegrationCycles = tTrackingSignaIntegrationTime//self.time_in_multiples_cycle_time(self.Tcounter)
+        trackingNumRepeatition = tGetTrackingSignalEveryTime//(tSequencePeriod) if tGetTrackingSignalEveryTime//(tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
-            f = declare(
-                int)  # frequency variable which we change during scan - here f is according to calibration function
+            f = declare(int)         # frequency variable which we change during scan - here f is according to calibration function
             t = declare(int)  # [cycles] time variable which we change during scan
             p = declare(fixed)  # [unit less] proportional amp factor which we change during scan
 
@@ -5517,8 +5872,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length,idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
                         save(counts_ref2[idx], counts_ref2_st)
@@ -5575,8 +5929,7 @@ class GUI_OPX():
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
@@ -5682,8 +6035,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -5741,8 +6093,7 @@ class GUI_OPX():
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
@@ -5896,8 +6247,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -5955,8 +6305,7 @@ class GUI_OPX():
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
@@ -6119,8 +6468,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -6179,8 +6527,7 @@ class GUI_OPX():
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
@@ -6427,8 +6774,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -6498,8 +6844,7 @@ class GUI_OPX():
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
@@ -6637,8 +6982,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -6695,8 +7039,7 @@ class GUI_OPX():
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
@@ -6860,8 +7203,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -6907,8 +7249,7 @@ class GUI_OPX():
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
@@ -6977,9 +7318,7 @@ class GUI_OPX():
                             # align("RF", "Laser")
                             # play("Turn_ON", "Laser", duration=tPump // 4)
 
-                            self.QUA_Pump(t_pump=tPump, t_mw=tMW, t_rf=tRF, f_mw=fMW_res,
-                                          f_rf=self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf=p,
-                                          t_wait=self.tWait)
+                            self.QUA_Pump(t_pump = tPump,t_mw = tMW, t_rf = tRF, f_mw = fMW_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw = self.mw_P_amp, p_rf = p, t_wait=self.tWait)
                         align()
 
                         # update MW frequency
@@ -7030,8 +7369,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                    with for_(idx, 0, idx < array_length, idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
 
@@ -7137,8 +7475,7 @@ class GUI_OPX():
                         #play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
                         # play RF after MW
                         align("MW", "RF")
-                        play("const" * amp(p), "RF",
-                             duration=tRF // 4)  # t already devide by four when creating the time vector
+                        play("const" * amp(p), "RF", duration=tRF // 4)  # t already devide by four when creating the time vector
                         # play MW after RF
                         align("RF", "MW")
                         #play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
@@ -7231,13 +7568,15 @@ class GUI_OPX():
         # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
         # fMW_res = 0 if fMW_res < 0 else fMW_res
         # self.fMW_res = 400 * self.u.MHz if fMW_res > 400 * self.u.MHz else fMW_res
-        self.fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz
-        self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz # Hz
+        #self.fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz
+        #self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq) * self.u.GHz # Hz
+        self.fMW_res = (self.mw_freq_resonance - self.mw_freq_resonance) * self.u.GHz  # Hz
+        self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq_resonance) * self.u.GHz  # Hz
         self.verify_insideQUA_FreqValues(self.fMW_res)
         self.tRF = self.rf_pulse_time
         self.Npump = self.n_nuc_pump
-        # Pump parameters
-        # tPump = self.time_in_multiples_cycle_time(self.Tpump)
+        # Pump parameters        
+        # tPump = self.time_in_multiples_cycle_time(self.Tpump)                        
         # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
         # fMW_res = 0 if fMW_res < 0 else fMW_res
         # fMW_res = 400 * self.u.MHz if fMW_res > 400 * self.u.MHz else fMW_res
@@ -7250,7 +7589,7 @@ class GUI_OPX():
         tMeasure = self.time_in_multiples_cycle_time(self.TcounterPulsed)
         tMW = self.t_mw
         # tRF = self.rf_pulse_time
-        # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz
+        # fMW_res = (self.mw_freq_resonance - self.mw_freq) * self.u.GHz        
 
         # time scan vector
         tRabi_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
@@ -7335,7 +7674,8 @@ class GUI_OPX():
 
                         # polarize (@fMW_res @ fRF_res)
                         with for_(self.m, 0, self.m < self.Npump, self.m + 1):
-                            self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_2nd_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=0)#self.tWait)
+                            self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=self.tWait)
+                            # self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_2nd_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=0)#self.tWait)
                         align()
 
 
@@ -7345,22 +7685,23 @@ class GUI_OPX():
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
 
                         update_frequency("MW", 0)
+                        update_frequency("MW", self.fMW_2nd_res)
                         play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
         
                         # play RF after MW
                         align("MW", "RF")
-                        play("const" * amp(p), "RF",
-                             duration=t)  # t already devide by four when creating the time vector
+                        play("const" * amp(p), "RF", duration=t)  # t already devide by four when creating the time vector
                         # play MW after RF
                         align("RF", "MW")
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         #update_frequency("MW", self.fMW_2nd_res)
                         wait(self.t_wait)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         # play laser after MW
                         align("MW", "Laser")
+                        align()
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
@@ -7370,24 +7711,30 @@ class GUI_OPX():
 
                         # reference
                         with for_(self.m, 0, self.m < self.Npump, self.m + 1):
-                            self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_2nd_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=0)#self.tWait)
+                            self.QUA_Pump(t_pump=self.tPump, t_mw=self.tMW, t_rf=self.tRF, f_mw=self.fMW_res,
+                                          f_rf=self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp,
+                                          p_rf=self.rf_proportional_pwr, t_wait=self.tWait)
+                            # self.QUA_Pump(t_pump = self.tPump,t_mw = self.tMW, t_rf = self.tRF, f_mw = self.fMW_2nd_res,f_rf = self.rf_resonance_freq * self.u.MHz, p_mw=self.mw_P_amp, p_rf = self.rf_proportional_pwr, t_wait=0)#self.tWait)
                         align()
 
                         # play MW for time Tmw
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         #update_frequency("MW", self.fMW_2nd_res)
+                        update_frequency("MW", 0)
+                        update_frequency("MW", self.fMW_2nd_res)
                         play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         # Don't play RF after MW just wait
-                        wait(t)
-                        wait(self.t_wait)  # t already devide by four
+                        wait(t)# t already devide by four
+                        wait(self.t_wait)
                         # play MW
                         #play("xPulse" * amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         #update_frequency("MW", self.fMW_2nd_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         # play laser after MW
                         align("MW", "Laser")
+                        align()
                         play("Turn_ON", "Laser", duration=tLaser // 4)
                         # play measure after MW
                         align("MW", "Detector_OPD")
@@ -7513,8 +7860,7 @@ class GUI_OPX():
                         update_frequency("MW", f)
 
                         # play MW for time Tmw
-                        play("xPulse" * amp(self.mw_P_amp2), "MW",
-                             duration=tMW2 // 4)  # tMW2 defines the Rabi time and length of pi pulse
+                        play("xPulse"*amp(self.mw_P_amp2), "MW", duration=tMW2 // 4)
                         # play laser after MW
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
@@ -7578,8 +7924,7 @@ class GUI_OPX():
 
                 # stream
                 with if_(sequenceState == 0):
-                    with for_(idx, 0, idx < array_length,
-                              idx + 1):  # add one by one elements from counts (which is a vector) into counts_st
+                    with for_(idx, 0, idx < array_length, idx + 1):  # add one by one elements from counts (which is a vector) into counts_st
                         save(counts[idx], counts_st)  # here counts_st = counts[t]
                         save(counts_ref[idx], counts_ref_st)  # here counts_st = counts[t]
 
@@ -7603,8 +7948,8 @@ class GUI_OPX():
         # MW parameters
         self.fMW_1st_res = 0 #(self.mw_freq_resonance - self.mw_freq) * self.u.GHz # Hz
         self.verify_insideQUA_FreqValues(self.fMW_1st_res)
-        # self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq_resonance) * self.u.GHz # Hz
-        # self.verify_insideQUA_FreqValues(self.fMW_2nd_res)
+        self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq_resonance) * self.u.GHz # Hz
+        self.verify_insideQUA_FreqValues(self.fMW_2nd_res)
 
         # time scan vector
         tRabi_min = self.scan_t_start // 4 if self.scan_t_start // 4 > 0 else 1  # in [cycles]
@@ -7622,8 +7967,7 @@ class GUI_OPX():
         tGetTrackingSignalEveryTime = int(self.tGetTrackingSignalEveryTime * 1e9)  # [nsec]
         tTrackingSignaIntegrationTime = int(self.tTrackingSignaIntegrationTime * 1e6)
         tTrackingIntegrationCycles = tTrackingSignaIntegrationTime // self.time_in_multiples_cycle_time(self.Tcounter)
-        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (
-            tSequencePeriod) > 1 else 1
+        trackingNumRepeatition = tGetTrackingSignalEveryTime // (tSequencePeriod) if tGetTrackingSignalEveryTime // (tSequencePeriod) > 1 else 1
 
         with program() as self.quaPGM:
             # QUA program parameters
@@ -7682,9 +8026,9 @@ class GUI_OPX():
                         # play MW for time t
                         #update_frequency("MW", 0)
                         update_frequency("MW", self.fMW_1st_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
-                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
-                        #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
                         # update_frequency("MW", self.fMW_2nd_res)
                         # ## play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
                         # play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
@@ -8506,7 +8850,7 @@ class GUI_OPX():
     def GlobalFetchData(self):
         self.lock.acquire()
 
-        data = [self.ensure_list(x) for x in self.results.fetch_all()]
+        # data = [self.ensure_list(x) for x in self.results.fetch_all()]
 
         if self.exp in [Experiment.COUNTER, Experiment.EXTERNAL_FREQUENCY_SCAN]:
             self.counter_Signal, self.ref_signal = self.results.fetch_all()
@@ -8676,7 +9020,7 @@ class GUI_OPX():
             self.benchmark_number_order = self.number_order
             # self.benchmark_reverse_number_order = self.reverse_number_order
             # self.benchmark_reverse_number_order = self.benchmark_reverse_number_order.tolist()
-            self.Y_vec_squared = self.signal_squared/ ((self.TcounterPulsed * 1e-9)*(self.TcounterPulsed * 1e-9)) / 1e6
+            self.Y_vec_squared = self.signal_squared/ (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_squared = self.Y_vec_squared.tolist()
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
             self.Y_vec_ref3 = self.ref_signal3 / (self.TcounterPulsed * 1e-9) / 1e3

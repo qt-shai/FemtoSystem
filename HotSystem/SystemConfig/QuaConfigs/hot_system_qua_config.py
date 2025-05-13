@@ -16,7 +16,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                     1: {"offset": -0.0055, "delay": self.mw_delay, "shareable": False}, # MW I, for unknonw reason need to be in all system
                     2: {"offset": -0.0057, "delay": self.mw_delay, "shareable": False}, # MW Q
                     3: {"offset": -0.01, "delay": self.rf_delay, "shareable": False}, # RF
-                    4: {"offset": -0.01, "delay": self.rf_delay, "shareable": False}, #
+                    4: {"offset": -0.01, "delay": self.rf_delay, "shareable": False}, # RF
                 },
                 "digital_outputs": {
                     # 1: {"shareable": False}, # laser 520nm
