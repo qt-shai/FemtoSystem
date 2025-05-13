@@ -34,7 +34,7 @@ def copy_files(source_dir, destination_dirs):
                 dirs[:] = [d for d in dirs if d not in {'.idea', '.venv', '__pycache__', '.vscode','venv','dlls'}]
 
                 for file_name in files:
-                    if file_name.endswith(('.py', '.xml')):  # Check for .py and .xml files
+                    if file_name.endswith(('.py', '.xml','.txt','ignore')):  # Check for .py and .xml files
                         # Construct full paths for source and destination
                         source_path = os.path.join(root, file_name)
                         relative_path = os.path.relpath(root, source_dir)
@@ -49,7 +49,7 @@ def copy_files(source_dir, destination_dirs):
                         print(f"Copied: {source_path} -> {destination_path}")
 
         elapsed_time = time.time() - start_time
-        print(f"All .py and .xml files have been successfully copied in {elapsed_time:.2f} seconds.")
+        print(f"All .py, .xml, .txt, etc. files have been successfully copied in {elapsed_time:.2f} seconds.")
 
     except Exception as e:
         print(f"An error occurred: {e}")
