@@ -9981,6 +9981,7 @@ class GUI_OPX():
         self.all_hwp_angles = []
         self.all_att_percent = []
         self.all_y_scan = []
+        current_hwp = 10000  # initial non-physical value
 
         for i in range(self.N_scan[2]):  # Z
             if self.stopScan:
@@ -9996,18 +9997,18 @@ class GUI_OPX():
                 #self.dir = self.dir * -1  # change direction to create S shape scan
                 V = []
 
-                current_hwp = None
                 if self.Shoot_Femto_Pulses:
                     if p_femto["femto_increment_att"] == 0:
                         new_hwp_angle = current_hwp_angle + p_femto["femto_increment_hwp"] * j
-                        print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
-                        self.kdc_101.MoveABSOLUTE(new_hwp_angle)
-                        time.sleep(0.2)
-                        # Wait until HWP reaches the new angle
-                        current_hwp = self.kdc_101.get_current_position()
-                        while abs(current_hwp - new_hwp_angle) > 0.01:
+                        if abs(new_hwp_angle - current_hwp) > 0.01:
+                            print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
+                            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
                             time.sleep(0.2)
+                            # Wait until HWP reaches the new angle
                             current_hwp = self.kdc_101.get_current_position()
+                            while abs(current_hwp - new_hwp_angle) > 0.01:
+                                time.sleep(0.2)
+                                current_hwp = self.kdc_101.get_current_position()
                         self.all_y_scan.append(self.V_scan[1][j])
                         self.all_hwp_angles.append(current_hwp)
                     else:
