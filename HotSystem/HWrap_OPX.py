@@ -3481,7 +3481,7 @@ class GUI_OPX():
                 align()
                 # qubit = |0e>(|0n><0n|+|1n><1n|)
                 # set MW frequency to second resonance frequency
-        update_frequency("MW", self.fMW_2nd_res)
+                update_frequency("MW", self.fMW_2nd_res)
                 # play MW
                 self.MW_and_reverse_general(p_mw=self.mw_P_amp, t_mw=self.t_mw_qua)
                 # qubit = |1e>|0n><1e|<0n|+|0e>|1n><0e|<1n|
@@ -3840,15 +3840,15 @@ class GUI_OPX():
                             """signal 1 - manipulation part"""
                             align("MW", "RF")
                             if self.benchmark_switch_flag: # 2 qubit
-                            play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            # qubit = |+n>|1e>
+                                play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |+n>|1e>
                                 align("RF", "MW")
                                 wait(t_wait)
-                            self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx, keep_phase = False)
-                            align("MW","RF")
-                            # qubit = |+n>|1e>
-                            play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
-                            # qubit = |0n>|1e>
+                                self.benchmark_play_list_of_two_qubit_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx, keep_phase = False)
+                                align("MW","RF")
+                                # qubit = |+n>|1e>
+                                play("const" * amp(-self.rf_proportional_pwr), "RF", duration=self.tRF)
+                                # qubit = |0n>|1e>
                             else: # 1 qubit
                                 self.benchmark_play_list_of_gates(self.idx_vec_ini_shaffle_qua, self.idx_vec_ini_shaffle_qua_reversed,n, idx)
                                 # qubit = |0n>|1e>
@@ -4559,9 +4559,9 @@ class GUI_OPX():
            play("const" * amp(self.rf_proportional_pwr), "RF", duration=(self.tRF/2) // 4)
            frame_rotation_2pi(-0.25,"RF") # reset phase back to zero
            wait(self.tWait //4)
-            # --> |1+> Todo - check
+           # --> |1+> Todo - check
 
-            align("RF","MW")
+           align("RF","MW")
            play("-yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
            play("yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
 
@@ -4985,6 +4985,7 @@ class GUI_OPX():
             # Measure ref
             measure("readout", "Detector_OPD", None, time_tagging.digital(self.times_ref, tMeasure, self.counts_tmp))
             assign(self.counts[idx], self.counts[idx] + self.counts_tmp)
+
 
     def QUA_ref0(self,idx,tPump,tLaser,tMeasure,tWait1,tWait2):
         # pump
