@@ -1280,10 +1280,6 @@ class GUI_OPX():
 
         item_width = int(200 * self.window_scale_factor)
         if self.bScanChkbox:
-            # self.map = Map(ZCalibrationData=self.ZCalibrationData, use_picomotor=self.use_picomotor)
-            # self.use_picomotor = self.map.use_picomotor
-            # self.expNotes = self.map.exp_notes
-
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
@@ -1362,15 +1358,15 @@ class GUI_OPX():
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
-                        dpg.add_button(label="Get Log from MSC", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
+                        dpg.add_button(label="Get Log from MCS", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
                         with dpg.group(horizontal=True):
                             dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100)
                             dpg.add_button(label="Mv", callback=self.move_last_saved_files)
 
                     _width = 150
                     with dpg.group(horizontal=False):
-                        dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
-                        dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
+                        # dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
+                        # dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
                         dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=130)
                         with dpg.group(horizontal=True):
                             dpg.add_button(label="plot", callback=self.plot_graph)
@@ -1381,7 +1377,7 @@ class GUI_OPX():
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
                         dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0.1, width=_width)
 
-                    _width = 200
+                    _width = 100
 
                     with dpg.group(horizontal=False):
                         dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
@@ -1403,15 +1399,9 @@ class GUI_OPX():
                         dpg.add_input_float(label="Offset (nm)", default_value=1500.0, width=_width,
                                             tag="offset_from_focus_nm", format='%.1f')
 
-
-                    self.btnGetLoggedPoints()  # get logged points
-                    # self.map = Map(ZCalibrationData = self.ZCalibrationData, use_picomotor = self.use_picomotor)
-                    # self.map.create_map_gui(win_size, win_pos)
                     dpg.set_frame_callback(1, self.load_pos)
                     self.load_pos()
         else:
-            # self.map.delete_map_gui()
-            # del self.map
             dpg.delete_item("Scan_Window")
 
     def move_last_saved_files(self, sender=None, app_data=None, user_data=None):
@@ -1491,15 +1481,15 @@ class GUI_OPX():
 
         point_on_plane = self.get_device_position(self.positioner)
 
-        Z0 = calculate_z_series(self.map.ZCalibrationData, np.array(point_on_plane[0]), point_on_plane[1])
-        Z1 = calculate_z_series(self.map.ZCalibrationData, np.array(x*1e6), int(y*1e6))
-        z = (point_on_plane[2] - Z0 + Z1)/1e6
-
-        dpg.set_value("mcs_ch2_ABS", z)
-
-        points = np.array(point_on_plane)/1e6
-        print(points)
-        print(z)
+        # Z0 = calculate_z_series(self.map.ZCalibrationData, np.array(point_on_plane[0]), point_on_plane[1])
+        # Z1 = calculate_z_series(self.map.ZCalibrationData, np.array(x*1e6), int(y*1e6))
+        # z = (point_on_plane[2] - Z0 + Z1)/1e6
+        #
+        # dpg.set_value("mcs_ch2_ABS", z)
+        #
+        # points = np.array(point_on_plane)/1e6
+        # print(points)
+        # print(z)
 
     def save_pos(self):
         # Define the list of windows to check and save positions for
@@ -1606,7 +1596,7 @@ class GUI_OPX():
         self.use_picomotor = user_data
         time.sleep(0.001)
         dpg.set_value(item="checkbox_use_picomotor", value=self.use_picomotor)
-        self.map.toggle_use_picomotor(app_data=app_data, user_data=user_data)
+        # self.map.toggle_use_picomotor(app_data=app_data, user_data=user_data)
         print("Set use_picomotor to: " + str(self.use_picomotor))
 
     def toggle_limit(self, app_data, user_data):
@@ -1639,102 +1629,6 @@ class GUI_OPX():
             plt.savefig(file_path)
         else:
             print("Error: plt_x or plt_y is None. Unable to plot the graph.")
-
-    def update_from_map(self, index=0):
-        """Update scan parameters based on the selected area marker."""
-        point = (0, 0, 0)
-        if index < len(self.map.area_markers):
-            # Get the selected rectangle from area_markers by index, including Z scan state
-            selected_rectangle = self.map.area_markers[index]
-            min_x, min_y, max_x, max_y, z_scan_state = selected_rectangle
-
-            # Calculate the width and height of the rectangle
-            Lx_scan = int(max_x - min_x) * 1e3  # Convert to micrometers
-            Ly_scan = int(max_y - min_y) * 1e3  # Convert to micrometers
-            X_pos = (max_x + min_x) / 2
-            Y_pos = (max_y + min_y) / 2
-
-            # Calculate the Z evaluation
-            z_evaluation = float(
-                calculate_z_series(self.map.ZCalibrationData, np.array([int(X_pos * 1e6)]), int(Y_pos * 1e6))) / 1e6
-
-            # Call Update_Lx_Scan and Update_Ly_Scan with the calculated values
-            self.Update_Lx_Scan(app_data=None, user_data=Lx_scan)
-            self.Update_Ly_Scan(app_data=None, user_data=Ly_scan)
-
-            # Update MCS fields with the new absolute positions
-            point = (X_pos * 1e6, Y_pos * 1e6, z_evaluation * 1e6)
-            # for ch, value in enumerate(point):
-            #     dpg.set_value(f"mcs_ch{ch}_ABS", value / 1e6)
-
-            # Toggle Z scan state based on z_scan_state
-            self.Update_bZ_Scan(app_data=None, user_data=(z_scan_state == "Z scan enabled"))
-
-            # Recalculate the estimated scan time based on the new scan parameters
-            self.Calc_estimatedScanTime()
-
-            # Update the GUI with the estimated scan time and relevant messages
-            dpg.set_value(item="text_expectedScanTime",
-                          value=f"~scan time: {self.format_time(self.estimatedScanTime * 60)}")
-            dpg.set_value("Scan_Message", "Please press GO ABS in Smaract GUI")
-        else:
-            print("Invalid area marker index or no area markers available.")  # NE
-
-        return point
-
-    def scan_all_markers(self):
-        """Automatically scan all area markers sequentially without user interaction, handling errors and skipping problematic markers."""
-        if len(self.map.area_markers) == 0:
-            print("No area markers available for scanning.")
-            return
-
-        print(f"Starting scan for {len(self.map.area_markers)} area markers.")
-
-        # Iterate over all area markers
-        for index in range(len(self.map.area_markers)):
-            try:
-                print(f"Activating area marker {index + 1}/{len(self.map.area_markers)}.")
-
-                # Activate the area marker before scanning
-                self.map.act_area_marker(index)
-
-                print(f"Updating scan parameters for area marker {index + 1}.")
-                # Update the scan parameters for the selected area marker
-                point = self.update_from_map(index)
-
-                # Move to the calculated scan start position for each axis
-                for ch in range(3):
-                    if self.map.use_picomotor:
-                        self.pico.MoveABSOLUTE(ch + 1, int(
-                            point[ch] * self.pico.StepsIn1mm / 1e6))  # Move absolute to start location
-                        print(f"Moved to start position for channel {ch} at {point[ch]} µm, by picomotor.")
-                    else:
-                        self.positioner.MoveABSOLUTE(ch, int(point[ch]))  # Move absolute to start location
-                        print(f"Moved to start position for channel {ch} at {point[ch]} µm. by smaract")
-
-                # Ensure the stage has reached its position
-                time.sleep(0.005)  # Allow motion to start
-                for ch in range(3):
-                    res = self.readInpos(ch)  # Wait for motion to complete
-                    if res:
-                        print(f"Axis {ch} in position at {self.positioner.AxesPositions[ch]}.")
-                    else:
-                        print(f"Failed to move axis {ch} to position.")
-
-                # autofocus
-                if self.map.use_picomotor:
-                    self.auto_focus()
-
-                # Start the scan automatically
-                print(f"Starting scan for area marker {index + 1}.")
-                self.StartScan3D()
-
-            except Exception as e:
-                print(f"An error occurred while scanning area marker {index + 1}: {e}")
-                # Skip to the next area marker if an error occurs
-                continue
-
-        print("Completed scanning all area markers.")
 
     # not done need to be tested and verify bugs free
     def Save_2D_matrix2IMG(self, array_2d, fileName="fileName", img_format='png'):
@@ -10789,78 +10683,6 @@ class GUI_OPX():
         print(f'LastIdx: {LastIdx}')
 
         return x_fixed, y_fixed, z_fixed, allPoints_fixed, pattern_length
-
-    def btnGetLoggedPoints(self):
-        if self.HW.atto_scanner:
-            return
-        current_label = dpg.get_item_label("btnOPX_GetLoggedPoint")
-        prefix = "mcs"
-        num_of_logged_points = 0
-
-        try:
-            if current_label == "Get Log from MCS":
-                dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from MCS")
-                num_of_logged_points = len(self.positioner.LoggedPoints)
-            elif current_label == "Logged from MCS":
-                # pdb.set_trace()  # Insert a manual breakpoint
-                if self.use_picomotor:
-                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from Pico")
-                else:
-                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from MCS")
-                return
-            elif current_label == "Get Log from Pico":
-                if hasattr(self, 'pico') and self.pico is not None:
-                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from Pico")
-                    prefix = "pico"
-                    num_of_logged_points = len(self.pico.LoggedPoints)
-                else:
-                    # If Pico does not exist, maintain prefix as mcs
-                    dpg.set_item_label("btnOPX_GetLoggedPoint", "Logged from MCS")
-                    error_message = "Pico does not exist; defaulting to MCS."
-                    print(error_message)
-                    num_of_logged_points = len(self.positioner.LoggedPoints)
-            elif current_label == "Logged from Pico":
-                dpg.set_item_label("btnOPX_GetLoggedPoint", "Get Log from MCS")
-                return
-
-            if num_of_logged_points < 3:
-                try:
-                    with open("map_config.txt", "r") as file:
-                        lines = file.readlines()
-                        self.positioner.LoggedPoints = []
-                        for line in lines:
-                            if line.startswith(prefix + "LoggedPoint"):
-                                coords = line.split(": ")[1].split(", ")
-                                if len(coords) == 3:
-                                    logged_point = (float(coords[0]), float(coords[1]), float(coords[2]))
-                                    if prefix == "mcs":
-                                        self.positioner.LoggedPoints.append(logged_point)
-                                    else:
-                                        self.pico.LoggedPoints.append(logged_point)
-                except FileNotFoundError:
-                    # print("map_config.txt not found.")
-                    dpg.set_value("Scan_Message", "Error: map_config.txt not found.")
-                    return
-                except Exception as e:
-                    print(f"Error loading logged points: {e}")
-                    error_message = "Error: Less than three points are logged. Please log more points."
-                    print(error_message)
-                    dpg.set_value("Scan_Message", error_message)
-
-            print("Logged points loaded from " + prefix)
-            if prefix == "mcs":
-                self.map.ZCalibrationData = np.array(self.positioner.LoggedPoints[:3])
-            else:
-                self.map.ZCalibrationData = np.array(self.pico.LoggedPoints[:3])
-
-            self.to_xml()
-            dpg.set_value("Scan_Message", "Logged points loaded from " + prefix)
-            print(self.map.ZCalibrationData)
-
-        except Exception as e:
-            print(f"Unexpected error while getting log points: {e}")
-            traceback.print_exc()  # This will print the full traceback
-            dpg.set_value("Scan_Message", "An unexpected error occurred.")
 
     def btnLoadScan(self):
         # Open the dialog with a filter for .csv files and all file types
