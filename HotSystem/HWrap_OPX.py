@@ -1358,7 +1358,6 @@ class GUI_OPX():
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
-                        dpg.add_button(label="Get Log from MCS", tag="btnOPX_GetLoggedPoint", callback=self.btnGetLoggedPoints, indent=-1, width=130)
                         with dpg.group(horizontal=True):
                             dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100)
                             dpg.add_button(label="Mv", callback=self.move_last_saved_files)
