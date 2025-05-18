@@ -449,7 +449,8 @@ class ZeluxGUI():
 
             filename = os.path.join(folder_path, f"Zelux_{coord_text}.png")
             cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
-            print(f"Saved {filename}")
+            # print(f"Saved {filename}")
+            print(f"Saved {len(os.listdir(folder_path))}/{len(target_positions)}: {os.path.basename(filename)}")
 
         # === Return to starting position ===
         print("Returning to starting position...")

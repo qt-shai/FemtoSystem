@@ -176,8 +176,7 @@ class MotorStage(Motor):
     #             f"Angle needs to be smaller than 360°")
 
     def get_current_position(self, channel: int=0) -> float:
-        print(
-            f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Position is: {self.device.Position}°")
+        # print(f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Position is: {self.device.Position}°")
         return float(str(self.device.Position))
 
     def get_params(self) -> tuple:

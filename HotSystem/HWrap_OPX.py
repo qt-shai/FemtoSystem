@@ -1374,8 +1374,9 @@ class GUI_OPX():
                                              default_value=self.use_picomotor)
                         dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=40,width=_width)
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
-                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0.1, width=_width)
-
+                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0, width=_width)
+                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=5, width=_width)
+                        dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=10000, width=_width)
                     _width = 100
 
                     with dpg.group(horizontal=False):
@@ -9816,7 +9817,7 @@ class GUI_OPX():
 
         if self.Shoot_Femto_Pulses:
             p_femto = {}
-            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp"]
+            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp","femto_increment_hwp_anneal","femto_anneal_pulse_count"]
             for tag in item_tags:
                 p_femto[tag] = dpg.get_value(tag)
                 print(f"{tag}: {p_femto[tag]}")
@@ -9945,8 +9946,43 @@ class GUI_OPX():
                         current_state = self.pharos.getAdvancedIsPpEnabled()
                         while current_state:
                             time.sleep(0.2)
-                            # print("Pp enable?")
                             current_state = self.pharos.getAdvancedIsPpEnabled()
+                        # Anneal !!!!!!!!!!!!!!!!!!!!!!!!!!!
+                        if p_femto["femto_increment_hwp_anneal"]>0:
+                            n_pulses_anneal = p_femto["femto_anneal_pulse_count"]
+                            n_pulse_defect = self.pharos.getAdvancedTargetPulseCount()
+                            self.pharos.setAdvancedTargetPulseCount(n_pulses_anneal)
+
+                            hwp_anneal_angle = round(current_hwp-p_femto["femto_increment_hwp_anneal"],2)
+                            print(f"!!!!! set HWP to {hwp_anneal_angle:.2f} deg !!!!!")
+                            self.kdc_101.MoveABSOLUTE(hwp_anneal_angle)
+                            time.sleep(0.2)
+                            # Wait until HWP reaches the new angle
+                            current_hwp = self.kdc_101.get_current_position()
+                            while abs(current_hwp - hwp_anneal_angle) > 0.01:
+                                time.sleep(0.2)
+                                current_hwp = self.kdc_101.get_current_position()
+
+                            print(f"Anneal Pulses!")
+                            self.pharos.enablePp()
+                            time.sleep(0.2)
+                            current_state = self.pharos.getAdvancedIsPpEnabled()
+                            while current_state:
+                                time.sleep(0.2)
+                                current_state = self.pharos.getAdvancedIsPpEnabled()
+
+                            # rewind back to defect parameters
+                            self.pharos.setAdvancedTargetPulseCount(n_pulse_defect)
+
+                            new_hwp_angle = current_hwp + p_femto["femto_increment_hwp_anneal"]
+                            print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
+                            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
+                            time.sleep(0.2)
+                            # Wait until HWP reaches the new angle
+                            current_hwp = self.kdc_101.get_current_position()
+                            while abs(current_hwp - new_hwp_angle) > 0.01:
+                                time.sleep(0.2)
+                                current_hwp = self.kdc_101.get_current_position()
 
                     # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
                     self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
