@@ -14,6 +14,12 @@ import win32clipboard
 from PIL import ImageGrab
 import io
 
+import win32con
+from datetime import datetime
+import ctypes
+import win32process
+
+
 # add bubble sort
 class Common_Counter_Singletone:
     # create singleton
@@ -312,6 +318,68 @@ def copy_quti_window_to_clipboard():
     win32clipboard.CloseClipboard()
 
     print("Copied 'QuTi SW' window to clipboard.")
+
+def copy_quti_graph_window_to_clipboard():
+    window_title = "QuTi SW"
+    hwnd = 0
+
+    def enum_handler(h, _):
+        nonlocal hwnd
+        if window_title.lower() in win32gui.GetWindowText(h).lower():
+            hwnd = h
+    win32gui.EnumWindows(enum_handler, None)
+
+    if hwnd == 0:
+        print("❌ Window 'QuTi SW' not found.")
+        return
+
+    # --- Safely bring window to front (from background thread) ---
+    try:
+        fg_thread = win32process.GetWindowThreadProcessId(win32gui.GetForegroundWindow())[0]
+        this_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+        ctypes.windll.user32.AttachThreadInput(this_thread, fg_thread, True)
+
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        win32gui.BringWindowToTop(hwnd)
+        win32gui.SetForegroundWindow(hwnd)
+
+        ctypes.windll.user32.AttachThreadInput(this_thread, fg_thread, False)
+    except Exception as e:
+        print(f"Foreground focus failed: {e}")
+
+    # Capture full window
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+    screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
+
+    # Define graph_window absolute crop rectangle
+    # These values are screen coordinates, not relative to the window
+    graph_x, graph_y = 1871, 977
+    graph_w, graph_h = 669, 382
+    graph_box = (graph_x, graph_y, graph_x + graph_w, graph_y + graph_h)
+
+    # Crop graph_window area
+    graph_crop = ImageGrab.grab(bbox=graph_box)
+
+    # Generate timestamped file path
+    timeStamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_folder = "Q:/QT-Quantum_Optic_Lab/expData/Images/"
+    os.makedirs(save_folder, exist_ok=True)
+    save_path = os.path.join(save_folder, f"graph_window_{timeStamp}.png")
+    graph_crop.save(save_path)
+    # print(f"💾 Cropped graph_window saved to: {save_path}")
+
+    # Copy cropped image to clipboard
+    output = io.BytesIO()
+    graph_crop.convert("RGB").save(output, "BMP")
+    data = output.getvalue()[14:]  # skip BMP header
+    output.close()
+
+    win32clipboard.OpenClipboard()
+    win32clipboard.EmptyClipboard()
+    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    win32clipboard.CloseClipboard()
+
+    print("Cropped 'graph_window' copied to clipboard.")
 
 def wait_for_item_and_set(tag: str, value: str, max_retries=50, delay=0.1):
     import threading, time

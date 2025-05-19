@@ -64,6 +64,7 @@ import copy
 import JobTesting_OPX
 
 from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
+from Common import copy_quti_graph_window_to_clipboard
 
 matplotlib.use('qtagg')
 
@@ -10002,6 +10003,18 @@ class GUI_OPX():
         self.initial_scan_Location = list(self.positioner.AxesPositions)
 
         if self.Shoot_Femto_Pulses:
+            # --- Delete all files in the folder ---
+            image_folder = "Q:/QT-Quantum_Optic_Lab/expData/Images/"
+            if os.path.exists(image_folder):
+                for filename in os.listdir(image_folder):
+                    file_path = os.path.join(image_folder, filename)
+                    try:
+                        if os.path.isfile(file_path):
+                            os.remove(file_path)
+                            print(f"Deleted: {file_path}")
+                    except Exception as e:
+                        print(f"Failed to delete {file_path}: {e}")
+
             p_femto = {}
             item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp","femto_increment_hwp_anneal","femto_anneal_pulse_count"]
             for tag in item_tags:
@@ -10012,6 +10025,7 @@ class GUI_OPX():
             # Store original attenuator value
             original_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
             print(f"!!!!!!!!!! Original attenuator value is {original_attenuator_value:.2f}")
+            self.pharos.setAdvancedTargetPulseCount(1) # Setting defect pulse number to 1 !!!
 
         # Loop over three axes and populate scan coordinates
         scan_coordinates = []
@@ -10141,6 +10155,10 @@ class GUI_OPX():
                             self.pharos.setAdvancedTargetPulseCount(n_pulses_anneal)
 
                             hwp_anneal_angle = round(current_hwp-p_femto["femto_increment_hwp_anneal"],2)
+                            if hwp_anneal_angle < 0:
+                                dpg.set_value("Scan_Message",
+                                              f"Anneal HWP angle < 0: {hwp_anneal_angle:.2f}° — Aborting anneal")
+                                return
                             print(f"!!!!! set HWP to {hwp_anneal_angle:.2f} deg !!!!!")
                             self.kdc_101.MoveABSOLUTE(hwp_anneal_angle)
                             time.sleep(0.2)
@@ -10178,7 +10196,7 @@ class GUI_OPX():
                                     time.sleep(0.1)
 
                                     anneal_meas_idx = self.meas_idx_handle.fetch_all()
-                                    anneal_counts = self.counts_handle.fetch_all()
+                                    anneal_counts = self.counts_handle.fetch_all() / self.total_integration_time
                                     print(
                                         f"Anneal meas_idx = {anneal_meas_idx} | anneal_counts.size = {anneal_counts.size}")
 
@@ -10189,6 +10207,8 @@ class GUI_OPX():
                                     dpg.fit_axis_data('x_axis')
                                     dpg.fit_axis_data('y_axis')
                                     self.lock.release()
+
+                            copy_quti_graph_window_to_clipboard()
 
 
                             # rewind back to defect parameters
