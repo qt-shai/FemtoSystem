@@ -185,7 +185,8 @@ class PharosLaserAPI:
         return self._get("/Advanced/TargetPulseCount")
 
     def setAdvancedTargetPulseCount(self, value):
-        return self._put("/Advanced/TargetPulseCount", data={"TargetPulseCount": value})
+        return self._put("/Advanced/TargetPulseCount", data=value)
+        # return self._put("/Advanced/TargetPulseCount", data={"TargetPulseCount": value})
 
     # --------------------------------------------------------------------------
     # 3. Stretcher-Compressor Control

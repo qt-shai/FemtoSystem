@@ -64,6 +64,7 @@ import copy
 import JobTesting_OPX
 
 from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
+from Common import copy_quti_graph_window_to_clipboard
 
 matplotlib.use('qtagg')
 
@@ -1374,8 +1375,9 @@ class GUI_OPX():
                                              default_value=self.use_picomotor)
                         dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=40,width=_width)
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
-                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0.1, width=_width)
-
+                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0, width=_width)
+                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=5, width=_width)
+                        dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=10000, width=_width)
                     _width = 100
 
                     with dpg.group(horizontal=False):
@@ -1826,7 +1828,7 @@ class GUI_OPX():
         except Exception as e:
             print(f"An error occurred while plotting the scan: {e}")
 
-    def Plot_Scan(self, Nx=250, Ny=250, array_2d=None, startLoc=None, endLoc=None, switchAxes=False):
+    def Plot_Scan(self, Nx=250, Ny=250, array_2d=None, startLoc=None, endLoc=None, switchAxes=False, current_z=None):
         """
         Plots a 2D scan using the provided array. If a division by zero occurs,
         the array will be set to zeros.
@@ -1910,7 +1912,9 @@ class GUI_OPX():
             dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
             dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
                          equal_aspects=True, crosshairs=True)
-            dpg.add_plot_axis(dpg.mvXAxis, label="x axis [um]", parent="plotImaga")
+            z_label = f"x axis [um]{f' @ Z={current_z:.1f} µm' if current_z is not None else ''}"
+            dpg.add_plot_axis(dpg.mvXAxis, label=z_label, parent="plotImaga")
+
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
             dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data", parent="plotImaga_Y")
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
@@ -8042,7 +8046,7 @@ class GUI_OPX():
             dpg.set_item_label("x_axis", _xLabel)
             dpg.fit_axis_data('x_axis')
             dpg.fit_axis_data('y_axis')
-            self.lock.release()
+            self.lock.release()#self.lock.acquire()
 
 
         except Exception as e:
@@ -9421,11 +9425,10 @@ class GUI_OPX():
     def btnFemtoPulses(self):
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Shooting femto pulses !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         self.Shoot_Femto_Pulses = True
-        self.ScanTh = threading.Thread(target=self.StartScan)
+        self.ScanTh = threading.Thread(target=self.scan3d_femto_pulses)
         self.ScanTh.start()
 
     def btnStartScan(self):
-        self.Shoot_Femto_Pulses = False
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
 
@@ -9814,9 +9817,208 @@ class GUI_OPX():
         self.scan_get_current_pos(_isDebug=isDebug)
         self.initial_scan_Location = list(self.positioner.AxesPositions)
 
+        # Loop over three axes and populate scan coordinates
+        scan_coordinates = []
+        self.N_scan = []
+        for i in range(3):
+            if self.b_Scan[i]:
+                axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
+                                                      delta=self.dL_scan[i]) * 1e3 + np.array(
+                    self.initial_scan_Location[i])).astype(np.int64)
+            else:
+                axis_values = np.array([self.initial_scan_Location[i]]).astype(np.int64)  # Ensure it's an array
+
+            self.N_scan.append(len(axis_values))
+            scan_coordinates.append(axis_values)
+        self.V_scan = scan_coordinates
+
+        # goto scan start location
+        for ch in range(3):
+            self.positioner.MoveABSOLUTE(ch, scan_coordinates[ch][0])
+            time.sleep(self.t_wait_motionStart)  # allow motion to start
+        self.scan_get_current_pos(True)
+
+        Nx = self.N_scan[0]
+        Ny = self.N_scan[1]
+        Nz = self.N_scan[2]
+
+        self.scan_intensities = np.zeros((Nx, Ny, Nz))
+        self.scan_data = self.scan_intensities
+        #self.idx_scan = [0, 0, 0]
+
+        self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
+        self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
+
+        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc,
+                       endLoc=self.endLoc,current_z=self.V_scan[2][-1] * 1e-6)
+
+        # Start Qua PGM
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                         num_measurement_per_array=Nx)
+        res_handles = self.job.result_handles
+        self.counts_handle = res_handles.get("counts_scanLine")
+        self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
+
+        # init measurements index
+        previousMeas_idx = 0  # used as workaround to reapet line if an error occur in number of measurements
+        meas_idx = 0
+        self.all_hwp_angles = []
+        self.all_att_percent = []
+        self.all_y_scan = []
+        current_hwp = 10000  # initial non-physical value
+
+        for i in range(self.N_scan[2]):  # Z
+            if self.stopScan:
+                break
+            if 2 in self.positioner.channels:
+                self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][i]))
+
+            j = 0
+            while j < self.N_scan[1]:  # Y
+                if self.stopScan:
+                    break
+                self.positioner.MoveABSOLUTE(1, int(self.V_scan[1][j]))
+                #self.dir = self.dir * -1  # change direction to create S shape scan
+                V = []
+
+                Line_time_start = time.time()
+                for k in range(self.N_scan[0]):
+                    if self.stopScan:
+                        break
+
+                    if k == 0:
+                        V = list(self.V_scan[0])
+
+                    # Z correction
+                    if self.b_Zcorrection and len(self.positioner.LoggedPoints) == 3:
+                        currentP = np.array([int(V[k]), int(self.V_scan[1][j]), int(self.V_scan[2][i])])
+                        refP = copy.deepcopy(self.initial_scan_Location)
+                        refP[2] = int(self.V_scan[2][i])
+                        p_new = int(self.Z_correction(refP, currentP))
+                        self.positioner.MoveABSOLUTE(2, p_new)
+
+                    # move to next X - when trigger the OPX will measure and append the results
+                    self.positioner.MoveABSOLUTE(0, int(V[k]))
+                    self.scan_get_current_pos()
+
+                    # self.positioner.generatePulse(channel=0) # should trigger measurement by smaract trigger
+                    self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
+                    time.sleep(1e-3)  # wait for measurement do occur
+                    # time.sleep(2*self.total_integration_time * 1e-3 + 5e-3)  # wait for measurement do occur
+                    if not self.stopScan:
+                        res = self.qm.get_io2_value()
+                    while (not self.stopScan) and (res.get('int_value') == self.ScanTrigger):
+                        res = self.qm.get_io2_value()
+
+                self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
+                self.scan_get_current_pos()
+
+                # fetch X scanned results
+                if self.counts_handle.is_processing():
+                    self.counts_handle.wait_for_values(1)
+                    self.meas_idx_handle.wait_for_values(1)
+                    time.sleep(0.1)
+                    meas_idx = self.meas_idx_handle.fetch_all()
+                    counts = self.counts_handle.fetch_all()
+                    print(f"meas_idx = {meas_idx} | counts.size = {counts.size}")
+
+                    # self.qmm.clear_all_job_results()
+                    self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
+                    self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)
+
+                if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
+                    j = j + 1
+                    # self.prepare_scan_data(max_position_x_scan = self.V_scan[0][-1], min_position_x_scan = self.V_scan[0][0],start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
+                    # self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
+                else:
+                    print(
+                        "****** error: ******\nNumber of measurements is not consistent with excpected.\nthis line will be repeated.")
+                    pass
+
+                previousMeas_idx = meas_idx
+
+                # eswtimate time left
+                Line_time_End = time.time()
+                elapsed_time = time.time() - start_time
+                delta = (Line_time_End - Line_time_start)  # line time
+                estimated_time_left = delta * ((self.N_scan[2] - i - 1) * self.N_scan[1] + (self.N_scan[1] - j - 1))
+                estimated_time_left = estimated_time_left if estimated_time_left > 0 else 0
+                dpg.set_value("Scan_Message", f"time left: {self.format_time(estimated_time_left)}")
+
+            # Save after each Z slice
+            current_z_um = int(self.V_scan[2][i])  # already in microns (because *1e3 earlier)
+            slice_filename = self.create_scan_file_name(local=True) + f"_z{current_z_um}"
+            self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1],
+                                   min_position_x_scan=self.V_scan[0][0],
+                                   start_pos=[int(self.V_scan[0][0]),
+                                              int(self.V_scan[1][0]),
+                                              int(self.V_scan[2][i])])  # current Z
+            self.save_scan_data(Nx, Ny, Nz, slice_filename)
+
+        # back to start position
+        for i in self.positioner.channels:
+            self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
+        self.scan_get_current_pos(True)
+
+        # save data to csv
+        self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1], min_position_x_scan=self.V_scan[0][0],
+                               start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
+        #self.prepare_scan_data()
+        fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
+        self.writeParametersToXML(fn + ".xml")
+
+        # total experiment time
+        end_time = time.time()
+        print(f"end_time: {end_time}")
+        elapsed_time = end_time - start_time
+        print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
+        print(f"Elapsed time: {elapsed_time} seconds")
+
+        if not (self.stopScan):
+            self.btnStop()
+
+    def scan3d_femto_pulses(self):  # currently flurascence scan
+        if len(self.positioner.LoggedPoints) == 3:
+            with open('logged_points.txt', 'w') as f:
+                for point in self.positioner.LoggedPoints:
+                    f.write(f"{point[0]},{point[1]},{point[2]}\n")
+
+        self.Shoot_Femto_Pulses = True
+
+        print("start scan steps")
+        start_time = time.time()
+        print(f"start_time: {self.format_time(start_time)}")
+
+        # init
+        self.exp = Experiment.SCAN
+        self.GUI_ParametersControl(isStart=False)
+        self.to_xml()  # save last params to xml
+        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")  # moved near end of scan
+        # GUI - convert Start Scan to Stop scan
+        dpg.disable_item("btnOPX_StartScan")
+
+        isDebug = True
+
+        self.scan_reset_data()
+        self.scan_reset_positioner()
+        self.scan_get_current_pos(_isDebug=isDebug)
+        self.initial_scan_Location = list(self.positioner.AxesPositions)
+
         if self.Shoot_Femto_Pulses:
+            # --- Delete all files in the folder ---
+            image_folder = "Q:/QT-Quantum_Optic_Lab/expData/Images/"
+            if os.path.exists(image_folder):
+                for filename in os.listdir(image_folder):
+                    file_path = os.path.join(image_folder, filename)
+                    try:
+                        if os.path.isfile(file_path):
+                            os.remove(file_path)
+                            print(f"Deleted: {file_path}")
+                    except Exception as e:
+                        print(f"Failed to delete {file_path}: {e}")
+
             p_femto = {}
-            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp"]
+            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp","femto_increment_hwp_anneal","femto_anneal_pulse_count"]
             for tag in item_tags:
                 p_femto[tag] = dpg.get_value(tag)
                 print(f"{tag}: {p_femto[tag]}")
@@ -9825,6 +10027,7 @@ class GUI_OPX():
             # Store original attenuator value
             original_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
             print(f"!!!!!!!!!! Original attenuator value is {original_attenuator_value:.2f}")
+            self.pharos.setAdvancedTargetPulseCount(1) # Setting defect pulse number to 1 !!!
 
         # Loop over three axes and populate scan coordinates
         scan_coordinates = []
@@ -9863,7 +10066,8 @@ class GUI_OPX():
 
         # Start Qua PGM
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-                         num_measurement_per_array=Nx)
+                         num_measurement_per_array=1) # here i changed Nx to 1
+
         res_handles = self.job.result_handles
         self.counts_handle = res_handles.get("counts_scanLine")
         self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
@@ -9874,6 +10078,8 @@ class GUI_OPX():
         self.all_hwp_angles = []
         self.all_att_percent = []
         self.all_y_scan = []
+        self.anneal_results = []  # Each entry: [timestamp_in_seconds, count_value]
+
         current_hwp = 10000  # initial non-physical value
 
         for i in range(self.N_scan[2]):  # Z
@@ -9945,11 +10151,92 @@ class GUI_OPX():
                         current_state = self.pharos.getAdvancedIsPpEnabled()
                         while current_state:
                             time.sleep(0.2)
-                            # print("Pp enable?")
                             current_state = self.pharos.getAdvancedIsPpEnabled()
+                        # Anneal !!!!!!!!!!!!!!!!!!!!!!!!!!!
+                        if p_femto["femto_increment_hwp_anneal"]>0:
+                            n_pulses_anneal = p_femto["femto_anneal_pulse_count"]
+                            n_pulse_defect = self.pharos.getAdvancedTargetPulseCount()
+                            self.pharos.setAdvancedTargetPulseCount(n_pulses_anneal)
 
-                    # self.positioner.generatePulse(channel=0) # should triggere measurement by smaract trigger
-                    self.qm.set_io2_value(self.ScanTrigger)  # should triggere measurement by QUA io
+                            hwp_anneal_angle = round(current_hwp-p_femto["femto_increment_hwp_anneal"],2)
+                            if hwp_anneal_angle < 0:
+                                dpg.set_value("Scan_Message",
+                                              f"Anneal HWP angle < 0: {hwp_anneal_angle:.2f}° — Aborting anneal")
+                                return
+                            print(f"!!!!! set HWP to {hwp_anneal_angle:.2f} deg !!!!!")
+                            self.kdc_101.MoveABSOLUTE(hwp_anneal_angle)
+                            time.sleep(0.2)
+                            # Wait until HWP reaches the new angle
+                            current_hwp = self.kdc_101.get_current_position()
+                            while abs(current_hwp - hwp_anneal_angle) > 0.01:
+                                time.sleep(0.2)
+                                current_hwp = self.kdc_101.get_current_position()
+
+                            print(f"Anneal Pulses!")
+
+                            # Init data storage
+                            self.anneal_counts_all = []
+                            self.anneal_times_all = []
+
+                            anneal_time_start = time.time()
+                            self.pharos.enablePp()
+                            time.sleep(0.2)
+
+                            # Loop while annealing is ongoing
+                            while self.pharos.getAdvancedIsPpEnabled():
+                                # Trigger QUA acquisition
+                                self.qm.set_io2_value(self.ScanTrigger)
+                                time.sleep(1e-3)
+
+                                if not self.stopScan:
+                                    res = self.qm.get_io2_value()
+                                while (not self.stopScan) and (res.get('int_value') == self.ScanTrigger):
+                                    res = self.qm.get_io2_value()
+
+                                # Fetch results
+                                if self.counts_handle.is_processing():
+                                    self.counts_handle.wait_for_values(1)
+                                    self.meas_idx_handle.wait_for_values(1)
+                                    time.sleep(0.1)
+
+                                    anneal_meas_idx = self.meas_idx_handle.fetch_all()
+                                    anneal_counts = self.counts_handle.fetch_all() / self.total_integration_time
+                                    print(
+                                        f"Anneal meas_idx = {anneal_meas_idx} | anneal_counts.size = {anneal_counts.size}")
+
+                                    self.anneal_counts_all.append(anneal_counts)
+                                    self.anneal_times_all.append(time.time() - anneal_time_start)
+                                    self.lock.acquire()
+                                    dpg.set_value("series_counts", [self.anneal_times_all, self.anneal_counts_all])
+                                    dpg.fit_axis_data('x_axis')
+                                    dpg.fit_axis_data('y_axis')
+                                    self.lock.release()
+
+                                    self.anneal_results.append([
+                                        time.time() - anneal_time_start,
+                                        float(anneal_counts[-1]),
+                                        self.V_scan[0][k],
+                                        self.V_scan[1][j],
+                                        round(current_hwp, 2)
+                                    ])
+
+                            # copy_quti_graph_window_to_clipboard()
+
+                            # rewind back to defect parameters
+                            self.pharos.setAdvancedTargetPulseCount(n_pulse_defect)
+
+                            new_hwp_angle = current_hwp + p_femto["femto_increment_hwp_anneal"]
+                            print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
+                            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
+                            time.sleep(0.2)
+                            # Wait until HWP reaches the new angle
+                            current_hwp = self.kdc_101.get_current_position()
+                            while abs(current_hwp - new_hwp_angle) > 0.01:
+                                time.sleep(0.2)
+                                current_hwp = self.kdc_101.get_current_position()
+
+                    # self.positioner.generatePulse(channel=0) # should trigger measurement by smaract trigger
+                    self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
                     time.sleep(1e-3)  # wait for measurement do occur
                     # time.sleep(2*self.total_integration_time * 1e-3 + 5e-3)  # wait for measurement do occur
                     if not self.stopScan:
@@ -9957,34 +10244,20 @@ class GUI_OPX():
                     while (not self.stopScan) and (res.get('int_value') == self.ScanTrigger):
                         res = self.qm.get_io2_value()
 
+                    # Fetch one count
+                    if self.counts_handle.is_processing():
+                        self.counts_handle.wait_for_values(1)
+                        time.sleep(0.1)
+                        count_k = self.counts_handle.fetch_all()
+                        if len(count_k) > 0:
+                            self.scan_intensities[k, j, i] = count_k[-1] / self.total_integration_time
+                            self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)
+
                 self.positioner.MoveABSOLUTE(0, int(self.V_scan[0][0]))
                 self.scan_get_current_pos()
+                j = j + 1
 
-                # fetch X scanned results
-                if self.counts_handle.is_processing():
-                    self.counts_handle.wait_for_values(1)
-                    self.meas_idx_handle.wait_for_values(1)
-                    time.sleep(0.1)
-                    meas_idx = self.meas_idx_handle.fetch_all()
-                    counts = self.counts_handle.fetch_all()
-                    print(f"meas_idx = {meas_idx} | counts.size = {counts.size}")
-
-                    # self.qmm.clear_all_job_results()
-                    self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
-                    self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)
-
-                if (meas_idx - previousMeas_idx) % counts.size == 0:  # if no skips in measurements
-                    j = j + 1
-                    # self.prepare_scan_data(max_position_x_scan = self.V_scan[0][-1], min_position_x_scan = self.V_scan[0][0],start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
-                    # self.save_scan_data(Nx=Nx, Ny=Ny, Nz=Nz, fileName=self.scanFN)
-                else:
-                    print(
-                        "****** error: ******\nNumber of measurements is not consistent with excpected.\nthis line will be repeated.")
-                    pass
-
-                previousMeas_idx = meas_idx
-
-                # eswtimate time left
+                # estimate time left
                 Line_time_End = time.time()
                 elapsed_time = time.time() - start_time
                 delta = (Line_time_End - Line_time_start)  # line time
@@ -10032,6 +10305,7 @@ class GUI_OPX():
             fileName = file_name + "_" + name_addition
             RawData_to_save = {'y_data': self.all_y_scan, name_addition: self.all_hwp_angles}
             self.save_to_cvs(fileName + ".csv", RawData_to_save)
+            self.GUI_ParametersControl(isStart=False)
 
         # save data to csv
         self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1], min_position_x_scan=self.V_scan[0][0],
@@ -10046,6 +10320,17 @@ class GUI_OPX():
         elapsed_time = end_time - start_time
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
+
+        if self.anneal_results:
+            file_prefix = self.create_scan_file_name(local=False)
+            self.save_to_cvs(file_prefix + "_anneal.csv", {
+                "Time (s)": [row[0] for row in self.anneal_results],
+                "Count (kCounts/s)": [row[1] for row in self.anneal_results],
+                "X (abs)": [row[2] for row in self.anneal_results],
+                "Y (abs)": [row[3] for row in self.anneal_results],
+                "HWP (deg)": [row[4] for row in self.anneal_results],
+            })
+            print(f"Anneal results saved to: {file_prefix}_anneal.csv")
 
         self.Shoot_Femto_Pulses = False
         if not (self.stopScan):

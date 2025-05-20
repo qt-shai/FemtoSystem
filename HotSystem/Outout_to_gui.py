@@ -92,7 +92,15 @@ def run(command: str):
         elif command == "mv":
             if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "move_last_saved_files"):
                 sys.stdout.parent.move_last_saved_files()
-                print("move_last_saved_files executed.")
+                # Try to extract and copy the last moved filename
+                if hasattr(sys.stdout, "messages") and sys.stdout.messages:
+                    last_msg = sys.stdout.messages[-1].strip()
+                    if "→" in last_msg:
+                        filepath = last_msg.split("→")[-1].strip()
+                        filename = os.path.basename(filepath)
+                        import pyperclip
+                        pyperclip.copy(filename)
+                        print(f"Filename copied to clipboard: {filename}")
             else:
                 print("move_last_saved_files not available.")
 
@@ -102,6 +110,7 @@ def run(command: str):
             subprocess.run([sys.executable, "clog.py", arg])
 
         elif command == "fn":
+            import pyperclip
             if hasattr(sys.stdout, 'messages') and sys.stdout.messages:
                 last_msg = sys.stdout.messages[-1].strip()
                 if "→" in last_msg:
@@ -179,6 +188,13 @@ def run(command: str):
                 print(f"Subfolder set to: {full_folder}")
             except Exception as e:
                 print(f"Error in 'sub' command: {e}")
+
+        elif command == "pp":
+            import subprocess
+            subprocess.Popen([
+                sys.executable, "copy_window_to_clipboard.py"
+            ])
+            print("Launched external clipboard script.")
 
 
         else:

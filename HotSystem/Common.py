@@ -14,6 +14,12 @@ import win32clipboard
 from PIL import ImageGrab
 import io
 
+import win32con
+from datetime import datetime
+import ctypes
+import win32process
+
+
 # add bubble sort
 class Common_Counter_Singletone:
     # create singleton
