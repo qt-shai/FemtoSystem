@@ -10076,6 +10076,8 @@ class GUI_OPX():
         self.all_hwp_angles = []
         self.all_att_percent = []
         self.all_y_scan = []
+        self.anneal_results = []  # Each entry: [timestamp_in_seconds, count_value]
+
         current_hwp = 10000  # initial non-physical value
 
         for i in range(self.N_scan[2]):  # Z
@@ -10208,8 +10210,15 @@ class GUI_OPX():
                                     dpg.fit_axis_data('y_axis')
                                     self.lock.release()
 
-                            copy_quti_graph_window_to_clipboard()
+                                    self.anneal_results.append([
+                                        time.time() - anneal_time_start,
+                                        float(anneal_counts[-1]),
+                                        self.V_scan[0][k],
+                                        self.V_scan[1][j],
+                                        round(current_hwp, 2)
+                                    ])
 
+                            # copy_quti_graph_window_to_clipboard()
 
                             # rewind back to defect parameters
                             self.pharos.setAdvancedTargetPulseCount(n_pulse_defect)
@@ -10309,6 +10318,17 @@ class GUI_OPX():
         elapsed_time = end_time - start_time
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
+
+        if self.anneal_results:
+            file_prefix = self.create_scan_file_name(local=False)
+            self.save_to_cvs(file_prefix + "_anneal.csv", {
+                "Time (s)": [row[0] for row in self.anneal_results],
+                "Count (kCounts/s)": [row[1] for row in self.anneal_results],
+                "X (abs)": [row[2] for row in self.anneal_results],
+                "Y (abs)": [row[3] for row in self.anneal_results],
+                "HWP (deg)": [row[4] for row in self.anneal_results],
+            })
+            print(f"Anneal results saved to: {file_prefix}_anneal.csv")
 
         self.Shoot_Femto_Pulses = False
         if not (self.stopScan):

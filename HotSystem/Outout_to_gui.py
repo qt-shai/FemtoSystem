@@ -110,6 +110,7 @@ def run(command: str):
             subprocess.run([sys.executable, "clog.py", arg])
 
         elif command == "fn":
+            import pyperclip
             if hasattr(sys.stdout, 'messages') and sys.stdout.messages:
                 last_msg = sys.stdout.messages[-1].strip()
                 if "→" in last_msg:
@@ -187,6 +188,13 @@ def run(command: str):
                 print(f"Subfolder set to: {full_folder}")
             except Exception as e:
                 print(f"Error in 'sub' command: {e}")
+
+        elif command == "pp":
+            import subprocess
+            subprocess.Popen([
+                sys.executable, "copy_window_to_clipboard.py"
+            ])
+            print("Launched external clipboard script.")
 
 
         else:
