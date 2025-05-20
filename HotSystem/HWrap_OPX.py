@@ -1828,7 +1828,7 @@ class GUI_OPX():
         except Exception as e:
             print(f"An error occurred while plotting the scan: {e}")
 
-    def Plot_Scan(self, Nx=250, Ny=250, array_2d=None, startLoc=None, endLoc=None, switchAxes=False):
+    def Plot_Scan(self, Nx=250, Ny=250, array_2d=None, startLoc=None, endLoc=None, switchAxes=False, current_z=None):
         """
         Plots a 2D scan using the provided array. If a division by zero occurs,
         the array will be set to zeros.
@@ -1912,7 +1912,9 @@ class GUI_OPX():
             dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
             dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
                          equal_aspects=True, crosshairs=True)
-            dpg.add_plot_axis(dpg.mvXAxis, label="x axis [um]", parent="plotImaga")
+            z_label = f"x axis [um]{f' @ Z={current_z:.1f} µm' if current_z is not None else ''}"
+            dpg.add_plot_axis(dpg.mvXAxis, label=z_label, parent="plotImaga")
+
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
             dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data", parent="plotImaga_Y")
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
@@ -9848,7 +9850,7 @@ class GUI_OPX():
         self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
 
         self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0], startLoc=self.startLoc,
-                       endLoc=self.endLoc)  # required review
+                       endLoc=self.endLoc,current_z=self.V_scan[2][-1] * 1e-6)
 
         # Start Qua PGM
         self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),

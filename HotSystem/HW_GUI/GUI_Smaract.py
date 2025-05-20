@@ -193,8 +193,12 @@ class GUI_smaract():
             dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
             dpg.set_value(f"{self.prefix}_ch2_ABS", z_value)
 
-            print(f"Set MoveAbsX = {x_value:.2f} µm, MoveAbsY = {y_value:.2f} µm, MoveAbsZ = {z_value:.2f} µm")
+            # print(f"Set MoveAbsX = {x_value:.2f} µm, MoveAbsY = {y_value:.2f} µm, MoveAbsZ = {z_value:.2f} µm")
+            # Format and copy to clipboard
+            clipboard_str = f"Site ({x_value:.1f}, {y_value:.1f}, {z_value:.1f})"
+            pyperclip.copy(clipboard_str)
 
+            print(f"{clipboard_str} Copied to clipboard")
         except Exception as e:
             print(f"Failed to set MoveABS from position: {e}")
 
