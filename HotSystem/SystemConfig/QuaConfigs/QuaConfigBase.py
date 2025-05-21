@@ -36,7 +36,7 @@ class QUAConfigBase(ABC):
         self.blinding_length = 24 # in ns
 
         # MW parameters
-        self.mw_amp_NV = 0.5  # in units of volts
+        self.mw_amp_NV = 0.4  # in units of volts
         self.mw_len_NV = 100  # in units of ns
 
         self.pi_amp_NV = 0.5  # in units of volts
