@@ -2466,7 +2466,8 @@ class GUI_OPX():
                     # stream
                     with if_(self.sequenceState == 0):
                         if self.exp == Experiment.RandomBenchmark:
-                            save(self.total_counts, self.counts_st)
+                            save(self.total_counts, self.counts_st) # MIC: I think this is an error
+                            save(self.counts[self.idx], self.counts_st) # MIC: I think this is correct
                             save(self.counts_ref[self.idx], self.counts_ref_st)
                             save(self.counts_ref2[self.idx], self.counts_ref2_st)
                             save(self.resCalculated[self.idx], self.resCalculated_st)
@@ -3430,11 +3431,11 @@ class GUI_OPX():
         align()
 
     def benchmark_state_readout(self, current_counts_, counts_tmp, tLaser, idx_vec_qua, idx, times, tMeasure):
-        #Make sure to have align with laser before
-
+        """Make sure to have align with laser before"""
+        align()
         play("Turn_ON", "Laser", duration=tLaser // 4)
-        # measure signal
-        align("MW", "Detector_OPD")
+        """measure signal"""
+        # align("MW", "Detector_OPD") ## MIC: @daniel - why align with MW? I think we should align laser and OPD before turning on laser
         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
         assign(current_counts_[idx_vec_qua[idx]], current_counts_[idx_vec_qua[idx]] + counts_tmp)
 
@@ -3610,6 +3611,7 @@ class GUI_OPX():
                         """ Experiment start """
 
                         if is_new_benchmark_code:
+                            """signal 1 - gates + measure as is (|00><00|+|01><01|)"""
                             """signal 1 state preparation part"""
                             assign(final_state_qua, 10)
                             self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
@@ -3622,7 +3624,7 @@ class GUI_OPX():
                             #assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp_squared)
                             align()
 
-                            """reference 1 - (signal 2) - same as signal 1 but self.keep_phase = True"""
+                            """reference 1 - (signal 2) - gates + measure |00><00| + |1+><1+|"""
                             assign(final_state_qua, 10)
                             self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
                                                              final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
@@ -3661,7 +3663,7 @@ class GUI_OPX():
                                                          tMeasure)
                             align()
 
-                            """reference 4 (y^2) state preparation part"""
+                            """reference 4 (y^2)  - gates + measure |00><00| + |11><11|"""
                             assign(final_state_qua, 10)
                             self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
                                                              final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
@@ -3685,7 +3687,7 @@ class GUI_OPX():
                                                          tMeasure)
                             align()
 
-                            """reference 2 - waiting without gates - and measuring as |0n>|0e>"""
+                            """reference 2 - waiting without gates + measure |00><00| + |01><01|"""
                             assign(final_state_qua, 10)
                             self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
                                                              final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
@@ -3697,7 +3699,7 @@ class GUI_OPX():
                                                          tMeasure)
                             align()
 
-                            """reference 3 - waiting without gates - and measuring as |0n>|1e>"""
+                            """reference 3 - waiting without gates + measure |00><00| + |1+><1+|"""
                             assign(final_state_qua, 10)
                             self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
                                                              final_state_qua=final_state_qua, t_rf_extra=0,
@@ -8448,6 +8450,7 @@ class GUI_OPX():
             if self.exp == Experiment.RandomBenchmark:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
                 dpg.set_value("series_counts_ref3", [self.X_vec, self.Y_vec_ref3])
+                dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_vec_squared]) # MIC: works!
             if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
                 dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
@@ -8916,6 +8919,7 @@ class GUI_OPX():
             self.Y_vec_ref2 = self.ref_signal2 / (self.TcounterPulsed * 1e-9) / 1e3
             self.Y_vec_ref2 = self.Y_vec_ref2.tolist()
             self.benchmark_number_order = self.number_order
+            self.benchmark_number_order = self.benchmark_number_order.tolist()
             # self.benchmark_reverse_number_order = self.reverse_number_order
             # self.benchmark_reverse_number_order = self.benchmark_reverse_number_order.tolist()
             self.Y_vec_squared = self.signal_squared/ (self.TcounterPulsed * 1e-9) / 1e3
