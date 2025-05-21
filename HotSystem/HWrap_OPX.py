@@ -3617,7 +3617,7 @@ class GUI_OPX():
                             #assign(counts_square[idx_vec_qua[idx]], counts_square[idx_vec_qua[idx]] + counts_tmp_squared)
                             align()
 
-                            """reference 1 - (signal 2) - gates + measure |00><00| + |1+><1+|"""
+                            """reference 1 - (signal 2) - gates + measure |00><00| + |1(-i)><1(-i)|"""
                             assign(final_state_qua, 10)
                             self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
                                                              final_state_qua=final_state_qua, t_rf_extra = 0, keep_phase = False)
@@ -3692,7 +3692,7 @@ class GUI_OPX():
                                                          tMeasure)
                             align()
 
-                            """reference 3 - waiting without gates + measure |00><00| + |1+><1+|"""
+                            """reference 3 - waiting without gates + measure |00><00| + |1(-i)><1(-i)|"""
                             assign(final_state_qua, 10)
                             self.benchmark_state_preparation(m=m, Npump=Npump, tPump=tPump, t_wait=t_wait,
                                                              final_state_qua=final_state_qua, t_rf_extra=0,
