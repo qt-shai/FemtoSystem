@@ -1072,7 +1072,7 @@ class GUI_OPX():
                 dpg.add_input_int(label="", tag="inInt_N_p_amp", indent=-1, parent="Repetitions_Controls",
                                   width=item_width, callback=self.UpdateN_p_amp,
                                   default_value=self.N_p_amp,
-                                  min_value=0, max_value=50000, step=1)
+                                  min_value=0, max_value=50000, step=1 )
 
                 dpg.add_text(default_value="N CPMG", parent="Repetitions_Controls", tag="text_N_CPMG", indent=-1)
                 dpg.add_input_int(label="", tag="inInt_N_CPMG", indent=-1, parent="Repetitions_Controls",
