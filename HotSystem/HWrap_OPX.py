@@ -64,7 +64,6 @@ import copy
 import JobTesting_OPX
 
 from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
-from Common import copy_quti_graph_window_to_clipboard
 
 matplotlib.use('qtagg')
 
@@ -124,8 +123,8 @@ class GUI_OPX():
         # HW
 
         # TODO: Move measure_type definition to be read from config
-        measure_type = MeasurementType.ANALOG
-        # measure_type = MeasurementType.DIGITAL # Digital for HotSystem
+        #measure_type = MeasurementType.ANALOG
+        measure_type = MeasurementType.DIGITAL # Digital for HotSystem
         self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
         self.stop_survey: bool = False
         self.survey_stop_flag = False
