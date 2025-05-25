@@ -4888,7 +4888,7 @@ class GUI_OPX():
             # Play laser
             play("Turn_ON", "Laser", duration=tLaser // 4)
             # Measure ref
-            measure("readout", "Detector_OPD", None, time_tagging_fn(self.times_ref, tMeasure, self.counts_tmp))
+            measure("readout", "Detector_OPD", None, self.time_tagging_fn(self.times_ref, tMeasure, self.counts_tmp))
             assign(self.counts[idx], self.counts[idx] + self.counts_tmp)
 
 
