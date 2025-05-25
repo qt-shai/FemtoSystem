@@ -16,6 +16,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                     1: {"offset": -0.0055, "delay": self.mw_delay, "shareable": False}, # MW I, for unknonw reason need to be in all system
                     2: {"offset": -0.0057, "delay": self.mw_delay, "shareable": False}, # MW Q
                     3: {"offset": -0.01, "delay": self.rf_delay, "shareable": False}, # RF
+                    4: {"offset": -0.01, "delay": self.rf_delay, "shareable": False}, #
                 },
                 "digital_outputs": {
                     # 1: {"shareable": False}, # laser 520nm
@@ -96,7 +97,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                 },
             },
             "Detector": {
-                "singleInput": {"port": ("con1", 1)}, # unknown why needed?
+                "singleInput": {"port": ("con1", 4)}, # unknown why needed?
                 "digitalInputs": {
                     # "marker": {
                     #     "port": ("con1", 3),
@@ -119,7 +120,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                 "smearing": 0,
             },
             "Detector_OPD": {
-                "singleInput": {"port": ("con1", 1)}, # unknown why needed?
+                "singleInput": {"port": ("con1", 4)}, # unknown why needed?
                 "digitalInputs": {
                 },
                 "digitalOutputs": {"out1": ("con1", 1)}, # 'digital input' of OPD
@@ -134,7 +135,7 @@ class HotSystemQuaConfig(QUAConfigBase):
                 "smearing": 0,
             },
             "Detector2_OPD": {
-                "singleInput": {"port": ("con1", 1)},  # unknown why needed?
+                "singleInput": {"port": ("con1", 4)},  # unknown why needed?
                 "digitalInputs": {
                 },
                 "digitalOutputs": {"out1": ("con1", 2)},  # 'digital input' of OPD

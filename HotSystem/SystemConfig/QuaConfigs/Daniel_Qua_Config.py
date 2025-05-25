@@ -340,6 +340,7 @@ class DanielQuaConfig(configs.QUAConfigBase):
         return ops
 
     def get_extra_operations_left_side(self) -> Dict[str, str]:
+        # Pulse  usage example: play(f"opr2_{jdx}", "Blinding")
         ops = {}
         for t in range(16):
             ops[f"opr_left_{t}"] = f"d_pulse_left_{t}"
