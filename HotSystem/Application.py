@@ -403,6 +403,9 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.modifier_key = None
+        self.step_tuning_counter = None
+        self.step_tuning_key = None
         self.viewport_h = None
         self.allow_bring_to_front = 1
         self.viewport_w = None
@@ -1002,7 +1005,6 @@ class PyGuiOverlay(Layer):
 
             # Determine if coarse movement is enabled (for OPX and other devices)
             is_coarse = self.CURRENT_KEY == KeyboardKeys.CTRL_KEY
-            is_coarse_pico = self.CURRENT_KEY == KeyboardKeys.ALT_KEY
 
             # Map the key data to the KeyboardKeys enum
             if key_data in KeyboardKeys._value2member_map_:
@@ -1010,10 +1012,62 @@ class PyGuiOverlay(Layer):
             else:
                 return
 
-            # Handle OPX map logic if enabled
-            if hasattr(self.opx, 'map') and self.opx.map is not None:
-                if self.opx.map.map_keyboard_enable:
-                    self.handle_opx_keyboard_movement(key_data_enum, is_coarse)
+            # Update modifier key if it's a modifier
+            if key_data_enum in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
+                self.modifier_key = key_data_enum
+
+            # Initialize step tuning attributes if not present
+            if not hasattr(self, "step_tuning_key"):
+                self.step_tuning_key = None
+                self.step_tuning_counter = 0
+
+            # === Step size tuning for Smaract ===
+            if hasattr(self, 'last_moved_axis'):
+                axis = self.last_moved_axis
+                coarse_tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
+                fine_tag = f"{self.smaractGUI.prefix}_ch{axis}_Fset"
+
+                # Combo logic: only check when the key is a step key, not modifier
+                if key_data_enum in [KeyboardKeys.OEM_PERIOD, KeyboardKeys.OEM_COMMA]:
+                    combo = (self.modifier_key, key_data_enum)
+
+                    # Track repeated presses of same combo
+                    if combo == getattr(self, "step_tuning_key", None):
+                        self.step_tuning_counter += 1
+                    else:
+                        self.step_tuning_counter = 0
+                        self.step_tuning_key = combo
+
+                    factor = 2 ** self.step_tuning_counter
+                    print(f"{combo} → counter={self.step_tuning_counter} → factor={factor}")
+
+                    # Ctrl + . → increase coarse step
+                    if combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD):
+                        val = dpg.get_value(coarse_tag) + factor
+                        dpg.set_value(coarse_tag, val)
+                        self.smaractGUI.ipt_large_step(coarse_tag, val)
+                        print(f"↑ Coarse step axis {axis} = {val:.1f} µm")
+
+                    # Ctrl + , → decrease coarse step
+                    elif combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_COMMA):
+                        val = max(1, dpg.get_value(coarse_tag) - factor)
+                        dpg.set_value(coarse_tag, val)
+                        self.smaractGUI.ipt_large_step(coarse_tag, val)
+                        print(f"↓ Coarse step axis {axis} = {val:.1f} µm")
+
+                    # Shift + . → increase fine step
+                    elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_PERIOD):
+                        val = dpg.get_value(fine_tag) + factor * 10
+                        dpg.set_value(fine_tag, val)
+                        self.smaractGUI.ipt_small_step(fine_tag, val)
+                        print(f"↑ Fine step axis {axis} = {val:.1f} nm")
+
+                    # Shift + , → decrease fine step
+                    elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_COMMA):
+                        val = max(10, dpg.get_value(fine_tag) - factor * 10)
+                        dpg.set_value(fine_tag, val)
+                        self.smaractGUI.ipt_small_step(fine_tag, val)
+                        print(f"↓ Fine step axis {axis} = {val:.1f} nm")
 
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
@@ -1023,12 +1077,6 @@ class PyGuiOverlay(Layer):
                     return
                 self.handle_smaract_controls(key_data_enum, is_coarse)
 
-            # Handle Picomotor controls
-            elif self.CURRENT_KEY in [KeyboardKeys.ALT_KEY, KeyboardKeys.Z_KEY]:
-                if self.picomotorGUI:
-                    print("picomotor key")
-                    self.handle_picomotor_controls(key_data_enum, is_coarse_pico)
-
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
 
@@ -1036,216 +1084,7 @@ class PyGuiOverlay(Layer):
             self.error = f"Unexpected error in keyboard_callback: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
             print(self.error)
 
-    def handle_opx_keyboard_movement(self, key_data_enum, is_coarse):
-        """Handles keyboard movement for OPX map control."""
-        try:
-            if self.CURRENT_KEY in [KeyboardKeys.M_KEY, KeyboardKeys.N_KEY]:
-                is_coarse = self.CURRENT_KEY == KeyboardKeys.M_KEY  # Determine if coarse mode is active
 
-                if key_data_enum == KeyboardKeys.LEFT_KEY:
-                    self.opx_keyboard_map_movement(0, -1, is_coarse)
-                elif key_data_enum == KeyboardKeys.RIGHT_KEY:
-                    self.opx_keyboard_map_movement(0, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.UP_KEY:
-                    self.opx_keyboard_map_movement(1, -1, is_coarse)
-                elif key_data_enum == KeyboardKeys.DOWN_KEY:
-                    self.opx_keyboard_map_movement(1, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.PAGEDOWN_KEY:
-                    self.opx.map.stretch_squeeze_area_marker("stretch_y", is_coarse)  # Stretch vertically (Y) with PageUp
-                elif key_data_enum == KeyboardKeys.PAGEUP_KEY:
-                    self.opx.map.stretch_squeeze_area_marker("squeeze_y", is_coarse)  # Squeeze vertically (Y) with PageDown
-                elif key_data_enum == KeyboardKeys.HOME_KEY:
-                    self.opx.map.stretch_squeeze_area_marker("squeeze_x", is_coarse)  # Squeeze horizontally (X) with Home
-                elif key_data_enum == KeyboardKeys.END_KEY:
-                    self.opx.map.stretch_squeeze_area_marker("stretch_x", is_coarse)  # Stretch horizontally (X) with End
-                elif key_data_enum == KeyboardKeys.DEL_KEY:
-                    self.delete_active_item()  # Delete active marker or area marker
-                elif key_data_enum == KeyboardKeys.INSERT_KEY:
-                    self.insert_marker_near_active(duplicate_or_add_area = is_coarse)  # Insert a new marker near the active one & Insert a new area marker based on the active marker
-                elif key_data_enum == KeyboardKeys.K_KEY:
-                    self.opx.map.move_mode = "marker"
-                    # Update the button label to indicate the current state
-                    if dpg.does_item_exist("toggle_marker_area"):
-                        dpg.set_item_label("toggle_marker_area", "move marker")
-                elif key_data_enum == KeyboardKeys.A_KEY:
-                    self.opx.map.move_mode = "area_marker"
-                    # Update the button label to indicate the current state
-                    if dpg.does_item_exist("toggle_marker_area"):
-                        dpg.set_item_label("toggle_marker_area", "move area")
-                elif key_data_enum == KeyboardKeys.PLUS_KEY:
-                    if self.opx.map.move_mode == "marker":
-                        self.opx.map.act_marker(self.opx.map.active_marker_index + 1)
-                    else:
-                        self.opx.map.act_area_marker(self.opx.map.active_area_marker_index + 1)
-                elif key_data_enum == KeyboardKeys.MINUS_KEY:
-                    if self.opx.move_mode == "marker":
-                        self.opx.map.act_marker(self.opx.active_marker_index - 1)
-                    else:
-                        self.opx.map.act_area_marker(self.opx.active_area_marker_index - 1)
-                elif key_data_enum == KeyboardKeys.U_KEY:
-                    self.opx.map.update_scan_area_marker(self.opx.active_area_marker_index)
-                elif key_data_enum == KeyboardKeys.P_KEY:
-                    self.opx.map.mark_point_on_map()
-                elif key_data_enum == KeyboardKeys.G_KEY:
-                    self.opx.map.go_to_marker()
-                    if not is_coarse:
-                        self.opx.map.active_marker_index += 1
-
-                        # If the active_marker_index exceeds the number of markers, wrap around to the first marker
-                        if self.opx.map.active_marker_index >= len(self.opx.map.markers):
-                            self.opx.map.active_marker_index = 0
-
-
-        except Exception as ex:
-            self.error = f"Error in handle_opx_keyboard_movement: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
-            print(self.error)
-
-    def insert_marker_near_active(self, duplicate_or_add_area=False):
-        """Insert a new marker or area marker just above the active one in the list and reactivate the original active one."""
-        try:
-            if self.opx.move_mode == "marker":
-                # Insert a new area marker based on the active marker
-                if hasattr(self.opx.map, 'active_marker_index') and 0 <= self.opx.map.active_marker_index < len(
-                        self.opx.map.markers):
-                    # Store the original active marker index
-                    original_active_marker_index = self.opx.map.active_marker_index
-
-                    # Get the active marker's current position
-                    _, _, active_coords, active_position = self.opx.map.markers[original_active_marker_index]
-                    active_x, active_y = active_position
-
-                    if dpg.does_item_exist("map_image"):
-                        item_x, item_y = dpg.get_item_pos("map_image")
-                    else:
-                        # print("map_image does not exist")
-                        return
-
-                    if duplicate_or_add_area:
-                        # Insert the new marker in the list just above the active marker
-                        new_marker_index = original_active_marker_index  # Inserting above means inserting at the current index
-
-                        # Define the offset for the new marker (based on active marker)
-                        offset = 2  # Adjust this offset as needed
-                        new_x = active_x + offset
-                        new_y = active_y + offset
-
-                        # Calculate the relative position of the new marker on the map
-                        relative_x = (new_x - item_x - dpg.get_value("MapOffsetX")) * dpg.get_value("MapFactorX")
-                        relative_y = (new_y - item_y - dpg.get_value("MapOffsetY")) * dpg.get_value("MapFactorY")
-                        z_evaluation = float(
-                            calculate_z_series(self.opx.ZCalibrationData, np.array(int(relative_x * 1e6)),
-                                               int(relative_y * 1e6))) / 1e6
-
-                        # Ensure no marker with the same coordinates already exists
-                        if self.opx.marker_exists((relative_x, relative_y)):
-                            print("A marker with the same relative coordinates already exists.")
-                            return
-
-                        # Create the new marker data
-                        new_marker_tag = f"marker_{len(self.opx.map.markers)}"
-                        new_text_tag = f"text_{len(self.opx.map.markers)}"
-                        new_marker_data = (
-                            new_marker_tag, new_text_tag, (relative_x, relative_y, z_evaluation), (new_x, new_y))
-
-                        # Insert the new marker just above the active marker in the markers list
-                        self.opx.map.markers.insert(new_marker_index, new_marker_data)
-
-                        # Add the new marker to the map
-                        dpg.draw_circle(center=(new_x, new_y), radius=2, color=(255, 0, 0, 255), fill=(255, 0, 0, 100),
-                                        parent="map_draw_layer", tag=new_marker_tag)
-                        coord_text = f"({relative_x:.2f}, {relative_y:.2f}, {z_evaluation:.2f})"
-                        dpg.draw_text(pos=(new_x, new_y), text=coord_text, color=self.opx.text_color, size=14,
-                                      parent="map_draw_layer", tag=new_text_tag)
-
-                        # Update the markers table to reflect the change
-                        self.opx.map.update_markers_table()
-
-                        # Reactivate the original active marker
-                        self.opx.map.active_marker_index = original_active_marker_index + 1  # The original marker is now one index down
-                        self.opx.map.act_marker(self.opx.map.active_marker_index)
-
-                        print(f"New marker added in the list just above the active marker at index {new_marker_index}.")
-                    else:
-                        # Use start_rectangle_query to create an area marker between two markers
-                        self.opx.map.start_rectangle_query()
-
-                else:
-                    print("No active marker to insert a new marker nearby.")
-
-            elif self.opx.move_mode == "area_marker":
-                # Insert a new area marker near the active area marker
-                if hasattr(self.opx, 'active_area_marker_index') and 0 <= self.opx.active_area_marker_index < len(
-                        self.opx.area_markers):
-                    # Store the original active area marker index
-                    original_active_area_marker_index = self.opx.active_area_marker_index
-
-                    # Get the active area marker's current position
-                    min_x, min_y, max_x, max_y = self.opx.area_markers[original_active_area_marker_index]
-
-                    if dpg.does_item_exist("map_image"):
-                        item_x, item_y = dpg.get_item_pos("map_image")
-                    else:
-                        # print("map_image does not exist")
-                        return
-
-                    if duplicate_or_add_area:
-                        # Insert the new area marker in the list just above the active one
-                        new_area_marker_index = original_active_area_marker_index  # Inserting above means using the current index
-
-                        # Define the offset for the new area marker
-                        offset = 2  # Adjust this offset as needed
-                        new_min_x = min_x + offset
-                        new_min_y = min_y + offset
-                        new_max_x = max_x + offset
-                        new_max_y = max_y + offset
-
-                        # Calculate the relative coordinates for the area marker
-                        relative_min_x = (new_min_x - item_x - dpg.get_value("MapOffsetX")) * dpg.get_value(
-                            "MapFactorX")
-                        relative_min_y = (new_min_y - item_y - dpg.get_value("MapOffsetY")) * dpg.get_value(
-                            "MapFactorY")
-                        relative_max_x = (new_max_x - item_x - dpg.get_value("MapOffsetX")) * dpg.get_value(
-                            "MapFactorX")
-                        relative_max_y = (new_max_y - item_y - dpg.get_value("MapOffsetY")) * dpg.get_value(
-                            "MapFactorY")
-
-                        # Add the new area marker to the list
-                        new_area_marker_data = (relative_min_x, relative_min_y, relative_max_x, relative_max_y)
-                        self.opx.area_markers.insert(new_area_marker_index, new_area_marker_data)
-
-                        # Draw the new area marker on the map
-                        dpg.draw_rectangle(pmin=(new_min_x, new_min_y), pmax=(new_max_x, new_max_y),
-                                           color=(0, 255, 0, 255), thickness=2, parent="map_draw_layer",
-                                           tag=f"query_rectangle_{new_area_marker_index}")
-
-                        # Update the markers table after adding the new area marker
-                        self.opx.update_markers_table()
-
-                        # Reactivate the original active area marker
-                        self.opx.active_area_marker_index = original_active_area_marker_index + 1  # The original area marker is now one index down
-                        self.opx.act_area_marker(self.opx.active_area_marker_index)
-
-                        print(
-                            f"New area marker added in the list just above the active area marker at index {new_area_marker_index}.")
-                else:
-                    print("No active area marker to insert a new area marker nearby.")
-
-        except Exception as e:
-            print(f"Error in insert_marker_near_active: {e}")
-
-    def delete_active_item(self):
-        """Delete the active marker or area marker based on the current move mode."""
-        if self.opx.map.move_mode == "marker":
-            if hasattr(self.opx.map, 'active_marker_index') and 0 <= self.opx.map.active_marker_index < len(self.opx.map.markers):
-                self.opx.map.delete_marker(self.opx.active_marker_index)
-            else:
-                print("No active marker to delete.")
-        elif self.opx.map.move_mode == "area_marker":
-            if hasattr(self.opx.map, 'active_area_marker_index') and 0 <= self.opx.map.active_area_marker_index < len(
-                    self.opx.map.area_markers):
-                self.opx.map.delete_area_marker(self.opx.map.active_area_marker_index)
-            else:
-                print("No active area marker to delete.")
 
     def handle_smaract_controls(self, key_data_enum, is_coarse):
         """Handles keyboard input for Smaract device controls."""
@@ -1266,67 +1105,39 @@ class PyGuiOverlay(Layer):
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
                     self.smaract_log_points()
-                # elif key_data_enum == KeyboardKeys.X_KEY:
-                #                 #     print('Deleting point')
-                #                 #     self.smaract_del_points()
                 elif key_data_enum == KeyboardKeys.LEFT_KEY:
+                    self.last_moved_axis = 0
                     self.smaract_keyboard_movement(0, 1, is_coarse)
                 elif key_data_enum == KeyboardKeys.RIGHT_KEY:
+                    self.last_moved_axis = 0
                     self.smaract_keyboard_movement(0, -1, is_coarse)
                 elif key_data_enum == KeyboardKeys.UP_KEY:
+                    self.last_moved_axis = 1
                     self.smaract_keyboard_movement(1, -1, is_coarse)
                 elif key_data_enum == KeyboardKeys.DOWN_KEY:
+                    self.last_moved_axis = 1
                     self.smaract_keyboard_movement(1, 1, is_coarse)
                 elif key_data_enum == KeyboardKeys.PAGEUP_KEY:
+                    self.last_moved_axis = 2
                     self.smaract_keyboard_movement(2, -1, is_coarse)
                 elif key_data_enum == KeyboardKeys.PAGEDOWN_KEY:
+                    self.last_moved_axis = 2
                     self.smaract_keyboard_movement(2, 1, is_coarse)
                 elif key_data_enum == KeyboardKeys.INSERT_KEY:
+                    self.last_moved_axis = 0
                     self.smaract_keyboard_move_uv(0, 1, is_coarse)
                 elif key_data_enum == KeyboardKeys.DEL_KEY:
+                    self.last_moved_axis = 0
                     self.smaract_keyboard_move_uv(0, -1, is_coarse)
                 elif key_data_enum == KeyboardKeys.HOME_KEY:
+                    self.last_moved_axis = 1
                     self.smaract_keyboard_move_uv(1, -1, is_coarse)
                 elif key_data_enum == KeyboardKeys.END_KEY:
+                    self.last_moved_axis = 2
                     self.smaract_keyboard_move_uv(1, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.M_KEY:
-                    print("Enabling map keyboard shortcuts")
-                    self.opx.map.toggle_map_keyboard()
 
         except Exception as ex:
             self.error = f"Error in handle_smaract_controls: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
-            print(self.error)
-
-    def handle_picomotor_controls(self, key_data_enum, is_coarse):
-        """Handles keyboard input for Picomotor controls."""
-        try:
-            if self.picomotorGUI.dev.KeyboardEnabled:
-                if key_data_enum == KeyboardKeys.LEFT_KEY:
-                    self.pico_keyboard_movement(1, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.RIGHT_KEY:
-                    self.pico_keyboard_movement(1, -1, is_coarse)
-                elif key_data_enum == KeyboardKeys.UP_KEY:
-                    self.pico_keyboard_movement(0, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.DOWN_KEY:
-                    self.pico_keyboard_movement(0, -1, is_coarse)
-                elif key_data_enum == KeyboardKeys.PAGEUP_KEY:
-                    self.pico_keyboard_movement(2, -1, is_coarse)
-                elif key_data_enum == KeyboardKeys.PAGEDOWN_KEY:
-                    self.pico_keyboard_movement(2, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.BACK_KEY:
-                    current_state = dpg.get_item_configuration("LaserWin")["collapsed"]
-                    dpg.configure_item("LaserWin", collapsed=not current_state)
-                elif key_data_enum == KeyboardKeys.INSERT_KEY:
-                    self.pico_keyboard_move_uv(0, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.DEL_KEY:
-                    self.pico_keyboard_move_uv(0, -1, is_coarse)
-                elif key_data_enum == KeyboardKeys.HOME_KEY:
-                    self.pico_keyboard_move_uv(1, 1, is_coarse)
-                elif key_data_enum == KeyboardKeys.END_KEY:
-                    self.pico_keyboard_move_uv(1, -1, is_coarse)
-
-        except Exception as ex:
-            self.error = f"Error in handle_picomotor_controls: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
             print(self.error)
 
     def smaract_log_points(self):
@@ -1350,11 +1161,11 @@ class PyGuiOverlay(Layer):
     def smaract_keyboard_movement(self,ax,direction = 1,Coarse_or_Fine = 1):
         try:
             if Coarse_or_Fine==0:
-                print("Small step")
+                # print("Small step")
                 self.smaractGUI.dev.MoveRelative(ax,direction*self.smaractGUI.dev.AxesKeyBoardSmallStep[ax])
             else:
-                print("Large step")
-                print(self.smaractGUI.dev.AxesKeyBoardLargeStep[ax])
+                # print("Large step")
+                # print(self.smaractGUI.dev.AxesKeyBoardLargeStep[ax])
                 self.smaractGUI.dev.MoveRelative(ax,direction*self.smaractGUI.dev.AxesKeyBoardLargeStep[ax])
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))

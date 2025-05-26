@@ -83,7 +83,7 @@ if __name__ == "__main__":
         "PH2 web app",
         crop_top_px=240,
         crop_bottom_px=1350,
-        crop_left_px=80,
-        crop_right_px=80,
+        crop_left_px=200,
+        crop_right_px=200,
         resize_ratio=0.5  # Reduce size by 50%
     )

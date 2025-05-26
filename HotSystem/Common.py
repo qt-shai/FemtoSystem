@@ -143,6 +143,9 @@ class KeyboardKeys(Enum): # Mapping keys to custom values
     Y_KEY = 89
     Z_KEY = 90
 
+    OEM_COMMA = 188  # ,
+    OEM_PERIOD = 190  # .
+
 from PIL import Image, ImageEnhance
 
 def increase_brightness(image_path: str, output_path: str, factor: float) -> None:
