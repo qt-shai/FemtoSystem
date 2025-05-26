@@ -1928,7 +1928,7 @@ class GUI_OPX():
             # Plot scan
             dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
             dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
-                         equal_aspects=True, crosshairs=True)
+                         equal_aspects=True, crosshairs=True,query=True, callback=self.queryXY_callback)
             z_label = f"x axis [um]{f' @ Z={current_z:.1f} µm' if current_z is not None else ''}"
             dpg.add_plot_axis(dpg.mvXAxis, label=z_label, parent="plotImaga")
 
@@ -10298,6 +10298,10 @@ class GUI_OPX():
             self.N_scan.append(len(axis_values))
             scan_coordinates.append(axis_values)
         self.V_scan = scan_coordinates
+
+        self.Xv = self.V_scan[0] / 1e6  # x data of the Smaract values from the csv
+        self.Yv = self.V_scan[1] / 1e6  # y data of the Smaract values from the csv
+        self.Zv = self.V_scan[2] / 1e6  # z data of the Smaract values from the csv
 
         # goto scan start location
         for ch in range(3):
