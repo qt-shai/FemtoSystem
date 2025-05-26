@@ -123,9 +123,8 @@ class GUI_OPX():
         # HW
 
         # TODO: Move measure_type definition to be read from config
-        #measure_type = MeasurementType.ANALOG
-        measure_type = MeasurementType.DIGITAL # Digital for HotSystem
-        self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
+        # measure_type = MeasurementType.ANALOG
+        # self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
         self.stop_survey: bool = False
         self.survey_stop_flag = False
         self.survey_g2_threshold: float = 0.4
@@ -189,13 +188,16 @@ class GUI_OPX():
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
             self.ScanTrigger = 101  # IO2
             self.TrackingTrigger = 101  # IO1
+            measure_type = MeasurementType.ANALOG
         if (self.HW.config.system_type == configs.SystemType.HOT_SYSTEM):
             self.ScanTrigger = 1
             self.TrackingTrigger = 1
+            measure_type = MeasurementType.DIGITAL
         if (self.HW.config.system_type == configs.SystemType.ATTO):
             print("Setting up parameters for the atto system")
             self.ScanTrigger = 1001  # IO2
             self.TrackingTrigger = 1001  # IO1
+            measure_type = MeasurementType.DIGITAL
             if self.HW.atto_scanner:
                 print("Setting up tracking function with atto scanner + positioner")
                 self.tracking_function = self.FindMaxSignal_atto_positioner_and_scanner
@@ -209,6 +211,8 @@ class GUI_OPX():
             self.ScanTrigger = 10001  # IO2
             self.TrackingTrigger = 10001  # IO1
         self.my_qua_jobs = []
+        self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
+
 
         # At the end of the init - all values are overwritten from XML!
         # To update values of the parameters - update the XML or the corresponding place in the GUI
@@ -1385,6 +1389,7 @@ class GUI_OPX():
                                          default_value=self.limit)
                         dpg.add_button(label="fill Z", callback=self.fill_z)
                         dpg.add_button(label="fill Max", callback=self.set_moveabs_to_max_intensity)
+                        dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
 
                     with dpg.group(horizontal=False):
                         dpg.add_input_float(label="Step (um)", default_value=0.2, width=_width, tag="step_um",
@@ -1475,22 +1480,31 @@ class GUI_OPX():
         except Exception as e:
             print(f"Failed to set MoveABS from max intensity: {e}")
 
+    def fill_moveabs_from_query(self):
+        try:
+            if self.queried_area is None:
+                print("No queried area available.")
+                return
+
+            # a = [x_min, x_max, y_min, y_max]
+            x_pos = self.queried_area[0]
+            y_pos = self.queried_area[2]
+
+            dpg.set_value("mcs_ch0_ABS", x_pos)
+            dpg.set_value("mcs_ch1_ABS", y_pos)
+
+            print(f"Set MoveAbsX = {x_pos:.6f} m, MoveAbsY = {y_pos:.6f} m (From Query Top-Left)")
+        except Exception as e:
+            print(f"Failed to fill MoveABS from queried area: {e}")
+
     def fill_z(self):
         # Calculate Z value (if needed, otherwise set to 0)
         x = dpg.get_value("mcs_ch0_ABS")
         y = dpg.get_value("mcs_ch1_ABS")
-
-        point_on_plane = self.get_device_position(self.positioner)
-
-        # Z0 = calculate_z_series(self.map.ZCalibrationData, np.array(point_on_plane[0]), point_on_plane[1])
-        # Z1 = calculate_z_series(self.map.ZCalibrationData, np.array(x*1e6), int(y*1e6))
-        # z = (point_on_plane[2] - Z0 + Z1)/1e6
-        #
-        # dpg.set_value("mcs_ch2_ABS", z)
-        #
-        # points = np.array(point_on_plane)/1e6
-        # print(points)
-        # print(z)
+        requested_p = np.array([int(x*1e6), int(y*1e6)])
+        refP = self.get_device_position(self.positioner)
+        p_new = int(self.Z_correction(refP, requested_p))
+        dpg.set_value("mcs_ch2_ABS", p_new*1e-6)
 
     def save_pos(self):
         # Define the list of windows to check and save positions for
@@ -1707,7 +1721,7 @@ class GUI_OPX():
             self.queried_area = None
             self.queried_plane = None
 
-    def Plot_Loaded_Scan(self, use_fast_rgb: bool = False):
+    def Plot_Loaded_Scan(self, use_fast_rgb: bool = False,show_only_xy: bool = True):
         try:
             start_Plot_time = time.time()
 
@@ -1721,6 +1735,9 @@ class GUI_OPX():
             arrYZ = np.flipud(self.scan_data[:, :, self.idx_scan[Axis.X.value]])
             arrXZ = np.flipud(self.scan_data[:, self.idx_scan[Axis.Y.value], :])
             arrXY = np.flipud(self.scan_data[self.idx_scan[Axis.Z.value], :, :])
+
+            if self.limit:
+                arrXY = np.where(arrXY > self.dL_scan[2], self.dL_scan[2], arrXY)
 
             # Normalize the arrays
             result_arrayXY = (arrXY * 255 / arrXY.max())
@@ -1794,7 +1811,7 @@ class GUI_OPX():
             if (item_width is None) or (item_height is None):
                 raise Exception("Window does not exist")
 
-            if len(arrYZ) == 1:
+            if len(arrYZ) == 1 or show_only_xy:
                 dpg.set_item_width("Scan_Window", item_width + 50)
             else:
                 dpg.set_item_width("Scan_Window", item_width * 3 + 50)
@@ -10244,6 +10261,10 @@ class GUI_OPX():
                 for point in self.positioner.LoggedPoints:
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
 
+        if dpg.does_item_exist("btnOPX_Stop"):
+            print('Please stop other experiment before scanning')
+            return
+
         print("start scan steps")
         start_time = time.time()
         print(f"start_time: {self.format_time(start_time)}")
@@ -10419,6 +10440,13 @@ class GUI_OPX():
         elapsed_time = end_time - start_time
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
+
+        # # Display slices only if Z scan is enabled (checkbox checked) # NOT WORKING YET
+        # if self.b_Scan[2]:
+        #     try:
+        #         display_all_z_slices(filepath=fn + ".csv")
+        #     except Exception as e:
+        #         print(f"Failed to display Z scan slices: {e}")
 
         if not (self.stopScan):
             self.btnStop()
@@ -10601,8 +10629,10 @@ class GUI_OPX():
                         # Anneal !!!!!!!!!!!!!!!!!!!!!!!!!!!
                         if p_femto["femto_increment_hwp_anneal"]>0:
                             n_pulses_anneal = p_femto["femto_anneal_pulse_count"]
+                            n_batches = 10
+                            pulses_per_batch = max(1, n_pulses_anneal // n_batches)
+
                             n_pulse_defect = self.pharos.getAdvancedTargetPulseCount()
-                            self.pharos.setAdvancedTargetPulseCount(n_pulses_anneal)
 
                             hwp_anneal_angle = round(current_hwp-p_femto["femto_increment_hwp_anneal"],2)
                             if hwp_anneal_angle < 0:
@@ -10625,6 +10655,18 @@ class GUI_OPX():
                             self.anneal_times_all = []
 
                             anneal_time_start = time.time()
+                            prev_count = None
+                            stop_anneal = False
+
+                            self.pharos.enablePp()
+                            time.sleep(0.2)
+
+                            for batch in range(n_batches):
+                                if self.stopScan or stop_anneal:
+                                    break
+
+                                # Set batch size
+                                self.pharos.setAdvancedTargetPulseCount(pulses_per_batch)
                             self.pharos.enablePp()
                             time.sleep(0.2)
 
@@ -10647,26 +10689,35 @@ class GUI_OPX():
 
                                     anneal_meas_idx = self.meas_idx_handle.fetch_all()
                                     anneal_counts = self.counts_handle.fetch_all() / self.total_integration_time
-                                    print(
-                                        f"Anneal meas_idx = {anneal_meas_idx} | anneal_counts.size = {anneal_counts.size}")
+                                    current_time = time.time() - anneal_time_start
+                                    current_count = float(anneal_counts[-1]) if len(anneal_counts) > 0 else 0
 
                                     self.anneal_counts_all.append(anneal_counts)
-                                    self.anneal_times_all.append(time.time() - anneal_time_start)
+                                    self.anneal_times_all.append(current_time)
+                                    self.anneal_results.append([
+                                        current_time,
+                                        current_count,
+                                        self.V_scan[0][k],
+                                        self.V_scan[1][j],
+                                        round(current_hwp, 2)
+                                    ])
+
                                     self.lock.acquire()
                                     dpg.set_value("series_counts", [self.anneal_times_all, self.anneal_counts_all])
                                     dpg.fit_axis_data('x_axis')
                                     dpg.fit_axis_data('y_axis')
                                     self.lock.release()
 
-                                    self.anneal_results.append([
-                                        time.time() - anneal_time_start,
-                                        float(anneal_counts[-1]),
-                                        self.V_scan[0][k],
-                                        self.V_scan[1][j],
-                                        round(current_hwp, 2)
-                                    ])
+                                    print(f"Batch {batch + 1}/{n_batches} | Count: {current_count:.2f}")
 
-                            # copy_quti_graph_window_to_clipboard()
+                                    # Check if count decreasing
+                                    if batch > 0:
+                                        if prev_count is not None and current_count <= prev_count-5:
+                                            print("Anneal stopped: decrease in counts detected.")
+                                            stop_anneal = True
+                                            break
+
+                                    prev_count = current_count
 
                             # rewind back to defect parameters
                             self.pharos.setAdvancedTargetPulseCount(n_pulse_defect)

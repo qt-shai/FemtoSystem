@@ -17,7 +17,7 @@ class ZeluxGUI():
         self.cam = self.HW.camera
         self.flipper = None
         self.flipper_serial_number = ""
-        self.show_center_cross = False
+        self.show_center_cross = True
         self.background_image = None
         self.subtract_background = False
         self.HW = hw_devices.HW_devices()
@@ -54,7 +54,7 @@ class ZeluxGUI():
         global startBtn
         self.cam.constantGrabbing = False
         self.LiveTh.join()
-        startBtn = dpg.add_button(label="Start Live", before="btnStopLive", parent=self.window_tag, tag="btnStartLive",
+        startBtn = dpg.add_button(label="Start", before="btnStopLive", parent=self.window_tag, tag="btnStartLive",
                                   callback=self.StartLive)
         # dpg.add_button(label="Save Image", before="btnStopLive", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
         dpg.delete_item("btnStopLive")
@@ -226,21 +226,23 @@ class ZeluxGUI():
                                            default_value=self.cam.camera.convert_gain_to_decibels(self.cam.camera.gain),
                                            min_value=minGain, max_value=maxGain)
 
-                        dpg.add_checkbox(label="+", tag="chkShowCross", callback=self.toggle_center_cross)
+                        dpg.add_checkbox(label="+", tag="chkShowCross", callback=self.toggle_center_cross,default_value=self.show_center_cross)
                         dpg.add_button(label="CapBG", callback=self.CaptureBackground)
                         dpg.add_checkbox(label="SubBG", tag="chkSubtractBG",
                                          callback=lambda s, a, u: setattr(self, 'subtract_background', a))
+                        dpg.add_checkbox(label="KpSt", tag="keepSt", default_value=False)
+
                     with dpg.group(tag="controls_row2", horizontal=True):
                         dpg.add_button(label="Sv", tag="btnSaveProcessedImage", callback=self.SaveProcessedImage)
 
-                        dpg.add_input_int(label="#Frm", tag="StitchNumFrames", width=120, default_value=10, min_value=1)
-                        dpg.add_button(label="St", tag="btnStitchFrames", callback=self.StitchFrames)
+                        dpg.add_input_int(label="#X", tag="StitchNumFrames_X", width=110, default_value=10, min_value=1)
+                        dpg.add_input_int(label="#Y", tag="StitchNumFrames_Y", width=110, default_value=10, min_value=1)
 
-                        dpg.add_combo(label="", tag="StitchSweepMode",
-                                      items=["XY 15um", "X 15um", "Y 15um",
-                                             "XY 50um", "X 50um", "Y 50um",
-                                             "XY 100um", "X 100um", "Y 100um"],
-                                      default_value="XY 15um", width=120)
+                        dpg.add_input_int(label="X[µm]", tag="StitchStepSize_X", default_value=20, width=110,
+                                          min_clamped=True, min_value=1)
+                        dpg.add_input_int(label="Y[µm]", tag="StitchStepSize_Y", default_value=20, width=110,
+                                          min_clamped=True, min_value=1)
+                        dpg.add_button(label="St", tag="btnStitchFrames", callback=self.StitchFrames)
 
                         dpg.add_checkbox(label="Coords", tag="chkShowCoords", callback=self.toggle_coords_display)
 
@@ -364,15 +366,32 @@ class ZeluxGUI():
         self.show_center_cross = True  # Show the cross
         dpg.set_value("chkShowCross", True)
 
-        sweep_mode_str = dpg.get_value("StitchSweepMode")  # e.g., "XY 50um"
-        tokens = sweep_mode_str.split()
-        sweep_mode = tokens[0]  # "XY", "X", or "Y"
-        step_um = float(tokens[1].replace("um", ""))  # 15, 50, 100
+        # Read values from new inputs
+        step_um_x = dpg.get_value("StitchStepSize_X")
+        step_um_y = dpg.get_value("StitchStepSize_Y")
+        num_frames_x = dpg.get_value("StitchNumFrames_X")
+        num_frames_y = dpg.get_value("StitchNumFrames_Y")
 
-        step_pm = int(step_um * self.positioner.StepsIn1mm * 1e-3)
-        num_frames = dpg.get_value("StitchNumFrames")  # Frames per side
+        # Convert to picometers
+        step_pm_x = int(step_um_x * self.positioner.StepsIn1mm * 1e-3)
+        step_pm_y = int(step_um_y * self.positioner.StepsIn1mm * 1e-3)
+
         folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/Stitch/'
         os.makedirs(folder_path, exist_ok=True)
+
+        # Clear folder before saving
+        keep_all = dpg.get_value("keepSt")
+        folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/Stitch/'
+        if not keep_all:
+            for fname in os.listdir(folder_path):
+                if fname.lower() == "bg.png":
+                    continue  # ❌ Skip background image
+                fpath = os.path.join(folder_path, fname)
+                if os.path.isfile(fpath):
+                    os.remove(fpath)
+            print("Stitch folder cleared (except bg.png).")
+        else:
+            print("Stitch folder cleanup skipped (keepSt is ON)")
 
         try:
             self.positioner.GetPosition()
@@ -385,10 +404,10 @@ class ZeluxGUI():
 
         # Precompute target positions
         target_positions = []
-        for j in range(num_frames if sweep_mode in ["XY", "Y"] else 1):  # Y loop
-            for i in range(num_frames if sweep_mode in ["XY", "X"] else 1):  # X loop
-                x_pos = start_x + i * step_pm
-                y_pos = start_y + j * step_pm
+        for j in range(num_frames_y):  # Y loop
+            for i in range(num_frames_x):  # X loop
+                x_pos = start_x + i * step_pm_x
+                y_pos = start_y + j * step_pm_y
                 target_positions.append((i, j, x_pos, y_pos))
 
 
@@ -406,21 +425,21 @@ class ZeluxGUI():
                 print(f"Skipping ({x_str}, {y_str}) — already saved.")
                 continue
 
-            # === Move to X ===
+            # Move to X
             if abs(self.positioner.AxesPositions[0] - x_target) > 1:
                 self.positioner.MoveABSOLUTE(0, x_target)
                 time.sleep(0.001)
                 while not self.positioner.ReadIsInPosition(0):
                     time.sleep(0.001)
 
-            # === Move to Y ===
+            # Move to Y
             if abs(self.positioner.AxesPositions[1] - y_target) > 1:
                 self.positioner.MoveABSOLUTE(1, y_target)
                 time.sleep(0.001)
                 while not self.positioner.ReadIsInPosition(1):
                     time.sleep(0.001)
 
-            # === Optional Z correction ===
+            # Optional Z correction
             if len(self.positioner.LoggedPoints) == 3:
                 current_pos = np.array([x_target, y_target, start_z])
                 ref_pos = list(self.initial_scan_Location) if hasattr(self, "initial_scan_Location") else [start_x,
@@ -443,8 +462,7 @@ class ZeluxGUI():
             img_rgba = self.cam.lateset_image_buffer.reshape((self.cam.camera.image_height_pixels,
                                                               self.cam.camera.image_width_pixels, 4))
             img_rgb = img_rgba[:, :, :3]
-            # Normalize *before* converting to uint8
-            img_rgb = img_rgb / (img_rgb.max() + 1e-6)  # Normalize to 0–1
+            img_rgb = img_rgb / (img_rgb.max() + 1e-6)
             img_rgb = (img_rgb * 255).astype(np.uint8)
 
             filename = os.path.join(folder_path, f"Zelux_{coord_text}.png")
@@ -452,7 +470,7 @@ class ZeluxGUI():
             # print(f"Saved {filename}")
             print(f"Saved {len(os.listdir(folder_path))}/{len(target_positions)}: {os.path.basename(filename)}")
 
-        # === Return to starting position ===
+        # Return to start
         print("Returning to starting position...")
         for ch, pos in zip([0, 1, 2], [start_x, start_y, start_z]):
             try:
