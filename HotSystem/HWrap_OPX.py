@@ -7334,6 +7334,7 @@ class GUI_OPX():
         tMW = self.t_mw
         tRF = self.rf_pulse_time
         pMW=self.mw_P_amp
+        tWait = self.time_in_multiples_cycle_time(self.Twait * 1e3)  # [nsec]
 
 
         # RF frequency scan vector
@@ -7419,6 +7420,7 @@ class GUI_OPX():
                         align("MW", "RF")
                         play("const" * amp(p), "RF",
                              duration=tRF // 4)  # t already devide by four when creating the time vector
+                        wait(tWait)
                         # play MW after RF
                         align("RF", "MW")
                         #play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
@@ -7444,6 +7446,7 @@ class GUI_OPX():
                         #play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
                         # Don't play RF after MW just wait
                         wait(tRF // 4)
+                        wait(tWait)
                         # play MW
                         #play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
