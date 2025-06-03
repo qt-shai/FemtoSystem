@@ -8054,7 +8054,7 @@ class GUI_OPX():
                     with if_(sequenceState == 0):
                         # set new random TmW
                         assign(t, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
-                        assign(t_pad,int(self.t_vec_ini[-1])-t+5)
+                        assign(t_pad,int(self.t_vec_ini[-1])-t+5 )
                         
                         wait(t_pad) # pad zeros to make the total time between perp and meas constant
                         # play MW for time t
