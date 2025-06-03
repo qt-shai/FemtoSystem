@@ -8060,7 +8060,11 @@ class GUI_OPX():
                         # play MW for time t
                         #update_frequency("MW", 0)
                         update_frequency("MW", self.fMW_1st_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
+                        if self.benchmark_switch_flag:
+                            play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        else:
+                            play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
                         #play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
                         #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
                         # update_frequency("MW", self.fMW_2nd_res)
