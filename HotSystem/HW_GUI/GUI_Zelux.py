@@ -46,6 +46,9 @@ class ZeluxGUI():
         self.LiveTh = threading.Thread(target=self.cam.LiveTh)
         self.LiveTh.setDaemon(True)
         self.LiveTh.start()
+        if dpg.does_item_exist("btnStopLive"):
+            dpg.delete_item("btnStopLive")
+
         stopBtn = dpg.add_button(label="Stop", before="btnStartLive", parent=self.window_tag, tag="btnStopLive",
                                  callback=self.StopLive)
         dpg.delete_item("btnStartLive")
@@ -56,9 +59,10 @@ class ZeluxGUI():
         global startBtn
         self.cam.constantGrabbing = False
         self.LiveTh.join()
+        if dpg.does_item_exist("btnStartLive"):
+            dpg.delete_item("btnStartLive")
         startBtn = dpg.add_button(label="Start", before="btnStopLive", parent=self.window_tag, tag="btnStartLive",
                                   callback=self.StartLive)
-        # dpg.add_button(label="Save Image", before="btnStopLive", callback=self.cam.saveImage,tag="btnSave", parent="groupZeluxControls")
         dpg.delete_item("btnStopLive")
         dpg.bind_item_theme(item="btnStartLive", theme="btnGreenTheme")
 
