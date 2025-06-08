@@ -63,7 +63,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False):
 
     slice_idx = 0
     im = ax.imshow(I_[slice_idx], extent=[X_[0], X_[-1], Y_[0], Y_[-1]],
-                   origin='lower', aspect='equal', vmin=minI, vmax=maxI, cmap='rainbow')
+                   origin='lower', aspect='equal', vmin=minI, vmax=maxI)
     ax.set_title(f"XY @ Z = {Z_[slice_idx]:.2f} µm (slice {slice_idx+1})")
     ax.set_xlabel("X (µm)")
     ax.set_ylabel("Y (µm)")

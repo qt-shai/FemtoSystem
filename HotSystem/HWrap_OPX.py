@@ -798,6 +798,24 @@ class GUI_OPX():
         dpg.set_value(item="chkbox_QUA_simulate", value=sender.bEnableSimulate)
         print("Set bEnableSimulate to: " + str(sender.bEnableSimulate))
 
+    def hide_legend(self):
+        """Toggle the visibility of all legend series items."""
+        items = (
+            "series_counts",
+            "series_counts_ref",
+            "series_counts_ref2",
+            "series_counts_ref3",
+            "series_res_calcualted",
+        )
+
+        for item in items:
+            # `is_item_shown` → True if the item is currently visible
+            # (use `is_item_visible` if you’re on an older DearPyGui build)
+            if dpg.is_item_shown(item):
+                dpg.hide_item(item)
+            else:
+                dpg.show_item(item)
+
     # GUI controls
     def GetWindowSize(self):
         # Move to Common
@@ -827,6 +845,7 @@ class GUI_OPX():
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (80, 60, 60))
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (90, 70, 70))
 
+
     def controls(self, _width=1600, _Height=1000):
         self.GetWindowSize()
         pos = [int(self.viewport_width * 0.0), int(self.viewport_height * 0.4)]
@@ -836,6 +855,7 @@ class GUI_OPX():
         dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
         dpg.add_window(label="Exp graph", tag="experiments_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
         dpg.add_window(label="Exp graph", tag="graph_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+        dpg.add_button(label = "Hide legend", tag = "Hide_legend", parent = "graph_window", callback = self.hide_legend)
 
         dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
         dpg.add_plot(label="Graph", crosshairs=True, tag="graphXY", parent="graph_window", height=-1, width=-1)# width=int(win_size[0]), height=int(win_size[1]))  # height=-1, width=-1,no_menus = False )

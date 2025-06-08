@@ -22,6 +22,8 @@ class ZeluxGUI():
         self.subtract_background = False
         self.HW = hw_devices.HW_devices()
         self.positioner = self.HW.positioner
+        self.manual_cross_pos = None
+        self.rotation_count = 0
 
         try:
             self.background_image = np.load("zelux_background.npy")
@@ -104,13 +106,44 @@ class ZeluxGUI():
             # Just use the raw RGBA buffer as-is
             img = self.cam.lateset_image_buffer.astype(np.float32)
 
-        dpg.set_value("image_id", img)
+        if self.rotation_count:
+            img = self.cam.lateset_image_buffer.reshape((height, width, 4))
+            # np.rot90 rotates CCW, so k = (4 - steps)
+            img = np.rot90(img, k=(4 - self.rotation_count) % 4)
+            # print("ui texture expects :", dpg.get_item_width("tex_zlx"),
+            #       dpg.get_item_height("tex_zlx"))
+            # print("array shape handed :", img.shape[:2][::-1])  # (width, height)
+            _width, _height = img.shape[:2]
+
+
+
+
+        # dpg.set_value("image_id", img)
+        dpg.set_value("image_id", img.astype(np.float32).reshape(-1))
         # print(f"Live image range after subtraction: min={img.min():.3f}, max={img.max():.3f}")
+
+        ratio = self.cam.ratio
+        if self.rotation_count % 2:
+            disp_h = _width * (1.0 / ratio)
+        else:
+            disp_h = _width * ratio
+
+        dpg.set_item_width("image_id", _width)
+        dpg.set_item_height("image_id", disp_h)
+
+        # rebuild drawlist
+        if dpg.does_item_exist("image_drawlist"):
+            dpg.delete_item("image_drawlist")
+        dpg.add_drawlist(tag="image_drawlist", width=_width, height=disp_h, parent=self.window_tag)
+        dpg.draw_image("image_id", (0, 0), (_width, disp_h), parent="image_drawlist")
 
         # Draw cross if enabled
         if self.show_center_cross or self.show_coords_grid:
-            center_x = _width / 2
-            center_y = (_width * self.cam.ratio) / 2
+            if self.manual_cross_pos is None:
+                center_x = _width / 2
+                center_y = (_width * self.cam.ratio) / 2
+            else:
+                center_x, center_y = self.manual_cross_pos
             dpg.draw_line((center_x - 100, center_y), (center_x + 100, center_y), color=(0, 255, 0, 255), thickness=1,
                           parent="image_drawlist")
             dpg.draw_line((center_x, center_y - 100), (center_x, center_y + 100), color=(0, 255, 0, 255), thickness=1,
@@ -167,6 +200,128 @@ class ZeluxGUI():
                               color=(0, 255, 0, 200), parent="image_drawlist")
                 x += step_px
 
+    # def UpdateImage(self):
+    #     # 1) determine display width (90% of window)
+    #     win_w = dpg.get_item_width(self.window_tag)
+    #     win_h = dpg.get_item_height(self.window_tag)
+    #     disp_w = win_w * 0.9
+    #
+    #     # 2) fetch raw image buffer
+    #     h = self.cam.camera.image_height_pixels
+    #     w = self.cam.camera.image_width_pixels
+    #
+    #     if self.subtract_background and self.background_image is not None:
+    #         img_rgba = self.cam.lateset_image_buffer.reshape((h, w, 4))
+    #         bg_rgba = self.background_image.reshape((h, w, 4))
+    #         gray = np.mean(img_rgba[:, :, :3], axis=2)
+    #         bg_gray = np.mean(bg_rgba[:, :, :3], axis=2)
+    #         offset = 0.25
+    #         sub = np.clip(gray - bg_gray + offset, 0, None)
+    #         norm = np.clip(sub / (sub.max() + 1e-6), 0, 1)
+    #         bright = np.power(norm, 0.98)
+    #         rgba_img = np.stack([bright] * 3 + [np.ones_like(bright)], axis=-1)
+    #         img = rgba_img.astype(np.float32)
+    #     else:
+    #         img = self.cam.lateset_image_buffer.reshape((h, w, 4)).astype(np.float32)
+    #
+    #     # 3) apply 90° steps rotation if requested
+    #     if self.rotation_count:
+    #         k = (4 - self.rotation_count) % 4  # because np.rot90 is CCW
+    #         img = np.rot90(img, k=k)
+    #
+    #     # 4) determine texture size from rotated image
+    #     tex_h, tex_w = img.shape[:2]
+    #
+    #     # 5) recreate or update dynamic texture to match new dimensions
+    #     if dpg.does_item_exist("image_id"):  # texture already created
+    #         cfg = dpg.get_item_configuration("image_id")
+    #         # if size changed, delete + recreate
+    #         if cfg.get("width") != tex_w or cfg.get("height") != tex_h:
+    #             dpg.delete_item("image_id")
+    #             with dpg.texture_registry(tag="image_tag", show=False):
+    #                 dpg.add_dynamic_texture(
+    #                     width=tex_w,
+    #                     height=tex_h,
+    #                     default_value=img.reshape(-1),
+    #                     tag="image_id"
+    #                 )
+    #         else:
+    #             dpg.set_value("image_id", img.reshape(-1))
+    #     else:
+    #         # first-time setup
+    #         with dpg.texture_registry(tag="image_tag", show=False):
+    #             dpg.add_dynamic_texture(
+    #                 width=tex_w,
+    #                 height=tex_h,
+    #                 default_value=img.reshape(-1),
+    #                 tag="image_id"
+    #             )
+    #
+    #     # 6) compute display height based on camera aspect ratio
+    #     ratio = self.cam.ratio
+    #     if self.rotation_count % 2:
+    #         disp_h = disp_w / ratio
+    #     else:
+    #         disp_h = disp_w * ratio
+    #
+    #     # 7) resize image widget
+    #     dpg.set_item_width("image_id", disp_w)
+    #     dpg.set_item_height("image_id", disp_h)
+    #
+    #     # 8) rebuild drawlist and draw the image
+    #     if dpg.does_item_exist("image_drawlist"):
+    #         dpg.delete_item("image_drawlist")
+    #     dpg.add_drawlist(tag="image_drawlist", width=disp_w, height=disp_h, parent=self.window_tag)
+    #     dpg.draw_image("image_id", (0, 0), (disp_w, disp_h), parent="image_drawlist")
+    #
+    #     # 9) overlays: center cross and/or coords
+    #     if self.show_center_cross or self.show_coords_grid:
+    #         # determine center point
+    #         if self.manual_cross_pos is None:
+    #             cx = disp_w / 2
+    #             cy = disp_h / 2
+    #         else:
+    #             cx, cy = self.manual_cross_pos
+    #         # draw cross
+    #         dpg.draw_line((cx - 100, cy), (cx + 100, cy), color=(0, 255, 0, 255), thickness=1, parent="image_drawlist")
+    #         dpg.draw_line((cx, cy - 100), (cx, cy + 100), color=(0, 255, 0, 255), thickness=1, parent="image_drawlist")
+    #         # stage coords
+    #         try:
+    #             self.positioner.GetPosition()
+    #             ax = self.positioner.AxesPositions[0] * 1e-6
+    #             ay = self.positioner.AxesPositions[1] * 1e-6
+    #             az = self.positioner.AxesPositions[2] * 1e-6
+    #             coord_text = f"X = {ax:.1f}, Y = {ay:.1f}, Z = {az:.1f}"
+    #         except:
+    #             coord_text = "Stage position not available"
+    #         dpg.draw_text((10, disp_h - 20), coord_text, size=16, color=(0, 255, 0, 255), parent="image_drawlist")
+    #
+    #     # 10) grid overlay (if enabled)
+    #     if self.show_coords_grid:
+    #         step = 100
+    #         pix2um_x = pix2um_y = 0.04
+    #         shift_x = 2.38 / pix2um_x
+    #         shift_y = 0.85 / pix2um_y
+    #         # horizontal
+    #         y = 0
+    #         while y < disp_h - step:
+    #             ys = y + shift_y
+    #             off = ys - (disp_h / 2 if self.manual_cross_pos is None else cy)
+    #             coord_y = ay + off * pix2um_y
+    #             dpg.draw_line((0, ys), (disp_w, ys), color=(100, 255, 100, 80), thickness=1, parent="image_drawlist")
+    #             dpg.draw_text((5, ys + 2), f"{coord_y:.1f}", size=14, color=(0, 255, 0, 200), parent="image_drawlist")
+    #             y += step
+    #         # vertical
+    #         x = 2 * step
+    #         while x < disp_w:
+    #             xs = x + shift_x
+    #             off = xs - (disp_w / 2 if self.manual_cross_pos is None else cx)
+    #             coord_x = ax - off * pix2um_x
+    #             dpg.draw_line((xs, 0), (xs, disp_h), color=(100, 255, 100, 80), thickness=1, parent="image_drawlist")
+    #             dpg.draw_text((xs + 2, disp_h - 18), f"{coord_x:.1f}", size=14, color=(0, 255, 0, 200),
+    #                           parent="image_drawlist")
+    #             x += step
+
     def UpdateExposure(sender, app_data, user_data):
         # a = dpg.get_value(sender)
         sender.cam.SetExposureTime(int(user_data * 1e3))
@@ -174,6 +329,24 @@ class ZeluxGUI():
         dpg.set_value(item="slideExposure", value=sender.cam.camera.exposure_time_us / 1e3)
         print("Actual exposure time: " + str(sender.cam.camera.exposure_time_us / 1e3) + "milisecond")
         pass
+
+    def set_cross_from_inputs(self, sender, app_data, user_data=None):
+        """Read X/Y text boxes (strings), convert to ints, then redraw cross."""
+        x_str = dpg.get_value("inpCrossX")
+        y_str = dpg.get_value("inpCrossY")
+
+        try:
+            x = int(x_str)
+            y = int(y_str)
+        except ValueError:
+            # you could show an error message here instead
+            print(f"Invalid integer input: X='{x_str}', Y='{y_str}'")
+            return
+
+        self.manual_cross_pos = (x, y)
+        self.show_center_cross = True
+        dpg.set_value("chkShowCross", True)
+        self.UpdateImage()
 
     def UpdateGain(sender, app_data, user_data):
         # a = dpg.get_value(sender)
@@ -231,7 +404,7 @@ class ZeluxGUI():
                         dpg.add_checkbox(label="SubBG", tag="chkSubtractBG",
                                          callback=lambda s, a, u: setattr(self, 'subtract_background', a))
                         dpg.add_checkbox(label="KpSt", tag="keepSt", default_value=False)
-
+                        dpg.add_button(label="Rotate 90°", tag="btnRotate", callback=self.rotate_image)
                     with dpg.group(tag="controls_row2", horizontal=True):
                         dpg.add_button(label="Sv", tag="btnSaveProcessedImage", callback=self.SaveProcessedImage)
 
@@ -245,6 +418,14 @@ class ZeluxGUI():
                         dpg.add_button(label="St", tag="btnStitchFrames", callback=self.StitchFrames)
 
                         dpg.add_checkbox(label="Coords", tag="chkShowCoords", callback=self.toggle_coords_display)
+                        dpg.add_input_text(label="X_+", tag="inpCrossX",
+                                           width=50, default_value=str(int(self.cam.camera.image_width_pixels / 2)),
+                                           on_enter=True)
+                        dpg.add_input_text(label="Y_+", tag="inpCrossY",
+                                           width=50, default_value=str(int(self.cam.camera.image_height_pixels / 2)),
+                                           on_enter=True)
+                        dpg.add_button(label="Set +", tag="btnSetCross",
+                                       callback=self.set_cross_from_inputs)
 
 
         else:
@@ -361,6 +542,11 @@ class ZeluxGUI():
         cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
         print(f"Image saved with overlays to: {filename}")
         copy_image_to_clipboard(filename)
+
+    def rotate_image(self, sender, app_data, user_data=None):
+        """Rotate the live image by 90° clockwise."""
+        self.rotation_count = (self.rotation_count + 1) % 4
+        self.UpdateImage()
 
     def StitchFrames(self, sender, app_data, user_data=None):
         self.show_center_cross = True  # Show the cross
