@@ -12,6 +12,7 @@ from .wrapper_mattise import SirahMatisse
 from .Keysight_AWG.wrapper_keysight_awg import Keysight33500B
 from .Wrapper_KDC101 import MotorStage
 from .Wrapper_MFF_101 import FilterFlipperController
+from .Wrapper_HRS_500 import LightFieldSpectrometer
 from .Arduino.arduino_wrapper import ArduinoController
 from .SRS_PID.wrapper_sim960_pid import SRSsim960
 from .SRS_PID.wrapper_sim900_mainframe import SRSsim900
@@ -40,10 +41,10 @@ __all__ = [
     'Keysight33500B',
     'ConnectorMode',
     'MotorStage',
-    'FilterFlipperController'
+    'FilterFlipperController',
     'ConnectorMode',
     'SRSsim960',
-    'SRSsim900',
+    'LightFieldSpectrometer',
     'NovatechDDS426A',
     'ArduinoController',
     'NI_DAQ_Controller'

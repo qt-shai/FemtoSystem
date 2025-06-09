@@ -17,6 +17,7 @@ from HW_GUI import GUI_Picomotor as gui_Picomotor
 from HW_GUI import GUI_RohdeSchwarz as gui_RohdeSchwarz
 from HW_GUI import GUI_Smaract as gui_Smaract
 from HW_GUI import GUI_Zelux as gui_Zelux
+from HW_GUI.GUI_HRS_500 import GUI_HRS500
 from HW_GUI.GUI_NI_DAQ import GUIDAQ
 from HW_GUI.GUI_Picomotor import GUI_picomotor
 from HW_GUI.GUI_arduino import GUIArduino
@@ -906,6 +907,12 @@ class PyGuiOverlay(Layer):
                     # last_gui = self.mff_101_gui[-1]
                     # last_gui.create_gui_into_zelux()
                     pass
+
+                elif instrument == Instruments.HRS_500:
+                    self.hrs_500_gui = GUI_HRS500(hw_devices.HW_devices().hrs_500)
+                    self.create_bring_window_button(self.hrs_500_gui.window_tag, button_label="Spectrometer",
+                                                    tag="HRS_500_button", parent="focus_group")
+                    self.active_instrument_list.append(self.hrs_500_gui.window_tag)
 
                 elif instrument == Instruments.ARDUINO:
                     self.create_bring_window_button(self.arduino_gui.window_tag, button_label="Arduino",

@@ -5,7 +5,7 @@ import threading
 from Common import KeyboardKeys
 from HW_wrapper import (AttoDry800, ALR3206T, RS_SGS100a, smaractMCS2, Zelux, HighlandT130, newportPicomotor,
     SirahMatisse, Keysight33500B, MotorStage, ArduinoController, Motor, FilterFlipperController,
-                        SirahMatisse, Keysight33500B, ArduinoController, NI_DAQ_Controller)
+                        SirahMatisse, Keysight33500B, ArduinoController, NI_DAQ_Controller, LightFieldSpectrometer)
 from HW_wrapper.Attocube import Anc300Wrapper
 from HW_wrapper.SRS_PID.wrapper_sim960_pid import SRSsim960
 from HW_wrapper.SRS_PID.wrapper_sim900_mainframe import SRSsim900
@@ -47,6 +47,7 @@ class HW_devices:
             self.arduino: Optional[ArduinoController] = None
             self.kdc_101: Optional[MotorStage] = None
             self.mff_101_list: Optional[list[FilterFlipperController]] = []
+            self.hrs_500: Optional[LightFieldSpectrometer] = None
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
             self.ni_daq_controller: Optional[NI_DAQ_Controller]= None
             self._initialize()
@@ -217,6 +218,13 @@ class HW_devices:
                     current_flipper = FilterFlipperController(device.serial_number)
                     current_flipper.connect()
                     self.mff_101_list.append(current_flipper)
+                    pass
+
+                elif instrument == Instruments.HRS_500:
+                    # Defined to load Experiment2 by default
+                    self.hrs_500 = LightFieldSpectrometer(visible = True)
+                    self.hrs_500.connect()
+                    #self.hrs_500 = None
                     pass
 
                 elif instrument == Instruments.ARDUINO:

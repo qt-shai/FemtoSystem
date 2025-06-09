@@ -46,6 +46,7 @@ class Instruments(Enum):
     NI_DAQ = "ni_daq"
     KDC_101 = "KDC_101"
     MFF_101 = "MFF_101"
+    HRS_500 = "HRS_500"
 
 class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.59"
