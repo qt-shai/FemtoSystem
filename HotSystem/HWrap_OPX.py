@@ -157,6 +157,7 @@ class GUI_OPX():
         self.X_vec = None
         self.Y_vec = None
         self.Y_vec_2 = None
+        self.Y_vec2 = None
         self.Y_vec_aggregated: list[list[float]] = []
         self.scan_default_sleep_time: float = 5e-3
         self.initial_scan_Location: List[float] = []
@@ -2154,6 +2155,7 @@ class GUI_OPX():
         self.X_vec = []
         self.X_vec_ref = []
         self.Y_vec = []
+        self.Y_vec2 = []
         self.Y_vec_ref = []
         self.Y_vec_ref2 = []
         self.Y_vec_ref3 = []
@@ -2445,6 +2447,7 @@ class GUI_OPX():
 
                 # stream parameters
                 self.counts_st = declare_stream()      # experiment signal
+                self.counts2_st = declare_stream()  # 2nd experiment signal
                 self.counts_ref_st = declare_stream()  # reference signal
                 self.counts_ref2_st = declare_stream()  # reference signal
                 self.resCalculated_st = declare_stream()  # reference signal
@@ -2501,6 +2504,13 @@ class GUI_OPX():
                             save(self.counts_ref[self.idx], self.counts_ref_st)
                             save(self.counts_ref2[self.idx], self.counts_ref2_st)
                             save(self.resCalculated[self.idx], self.resCalculated_st)
+                        elif self.exp == Experiment.NUCLEAR_MR:
+                            with for_(self.idx, 0, self.idx < self.vectorLength,
+                                      self.idx + 1):  # in shuffle all elements need to be saved later to send to the stream
+                                save(self.counts[self.idx], self.counts_st)
+                                save(self.counts2[self.idx], self.counts2_st)
+                                save(self.counts_ref[self.idx], self.counts_ref_st)
+                                save(self.counts_ref2[self.idx], self.counts_ref2_st)
                         else:
                             with for_(self.idx, 0, self.idx < self.vectorLength,self.idx + 1):  # in shuffle all elements need to be saved later to send to the stream
                                 save(self.counts[self.idx], self.counts_st)
@@ -7354,6 +7364,7 @@ class GUI_OPX():
         tMW = self.t_mw
         tRF = self.rf_pulse_time
         pMW=self.mw_P_amp
+        tWait = self.time_in_multiples_cycle_time(self.Twait * 1e3)  # [nsec]
 
 
         # RF frequency scan vector
@@ -7378,6 +7389,9 @@ class GUI_OPX():
             times = declare(int, size=100)
             times_ref = declare(int, size=100)
 
+            self.fMW_res = (self.mw_freq_resonance - self.mw_freq_resonance) * self.u.GHz  # Hz
+            self.fMW_2nd_res = (self.mw_2ndfreq_resonance - self.mw_freq_resonance) * self.u.GHz  # Hz
+
             f = declare(int)
             p = declare(fixed)  # fixed is similar to float 4bit.28bit
 
@@ -7396,6 +7410,8 @@ class GUI_OPX():
 
             counts = declare(int, size=array_length)  # experiment signal (vector)
             counts_ref = declare(int, size=array_length)  # reference signal (vector)
+            counts2 = declare(int, size=array_length)  # experiment signal (vector)
+            counts_ref2 = declare(int, size=array_length)  # reference signal (vector)
 
             # Shuffle parameters
             val_vec_qua = declare(int, value=np.array([int(i) for i in self.f_vec]))  # frequencies QUA vector
@@ -7405,6 +7421,8 @@ class GUI_OPX():
             # stream parameters
             counts_st = declare_stream()  # experiment signal
             counts_ref_st = declare_stream()  # reference signal
+            counts2_st = declare_stream()  # experiment signal
+            counts_ref2_st = declare_stream()  # reference signal
 
             p = self.rf_proportional_pwr  # p should be between 0 to 1
 
@@ -7413,6 +7431,8 @@ class GUI_OPX():
                 with for_(idx, 0, idx < array_length, idx + 1):
                     assign(counts_ref[idx], 0)  # shuffle - assign new val from randon index
                     assign(counts[idx], 0)  # shuffle - assign new val from randon index
+                    assign(counts_ref2[idx], 0)  # shuffle - assign new val from randon index
+                    assign(counts2[idx], 0)  # shuffle - assign new val from randon index
 
                 # shuffle
                 with if_(self.bEnableShuffle):
@@ -7426,9 +7446,36 @@ class GUI_OPX():
                         assign(f, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
                         update_frequency("RF", f)
 
-                        # Signal
+                        """reference 1"""
                         # play MW for time Tmw
-                        update_frequency("MW", 0)
+                        # play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
+                        update_frequency("MW", self.fMW_res)
+                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        # play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # Don't play RF after MW just wait
+                        wait(tRF // 4)
+                        wait(tWait)
+                        # play MW
+                        # play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
+                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        # play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play laser after MW
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        # play measure after MW
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None,
+                                self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
+                        assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+                        align()
+
+                        """Signal 1"""
+                        # play MW for time Tmw
+                        update_frequency("MW", self.fMW_res)
                         #play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
                         play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
@@ -7439,11 +7486,12 @@ class GUI_OPX():
                         align("MW", "RF")
                         play("const" * amp(p), "RF",
                              duration=tRF // 4)  # t already devide by four when creating the time vector
+                        wait(tWait)
                         # play MW after RF
                         align("RF", "MW")
                         #play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
+                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
                         #play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
                         #play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
                         # play laser after MW
@@ -7455,21 +7503,23 @@ class GUI_OPX():
                         assign(counts[idx_vec_qua[idx]], counts[idx_vec_qua[idx]] + counts_tmp)
                         align()
 
-                        # reference
+                        """reference 2"""
                         # play MW for time Tmw
-                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
-                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
-                        #play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
-                        #play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
+                        update_frequency("MW", self.fMW_2nd_res)
+                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        # play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
                         # Don't play RF after MW just wait
                         wait(tRF // 4)
+                        wait(tWait)
                         # play MW
-                        #play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
-                        play("-xPulse"*amp(self.mw_P_amp), "MW", duration=(tMW/2) // 4)
-                        #play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
-                        #play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
+                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        # play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
                         # play laser after MW
                         align("MW", "Laser")
                         play("Turn_ON", "Laser", duration=tLaser // 4)
@@ -7477,8 +7527,41 @@ class GUI_OPX():
                         align("MW", "Detector_OPD")
                         measure("readout", "Detector_OPD", None,
                                 self.time_tagging_fn(times_ref, tMeasure, counts_ref_tmp))
-                        assign(counts_ref[idx_vec_qua[idx]], counts_ref[idx_vec_qua[idx]] + counts_ref_tmp)
+                        assign(counts_ref2[idx_vec_qua[idx]], counts_ref2[idx_vec_qua[idx]] + counts_ref_tmp)
                         align()
+
+
+                        """Signal 2"""
+                        # play MW for time Tmw
+                        update_frequency("MW", self.fMW_2nd_res)
+                        # play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
+                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+
+                        # play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play RF after MW
+                        align("MW", "RF")
+                        play("const" * amp(p), "RF",
+                             duration=tRF // 4)  # t already devide by four when creating the time vector
+                        wait(tWait)
+                        # play MW after RF
+                        align("RF", "MW")
+                        # play("xPulse"*amp(self.mw_P_amp), "MW", duration=tMW // 4)
+                        play("-xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        play("xPulse" * amp(self.mw_P_amp), "MW", duration=(tMW / 2) // 4)
+                        # play("xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play("-xPulse" * amp(pMW), "MW", duration=(tMW/2) // 4)
+                        # play laser after MW
+                        align("MW", "Laser")
+                        play("Turn_ON", "Laser", duration=tLaser // 4)
+                        # play measure after MW
+                        align("MW", "Detector_OPD")
+                        measure("readout", "Detector_OPD", None, self.time_tagging_fn(times, tMeasure, counts_tmp))
+                        assign(counts2[idx_vec_qua[idx]], counts2[idx_vec_qua[idx]] + counts_tmp)
+                        align()
+
+
                     with else_():
                         assign(tracking_signal, 0)
                         with for_(idx, 0, idx < tTrackingIntegrationCycles, idx + 1):
@@ -7508,12 +7591,16 @@ class GUI_OPX():
                     with for_(idx, 0, idx < array_length, idx + 1):
                         save(counts[idx], counts_st)
                         save(counts_ref[idx], counts_ref_st)
+                        save(counts2[idx], counts2_st)
+                        save(counts_ref2[idx], counts_ref2_st)
                 save(n, n_st)  # save number of iteration inside for_loop
                 save(tracking_signal, tracking_signal_st)  # save number of iteration inside for_loop
 
             with stream_processing():
                 counts_st.buffer(len(self.f_vec)).average().save("counts")
                 counts_ref_st.buffer(len(self.f_vec)).average().save("counts_ref")
+                counts2_st.buffer(len(self.f_vec)).average().save("counts2")
+                counts_ref2_st.buffer(len(self.f_vec)).average().save("counts_ref2")
                 n_st.save("iteration")
                 tracking_signal_st.save("tracking_ref")
 
@@ -7987,13 +8074,17 @@ class GUI_OPX():
                     with if_(sequenceState == 0):
                         # set new random TmW
                         assign(t, val_vec_qua[idx_vec_qua[idx]])  # shuffle - assign new val from randon index
-                        assign(t_pad,int(self.t_vec_ini[-1])-t+5)
+                        assign(t_pad,int(self.t_vec_ini[-1])-t+5 )
                         
                         wait(t_pad) # pad zeros to make the total time between perp and meas constant
                         # play MW for time t
                         #update_frequency("MW", 0)
                         update_frequency("MW", self.fMW_1st_res)
-                        play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
+                        if self.benchmark_switch_flag:
+                            play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                            play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
+                        else:
+                            play("xPulse"*amp(self.mw_P_amp), "MW", duration=t)
                         #play("xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
                         #play("-xPulse"*amp(self.mw_P_amp), "MW", duration=t/2)
                         # update_frequency("MW", self.fMW_2nd_res)
@@ -8518,6 +8609,10 @@ class GUI_OPX():
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
                 dpg.set_value("series_counts_ref3", [self.X_vec, self.Y_vec_ref3])
                 dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_vec_squared]) # MIC: works!
+            if self.exp == Experiment.NUCLEAR_MR:
+                dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
+                dpg.set_value("series_counts_ref3", [self.X_vec, self.Y_vec2])
+                #dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_vec_squared]) # MIC: works!
             if self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY,Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
                 dpg.set_value("series_counts_ref2", [self.X_vec, self.Y_vec_ref2])
                 dpg.set_value("series_res_calcualted", [self.X_vec, self.Y_resCalculated])
@@ -8632,6 +8727,8 @@ class GUI_OPX():
         elif self.exp == Experiment.RandomBenchmark:
             #If nothing else get added you can put it in with counter
             self.results = fetching_tool(self.job, data_list=["counts", "counts_ref", "counts_ref2", "iteration", "tracking_ref", "number_order", "counts_square","counts_ref3"], mode="live")
+        elif self.exp == Experiment.NUCLEAR_MR:
+            self.results = fetching_tool(self.job, data_list=["counts", "counts2", "counts_ref", "counts_ref2", "iteration", "tracking_ref"], mode="live")
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.results = fetching_tool(self.job,
                                          data_list=["counts", "counts_ref", "counts_ref2", "resCalculated", "iteration",
@@ -8828,6 +8925,8 @@ class GUI_OPX():
             self.g2Vec, self.g2_totalCounts, self.iteration = self.results.fetch_all()
         elif self.exp == Experiment.RandomBenchmark:
             self.signal, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal, self.number_order, self.signal_squared, self.ref_signal3  = self.results.fetch_all()  # grab/fetch new data from stream
+        elif self.exp == Experiment.NUCLEAR_MR:
+            self.signal, self.signal2, self.ref_signal, self.ref_signal2, self.iteration, self.tracking_ref_signal  = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp in [Experiment.POPULATION_GATE_TOMOGRAPHY, Experiment.ENTANGLEMENT_GATE_TOMOGRAPHY]:
             self.signal, self.ref_signal, self.ref_signal2, self.resCalculated, self.iteration, self.tracking_ref_signal = self.results.fetch_all()  # grab/fetch new data from stream
         elif self.exp == Experiment.Nuclear_Fast_Rot:
@@ -8909,8 +9008,15 @@ class GUI_OPX():
 
         if self.exp == Experiment.NUCLEAR_MR:  # freq
             self.X_vec = self.f_vec / float(1e6)  # [MHz]
+            self.X_vec = self.X_vec.tolist()
             self.Y_vec = self.signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec = self.Y_vec.tolist()
+            self.Y_vec2 = self.signal2 / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec2 = self.Y_vec2.tolist()
             self.Y_vec_ref = self.ref_signal / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref = self.Y_vec_ref.tolist()
+            self.Y_vec_ref2 = self.ref_signal2 / (self.TcounterPulsed * 1e-9) / 1e3
+            self.Y_vec_ref2 = self.Y_vec_ref2.tolist()
             self.tracking_ref = self.tracking_ref_signal / 1000 / (self.tTrackingSignaIntegrationTime * 1e6 * 1e-9)
 
         if self.exp == Experiment.NUCLEAR_POL_ESR:  # freq
@@ -9844,6 +9950,8 @@ class GUI_OPX():
             # raw data
             if self.exp == Experiment.RandomBenchmark:
                 RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,'Gate_Order': self.benchmark_number_order, 'Y_vec_squared': self.Y_vec_squared, 'Y_ref3': self.Y_vec_ref3}
+            elif self.exp == Experiment.NUCLEAR_MR:
+                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y2': self.Y_vec2, 'Y_ref2': self.Y_vec_ref2}
             elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
                 # Modify below to have some pre-post-processed data for further data analysis
                 if self.simulation:
