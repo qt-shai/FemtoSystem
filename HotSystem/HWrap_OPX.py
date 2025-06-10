@@ -1390,6 +1390,7 @@ class GUI_OPX():
                         with dpg.group(horizontal=True):
                             dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100)
                             dpg.add_button(label="Mv", callback=self.move_last_saved_files)
+                        dpg.add_input_float(label="AnnTH",tag="femto_anneal_threshold",default_value=800,width=100)
 
                     _width = 150
                     with dpg.group(horizontal=False):
@@ -10501,13 +10502,6 @@ class GUI_OPX():
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
 
-        # # Display slices only if Z scan is enabled (checkbox checked) # NOT WORKING YET
-        # if self.b_Scan[2]:
-        #     try:
-        #         display_all_z_slices(filepath=fn + ".csv")
-        #     except Exception as e:
-        #         print(f"Failed to display Z scan slices: {e}")
-
         if not (self.stopScan):
             self.btnStop()
 
@@ -10552,7 +10546,7 @@ class GUI_OPX():
                         print(f"Failed to delete {file_path}: {e}")
 
             p_femto = {}
-            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp","femto_increment_hwp_anneal","femto_anneal_pulse_count"]
+            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp","femto_increment_hwp_anneal","femto_anneal_pulse_count","femto_anneal_threshold"]
             for tag in item_tags:
                 p_femto[tag] = dpg.get_value(tag)
                 print(f"{tag}: {p_femto[tag]}")
@@ -10689,9 +10683,6 @@ class GUI_OPX():
                         # Anneal !!!!!!!!!!!!!!!!!!!!!!!!!!!
                         if p_femto["femto_increment_hwp_anneal"]>0:
                             n_pulses_anneal = p_femto["femto_anneal_pulse_count"]
-                            n_batches = 10
-                            pulses_per_batch = max(1, n_pulses_anneal // n_batches)
-
                             n_pulse_defect = self.pharos.getAdvancedTargetPulseCount()
 
                             hwp_anneal_angle = round(current_hwp-p_femto["femto_increment_hwp_anneal"],2)
@@ -10715,23 +10706,16 @@ class GUI_OPX():
                             self.anneal_times_all = []
 
                             anneal_time_start = time.time()
-                            prev_count = None
                             stop_anneal = False
+                            above_start_time = None
+                            anneal_threshold = p_femto["femto_anneal_threshold"]
 
-                            self.pharos.enablePp()
-                            time.sleep(0.2)
-
-                            for batch in range(n_batches):
-                                if self.stopScan or stop_anneal:
-                                    break
-
-                                # Set batch size
-                                self.pharos.setAdvancedTargetPulseCount(pulses_per_batch)
+                            self.pharos.setAdvancedTargetPulseCount(n_pulses_anneal)
                             self.pharos.enablePp()
                             time.sleep(0.2)
 
                             # Loop while annealing is ongoing
-                            while self.pharos.getAdvancedIsPpEnabled():
+                            while self.pharos.getAdvancedIsPpEnabled() and not stop_anneal:
                                 # Trigger QUA acquisition
                                 self.qm.set_io2_value(self.ScanTrigger)
                                 time.sleep(1e-3)
@@ -10768,16 +10752,19 @@ class GUI_OPX():
                                     dpg.fit_axis_data('y_axis')
                                     self.lock.release()
 
-                                    print(f"Batch {batch + 1}/{n_batches} | Count: {current_count:.2f}")
+                                    print(f"Count: {current_count:.2f}")
 
-                                    # Check if count decreasing
-                                    if batch > 0:
-                                        if prev_count is not None and current_count <= prev_count-5:
-                                            print("Anneal stopped: decrease in counts detected.")
+                                    # threshold‐based stop
+                                    if current_count > anneal_threshold:
+                                        if above_start_time is None:
+                                            above_start_time = time.time()
+                                        elif (time.time() - above_start_time) >= 2.0:
+                                            print(f"Anneal stopped: signal > {anneal_threshold:.1f} for ≥2 s")
                                             stop_anneal = True
+                                            self.pharos.disablePp()
                                             break
-
-                                    prev_count = current_count
+                                    else:
+                                        above_start_time = None
 
                             # rewind back to defect parameters
                             self.pharos.setAdvancedTargetPulseCount(n_pulse_defect)

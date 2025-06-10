@@ -1440,7 +1440,7 @@ class PyGuiOverlay(Layer):
 
     def setup_main_exp_buttons(self):
         with dpg.window(label="Main Buttons Group", tag="Main_Window",
-                          autosize=True, no_move=True):
+                          autosize=True, no_move=True, collapsed=True):
             with dpg.group(label="Main Buttons Group", horizontal=True):
                 dpg.add_text("Bring Instrument to front:")
                 with dpg.group(tag = "focus_group",horizontal=True):
