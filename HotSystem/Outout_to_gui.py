@@ -178,7 +178,7 @@ def run(command: str):
 
                 full_folder = f"{folder}_{suffix}"
 
-                # Check if MoveSubfolderInput existss
+                # Check if MoveSubfolderInput exists
                 if not dpg.does_item_exist("MoveSubfolderInput"):
                     dpg.set_value("chkbox_scan", True)
                     if hasattr(sys.stdout.parent, "opx"):
@@ -188,6 +188,19 @@ def run(command: str):
                 print(f"Subfolder set to: {full_folder}")
             except Exception as e:
                 print(f"Error in 'sub' command: {e}")
+
+
+        elif command.startswith("cob "):
+            try:
+                power_mw = float(command.split("cob ", 1)[1].strip())
+                p = getattr(sys.stdout, "parent", None)
+                if p and hasattr(p,"coboltGUI") and p.coboltGUI and p.coboltGUI.laser and p.coboltGUI.laser.is_connected():
+                    p.coboltGUI.laser.set_modulation_power(power_mw)
+                    print(f"Cobolt modulation power set to {power_mw:.2f} mW")
+                else:
+                    print("Cobolt laser not connected or unavailable.")
+            except Exception as e:
+                print(f"Failed to set Cobolt power: {e}")
 
         elif command == "pp":
             import subprocess

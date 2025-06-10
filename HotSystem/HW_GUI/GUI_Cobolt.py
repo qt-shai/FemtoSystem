@@ -46,7 +46,7 @@ class GUI_Cobolt():  # todo1: support several devices
 
         # Define the layout of the GUI
         Child_Width = 200
-        with dpg.window(tag=self.window_tag, label="Cobolt Laser, disconnected, "+ self.laser.serialnumber, no_title_bar=False, height=440, width=1600, collapsed=True):
+        with dpg.window(tag=self.window_tag, label="Cobolt Laser, disconnected, "+ self.laser.serialnumber, no_title_bar=False, height=440, width=1600, collapsed=False):
             with dpg.group(tag="Indicators", horizontal=True):
                 # Column 1: Connection settings and mode selection
                 with dpg.group(horizontal=False, tag="column 1", width=Child_Width):

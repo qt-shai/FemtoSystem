@@ -25,6 +25,7 @@ import glfw
 import matplotlib
 import numpy as np
 from collections import Counter
+import json
 
 from qm.jobs.base_job import QmBaseJob
 from qm.qua._expressions import QuaVariable, QuaVariableType
@@ -801,7 +802,6 @@ class GUI_OPX():
     def hide_legend(self):
         """Toggle the visibility of all legend series items."""
         items = (
-            "series_counts",
             "series_counts_ref",
             "series_counts_ref2",
             "series_counts_ref3",
@@ -815,6 +815,10 @@ class GUI_OPX():
                 dpg.hide_item(item)
             else:
                 dpg.show_item(item)
+
+        # Hide legend
+        if dpg.does_item_exist("graph_legend"):
+            dpg.hide_item("graph_legend")
 
     # GUI controls
     def GetWindowSize(self):
@@ -859,7 +863,7 @@ class GUI_OPX():
 
         dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
         dpg.add_plot(label="Graph", crosshairs=True, tag="graphXY", parent="graph_window", height=-1, width=-1)# width=int(win_size[0]), height=int(win_size[1]))  # height=-1, width=-1,no_menus = False )
-        dpg.add_plot_legend(parent="graphXY")  # optionally create legend
+        dpg.add_plot_legend(tag="graph_legend", parent="graphXY")
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False, parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
@@ -1429,6 +1433,31 @@ class GUI_OPX():
                     self.load_pos()
         else:
             dpg.delete_item("Scan_Window")
+
+    def save_scan_parameters(self):
+        data = {
+            "dx": self.dL_scan[0],
+            "dy": self.dL_scan[1],
+            "dz": self.dL_scan[2],
+            "Lx": self.L_scan[0],
+            "Ly": self.L_scan[1],
+            "Lz": self.L_scan[2]
+        }
+        with open("scan_parameters.json", "w") as f:
+            json.dump(data, f)
+
+    def load_scan_parameters(self):
+        try:
+            with open("scan_parameters.json", "r") as f:
+                data = json.load(f)
+                self.dL_scan[0] = data.get("dx", self.dL_scan[0])
+                self.dL_scan[1] = data.get("dy", self.dL_scan[1])
+                self.dL_scan[2] = data.get("dz", self.dL_scan[2])
+                self.L_scan[0] = data.get("Lx", self.L_scan[0])
+                self.L_scan[1] = data.get("Ly", self.L_scan[1])
+                self.L_scan[2] = data.get("Lz", self.L_scan[2])
+        except FileNotFoundError:
+            pass  # Use defaults if file doesn't exist
 
     def move_last_saved_files(self, sender=None, app_data=None, user_data=None):
         try:
@@ -2019,6 +2048,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="chkbox_scan", value=sender.bScanChkbox)
         print("Set bScan to: " + str(sender.bScanChkbox))
+        sender.load_scan_parameters()
         sender.GUI_ScanControls()
 
     def Update_close_all_qm(sender, app_data, user_data):
@@ -2076,6 +2106,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_dx_scan", value=sender.dL_scan[0])
         print("Set dx_scan to: " + str(sender.dL_scan[0]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2086,6 +2117,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_Lx_scan", value=sender.L_scan[0])
         print("Set Lx_scan to: " + str(sender.L_scan[0]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2096,6 +2128,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_dy_scan", value=sender.dL_scan[1])
         print("Set dy_scan to: " + str(sender.dL_scan[1]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2106,6 +2139,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_Ly_scan", value=sender.L_scan[1])
         print("Set Ly_scan to: " + str(sender.L_scan[1]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2116,6 +2150,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_dz_scan", value=sender.dL_scan[2])
         print("Set dz_scan to: " + str(sender.dL_scan[2]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2126,6 +2161,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_Lz_scan", value=sender.L_scan[2])
         print("Set Lz_scan to: " + str(sender.L_scan[2]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",

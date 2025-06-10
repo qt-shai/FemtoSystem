@@ -525,12 +525,15 @@ class PyGuiOverlay(Layer):
                     dpg.set_value("Analog_Modulation_cbx",am=='1')
                     dpg.set_value("Digital_Modulation_cbx",dm=='1')
 
-                    if Laser_mode in ["1 - Constant Power","ConstantPower"]:
-                        dpg.set_item_label("LaserWin","Cobolt (const pwr mode): actual power "+Laser_power+" mW")
-                    elif Laser_mode in ["0 - Constant Current","ConstantCurrent"]:
-                        dpg.set_item_label("LaserWin","Cobolt (const current mode): actual Current "+Laser_current+" mA")
-                    elif Laser_mode in ["2 - Modulation Mode","PowerModulation"]:
-                        dpg.set_item_label("LaserWin","Cobolt (mod. pwr mode): actual power "+Laser_power+" mW")
+                    if Laser_mode in ["1 - Constant Power", "ConstantPower"]:
+                        dpg.set_item_label("LaserWin",
+                                           f"Cobolt (const pwr mode): {Laser_power} mW (setpoint: {Laser_mod_power} mW)")
+                    elif Laser_mode in ["0 - Constant Current", "ConstantCurrent"]:
+                        dpg.set_item_label("LaserWin", f"Cobolt (const current mode): {Laser_current} mA")
+                    elif Laser_mode in ["2 - Modulation Mode", "PowerModulation"]:
+                        dpg.set_item_label("LaserWin",
+                                           f"Cobolt (mod. pwr mode): {Laser_power} mW (setpoint: {Laser_mod_power} mW)")
+
             except Exception as e:
                 print(f"Cobolt render error: {e}")
 
