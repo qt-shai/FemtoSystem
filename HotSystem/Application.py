@@ -159,9 +159,6 @@ class ImGuiOverlay(Layer):
         io.backend_flags |= 1 << 2#imgui.IMGUI_BACKEND_FLAGS_HAS_SET_MOUSE_POS
         # return super().on_attach()
 
-        # Minimize the GLFW window (iconify)
-        glfw.iconify_window(Application_singletone().GetWindow().m_Window_GL)
-
     def on_update(self):
         self.io = imgui.get_io()
         io = self.io

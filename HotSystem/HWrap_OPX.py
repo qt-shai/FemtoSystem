@@ -1306,6 +1306,12 @@ class GUI_OPX():
         scan_time_in_seconds = self.estimatedScanTime * 60
 
         item_width = int(200 * self.window_scale_factor)
+
+        # ✅ Prevent duplicate creation
+        if dpg.does_item_exist("Scan_Window"):
+            dpg.show_item("Scan_Window")  # Optional: bring it to front
+            return
+
         if self.bScanChkbox:
             suffix = ""
             suffix_file = "folder_suffix.txt"

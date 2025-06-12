@@ -6,8 +6,8 @@ import os
 
 from imgui import create_context
 
-# from Application import Application_singletone,PyGuiOverlay,ImGuiOverlay
-from Application import Application_singletone,PyGuiOverlay
+from Application import Application_singletone,PyGuiOverlay,ImGuiOverlay
+# from Application import Application_singletone,PyGuiOverlay
 
 
 # todo:
@@ -15,10 +15,10 @@ from Application import Application_singletone,PyGuiOverlay
 # add search for devices fo Rohde Schwarz
 
 def main():
-    # gui = ImGuiOverlay() #pyimgui
+    gui = ImGuiOverlay() #pyimgui
     guiDPG = PyGuiOverlay() # dear imgui
     app = Application_singletone()
-    # app.PushOverLay(gui)
+    app.PushOverLay(gui)
     app.PushOverLay(layer=guiDPG)
     app.Run()
 
