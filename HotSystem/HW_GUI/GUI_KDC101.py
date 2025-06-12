@@ -5,7 +5,9 @@ from Common import DpgThemes
 from HW_GUI.GUI_motors import GUIMotor
 import time
 import threading
+import numpy as np
 from SystemConfig import Instruments, load_instrument_images
+from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
 
 class GUI_KDC101(GUIMotor):
 
@@ -26,6 +28,7 @@ class GUI_KDC101(GUIMotor):
         themes = DpgThemes()
         self.viewport_width = dpg.get_viewport_client_width()
         self.viewport_height = dpg.get_viewport_client_height()
+        self.pharos = PharosLaserAPI(host="192.168.101.58")
         #self.system_initialization()
         Child_Width = 100
         with dpg.window(label=f"{self.prefix} motor", no_title_bar=False,
@@ -56,44 +59,49 @@ class GUI_KDC101(GUIMotor):
                 dpg.add_text("Current Position:", color=(0, 255, 0), indent=10)
                 dpg.add_text(default_value="---", tag=self.position_display_tag, indent=10)
                 dpg.add_button(label="Read Current Angle", callback=self.read_current_angle)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("P[µW]:", color=(0, 255, 0))
+                    dpg.add_text("N/A", tag=f"{self.prefix}_LaserPower_{self.unique_id}")
+                with dpg.group(horizontal=True):
+                    dpg.add_text("E[nJ]:", color=(0, 255, 0))
+                    dpg.add_text("N/A", tag=f"{self.prefix}_PulseEnergy_{self.unique_id}")
 
 
+    def calculate_laser_pulse(self, HWP_deg: float, Att_percent: float, rep_rate: float = 50e3) -> tuple[float, float]:
+        # --- Polynomial calculation ---
+        P_att = 13.86 * Att_percent ** 2 + 16.70 * Att_percent + 2.42
 
-        # self._monitor_stop_event = threading.Event()
-        # self._monitor_thread = threading.Thread(target=self._monitor_position, daemon=True)
-        # self._monitor_thread.start()
+        # --- HWP modulation factor ---
+        theta0 = -7.2
+        modulation = np.sin(np.radians(2 * (HWP_deg - theta0))) ** 2 / np.sin(np.radians(2 * (40 - theta0))) ** 2
 
-    # def _monitor_position(self):
-    #     """Thread function that continuously updates the motor position every 0.2 seconds."""
-    #     while not self._monitor_stop_event.is_set():
-    #         try:
-    #             current_pos = self.dev.get_current_position()
-    #             dpg.set_value(self.position_tag, f"{current_pos:.6f}")
-    #         except Exception as e:
-    #             dpg.set_value(self.position_tag, f"Error: {e}")
-    #         time.sleep(0.2)
-    #
-    # def shutdown(self):
-    #     """Cleanly stop the monitoring thread."""
-    #     self._monitor_stop_event.set()
-    #     self._monitor_thread.join(timeout=1)
-    #
-    # def update_position_display(self):
-    #     """Updates the position display with the latest position."""
-    #     try:
-    #         current_pos = self.dev.get_current_position()
-    #         dpg.set_value(self.position_tag, f"{current_pos:.6f}")
-    #     except Exception as e:
-    #         dpg.set_value(self.position_tag, f"Error: {e}")
+        P_uW = P_att * modulation
+        pulse_energy_nJ = P_uW * 1e-6 / rep_rate * 1e9
+        return P_uW, pulse_energy_nJ
+
+    def get_current_attenuation(self) -> float:
+        try:
+            return float(self.pharos.getBasicTargetAttenuatorPercentage())
+        except Exception as e:
+            print(f"Error reading attenuation: {e}")
+            return 0.0
+
     def read_current_angle(self):
         try:
             angle = float(str(self.dev.get_current_position()))
             dpg.set_value(self.position_display_tag, f"{angle:.3f}°")
             print(f"Current angle: {angle:.3f}°")
-        except Exception as e:
-            print(f"Error reading current angle: {e}")
-            dpg.set_value(self.position_display_tag, f"Error")
 
+            # === Update Laser Power & Energy ===
+            # You must define or fetch the current attenuation value here:
+            Att_percent = self.get_current_attenuation()  # Replace with actual function or value
+
+            P_uW, pulse_energy_nJ = self.calculate_laser_pulse(angle, Att_percent)
+            dpg.set_value(f"{self.prefix}_LaserPower_{self.unique_id}", f"{P_uW:.1f}")
+            dpg.set_value(f"{self.prefix}_PulseEnergy_{self.unique_id}", f"{pulse_energy_nJ:.1f}")
+        except Exception as e:
+                print(f"Error reading current angle: {e}")
+                dpg.set_value(self.position_display_tag, f"Error")
 
     def system_initialization(self):
         self.dev.connect()
@@ -104,16 +112,6 @@ class GUI_KDC101(GUIMotor):
         print(new_value)
         while not self.dev.is_busy():
             self.dev.MoveABSOLUTE(new_value)
-        #self.update_position_display()
-
-    # def update_position(self):
-    #     """Retrieves and displays the current motor position."""
-    #     try:
-    #         position = self.dev.get_current_position()  # Assuming `get_position()` fetches the current position
-    #         dpg.set_value(self.position_tag, f"Current Position: {position:}")
-    #     except Exception as e:
-    #         dpg.set_value(self.position_tag, f"Error: {e}")
-
 
     def home_button(self):
         """Callback for the Home button."""

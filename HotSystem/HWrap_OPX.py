@@ -242,7 +242,7 @@ class GUI_OPX():
         self.scan_data = np.zeros(shape=[80, 80, 60])
         self.queried_area = None
         self.queried_plane = None  # 0 - XY, 1 - YZ, 2 -XZ
-        self.bScanChkbox = False
+        self.bScanChkbox = True
         self.L_scan = [3000, 3000, 3000]  # [nm]
         self.dL_scan = [300, 300, 300]  # [nm]
         self.b_Scan = [True, True, False]
@@ -378,7 +378,7 @@ class GUI_OPX():
         self.connect_to_QM_OPX = False
         self.benchmark_switch_flag = True
         self.benchmark_one_gate_only = True
-        self.bScanChkbox = False
+        self.bScanChkbox = True
 
         self.chkbox_close_all_qm = False
         self.pharos = PharosLaserAPI(host="192.168.101.58")
@@ -1224,11 +1224,8 @@ class GUI_OPX():
                                      default_value=self.AWG_interval,
                                      min_value=0, max_value=10000, step=4)
 
-
-
                 dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
                 dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
-
 
                 dpg.add_slider_int(label="Laser Type",
                                    tag="on_off_slider_OPX", width = 80,
@@ -1290,8 +1287,9 @@ class GUI_OPX():
             dpg.bind_item_theme("on_off_slider_OPX", "OnTheme_OPX")
             dpg.bind_item_theme(item="btnOPX_StartG2Survey", theme="btnPurpleTheme")
 
+            self.load_scan_parameters()
+            self.GUI_ScanControls()
             dpg.set_frame_callback(1, self.load_pos)
-
         else:
             dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=True)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
@@ -1309,6 +1307,12 @@ class GUI_OPX():
 
         item_width = int(200 * self.window_scale_factor)
         if self.bScanChkbox:
+            suffix = ""
+            suffix_file = "folder_suffix.txt"
+            if os.path.exists(suffix_file):
+                with open(suffix_file, "r") as f:
+                    suffix = f.read().strip()
+
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
@@ -1388,9 +1392,9 @@ class GUI_OPX():
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
                         dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         with dpg.group(horizontal=True):
-                            dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100)
+                            dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100, default_value=suffix)
                             dpg.add_button(label="Mv", callback=self.move_last_saved_files)
-                        dpg.add_input_float(label="AnnTH",tag="femto_anneal_threshold",default_value=800,width=100)
+                        dpg.add_input_float(label="AnnTH",tag="femto_anneal_threshold",default_value=800,width=120)
 
                     _width = 150
                     with dpg.group(horizontal=False):

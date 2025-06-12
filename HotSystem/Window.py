@@ -30,10 +30,8 @@ class Window_singleton:
             if cls._instance is None:
                 cls._instance = super(Window_singleton, cls).__new__(cls)
         return cls._instance
-
     def __init__(cls):
         cls.init()
-
     # Windows control
     winProps = WindowProps()
     winData = WindowData()
@@ -44,7 +42,6 @@ class Window_singleton:
         cls.winData.Title = cls.winProps.Title
         cls.winData.Width = cls.winProps.Width
         cls.winData.Height = cls.winProps.Height
-
         if not (cls.s_GLFWInitialized):
             success = glfw.init()
             if not(success):
@@ -64,13 +61,10 @@ class Window_singleton:
         glfw.window_hint(glfw.DECORATED, glfw.TRUE)
 
         cls.m_Window_GL = glfw.create_window(cls.winData.Width, cls.winData.Height, cls.winData.Title, (primary if cls.winData.is_FullScreen else None), None)
-		
         if (cls.m_Window_GL == None):
             glfw.terminate()
             print("Failed to create GLFW window!")
-		
         glfw.make_context_current(cls.m_Window_GL)
-		
         # glfw.set_window_user_pointer(cls.m_Window_GL, cls.winData)
         cls.SetVSync() #// at init it will flip state from flase to true
 

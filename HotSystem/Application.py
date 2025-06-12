@@ -52,7 +52,6 @@ import numpy as np
 import Outout_to_gui as outout
 from Common import wait_for_item_and_set
 
-
 class Layer:
     def __init__(self, name="Layer"):
         self.m_DebugName = name
@@ -114,9 +113,12 @@ class LayerStack:
 
 class ImGuiOverlay(Layer):
     def __init__(self):
+        self.visible = False
         super().__init__()
+
         self.system_config: Optional[SystemConfig] = load_system_config()
         self.system_type: Optional[SystemType] = self.system_config.system_type
+
         # TODO : fix for all systems !!
         simulation = False
         if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
@@ -128,6 +130,7 @@ class ImGuiOverlay(Layer):
             self.mwGUI = None
         # self.opxGUI = GUI_OPX(simulation)
     m_Time = 0.0
+
 
     def obj_to_render(self,IsDemo = False):
         io = imgui.get_io()
@@ -155,6 +158,10 @@ class ImGuiOverlay(Layer):
         io.backend_flags |= 1 << 1 #imgui.IMGUI_BACKEND_FLAGS_HAS_MOUSE_CURSORS
         io.backend_flags |= 1 << 2#imgui.IMGUI_BACKEND_FLAGS_HAS_SET_MOUSE_POS
         # return super().on_attach()
+
+        # Minimize the GLFW window (iconify)
+        glfw.iconify_window(Application_singletone().GetWindow().m_Window_GL)
+
     def on_update(self):
         self.io = imgui.get_io()
         io = self.io
@@ -316,7 +323,7 @@ class Application_singletone:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(self):
+    def __new__(self, create_context: bool = True):
         with self._lock:
             if self._instance is None:
                 self._instance = super(Application_singletone, self).__new__(self)
@@ -329,7 +336,7 @@ class Application_singletone:
     def __init__(self):
         self.m_Window.winData.event_callback = self.OnEvent
         pass
-    
+
     m_running = True
     m_LayerStack = LayerStack()
     m_Window = Window_singleton()
