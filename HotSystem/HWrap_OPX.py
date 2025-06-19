@@ -26,6 +26,7 @@ import matplotlib
 import numpy as np
 from collections import Counter
 import json
+from Outout_to_gui import toggle_sc
 
 from qm.jobs.base_job import QmBaseJob
 from qm.qua._expressions import QuaVariable, QuaVariableType
@@ -1412,10 +1413,10 @@ class GUI_OPX():
                             dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor",
                                              callback=self.toggle_use_picomotor,
                                              default_value=self.use_picomotor)
-                        dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=40,width=_width)
+                        dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=10,width=_width,callback=lambda s, a, u: self.pharos.setBasicTargetAttenuatorPercentage(dpg.get_value(s)))
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
                         dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0, width=_width)
-                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=5, width=_width)
+                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0, width=_width)
                         dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=10000, width=_width)
                     _width = 100
 
@@ -1910,6 +1911,8 @@ class GUI_OPX():
         Plots a 2D scan using the provided array. If a division by zero occurs,
         the array will be set to zeros.
         """
+        if dpg.does_item_exist("plot_draw_layer"):
+            dpg.delete_item("plot_draw_layer", children_only=True)
 
         if array_2d is None:
             array_2d = np.zeros((Nx, Ny))  # Default to zeros if array is not provided
@@ -1994,6 +1997,10 @@ class GUI_OPX():
 
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
             dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data", parent="plotImaga_Y")
+            # Add a draw layer for text annotations (e.g., pulse energy)
+
+            dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
         except Exception as e:
             print(f"Error during plotting: {e}")
@@ -2034,6 +2041,7 @@ class GUI_OPX():
         dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=minI,
                                max_scale=Array2D.max(),
                                colormap=dpg.mvPlotColormap_Jet)
+
 
     def UpdateGuiDuringScan_____(self, Array2D: np.ndarray):  # $$$
         # todo: remove loops keep only when an imgae is needed
@@ -10328,9 +10336,16 @@ class GUI_OPX():
                 for point in self.positioner.LoggedPoints:
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
 
+        cam = self.HW.camera
+        if cam.constantGrabbing:
+            toggle_sc(reverse=False)
+
         if dpg.does_item_exist("btnOPX_Stop"):
-            print('Please stop other experiment before scanning')
-            return
+            print("Stopping previous experiment before scanning...")
+            self.btnStop()
+            time.sleep(0.5)
+            # print('Please stop other experiment before scanning')
+            # return
 
         print("start scan steps")
         start_time = time.time()
@@ -10515,13 +10530,24 @@ class GUI_OPX():
         if not (self.stopScan):
             self.btnStop()
 
+
     def scan3d_femto_pulses(self):  # currently flurascence scan
         if len(self.positioner.LoggedPoints) == 3:
             with open('logged_points.txt', 'w') as f:
                 for point in self.positioner.LoggedPoints:
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
+        cam = self.HW.camera
+        if cam.constantGrabbing:
+            toggle_sc(reverse=False)
+
+        if dpg.does_item_exist("btnOPX_Stop"):
+            print("Stopping previous experiment before scanning...")
+            self.btnStop()
+            time.sleep(0.5)
 
         self.Shoot_Femto_Pulses = True
+
+        parent = sys.stdout.parent
 
         print("start scan steps")
         start_time = time.time()
@@ -10570,6 +10596,15 @@ class GUI_OPX():
         # Loop over three axes and populate scan coordinates
         scan_coordinates = []
         self.N_scan = []
+
+        # --- Check dx, dy step size ---
+        dx_nm = self.dL_scan[0] * 1e3  # convert to nm
+        dy_nm = self.dL_scan[1] * 1e3  # convert to nm
+        if dx_nm < 500 or dy_nm < 500:
+            print(f"Scan step too small: dx = {dx_nm:.1f} nm, dy = {dy_nm:.1f} nm (must be ≥ 500 nm)")
+            return
+
+
         for i in range(3):
             if self.b_Scan[i]:
                 axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
@@ -10617,6 +10652,7 @@ class GUI_OPX():
         self.all_att_percent = []
         self.all_y_scan = []
         self.anneal_results = []  # Each entry: [timestamp_in_seconds, count_value]
+        self.all_pulse_energies = []
 
         current_hwp = 10000  # initial non-physical value
 
@@ -10662,6 +10698,22 @@ class GUI_OPX():
                         self.all_y_scan.append(self.V_scan[1][j])
                         self.all_att_percent.append(attenuator_value)
 
+                _, pulse_energy_nJ = parent.kdc_101_gui.calculate_laser_pulse(HWP_deg=current_hwp, Att_percent=p_femto["femto_attenuator"])
+
+                x_val = self.V_scan[0][-1] / 1e6 + 1
+                y_val = self.V_scan[1][j] / 1e6
+
+                text_tag = f"energy_text_{i}_{j}"  # Unique tag per scan coordinate
+                dpg.draw_text(
+                    pos=(x_val, y_val),
+                    text=f"{pulse_energy_nJ:.1f} nJ",
+                    size=0.5,
+                    color=(255, 255, 255, 255),
+                    parent="plot_draw_layer",
+                    tag=text_tag
+                )
+                self.all_pulse_energies.append(pulse_energy_nJ)
+
                 Line_time_start = time.time()
                 for k in range(self.N_scan[0]):
                     if self.stopScan:
@@ -10683,7 +10735,7 @@ class GUI_OPX():
                     self.scan_get_current_pos()
 
                     if self.Shoot_Femto_Pulses:
-                        print(f"Pulse! x={self.V_scan[0][k]} | Y = {self.V_scan[1][j]} | HWP = {current_hwp:.2f}°")
+                        print(f"{pulse_energy_nJ:8.2f} nJ | Pulse! x={self.V_scan[0][k]} | Y = {self.V_scan[1][j]} | HWP = {current_hwp:.2f}°")
                         self.pharos.enablePp()
                         time.sleep(0.2)
                         current_state = self.pharos.getAdvancedIsPpEnabled()
@@ -10790,7 +10842,8 @@ class GUI_OPX():
                                 current_hwp = self.kdc_101.get_current_position()
 
                     # self.positioner.generatePulse(channel=0) # should trigger measurement by smaract trigger
-                    self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
+                    if not self.stopScan:
+                        self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
                     time.sleep(1e-3)  # wait for measurement do occur
                     # time.sleep(2*self.total_integration_time * 1e-3 + 5e-3)  # wait for measurement do occur
                     if not self.stopScan:
@@ -10857,7 +10910,12 @@ class GUI_OPX():
                     get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
             file_name = self.create_scan_file_name()
             fileName = file_name + "_" + name_addition
-            RawData_to_save = {'y_data': self.all_y_scan, name_addition: self.all_hwp_angles}
+            # RawData_to_save = {'y_data': self.all_y_scan, name_addition: self.all_hwp_angles}
+            RawData_to_save = {
+                'y_data': self.all_y_scan,
+                name_addition: self.all_hwp_angles if name_addition == "hwp" else self.all_att_percent,
+                'pulse_energy_nJ': self.all_pulse_energies
+            }
             self.save_to_cvs(fileName + ".csv", RawData_to_save)
             self.GUI_ParametersControl(isStart=False)
 
@@ -12119,9 +12177,14 @@ class GUI_OPX():
         # Mask for non-zero values
         mask_non_zero = Array2D > 0
 
-        # Normalize non-zero values to stretch across the entire color scale
+        # Initialize normalized array
         normalized_array = np.zeros_like(Array2D, dtype=float)
-        normalized_array[mask_non_zero] = Array2D[mask_non_zero] / Array2D[mask_non_zero].max()
+
+        # Prevent division by zero
+        if np.any(mask_non_zero):
+            max_val = Array2D[mask_non_zero].max()
+            if max_val > 0:
+                normalized_array[mask_non_zero] = Array2D[mask_non_zero] / max_val
 
         # Generate the RGB heatmap, ignoring zeros
         result_array_ = intensity_to_rgb_heatmap_normalized(normalized_array)

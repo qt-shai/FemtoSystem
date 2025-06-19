@@ -67,13 +67,6 @@ def toggle_sc(reverse=False):
         parent = sys.stdout.parent
         cam = getattr(parent, "cam", None)
         mff = getattr(parent, "mff_101_gui", [])
-
-        for flipper in mff:
-            slider_tag = f"on_off_slider_{flipper.unique_id}"
-            pos = flipper.dev.get_position()
-            if (not reverse and pos == 1) or (reverse and pos == 2):
-                flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
-
         if cam:
             if reverse and hasattr(cam, "StartLive"):
                 cam.StartLive()
@@ -81,6 +74,11 @@ def toggle_sc(reverse=False):
             elif not reverse and hasattr(cam, "StopLive"):
                 cam.StopLive()
                 print("Camera live view stopped.")
+        for flipper in mff:
+            slider_tag = f"on_off_slider_{flipper.unique_id}"
+            pos = flipper.dev.get_position()
+            if (not reverse and pos == 1) or (reverse and pos == 2):
+                flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
 
@@ -148,44 +146,9 @@ def run(command: str):
 
         elif command == "sc":
             toggle_sc(reverse=False)
-            # try:
-            #     parent = sys.stdout.parent
-            #     cam = getattr(parent, "cam", None)
-            #     mff = getattr(parent, "mff_101_gui", [])
-            #
-            #     for flipper in mff:
-            #         slider_tag = f"on_off_slider_{flipper.unique_id}"
-            #         if flipper.dev.get_position() == 1:
-            #             flipper.on_off_slider_callback(slider_tag,1)
-            #
-            #     # Stop live camera feed if active
-            #     if cam and hasattr(cam, "StopLive"):
-            #         cam.StopLive()
-            #         print("Camera live view stopped.")
-            #
-            # except Exception as e:
-            #     print(f"Error running 'sc': {e}")
+
         elif command in ("!sc", "!"):
             toggle_sc(reverse=True)
-        # elif command == "!sc":
-        #     try:
-        #         parent = sys.stdout.parent
-        #         cam = getattr(parent, "cam", None)
-        #         mff = getattr(parent, "mff_101_gui", [])
-        #
-        #         # Flip flippers where position is 2
-        #         for flipper in mff:
-        #             slider_tag = f"on_off_slider_{flipper.unique_id}"
-        #             if flipper.dev.get_position() == 2:
-        #                 flipper.on_off_slider_callback(slider_tag, 0)
-        #
-        #         # Start live view
-        #         if cam and hasattr(cam, "StartLive"):
-        #             cam.StartLive()
-        #             print("Camera live view started.")
-        #     except Exception as e:
-        #         print(f"Error running '!sc': {e}")
-
 
         elif command.startswith("sub "):
             try:
