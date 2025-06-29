@@ -1426,6 +1426,7 @@ class GUI_OPX():
                         dpg.add_button(label="fill Z", callback=self.fill_z)
                         dpg.add_button(label="fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
+                        dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
 
                     with dpg.group(horizontal=False):
                         dpg.add_input_float(label="Step (um)", default_value=0.2, width=_width, tag="step_um",
@@ -1554,6 +1555,41 @@ class GUI_OPX():
             print(f"Set MoveAbsX = {x_pos:.6f} m, MoveAbsY = {y_pos:.6f} m (Max Intensity)")
         except Exception as e:
             print(f"Failed to set MoveABS from max intensity: {e}")
+
+    def fill_moveabs_with_picture_center(self):
+        try:
+            # === CASE 1: If V_scan exists ===
+            if hasattr(self, "V_scan") and self.V_scan is not None:
+                Xmin = self.V_scan[0].min()*1e-6
+                Xmax = self.V_scan[0].max()*1e-6
+                Ymin = self.V_scan[1].min()*1e-6
+                Ymax = self.V_scan[1].max()*1e-6
+
+            # === CASE 2: Otherwise, use startLoc & endLoc ===
+            else:
+                Xmin = float(self.startLoc[0])*1e-6
+                Xmax = float(self.endLoc[0])*1e-6
+                Ymin = float(self.startLoc[1])*1e-6
+                Ymax = float(self.endLoc[1])*1e-6
+
+            x_center = (Xmin + Xmax) / 2
+            y_center = (Ymin + Ymax) / 2
+
+            dpg.set_value("mcs_ch0_ABS", x_center)
+            dpg.set_value("mcs_ch1_ABS", y_center)
+
+            # === Z center only if available ===
+            if hasattr(self, "idx_scan") and self.idx_scan is not None and hasattr(self, "Zv"):
+                z_value = float(self.Zv[self.idx_scan[Axis.Z.value]])
+                dpg.set_value("mcs_ch2_ABS", z_value)
+                print(f"Set MoveAbsZ = {z_value:.6f} m (from current Z slice)")
+            else:
+                print("No idx_scan or Zv available — Z not updated.")
+
+            print(f"Set MoveAbsX = {x_center:.6f} m, MoveAbsY = {y_center:.6f} m (Picture Center)")
+
+        except Exception as e:
+            print(f"Failed to fill MoveABS with picture center: {e}")
 
     def fill_moveabs_from_query(self):
         try:
@@ -1887,9 +1923,10 @@ class GUI_OPX():
                 raise Exception("Window does not exist")
 
             if len(arrYZ) == 1 or show_only_xy:
-                dpg.set_item_width("Scan_Window", item_width + 50)
+                pass
+                # dpg.set_item_width("Scan_Window", item_width + 50)
             else:
-                dpg.set_item_width("Scan_Window", item_width * 3 + 50)
+                # dpg.set_item_width("Scan_Window", item_width * 3 + 50)
                 # XZ plot
                 dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
                              equal_aspects=True, crosshairs=True,
@@ -1912,7 +1949,8 @@ class GUI_OPX():
                 dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
                                      label="Scan data", parent="plotImagc_Y")
 
-            dpg.set_item_height("Scan_Window", item_height + 150)
+            # === Keep Scan_Window size unchanged ===
+            # dpg.set_item_height("Scan_Window", item_height + 150)
 
             end_Plot_time = time.time()
             print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
@@ -10713,7 +10751,7 @@ class GUI_OPX():
                         self.all_att_percent.append(attenuator_value)
 
                 mode = dpg.get_value(parent.femto_gui.combo_tag)
-                _, pulse_energy_nJ = parent.kdc_101_gui.calculate_laser_pulse(HWP_deg=current_hwp, Att_percent=p_femto["femto_attenuator"], mode = mode)
+                _, pulse_energy_nJ = parent.femto_gui.calculate_laser_pulse(HWP_deg=current_hwp, Att_percent=p_femto["femto_attenuator"], mode = mode)
 
                 x_val = self.V_scan[0][-1] / 1e6 + 1
                 y_val = self.V_scan[1][j] / 1e6
