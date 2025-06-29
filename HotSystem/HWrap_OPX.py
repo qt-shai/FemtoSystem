@@ -10712,7 +10712,8 @@ class GUI_OPX():
                         self.all_y_scan.append(self.V_scan[1][j])
                         self.all_att_percent.append(attenuator_value)
 
-                _, pulse_energy_nJ = parent.kdc_101_gui.calculate_laser_pulse(HWP_deg=current_hwp, Att_percent=p_femto["femto_attenuator"])
+                mode = dpg.get_value(parent.femto_gui.combo_tag)
+                _, pulse_energy_nJ = parent.kdc_101_gui.calculate_laser_pulse(HWP_deg=current_hwp, Att_percent=p_femto["femto_attenuator"], mode = mode)
 
                 x_val = self.V_scan[0][-1] / 1e6 + 1
                 y_val = self.V_scan[1][j] / 1e6
