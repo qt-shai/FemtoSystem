@@ -7,7 +7,6 @@ import time
 import threading
 import numpy as np
 from SystemConfig import Instruments, load_instrument_images
-from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
 
 class GUI_KDC101(GUIMotor):
 
@@ -28,7 +27,6 @@ class GUI_KDC101(GUIMotor):
         themes = DpgThemes()
         self.viewport_width = dpg.get_viewport_client_width()
         self.viewport_height = dpg.get_viewport_client_height()
-        self.pharos = PharosLaserAPI(host="192.168.101.58")
         #self.system_initialization()
         Child_Width = 100
         with dpg.window(label=f"{self.prefix} motor", no_title_bar=False,
@@ -59,46 +57,13 @@ class GUI_KDC101(GUIMotor):
                 dpg.add_text("Current Position:", color=(0, 255, 0), indent=10)
                 dpg.add_text(default_value="---", tag=self.position_display_tag, indent=10)
                 dpg.add_button(label="Read Current Angle", callback=self.read_current_angle)
-                with dpg.group(horizontal=True):
-                    dpg.add_text("P[µW]:", color=(0, 255, 0))
-                    dpg.add_text("N/A", tag=f"{self.prefix}_LaserPower_{self.unique_id}")
-                with dpg.group(horizontal=True):
-                    dpg.add_text("E[nJ]:", color=(0, 255, 0))
-                    dpg.add_text("N/A", tag=f"{self.prefix}_PulseEnergy_{self.unique_id}")
 
-
-    def calculate_laser_pulse(self, HWP_deg: float, Att_percent: float, rep_rate: float = 50e3) -> tuple[float, float]:
-        # --- Polynomial calculation ---
-        P_att = 13.86 * Att_percent ** 2 + 16.70 * Att_percent + 2.42
-
-        # --- HWP modulation factor ---
-        theta0 = -7.2
-        modulation = np.sin(np.radians(2 * (HWP_deg - theta0))) ** 2 / np.sin(np.radians(2 * (40 - theta0))) ** 2
-
-        P_uW = P_att * modulation
-        pulse_energy_nJ = P_uW * 1e-6 / rep_rate * 1e9
-        return P_uW, pulse_energy_nJ
-
-    def get_current_attenuation(self) -> float:
-        try:
-            return float(self.pharos.getBasicTargetAttenuatorPercentage())
-        except Exception as e:
-            print(f"Error reading attenuation: {e}")
-            return 0.0
 
     def read_current_angle(self):
         try:
             angle = float(str(self.dev.get_current_position()))
             dpg.set_value(self.position_display_tag, f"{angle:.3f}°")
             print(f"Current angle: {angle:.3f}°")
-
-            # === Update Laser Power & Energy ===
-            # You must define or fetch the current attenuation value here:
-            Att_percent = self.get_current_attenuation()  # Replace with actual function or value
-
-            P_uW, pulse_energy_nJ = self.calculate_laser_pulse(angle, Att_percent)
-            dpg.set_value(f"{self.prefix}_LaserPower_{self.unique_id}", f"{P_uW:.1f}")
-            dpg.set_value(f"{self.prefix}_PulseEnergy_{self.unique_id}", f"{pulse_energy_nJ:.1f}")
         except Exception as e:
                 print(f"Error reading current angle: {e}")
                 dpg.set_value(self.position_display_tag, f"Error")

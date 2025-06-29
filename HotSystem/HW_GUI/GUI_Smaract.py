@@ -226,9 +226,9 @@ class GUI_smaract():
     def save_pos(self):
         # Define the list of windows to check and save positions for
         window_names = [
-            "pico_Win", "mcs_Win", "Zelux Window",'graph_window','Main_Window',
-            "OPX Window", "Map_window", "Scan_Window", "LaserWin","CLD1011LP_Win",
-            "experiments_window","graph_window", "console_window"
+            "pico_Win", "mcs_Win", "Zelux Window", "graph_window", "Main_Window",
+            "OPX Window", "Map_window", "Scan_Window", "LaserWin", "CLD1011LP_Win",
+            "experiments_window", "graph_window", "console_window"
         ]
 
         # Dynamically find and add all KDC windows
@@ -237,6 +237,13 @@ class GUI_smaract():
             if dpg.get_item_type(item) == "mvAppItemType::mvWindowAppItem":
                 tag = dpg.get_item_alias(item) or str(item)
                 if tag.startswith("KDC101_Win_"):
+                    window_names.append(tag)
+
+        # ✅ Add the Femto_Power_Calculations window if it exists
+        for item in all_windows:
+            if dpg.get_item_type(item) == "mvAppItemType::mvWindowAppItem":
+                tag = dpg.get_item_alias(item) or str(item)
+                if tag.startswith("Femto_Window_"):
                     window_names.append(tag)
 
         # Dictionary to store window positions and dimensions
@@ -251,18 +258,11 @@ class GUI_smaract():
                 print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
 
         try:
-            # Remove any existing window position and size entries
-            lines = []
-            new_content = [line for line in lines if not any(win_name in line for win_name in window_positions.keys())]
-
-            # Append the new window positions and dimensions to the content
-            for win_name, (position, size) in window_positions.items():
-                new_content.append(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
-                new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
-
-            # Write back the updated content to the file
+            # Write window positions and sizes to file
             with open("win_pos.txt", "w") as file:
-                file.writelines(new_content)
+                for win_name, (position, size) in window_positions.items():
+                    file.write(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
+                    file.write(f"{win_name}_Size: {size[0]}, {size[1]}\n")
 
             print("Window positions and sizes saved successfully to win_pos.txt.")
         except Exception as e:

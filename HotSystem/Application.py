@@ -32,6 +32,8 @@ from HW_GUI.GUI_KDC101 import GUI_KDC101
 from HW_GUI.GUI_MFF_101 import GUI_MFF
 from HW_GUI.GUI_sim960PID import GUISIM960
 from HW_GUI.GUI_moku import GUIMoku
+from HW_GUI.GUI_Femto_Power_Calculations import FemtoPowerCalculator
+
 from HW_wrapper.Wrapper_moku import Moku
 from HWrap_OPX import GUI_OPX, Experiment
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
@@ -960,6 +962,10 @@ class PyGuiOverlay(Layer):
 
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
+
+        # If this is a Femto system, create the Femto Power Calculator GUI
+        if self.system_config.system_type == SystemType.FEMTO:
+            self.femto_gui = FemtoPowerCalculator(self.kdc_101_gui)
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle
