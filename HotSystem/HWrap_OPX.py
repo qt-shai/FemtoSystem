@@ -10823,7 +10823,6 @@ class GUI_OPX():
                             anneal_time_start = time.time()
                             stop_anneal = False
                             above_start_time = None
-                            anneal_threshold = p_femto["femto_anneal_threshold"]
 
                             self.pharos.setAdvancedTargetPulseCount(n_pulses_anneal)
                             self.pharos.enablePp()
@@ -10831,6 +10830,9 @@ class GUI_OPX():
 
                             # Loop while annealing is ongoing
                             while self.pharos.getAdvancedIsPpEnabled() and not stop_anneal:
+                                # 🟢 GET updated threshold live from GUI:
+                                anneal_threshold = dpg.get_value("femto_anneal_threshold")
+
                                 # Trigger QUA acquisition
                                 self.qm.set_io2_value(self.ScanTrigger)
                                 time.sleep(1e-3)
