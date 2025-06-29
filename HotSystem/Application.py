@@ -408,6 +408,7 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.step_tuning_axis = None
         self.modifier_key = None
         self.step_tuning_counter = None
         self.step_tuning_key = None
@@ -1046,11 +1047,13 @@ class PyGuiOverlay(Layer):
                     combo = (self.modifier_key, key_data_enum)
 
                     # Track repeated presses of same combo
-                    if combo == getattr(self, "step_tuning_key", None):
+                    # Reset counter if combo or axis changes
+                    if combo == getattr(self, "step_tuning_key", None) and axis == getattr(self, "step_tuning_axis", None):
                         self.step_tuning_counter += 1
                     else:
                         self.step_tuning_counter = 0
                         self.step_tuning_key = combo
+                        self.step_tuning_axis = axis
 
                     factor = 2 ** self.step_tuning_counter
                     print(f"{combo} → counter={self.step_tuning_counter} → factor={factor}")

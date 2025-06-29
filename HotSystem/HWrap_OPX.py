@@ -1503,7 +1503,21 @@ class GUI_OPX():
                     print(f"Moved {src} → {dst}")
                     moved_any = True
                 else:
-                    print(f"{src} does not exist")
+                    # Try fallback: expNotes='' or expNotes='_'
+                    fallback_files = [
+                        os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}__" + ext),
+                        os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_" + ext)
+                    ]
+                    fallback_found = False
+                    for fallback_src in fallback_files:
+                        if os.path.exists(fallback_src):
+                            shutil.move(fallback_src, dst)
+                            print(f"Moved {fallback_src} → {dst} (fallback used)")
+                            moved_any = True
+                            fallback_found = True
+                            break
+                    if not fallback_found:
+                        print(f"{src} does not exist (and no fallback found)")
 
             # If no files moved, try from C:/temp/TempScanData
             if not moved_any:
@@ -10707,7 +10721,7 @@ class GUI_OPX():
                 dpg.draw_text(
                     pos=(x_val, y_val),
                     text=f"{pulse_energy_nJ:.1f} nJ",
-                    size=0.5,
+                    size=0.8,
                     color=(255, 255, 255, 255),
                     parent="plot_draw_layer",
                     tag=text_tag
