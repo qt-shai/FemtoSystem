@@ -214,7 +214,7 @@ class WindowNames(Enum):
     MOKUGO = "Moku_Win"
     CONSOL = "console_window"
 
-def load_window_positions(file_name: str = "win_pos.txt") -> None:
+def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
     """
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
     Supports dynamic windows like KDC101 and Femto_Power_Calculations.

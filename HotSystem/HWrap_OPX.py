@@ -10597,6 +10597,9 @@ class GUI_OPX():
             self.btnStop()
             time.sleep(0.5)
 
+        Att_percent = float(self.pharos.getBasicTargetAttenuatorPercentage())
+        dpg.set_value("femto_attenuator", int(Att_percent))
+
         self.Shoot_Femto_Pulses = True
 
         parent = sys.stdout.parent
@@ -11639,6 +11642,11 @@ class GUI_OPX():
         # Open the dialog with a filter for .csv files and all file types
         fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
         if fn:  # Check if a file is selected
+            # Save the directory to file for future sessions
+            last_dir = os.path.dirname(fn)
+            with open("last_scan_dir.txt", "w") as f:
+                f.write(last_dir)
+
             data = loadFromCSV(fn)
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)

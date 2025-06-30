@@ -26,7 +26,7 @@ class FemtoPowerCalculator:
     def create_gui(self):
         with dpg.window(label="Femto Power Calculations", tag=self.window_tag, width=400, height=200):
             dpg.add_combo(items=["Default", "50um pinhole"],
-                          default_value="50um pinhole",
+                          default_value="Default",
                           tag=self.combo_tag,
                           label="Mode")
             dpg.add_button(label="Calculate", callback=self.calculate_button)
@@ -45,10 +45,10 @@ class FemtoPowerCalculator:
 
             dpg.add_input_text(label="Future angles (start:step:end)",
                                tag=self.future_input_tag,
-                               hint="e.g., 5:5:20",
+                               hint="e.g., 5:5:20,10%",
+                               default_value="1:1:15,10%",
                                on_enter=True,
                                callback=self.calculate_future)
-
             dpg.add_separator()
             dpg.add_text("Future Results:", color=(255, 255, 0))
             with dpg.group(tag=self.future_output_group):
@@ -138,6 +138,42 @@ class FemtoPowerCalculator:
             print(f"Error in future calculation: {e}")
             with dpg.group(parent=self.future_output_group):
                 dpg.add_text("Error parsing input or calculating.", color=(255, 0, 0))
+
+    def get_future_energies(self):
+        """
+        Return a list of (angle, E) for future pulse energies.
+        """
+        input_str = dpg.get_value(self.future_input_tag).strip()
+
+        if "," in input_str:
+            range_part, att_part = input_str.split(",")
+            range_part = range_part.strip()
+            att_part = att_part.strip().replace("%", "")
+            override_att = float(att_part)
+        else:
+            range_part = input_str
+            override_att = None
+
+        parts = [float(x.strip()) for x in range_part.split(":")]
+        if len(parts) != 3:
+            raise ValueError("Input must be start:step:end")
+
+        start, step, end = parts
+        angles = np.arange(start, end + step, step)
+
+        if override_att is not None:
+            Att_percent = override_att
+        else:
+            Att_percent = float(self.pharos.getBasicTargetAttenuatorPercentage())
+
+        mode = dpg.get_value(self.combo_tag)
+
+        data = []
+        for angle in angles:
+            _, E = self.calculate_laser_pulse(angle, Att_percent, mode)
+            data.append((angle, E))
+
+        return data
 
 
 if __name__ == "__main__":

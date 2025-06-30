@@ -117,9 +117,6 @@ class ZeluxGUI():
             # print("array shape handed :", img.shape[:2][::-1])  # (width, height)
             _width, _height = img.shape[:2]
 
-
-
-
         # dpg.set_value("image_id", img)
         dpg.set_value("image_id", img.astype(np.float32).reshape(-1))
         # print(f"Live image range after subtraction: min={img.min():.3f}, max={img.max():.3f}")
@@ -173,8 +170,8 @@ class ZeluxGUI():
             pixel_to_um_y = 0.04  # um/pixel
 
             # Apply shift (in microns)
-            x_shift_px = 2.38 / pixel_to_um_x
-            y_shift_px = 0.85 / pixel_to_um_y
+            x_shift_px = 3.18 / pixel_to_um_x
+            y_shift_px = 1.4 / pixel_to_um_y
 
             # Horizontal lines (Y coords - reversed + shifted down)
             y = 0
@@ -201,6 +198,24 @@ class ZeluxGUI():
                 dpg.draw_text((x_shifted + 2, _width * self.cam.ratio - 18), f"{coord_x:.1f}", size=font_size,
                               color=(0, 255, 0, 200), parent="image_drawlist")
                 x += step_px
+
+            # ✅ Draw all future data (angles & energies)
+            if hasattr(self, "all_future_data") and self.all_future_data:
+                base_y = _width * self.cam.ratio - 770
+                N = len(self.all_future_data)
+                step_y = 61
+                block_height = N * step_y
+                Y_center = (_width * self.cam.ratio) / 2  + 55
+                base_y = Y_center - block_height / 2
+                for idx, (angle, E) in enumerate(self.all_future_data):
+                    text = f"HWP={angle:.1f}°, E={E:.1f} nJ"
+                    dpg.draw_text(
+                        (220, base_y + idx * step_y),
+                        text,
+                        size=16,
+                        color=(255, 255, 255, 255),
+                        parent="image_drawlist"
+                    )
 
     def UpdateExposure(sender, app_data, user_data):
         # a = dpg.get_value(sender)
@@ -319,6 +334,9 @@ class ZeluxGUI():
             self.GUI_controls(isConnected=False, _width=700)
             pass
         else:
+            if dpg.does_item_exist("image_tag"):
+                dpg.delete_item("image_tag")
+
             with dpg.texture_registry(tag="image_tag", show=False):
                 dpg.add_dynamic_texture(width=self.cam.camera.image_width_pixels,
                                         height=self.cam.camera.image_height_pixels,
@@ -586,6 +604,11 @@ class ZeluxGUI():
             print(e)
 
     def set_all_themes(self):
+        if dpg.does_item_exist("OnTheme"):
+            dpg.delete_item("OnTheme")
+        if dpg.does_item_exist("OffTheme"):
+            dpg.delete_item("OffTheme")
+
         with dpg.theme(tag="OnTheme"):
             with dpg.theme_component(dpg.mvSliderInt):
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color

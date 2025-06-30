@@ -2,6 +2,10 @@ import sys
 import dearpygui.dearpygui as dpg
 from Common import *
 import pyperclip, os
+from Utils import loadFromCSV
+import importlib
+import HW_wrapper.HW_devices as hw_devices
+from HW_GUI.GUI_MFF_101 import GUI_MFF
 
 # To copy the last message to the clipboard:
 # import pyperclip; pyperclip.copy(sys.stdout.messages[-2])
@@ -22,6 +26,8 @@ import pyperclip, os
 
 # self.mff_101_gui[0].on_off_slider_callback(self.mff_101_gui[0],1)
 # self.mff_101_gui[0].dev.get_position()
+
+# import importlib, Outout_to_gui; importlib.reload(Outout_to_gui
 
 class DualOutput:
     def __init__(self, original_stream):
@@ -94,8 +100,12 @@ def run(command: str):
     - 'fn' → copy only filename from last message like: "Copied ... → .../file.ext"
     - 'sc or !sc' toggles both flippers using the existing on_off_slider_callback method only if each flipper is in position 1
     - 'sub'
+    - 'cn' counter
+    - 'reload'
+    - 'ld' load last file
+    -- ("coords", "coo"): shows coordinates in zelux
     """
-    command = command.strip().lower()
+    command = command.strip()
     try:
         parent = getattr(sys.stdout, "parent", None)
         cam = getattr(parent, "cam", None)
@@ -177,7 +187,6 @@ def run(command: str):
             except Exception as e:
                 print(f"Error in 'sub' command: {e}")
 
-
         elif command.startswith("cob "):
             try:
                 power_mw = float(command.split("cob ", 1)[1].strip())
@@ -197,11 +206,231 @@ def run(command: str):
             ])
             print("Launched external clipboard script.")
 
+        elif command == "cn":
+            if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "opx"):
+                sys.stdout.parent.opx.btnStartCounterLive()
+                print("Counter live started.")
+            else:
+                print("Counter live not available.")
+
+        elif command.startswith("lp "):
+            # Example: lp r → load_pos("remote"), lp xyz → load_pos("xyz")
+            arg = command.split("lp ", 1)[1].strip()
+            profile_name = "remote" if arg == "r" else arg
+            if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "smaractGUI"):
+                sys.stdout.parent.smaractGUI.load_pos(profile_name)
+                print(f"Loaded positions with profile: {profile_name}")
+            else:
+                print("smaractGUI not available.")
+
+        elif command.startswith("sp "):
+            # Example: sp r → save_pos("remote"), sp xyz → save_pos("xyz")
+            arg = command.split("sp ", 1)[1].strip()
+            profile_name = "remote" if arg == "r" else arg
+            if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "smaractGUI"):
+                sys.stdout.parent.smaractGUI.save_pos(profile_name)
+                print(f"Saved positions with profile: {profile_name}")
+            else:
+                print("smaractGUI not available.")
+
+        elif command.startswith("reload"):
+            try:
+                import importlib
+
+                parts = command.split()
+                raw_name = None
+                if len(parts) == 1:
+                    module_name = "Outout_to_gui"
+                elif len(parts) == 2:
+                    raw_name = parts[1]
+                    # Handle known GUI naming: reload GUI_Zelux => HW_GUI.GUI_Zelux
+                    if raw_name.startswith("GUI_"):
+                        module_name = f"HW_GUI.{raw_name}"
+                    else:
+                        module_name = raw_name
+                else:
+                    print("Usage: reload <module>")
+                    return
+
+                print(f"Trying to reload: {module_name}")
+
+                if raw_name and raw_name.lower() in ["gui_zelux", "zel"]:
+                    import HW_GUI.GUI_Zelux as gui_Zelux
+                    importlib.reload(gui_Zelux)
+                    # Clean up old window if needed:
+                    if hasattr(parent, "cam") and parent.cam:
+                        try:
+                            # Store before delete
+                            pos = dpg.get_item_pos(parent.cam.window_tag)
+                            size = dpg.get_item_rect_size(parent.cam.window_tag)
+                            parent.cam.DeleteMainWindow()
+                        except Exception as e:
+                            print(f"Old window removal failed: {e}")
+                    # Recreate:
+                    parent.cam = gui_Zelux.ZeluxGUI()
+
+                    if dpg.does_item_exist("Zelux_button"):
+                        dpg.delete_item("Zelux_button")
+                    parent.create_bring_window_button(
+                        parent.cam.window_tag,
+                        button_label="Zelux",
+                        tag="Zelux_button",
+                        parent="focus_group"
+                    )
+                    parent.active_instrument_list.append(parent.cam.window_tag)
+                    # If cameras found: redo Controls & pos
+                    if len(parent.cam.cam.available_cameras) > 0:
+                        # Ensure window exists
+                        if not dpg.does_item_exist(parent.cam.window_tag):
+                            parent.cam.AddNewWindow()
+
+                        # Ensure group tag does not exist
+                        if dpg.does_item_exist("ZeluxControls"):
+                            dpg.delete_item("ZeluxControls")
+
+                        parent.cam.Controls()
+
+                        dpg.set_item_pos(parent.cam.window_tag, pos)
+                        dpg.set_item_width(parent.cam.window_tag, size[0])
+                        dpg.set_item_height(parent.cam.window_tag, size[1])
+
+                    # Recreate MFF flippers into the Zelux GUI
+                    parent.mff_101_gui = []  # Clear old list if any
+
+                    flipper_list = hw_devices.HW_devices().mff_101_list  # your original list
+                    for flipper in flipper_list:
+                        mff_gui = GUI_MFF(serial_number=flipper.serial_no, device=flipper)
+                        parent.mff_101_gui.append(mff_gui)
+
+                    print("Reloaded HW_GUI.GUI_Zelux and recreated ZeluxGUI.")
+                else:
+                    if module_name in sys.modules:
+                        module = sys.modules[module_name]
+                        importlib.reload(module)
+                        print(f"Reloaded: {module_name}")
+                    else:
+                        module = importlib.import_module(module_name)
+                        print(f"Imported and reloaded: {module_name}")
+
+            except Exception as e:
+                print(f"Reload failed for '{module_name}': {e}")
+
+        elif command == "plf":
+            try:
+                parent = sys.stdout.parent
+                if not (hasattr(parent, "opx") and hasattr(parent, "femto_gui")):
+                    print("Missing 'opx' or 'femto_gui' in parent.")
+                    return
+
+                # Get the scan start & end from OPX
+                startLoc = parent.opx.startLoc
+                endLoc = parent.opx.endLoc
+
+                # Get future data from Femto
+                future_data = parent.femto_gui.get_future_energies()
+
+                if hasattr(parent, "cam"):
+                    parent.cam.all_future_data = future_data  # List of (angle, E)
+                    print(f"Stored {len(future_data)} future data points in Zelux.")
+                else:
+                    print("cam not found to store future data.")
+
+                # Remove previous annotations if needed
+                if not hasattr(parent, "future_annots"):
+                    parent.future_annots = []
+                else:
+                    for annot in parent.future_annots:
+                        if dpg.does_item_exist(annot):
+                            dpg.delete_item(annot)
+                    parent.future_annots = []
+
+                # Use the minimum Y coordinate
+                base_y_val = float(startLoc[1]) / 1e6
+
+                for idx, (angle, E) in enumerate(future_data):
+                    # Example X: angle, Y: mid-Y
+                    angle = float(angle)
+                    E = float(E)
+                    x_val = float(endLoc[0]) / 1e6
+                    y_val = base_y_val + idx * 2
+                    if not dpg.does_item_exist("plotImaga_Y"):
+                        print("Error: Axis 'plotImaga_Y' does not exist.")
+                        return
+                    if not dpg.does_item_exist("plot_draw_layer"):
+                        dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+                    annot_tag = f"future_annot_{idx}"
+                    # If the tag exists, just update its properties
+                    if dpg.does_item_exist(annot_tag):
+                        dpg.configure_item(annot_tag, pos=(x_val, y_val), text=f"{E:.1f} nJ")
+                        print(f"Updated existing annotation {annot_tag}")
+                    else:
+                        dpg.draw_text(
+                            pos=(x_val, y_val),
+                            text=f"{E:.1f} nJ",
+                            color=(255, 255, 255, 255),
+                            size=1.0,
+                            parent="plot_draw_layer",
+                            tag=annot_tag
+                        )
+                    parent.future_annots.append(annot_tag)
+            except Exception as e:
+                print(f"Error running 'plf': {e}")
+
+        elif command == "ld":
+            try:
+                parent = sys.stdout.parent
+                if not hasattr(parent, "opx"):
+                    print("Parent has no opx.")
+                    return
+                try:
+                    with open("last_scan_dir.txt", "r") as f:
+                        last_scan_dir = f.read().strip()
+                        print(f"Loaded last scan dir: {last_scan_dir}")
+                except FileNotFoundError:
+                    print("No last_scan_dir.txt found.")
+                    return
+                if not last_scan_dir or not os.path.isdir(last_scan_dir):
+                    print(f"Invalid last scan dir: {last_scan_dir}")
+                    return
+                # Get all CSV files and sort by modification time (newest first)
+                csv_files = [
+                    os.path.join(last_scan_dir, f)
+                    for f in os.listdir(last_scan_dir)
+                    if f.lower().endswith(".csv")
+                    ]
+                if not csv_files:
+                    print("No CSV files found in last scan directory.")
+                    return
+                csv_files.sort(key=os.path.getmtime, reverse=True)
+                fn = csv_files[0]
+                print(f"Loading most recent CSV: {fn}")
+                # Load it using your Common.loadFromCSV
+                data = loadFromCSV(fn)
+                # Call your OPX plot method
+                parent.opx.Plot_data(data, True)
+                print(f"Loaded and plotted: {fn}")
+            except Exception as e:
+                print(f"Error in ld command: {e}")
+
+        elif command in ("coords", "coo"):
+            parent = getattr(sys.stdout, "parent", None)
+            if parent and hasattr(parent, "cam") and hasattr(parent.cam, "toggle_coords_display"):
+                # Flip the current flag
+                current = getattr(parent.cam, "show_coords_grid", False)
+                new_value = not current
+                parent.cam.toggle_coords_display(None, new_value)
+                print(f"Coordinate grid display set to: {new_value}")
+            else:
+                print("cam or toggle_coords_display not available.")
 
         else:
             print(f"Unknown command: {command}")
     except Exception as e:
         print(f"Error running command '{command}': {e}")
+    finally:
+        # 🟢 Always refocus your input box
+        if dpg.does_item_exist("cmd_input"):
+            dpg.focus_item("cmd_input")
 
 import builtins
 builtins.run = run

@@ -109,12 +109,12 @@ class GUI_smaract():
                             dpg.add_button(label="+", width=10, callback=self.move_uv, user_data=(ch, 1, True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
 
-                with dpg.group(horizontal=False, tag="_column 7_", width=child_width*1.3):
+                with dpg.group(horizontal=False, tag="_column 7_", width=child_width*2):
                     dpg.add_text("Move Abs. (um)")
                     for ch in range(self.dev.no_of_channels):
                         with dpg.group(horizontal=True):
                             dpg.add_input_float(label="", default_value=0, tag=f"{self.prefix}_ch" + str(ch) + "_ABS", indent=-1,
-                                                format='%.4f', width=250, step=1, step_fast=10) #
+                                                format='%.4f', step=1, step_fast=10) #
                             
                 with dpg.group(horizontal=False, tag="_column 8_", width=child_width*.8):
                     dpg.add_text("   GO")
@@ -223,13 +223,16 @@ class GUI_smaract():
         except Exception as e:
             print(f"Failed to parse clipboard: {e}")
 
-    def save_pos(self):
+    def save_pos(self, profile_name="local"):
         # Define the list of windows to check and save positions for
+        # self.smaractGUI.save_pos("remote")
+        # self.smaractGUI.load_pos("remote")
         window_names = [
             "pico_Win", "mcs_Win", "Zelux Window", "graph_window", "Main_Window",
             "OPX Window", "Map_window", "Scan_Window", "LaserWin", "CLD1011LP_Win",
             "experiments_window", "graph_window", "console_window"
         ]
+        file_name = f"win_pos_{profile_name}.txt"
 
         # Dynamically find and add all KDC windows
         all_windows = dpg.get_all_items()
@@ -259,18 +262,21 @@ class GUI_smaract():
 
         try:
             # Write window positions and sizes to file
-            with open("win_pos.txt", "w") as file:
+            with open(file_name, "w") as file:
                 for win_name, (position, size) in window_positions.items():
                     file.write(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
                     file.write(f"{win_name}_Size: {size[0]}, {size[1]}\n")
 
-            print("Window positions and sizes saved successfully to win_pos.txt.")
+            print("Window positions and sizes saved successfully to win_pos_local.txt.")
         except Exception as e:
             print(f"Error saving window positions and sizes: {e}")
 
-    def load_pos(self):
+    def load_pos(self, profile_name="local"):
+        if str(profile_name) == "530":
+            profile_name = "local"
+        file_name = f"win_pos_{profile_name}.txt"
         try:
-            load_window_positions()
+            load_window_positions(file_name)
         except Exception as e:
             print(f"Error loading window positions and sizes: {e}")
 

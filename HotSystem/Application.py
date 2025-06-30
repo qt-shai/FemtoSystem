@@ -1484,7 +1484,7 @@ class PyGuiOverlay(Layer):
                 dpg.add_button(label="Save Logs", callback=self.save_logs)
 
             # Console log display
-            with dpg.child_window(tag="console_output", autosize_x=True, height=270):
+            with dpg.child_window(tag="console_output", autosize_x=True, height=200):
                 dpg.add_text("Console initialized.", tag="console_log", wrap=800)
 
             # Input field for sending commands or messages
