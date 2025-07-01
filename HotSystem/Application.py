@@ -765,6 +765,7 @@ class PyGuiOverlay(Layer):
                 elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
                     self.smaractGUI = gui_Smaract.GUI_smaract(simulation=device.simulation,
                                                               serial_number=device.serial_number)
+                    self.smaractGUI.create_gui()
                     self.create_bring_window_button(self.smaractGUI.window_tag, button_label="Smaract",
                                                     tag="Smaract_button", parent="focus_group")
                     self.active_instrument_list.append(self.smaractGUI.window_tag)
@@ -1113,18 +1114,6 @@ class PyGuiOverlay(Layer):
     def handle_smaract_controls(self, key_data_enum, is_coarse):
         """Handles keyboard input for Smaract device controls."""
         try:
-            if key_data_enum == KeyboardKeys.S_KEY: # Save all even if keyboard disabled
-                #pdb.set_trace()  # Insert a manual breakpoint
-                if self.smaractGUI:
-                    self.smaractGUI.save_log_points()
-                    self.smaractGUI.save_pos()
-                if self.picomotorGUI:
-                    self.picomotorGUI.save_log_points()
-
-                if hasattr(self.opx, 'map') and self.opx.map is not None:
-                    self.opx.map.save_map_parameters()
-                return
-
             if self.smaractGUI and self.smaractGUI.dev.KeyboardEnabled:
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')

@@ -224,7 +224,7 @@ class GUI_OPX():
         self.clicked_position = None
         self.map_item_x = 0
         self.map_item_y = 0
-        self.map_keyboard_enable = False
+
         self.move_mode = "marker"
         self.text_color = (0, 0, 0, 255)  # Set color to black
         self.active_marker_index = -1
@@ -409,6 +409,9 @@ class GUI_OPX():
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
 
+    def DeleteMainWindow(self):
+        if dpg.does_item_exist(self.window_tag):
+            dpg.delete_item(self.window_tag)
     def close_qm_jobs(self, fn="qua_jobs.txt"):
         with open(fn, 'r') as f:
             loaded_jobs = f.readlines()
@@ -831,6 +834,11 @@ class GUI_OPX():
         self.window_scale_factor = width / 3840
 
     def set_all_themes(self):
+        if dpg.does_item_exist("OnTheme_OPX"):
+            dpg.delete_item("OnTheme_OPX")  # Remove old theme first!
+        if dpg.does_item_exist("OffTheme_OPX"):
+            dpg.delete_item("OffTheme_OPX")  # Remove old theme first!
+
         with dpg.theme(tag="OnTheme_OPX"):
             with dpg.theme_component(dpg.mvSliderInt):
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
@@ -856,9 +864,31 @@ class GUI_OPX():
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
         self.set_all_themes()
 
+        if dpg.does_item_exist("graph_window"):
+            pos_graph = dpg.get_item_pos("graph_window")
+            size_graph = [
+                dpg.get_item_width("graph_window"),
+                dpg.get_item_height("graph_window")
+            ]
+            dpg.delete_item("graph_window")
+        else:
+            pos_graph = pos
+            size_graph = [780, 400]  # fallback
+
+        if dpg.does_item_exist("experiments_window"):
+            pos_exp = dpg.get_item_pos("experiments_window")
+            size_exp = [
+                dpg.get_item_width("experiments_window"),
+                dpg.get_item_height("experiments_window")
+            ]
+            dpg.delete_item("experiments_window")
+        else:
+            pos_exp = [100, 100]
+            size_exp = [400, 400]
+
         dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
-        dpg.add_window(label="Exp graph", tag="experiments_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
-        dpg.add_window(label="Exp graph", tag="graph_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label="Exp graph", tag="experiments_window", no_title_bar=True, height=size_exp[1], width=size_exp[0], pos=[int(pos_exp[0]), int(pos_exp[1])])
+        dpg.add_window(label="Exp graph", tag="graph_window", no_title_bar=True, height=size_graph[1], width=size_graph[0], pos=[int(pos_graph[0]), int(pos_graph[1])])
         dpg.add_button(label = "Hide legend", tag = "Hide_legend", parent = "graph_window", callback = self.hide_legend)
 
         dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
@@ -1951,20 +1981,8 @@ class GUI_OPX():
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
         except Exception as e:
             print(f"Error during plotting: {e}")
-
-        try:
-            pass
-            # Update window width and height
-            # item_width = dpg.get_item_width("plotImaga")
-            # item_height = dpg.get_item_height("plotImaga")
-            # dpg.set_item_width("Scan_Window", item_width + 150)
-            # dpg.set_item_height("Scan_Window", item_height + 300)
-        except Exception as e:
-            print(f"Error updating window size: {e}")
-
         end_Plot_time = time.time()
         print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
-
         try:
             dpg.set_value("texture_tag", result_array_)
         except Exception as e:

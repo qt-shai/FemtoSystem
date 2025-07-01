@@ -110,17 +110,14 @@ def run(command: str):
     try:
         parent = getattr(sys.stdout, "parent", None)
         cam = getattr(parent, "cam", None)
-
         if command == "c":
             copy_quti_window_to_clipboard()
-
         elif command == "sv":
             if cam and hasattr(cam, "SaveProcessedImage"):
                 cam.SaveProcessedImage()
                 print("SaveProcessedImage executed.")
             else:
                 print("SaveProcessedImage not available.")
-
         elif command == "mv":
             if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "move_last_saved_files"):
                 sys.stdout.parent.move_last_saved_files()
@@ -135,12 +132,10 @@ def run(command: str):
                         print(f"Filename copied to clipboard: {filename}")
             else:
                 print("move_last_saved_files not available.")
-
         elif command.startswith("clog "):
             arg = command.split("clog ", 1)[1].strip().lower()
             import subprocess
             subprocess.run([sys.executable, "clog.py", arg])
-
         elif command == "fn":
             import pyperclip
             if hasattr(sys.stdout, 'messages') and sys.stdout.messages:
@@ -154,13 +149,10 @@ def run(command: str):
                     print("No '→' found in last message.")
             else:
                 print("No messages found in sys.stdout.")
-
         elif command == "sc":
             toggle_sc(reverse=False)
-
         elif command in ("!sc", "!"):
             toggle_sc(reverse=True)
-
         elif command.startswith("sub "):
             try:
                 folder = command.split("sub ", 1)[1].strip()
@@ -187,7 +179,6 @@ def run(command: str):
                 print(f"Subfolder set to: {full_folder}")
             except Exception as e:
                 print(f"Error in 'sub' command: {e}")
-
         elif command.startswith("cob "):
             try:
                 power_mw = float(command.split("cob ", 1)[1].strip())
@@ -199,21 +190,18 @@ def run(command: str):
                     print("Cobolt laser not connected or unavailable.")
             except Exception as e:
                 print(f"Failed to set Cobolt power: {e}")
-
         elif command == "pp":
             import subprocess
             subprocess.Popen([
                 sys.executable, "copy_window_to_clipboard.py"
             ])
             print("Launched external clipboard script.")
-
         elif command == "cn":
             if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "opx"):
                 sys.stdout.parent.opx.btnStartCounterLive()
                 print("Counter live started.")
             else:
                 print("Counter live not available.")
-
         elif command.startswith("lp "):
             # Example: lp r → load_pos("remote"), lp xyz → load_pos("xyz")
             arg = command.split("lp ", 1)[1].strip()
@@ -223,7 +211,6 @@ def run(command: str):
                 print(f"Loaded positions with profile: {profile_name}")
             else:
                 print("smaractGUI not available.")
-
         elif command.startswith("sp "):
             # Example: sp r → save_pos("remote"), sp xyz → save_pos("xyz")
             arg = command.split("sp ", 1)[1].strip()
@@ -233,11 +220,9 @@ def run(command: str):
                 print(f"Saved positions with profile: {profile_name}")
             else:
                 print("smaractGUI not available.")
-
         elif command.startswith("reload"):
             try:
                 import importlib
-
                 parts = command.split()
                 raw_name = None
                 if len(parts) == 1:
@@ -339,7 +324,75 @@ def run(command: str):
                     dpg.set_item_height(parent.femto_gui.window_tag, size[1])
 
                     print("Reloaded HW_GUI.GUI_Femto and recreated FemtoPowerCalculator.")
+                elif raw_name and raw_name.lower() in ["opx"]:
+                    import HWrap_OPX as wrap_OPX
+                    importlib.reload(wrap_OPX)
 
+                    # Clean up old window if needed:
+                    if hasattr(parent, "opx") and parent.opx:
+                        try:
+                            pos = dpg.get_item_pos(parent.opx.window_tag)
+                            size = dpg.get_item_rect_size(parent.opx.window_tag)
+                            simulation = parent.opx.simulation
+                            parent.opx.DeleteMainWindow()
+                        except Exception as e:
+                            print(f"Old OPX GUI removal failed: {e}")
+
+                    # Recreate OPX
+                    parent.opx = wrap_OPX.GUI_OPX()  # or whatever device ref you use
+                    parent.opx.controls()
+
+                    if dpg.does_item_exist("OPX_button"):
+                        dpg.delete_item("OPX_button")
+
+                    parent.create_bring_window_button(
+                        parent.opx.window_tag,
+                        button_label="OPX",
+                        tag="OPX_button",
+                        parent="focus_group"
+                    )
+                    parent.create_sequencer_button()
+                    parent.active_instrument_list.append(parent.opx.window_tag)
+
+                    dpg.set_item_pos(parent.opx.window_tag, pos)
+                    dpg.set_item_width(parent.opx.window_tag, size[0])
+                    dpg.set_item_height(parent.opx.window_tag, size[1])
+
+                    print("Reloaded HWrap_OPX and recreated GUI_OPX.")
+                elif raw_name and raw_name.lower() in ["smaract", "smaract_gui"]:
+                    import HW_GUI.GUI_Smaract as gui_Smaract
+                    importlib.reload(gui_Smaract)
+                    if hasattr(parent, "smaractGUI") and parent.smaractGUI:
+                        try:
+                            pos = dpg.get_item_pos(parent.smaractGUI.window_tag)
+                            size = dpg.get_item_rect_size(parent.smaractGUI.window_tag)
+                            parent.smaractGUI.DeleteMainWindow()
+                        except Exception as e:
+                            print(f"Old Smaract GUI removal failed: {e}")
+                    # Recreate Smaract GUI
+                    parent.smaractGUI = gui_Smaract.GUI_smaract(
+                        simulation=parent.smaractGUI.simulation,
+                        serial_number=parent.smaractGUI.selectedDevice
+                    )
+                    parent.smaractGUI.create_gui()
+                    if dpg.does_item_exist("Smaract_button"):
+                        dpg.delete_item("Smaract_button")
+                    parent.create_bring_window_button(
+                        parent.smaractGUI.window_tag,
+                        button_label="Smaract",
+                        tag="Smaract_button",
+                        parent="focus_group"
+                    )
+                    parent.active_instrument_list.append(parent.smaractGUI.window_tag)
+                    dpg.set_item_pos(parent.smaractGUI.window_tag, pos)
+                    dpg.set_item_width(parent.smaractGUI.window_tag, size[0])
+                    dpg.set_item_height(parent.smaractGUI.window_tag, size[1])
+                    # If not simulation, restart the Smaract thread
+                    if not parent.smaractGUI.simulation:
+                        import threading
+                        parent.smaract_thread = threading.Thread(target=parent.render_smaract)
+                        parent.smaract_thread.start()
+                    print("Reloaded HW_GUI.GUI_Smaract and recreated GUI_smaract.")
                 else:
                     if module_name in sys.modules:
                         module = sys.modules[module_name]
@@ -348,10 +401,8 @@ def run(command: str):
                     else:
                         module = importlib.import_module(module_name)
                         print(f"Imported and reloaded: {module_name}")
-
             except Exception as e:
                 print(f"Reload failed for '{module_name}': {e}")
-
         elif command == "plf":
             try:
                 parent = sys.stdout.parent
@@ -412,7 +463,6 @@ def run(command: str):
                     parent.future_annots.append(annot_tag)
             except Exception as e:
                 print(f"Error running 'plf': {e}")
-
         elif command == "ld":
             try:
                 parent = sys.stdout.parent
@@ -448,7 +498,6 @@ def run(command: str):
                 print(f"Loaded and plotted: {fn}")
             except Exception as e:
                 print(f"Error in ld command: {e}")
-
         elif command in ("coords", "coo"):
             parent = getattr(sys.stdout, "parent", None)
             if parent and hasattr(parent, "cam") and hasattr(parent.cam, "toggle_coords_display"):
@@ -471,7 +520,6 @@ def run(command: str):
         # 🟢 Always refocus your input box
         if dpg.does_item_exist("cmd_input"):
             dpg.focus_item("cmd_input")
-
 import builtins
 builtins.run = run
 
