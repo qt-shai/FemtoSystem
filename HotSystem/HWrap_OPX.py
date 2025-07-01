@@ -248,7 +248,6 @@ class GUI_OPX():
         self.dL_scan = [300, 300, 300]  # [nm]
         self.b_Scan = [True, True, False]
         self.b_Zcorrection = True
-        self.use_picomotor = False
         self.ZCalibrationData: np.ndarray | None = None
         self.Zcorrection_threshold = 10  # [nm]
         self.iniShift_scan = [0, 0, 0]  # [nm]
@@ -1380,9 +1379,6 @@ class GUI_OPX():
                                                  default_value=self.b_Zcorrection)
                                 dpg.add_text(default_value="Use Z Correction", tag="text_Zcorrection", indent=-1)
 
-                            dpg.add_input_text(label="CMD", callback=self.execute_input_string, multiline=True,
-                                               width=400, height=20)
-
                     with dpg.group(tag="start_Scan_btngroup", horizontal=False):
                         dpg.add_button(label="Start Scan", tag="btnOPX_StartScan", callback=self.btnStartScan,
                                        indent=-1, width=130)
@@ -1399,15 +1395,9 @@ class GUI_OPX():
                         with dpg.group(horizontal=True):
                             dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100, default_value=suffix)
                             dpg.add_button(label="Mv", callback=self.move_last_saved_files)
-                        dpg.add_input_float(label="AnnTH",tag="femto_anneal_threshold",default_value=800,width=120)
-
                     _width = 150
                     with dpg.group(horizontal=False):
-                        with dpg.group(horizontal=True):
-                            dpg.add_button(label="plot", callback=self.plot_graph)
-                            dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor",
-                                             callback=self.toggle_use_picomotor,
-                                             default_value=self.use_picomotor)
+                        dpg.add_input_float(label="AnnTH", tag="femto_anneal_threshold", default_value=800, width=_width)
                         dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=10,width=_width,callback=lambda s, a, u: self.pharos.setBasicTargetAttenuatorPercentage(dpg.get_value(s)))
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
                         dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0, width=_width)
@@ -1663,53 +1653,11 @@ class GUI_OPX():
             position[channel] = int(device.AxesPositions[channel] / device.StepsIn1mm * 1e3 * 1e6)  # [pm]
         return position
 
-    # Define the callback function to run the input string
-    def execute_input_string(self, app_data, user_data):
-        try:
-            print(f"Executing: {user_data}")
-            # Run the input string as code
-            exec(user_data)
-
-        except Exception as e:
-            print(f"Error executing input string: {e}")
-
-    def toggle_use_picomotor(self, app_data, user_data):
-        self.use_picomotor = user_data
-        time.sleep(0.001)
-        dpg.set_value(item="checkbox_use_picomotor", value=self.use_picomotor)
-        # self.map.toggle_use_picomotor(app_data=app_data, user_data=user_data)
-        print("Set use_picomotor to: " + str(self.use_picomotor))
-
     def toggle_limit(self, app_data, user_data):
         self.limit = user_data
         time.sleep(0.001)
         dpg.set_value(item="checkbox_limit", value=self.limit)
         print("Limit is " + str(self.limit))
-
-    def plot_graph(self):
-        # Check if plt_x and plt_y are not None
-        if self.plt_x is not None and self.plt_y is not None:
-            plt.plot(self.plt_x, self.plt_y, label="Data")
-
-            # Check if self.max and self.max1 are not None before plotting vertical lines
-            if self.plt_max is not None:
-                plt.axvline(x=self.plt_max, color='r', linestyle='--', label=f"Max: {self.plt_max}")
-            # if self.plt_max1 is not None:
-            #     plt.axvline(x=self.plt_max1, color='g', linestyle='--', label=f"Max1: {self.plt_max1}")
-
-            # Add labels and legend
-            plt.xlabel("Z-axis")
-            plt.ylabel("Intensity")
-            plt.title("Graph with Max and Max1 Lines")
-            plt.legend()
-            plt.grid(True)
-            plt.show()
-
-            # Save the plot as a PNG file
-            file_path = "saved_plot.png"
-            plt.savefig(file_path)
-        else:
-            print("Error: plt_x or plt_y is None. Unable to plot the graph.")
 
     # not done need to be tested and verify bugs free
     def Save_2D_matrix2IMG(self, array_2d, fileName="fileName", img_format='png'):
