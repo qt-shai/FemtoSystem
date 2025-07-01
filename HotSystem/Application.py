@@ -53,6 +53,7 @@ import numpy as np
 
 import Outout_to_gui as outout
 from Common import wait_for_item_and_set
+import traceback
 
 class Layer:
     def __init__(self, name="Layer"):
@@ -904,11 +905,6 @@ class PyGuiOverlay(Layer):
                     self.active_instrument_list.append(self.kdc_101_gui.window_tag)
 
                 elif instrument == Instruments.MFF_101:
-                    # if self.mff_101_gui is None:
-                    #     self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices().mff_101_list)
-                    # else:
-                    #     self.mff_101_gui.add_new_button(serial_number=device.serial_number)
-                    # self.mff_101_gui = GUI_MFF(serial_number=device.serial_number,device=hw_devices.HW_devices().mff_101_list)
                     flipper_list = hw_devices.HW_devices().mff_101_list
                     matching_device = next(
                         (flipper for flipper in flipper_list if str(flipper.serial_no) == device.serial_number),
@@ -962,6 +958,7 @@ class PyGuiOverlay(Layer):
                     print(f"Unknown instrument {instrument} ")
 
             except Exception as e:
+                traceback.print_exc()
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 
         # If this is a Femto system, create the Femto Power Calculator GUI

@@ -6,7 +6,7 @@ from Utils import loadFromCSV
 import importlib
 import HW_wrapper.HW_devices as hw_devices
 from HW_GUI.GUI_MFF_101 import GUI_MFF
-
+import traceback
 
 # To copy the last message to the clipboard:
 # import pyperclip; pyperclip.copy(sys.stdout.messages[-2])
@@ -202,13 +202,16 @@ def run(command: str):
                 print("Counter live started.")
             else:
                 print("Counter live not available.")
-        elif command.startswith("lp "):
-            # Example: lp r → load_pos("remote"), lp xyz → load_pos("xyz")
-            arg = command.split("lp ", 1)[1].strip()
-            profile_name = "remote" if arg == "r" else arg
+        elif command.startswith("lp"):
+            parts = command.split(" ", 1)
+            if len(parts) == 1:
+                profile_name = "local"  # or whatever default you want
+            else:
+                arg = parts[1].strip()
+                profile_name = "remote" if arg == "r" else arg
             if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "smaractGUI"):
                 sys.stdout.parent.smaractGUI.load_pos(profile_name)
-                print(f"Loaded positions with profile: {profile_name}")
+                print(f"Loaded positions.")
             else:
                 print("smaractGUI not available.")
         elif command.startswith("sp "):
@@ -393,6 +396,45 @@ def run(command: str):
                         parent.smaract_thread = threading.Thread(target=parent.render_smaract)
                         parent.smaract_thread.start()
                     print("Reloaded HW_GUI.GUI_Smaract and recreated GUI_smaract.")
+                elif raw_name and raw_name.lower() in ["hrs", "hrs500", "hrs_500"]:
+                    import HW_GUI.GUI_HRS_500 as gui_HRS500
+                    importlib.reload(gui_HRS500)
+
+                    # Remove old window if it exists
+                    if hasattr(parent, "hrs_500_gui") and parent.hrs_500_gui:
+                        try:
+                            pos = dpg.get_item_pos(parent.hrs_500_gui.window_tag)
+                            size = dpg.get_item_rect_size(parent.hrs_500_gui.window_tag)
+                            parent.hrs_500_gui.DeleteMainWindow()
+                        except Exception as e:
+                            print(f"Old HRS_500 GUI removal failed: {e}")
+
+                    # === Recreate the GUI exactly like your Instruments.HRS_500 branch ===
+                    parent.hrs_500_gui = gui_HRS500.GUI_HRS500(hw_devices.HW_devices().hrs_500)
+
+                    # Bring button
+                    if dpg.does_item_exist("HRS_500_button"):
+                        dpg.delete_item("HRS_500_button")
+
+                    parent.create_bring_window_button(
+                        parent.hrs_500_gui.window_tag,
+                        button_label="Spectrometer",
+                        tag="HRS_500_button",
+                        parent="focus_group"
+                    )
+
+                    parent.active_instrument_list.append(parent.hrs_500_gui.window_tag)
+
+                    # Restore previous position/size if we had them
+                    try:
+                        dpg.set_item_pos(parent.hrs_500_gui.window_tag, pos)
+                        dpg.set_item_width(parent.hrs_500_gui.window_tag, size[0])
+                        dpg.set_item_height(parent.hrs_500_gui.window_tag, size[1])
+                    except Exception:
+                        pass
+
+                    print("Reloaded HW_GUI.GUI_HRS500 and recreated Spectrometer GUI.")
+
                 else:
                     if module_name in sys.modules:
                         module = sys.modules[module_name]
@@ -402,6 +444,7 @@ def run(command: str):
                         module = importlib.import_module(module_name)
                         print(f"Imported and reloaded: {module_name}")
             except Exception as e:
+                traceback.print_exc()
                 print(f"Reload failed for '{module_name}': {e}")
         elif command == "plf":
             try:
@@ -495,6 +538,7 @@ def run(command: str):
                 data = loadFromCSV(fn)
                 # Call your OPX plot method
                 parent.opx.Plot_data(data, True)
+                parent.opx.last_loaded_file = fn
                 print(f"Loaded and plotted: {fn}")
             except Exception as e:
                 print(f"Error in ld command: {e}")
@@ -508,6 +552,31 @@ def run(command: str):
                 print(f"Coordinate grid display set to: {new_value}")
             else:
                 print("cam or toggle_coords_display not available.")
+        elif command == "fq":
+            parent = getattr(sys.stdout, "parent", None)
+            if parent and hasattr(parent, "opx") and hasattr(parent.opx, "fill_moveabs_from_query"):
+                parent.opx.fill_moveabs_from_query()
+                print("Filled MoveABS from queried area.")
+                # ✅ Now press GO for ch0 and ch1 using Smaract
+                if hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "move_absolute"):
+                    parent.smaractGUI.move_absolute(None, None, 0)
+                    parent.smaractGUI.move_absolute(None, None, 1)
+                    print("Triggered GO on Smaract for ch0 and ch1.")
+                else:
+                    print("Smaract GUI not available or missing 'move_absolute'.")
+            else:
+                print("OPX not available or missing 'fill_moveabs_from_query'.")
+        elif command == "spc":
+            parent = getattr(sys.stdout, "parent", None)
+            if parent and hasattr(parent, "opx") and hasattr(parent.opx, "spc"):
+                if hasattr(parent.opx.spc, "acquire_Data"):
+                    parent.hrs_500_gui.acquire_callback()
+                    print("SPC -> acquire_Data() called.")
+                else:
+                    print("OPX SPC has no 'acquire_Data' method.")
+            else:
+                print("Parent OPX or SPC not available.")
+
         else: # Try to evaluate as a simple expression
             try:
                 result = eval(command, {"__builtins__": {}})

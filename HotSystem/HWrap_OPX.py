@@ -127,6 +127,7 @@ class GUI_OPX():
         # TODO: Move measure_type definition to be read from config
         # measure_type = MeasurementType.ANALOG
         # self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
+        self.last_loaded_file = None
         self.stop_survey: bool = False
         self.survey_stop_flag = False
         self.survey_g2_threshold: float = 0.4
@@ -186,6 +187,7 @@ class GUI_OPX():
         self.laser = self.HW.cobolt
         self.matisse = self.HW.matisse_device
         self.my_qua_jobs = []
+        self.spc= self.HW.hrs_500
 
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
             self.ScanTrigger = 101  # IO2
@@ -1473,53 +1475,59 @@ class GUI_OPX():
 
     def move_last_saved_files(self, sender=None, app_data=None, user_data=None):
         try:
-            if not (hasattr(self, 'timeStamp') and self.timeStamp):
+            files_to_move = []
+            extensions = [".jpg", ".xml", ".png", ".csv"]
+            self.exp.name="scan"
+
+            if not hasattr(self, 'timeStamp') or not self.timeStamp:
                 print("No timestamp found. Save data first.")
-                return
-
-            if self.survey:
-                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/{self.exp.name}"
+                # ✅ Try using the last loaded file instead
+                if hasattr(self, 'last_loaded_file') and self.last_loaded_file:
+                    base, ext = os.path.splitext(self.last_loaded_file)
+                    for extra_ext in extensions:
+                        files_to_move.append(base + extra_ext)
+                    print(f"Using last loaded file base: {base} → with extensions: {extensions}")
+                else:
+                    print("No loaded file to move.")
+                    return
             else:
-                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/{self.exp.name}/{self.HW.config.system_type}"
+                # ✅ Normal timestamped base
+                if self.survey:
+                    folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/{self.exp.name}"
+                else:
+                    folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/{self.exp.name}/{self.HW.config.system_type}"
 
-            base_file = os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_{self.expNotes}")
+                base_file = os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_{self.expNotes}")
+                for ext in extensions:
+                    files_to_move.append(base_file + ext)
+
             subfolder = dpg.get_value("MoveSubfolderInput")
             if not subfolder:
                 print("Subfolder name is empty.")
                 return
 
+            # Build the target folder path
+            if self.survey:
+                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/{self.exp.name}"
+            else:
+                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/{self.exp.name}/{self.HW.config.system_type}"
+
             new_folder = os.path.join(folder_path, subfolder)
             if not os.path.exists(new_folder):
                 os.makedirs(new_folder)
 
-            extensions = [".jpg", ".xml", ".png", ".csv"]
             moved_any = False
 
-            for ext in extensions:
-                src = base_file + ext
+            for src in files_to_move:
                 dst = os.path.join(new_folder, os.path.basename(src))
                 if os.path.exists(src):
                     shutil.move(src, dst)
                     print(f"Moved {src} → {dst}")
                     moved_any = True
                 else:
-                    # Try fallback: expNotes='' or expNotes='_'
-                    fallback_files = [
-                        os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}__" + ext),
-                        os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_" + ext)
-                    ]
-                    fallback_found = False
-                    for fallback_src in fallback_files:
-                        if os.path.exists(fallback_src):
-                            shutil.move(fallback_src, dst)
-                            print(f"Moved {fallback_src} → {dst} (fallback used)")
-                            moved_any = True
-                            fallback_found = True
-                            break
-                    if not fallback_found:
-                        print(f"{src} does not exist (and no fallback found)")
+                    print(f"{src} does not exist.")
 
-            # If no files moved, try from C:/temp/TempScanData
+            # Fallback: TempScanData
             if not moved_any:
                 temp_folder = "C:/temp/TempScanData"
                 if not os.path.exists(temp_folder):
@@ -1527,7 +1535,7 @@ class GUI_OPX():
                     os.makedirs(temp_folder)
 
                 for filename in os.listdir(temp_folder):
-                    if filename.startswith(self.timeStamp):
+                    if hasattr(self, 'timeStamp') and self.timeStamp and filename.startswith(self.timeStamp):
                         src = os.path.join(temp_folder, filename)
                         dst = os.path.join(new_folder, filename)
                         shutil.move(src, dst)
@@ -11440,6 +11448,10 @@ class GUI_OPX():
             data = loadFromCSV(fn)
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)
+            self.last_loaded_file = fn  # ✅ Store it!
+            print(f"Loaded: {fn}")
+        else:
+            print("No file selected.")
 
     def save_scan_data(self, Nx, Ny, Nz, fileName=None, to_append: bool = False):
         if fileName == None:

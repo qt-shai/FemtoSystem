@@ -217,7 +217,12 @@ class LightFieldSpectrometer:
         self.wait_until_ready()
         after = self.get_list_of_files()
         new_file = self.find_new_file(before, after)
-        #new_file = "C:\\Users\\ice\\Work Folders\\Documents\\29 2025 March 26 17_42_01.csv"
+
+        if new_file:
+            print(f"New data file: {new_file[0]}")
+        else:
+            print("No new file found!")
+
         try:
             spe_file_data = loadFromCSV(new_file[0])
         except Exception as e:

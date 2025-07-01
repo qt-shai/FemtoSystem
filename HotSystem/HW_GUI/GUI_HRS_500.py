@@ -16,6 +16,18 @@ class GUI_HRS500():
         self.create_gui()
         self.data = None
 
+    def DeleteMainWindow(self):
+        """
+        Safely delete the HRS_500 main window from DearPyGui.
+        """
+        if hasattr(self, "window_tag"):
+            if dpg.does_item_exist(self.window_tag):
+                dpg.delete_item(self.window_tag)
+                print(f"{self.window_tag} deleted.")
+            else:
+                print(f"{self.window_tag} does not exist. Nothing to delete.")
+        else:
+            print("No window_tag attribute defined on HRS_500 GUI.")
 
     def _cleanup(self):
         """Runs the moment the window is closed."""
@@ -55,7 +67,7 @@ class GUI_HRS500():
                 dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=f"y_axis_{self.prefix}", invert=False,
                                   parent=f"graphXY_{self.prefix}")  # REQUIRED: create x and y axes
                 dpg.add_line_series([], [], label="Spectrum",
-                                    parent=f"y_axis_{self.prefix}", weigth = LINE_WIDTH, color = line_color,
+                                    parent=f"y_axis_{self.prefix}",
                                     tag=self.series_tag)
 
     def acquire_callback(self):
@@ -97,7 +109,12 @@ class GUI_HRS500():
         self.dev.set_filename(self.file_name)
 
     def define_hrs_themes(self):
-        with dpg.theme(tag=f"acquire_red_theme_{self.prefix}"):
+        theme_tag = f"acquire_red_theme_{self.prefix}"
+        if dpg.does_item_exist(theme_tag):
+            print(f"Theme {theme_tag} already exists — skipping creation.")
+            return
+
+        with dpg.theme(tag=theme_tag):
             with dpg.theme_component(dpg.mvButton):
                 # colours
                 dpg.add_theme_color(dpg.mvThemeCol_Button, (200, 0, 0))

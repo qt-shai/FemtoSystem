@@ -229,7 +229,7 @@ class GUI_smaract():
         window_names = [
             "pico_Win", "mcs_Win", "Zelux Window", "graph_window", "Main_Window",
             "OPX Window", "Map_window", "Scan_Window", "LaserWin", "CLD1011LP_Win",
-            "experiments_window", "graph_window", "console_window"
+            "experiments_window", "graph_window", "console_window", "hrs500_Win"
         ]
         file_name = f"win_pos_{profile_name}.txt"
 
