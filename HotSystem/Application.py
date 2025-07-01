@@ -966,6 +966,7 @@ class PyGuiOverlay(Layer):
         # If this is a Femto system, create the Femto Power Calculator GUI
         if self.system_config.system_type == SystemType.FEMTO:
             self.femto_gui = FemtoPowerCalculator(self.kdc_101_gui)
+            self.femto_gui.create_gui()
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle

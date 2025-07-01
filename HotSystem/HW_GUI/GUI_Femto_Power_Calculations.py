@@ -21,7 +21,9 @@ class FemtoPowerCalculator:
         self.future_input_tag = f"{self.prefix}_FutureInput_{self.unique_id}"
         self.future_output_group = f"{self.prefix}_FutureOutputGroup_{self.unique_id}"
 
-        self.create_gui()
+    def DeleteMainWindow(self):
+        if dpg.does_item_exist(self.window_tag):
+            dpg.delete_item(self.window_tag)
 
     def create_gui(self):
         with dpg.window(label="Femto Power Calculations", tag=self.window_tag, width=400, height=200):
@@ -60,8 +62,8 @@ class FemtoPowerCalculator:
             A3, A2, A1, A0 = -0.0055, 0.4814, 5.6756, -16.8214
             P_att = A3 * Att_percent ** 3 + A2 * Att_percent ** 2 + A1 * Att_percent + A0
         else:
-            A2, A1, A0 = 13.86, 16.70, 2.42
-            P_att = A2 * Att_percent ** 2 + A1 * Att_percent + A0
+            A3, A2, A1, A0 = -0.106, 9.7757, 12.3629, -26.1961
+            P_att = A3 * Att_percent ** 3 + A2 * Att_percent ** 2 + A1 * Att_percent + A0
 
         theta0 = -7.2
         modulation = np.sin(np.radians(2 * (HWP_deg - theta0))) ** 2 / np.sin(np.radians(2 * (40 - theta0))) ** 2
@@ -124,6 +126,8 @@ class FemtoPowerCalculator:
                 for child in children:
                     dpg.delete_item(child)
 
+            dpg.add_text(f"# pnts: {len(angles)}", color=(255, 255, 0), parent=self.future_output_group)
+
             for angle in angles:
                 P, E = self.calculate_laser_pulse(angle, Att_percent, mode)
                 with dpg.group(parent=self.future_output_group, horizontal=True):
@@ -132,7 +136,7 @@ class FemtoPowerCalculator:
                     dpg.add_text(f"P: {P:.1f} µW", color=(0, 255, 255))
 
 
-                print(f"Future → {angle:.1f}°, Att: {Att_percent:.1f}%, E: {E:.1f} nJ, P: {P:.1f} µW")
+                print(f"Future -> {angle:.1f}°, Att: {Att_percent:.1f}%, E: {E:.1f} nJ, P: {P:.1f} µW")
 
         except Exception as e:
             print(f"Error in future calculation: {e}")

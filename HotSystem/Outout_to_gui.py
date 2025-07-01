@@ -7,6 +7,7 @@ import importlib
 import HW_wrapper.HW_devices as hw_devices
 from HW_GUI.GUI_MFF_101 import GUI_MFF
 
+
 # To copy the last message to the clipboard:
 # import pyperclip; pyperclip.copy(sys.stdout.messages[-2])
 
@@ -303,6 +304,42 @@ def run(command: str):
                         parent.mff_101_gui.append(mff_gui)
 
                     print("Reloaded HW_GUI.GUI_Zelux and recreated ZeluxGUI.")
+                elif raw_name and raw_name.lower() in ["femto", "femto_gui"]:
+                    import HW_GUI.GUI_Femto_Power_Calculations as gui_Femto
+                    importlib.reload(gui_Femto)
+
+                    # Clean up old window if needed:
+                    if hasattr(parent, "femto_gui") and parent.femto_gui:
+                        try:
+                            pos = dpg.get_item_pos(parent.femto_gui.window_tag)
+                            size = dpg.get_item_rect_size(parent.femto_gui.window_tag)
+                            parent.femto_gui.DeleteMainWindow()
+                        except Exception as e:
+                            print(f"Old Femto GUI removal failed: {e}")
+
+                    # Recreate Femto GUI
+                    parent.femto_gui = gui_Femto.FemtoPowerCalculator(parent.kdc_101_gui)
+                    parent.femto_gui.create_gui()
+
+                    # Recreate bring-to-front button if needed
+                    if dpg.does_item_exist("Femto_button"):
+                        dpg.delete_item("Femto_button")
+
+                    parent.create_bring_window_button(
+                        parent.femto_gui.window_tag,
+                        button_label="Femto",
+                        tag="Femto_button",
+                        parent="focus_group"
+                    )
+                    parent.active_instrument_list.append(parent.femto_gui.window_tag)
+
+                    # Restore previous position & size if possible
+                    dpg.set_item_pos(parent.femto_gui.window_tag, pos)
+                    dpg.set_item_width(parent.femto_gui.window_tag, size[0])
+                    dpg.set_item_height(parent.femto_gui.window_tag, size[1])
+
+                    print("Reloaded HW_GUI.GUI_Femto and recreated FemtoPowerCalculator.")
+
                 else:
                     if module_name in sys.modules:
                         module = sys.modules[module_name]
@@ -422,9 +459,12 @@ def run(command: str):
                 print(f"Coordinate grid display set to: {new_value}")
             else:
                 print("cam or toggle_coords_display not available.")
-
-        else:
-            print(f"Unknown command: {command}")
+        else: # Try to evaluate as a simple expression
+            try:
+                result = eval(command, {"__builtins__": {}})
+                print(f"{command} = {result}")
+            except Exception:
+                print(f"Unknown command: {command}")
     except Exception as e:
         print(f"Error running command '{command}': {e}")
     finally:
