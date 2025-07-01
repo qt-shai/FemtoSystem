@@ -1389,9 +1389,7 @@ class GUI_OPX():
                         dpg.add_button(label="Update images", tag="btnOPX_UpdateImages", callback=self.btnUpdateImages,
                                        indent=1, width=130)
                         dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
-                        dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
-                        dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         with dpg.group(horizontal=True):
                             dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100, default_value=suffix)
                             dpg.add_button(label="Mv", callback=self.move_last_saved_files)
@@ -1827,9 +1825,7 @@ class GUI_OPX():
 
             if len(arrYZ) == 1 or show_only_xy:
                 pass
-                # dpg.set_item_width("Scan_Window", item_width + 50)
             else:
-                # dpg.set_item_width("Scan_Window", item_width * 3 + 50)
                 # XZ plot
                 dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
                              equal_aspects=True, crosshairs=True,
@@ -1851,10 +1847,6 @@ class GUI_OPX():
                 dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
                 dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
                                      label="Scan data", parent="plotImagc_Y")
-
-            # === Keep Scan_Window size unchanged ===
-            # dpg.set_item_height("Scan_Window", item_height + 150)
-
             end_Plot_time = time.time()
             print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
 
@@ -1961,11 +1953,12 @@ class GUI_OPX():
             print(f"Error during plotting: {e}")
 
         try:
+            pass
             # Update window width and height
-            item_width = dpg.get_item_width("plotImaga")
-            item_height = dpg.get_item_height("plotImaga")
-            dpg.set_item_width("Scan_Window", item_width + 150)
-            dpg.set_item_height("Scan_Window", item_height + 300)
+            # item_width = dpg.get_item_width("plotImaga")
+            # item_height = dpg.get_item_height("plotImaga")
+            # dpg.set_item_width("Scan_Window", item_width + 150)
+            # dpg.set_item_height("Scan_Window", item_height + 300)
         except Exception as e:
             print(f"Error updating window size: {e}")
 
@@ -10542,7 +10535,7 @@ class GUI_OPX():
                 dpg.draw_text(
                     pos=(x_val, y_val),
                     text=f"{pulse_energy_nJ:.1f} nJ",
-                    size=0.8,
+                    size=1.2,
                     color=(255, 255, 255, 255),
                     parent="plot_draw_layer",
                     tag=text_tag
