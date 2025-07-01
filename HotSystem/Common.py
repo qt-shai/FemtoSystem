@@ -18,7 +18,16 @@ import win32con
 from datetime import datetime
 import ctypes
 import win32process
+from screeninfo import get_monitors
 
+def get_primary_resolution():
+    for m in get_monitors():
+        if m.is_primary:
+            return (m.width, m.height)
+    return (0, 0)
+    # USAGE
+    # w, h = get_primary_resolution()
+    # print(f"Primary screen resolution: {w} x {h}")
 
 # add bubble sort
 class Common_Counter_Singletone:
@@ -220,6 +229,15 @@ def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
     Supports dynamic windows like KDC101 and Femto_Power_Calculations.
     """
     try:
+        w, h = get_primary_resolution()
+        print(f"Primary screen resolution: {w} x {h}")
+
+        if w == 3840 and h == 1600:
+            file_name = "win_pos_remote.txt"
+            print(f"Remote resolution detected → Using {file_name}")
+        else:
+            print(f"Using {file_name}")
+
         if not os.path.exists(file_name):
             print(f"{file_name} not found.")
             return
