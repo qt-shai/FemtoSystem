@@ -32,6 +32,8 @@ from HW_GUI.GUI_KDC101 import GUI_KDC101
 from HW_GUI.GUI_MFF_101 import GUI_MFF
 from HW_GUI.GUI_sim960PID import GUISIM960
 from HW_GUI.GUI_moku import GUIMoku
+from HW_GUI.GUI_Femto_Power_Calculations import FemtoPowerCalculator
+
 from HW_wrapper.Wrapper_moku import Moku
 from HWrap_OPX import GUI_OPX, Experiment
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
@@ -51,7 +53,6 @@ import numpy as np
 
 import Outout_to_gui as outout
 from Common import wait_for_item_and_set
-
 
 class Layer:
     def __init__(self, name="Layer"):
@@ -114,9 +115,12 @@ class LayerStack:
 
 class ImGuiOverlay(Layer):
     def __init__(self):
+        self.visible = False
         super().__init__()
+
         self.system_config: Optional[SystemConfig] = load_system_config()
         self.system_type: Optional[SystemType] = self.system_config.system_type
+
         # TODO : fix for all systems !!
         simulation = False
         if not self.system_type in [SystemType.HOT_SYSTEM, SystemType.ATTO]:
@@ -128,6 +132,7 @@ class ImGuiOverlay(Layer):
             self.mwGUI = None
         # self.opxGUI = GUI_OPX(simulation)
     m_Time = 0.0
+
 
     def obj_to_render(self,IsDemo = False):
         io = imgui.get_io()
@@ -155,6 +160,7 @@ class ImGuiOverlay(Layer):
         io.backend_flags |= 1 << 1 #imgui.IMGUI_BACKEND_FLAGS_HAS_MOUSE_CURSORS
         io.backend_flags |= 1 << 2#imgui.IMGUI_BACKEND_FLAGS_HAS_SET_MOUSE_POS
         # return super().on_attach()
+
     def on_update(self):
         self.io = imgui.get_io()
         io = self.io
@@ -316,7 +322,7 @@ class Application_singletone:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(self):
+    def __new__(self, create_context: bool = True):
         with self._lock:
             if self._instance is None:
                 self._instance = super(Application_singletone, self).__new__(self)
@@ -329,7 +335,7 @@ class Application_singletone:
     def __init__(self):
         self.m_Window.winData.event_callback = self.OnEvent
         pass
-    
+
     m_running = True
     m_LayerStack = LayerStack()
     m_Window = Window_singleton()
@@ -404,6 +410,7 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.step_tuning_axis = None
         self.modifier_key = None
         self.step_tuning_counter = None
         self.step_tuning_key = None
@@ -525,12 +532,15 @@ class PyGuiOverlay(Layer):
                     dpg.set_value("Analog_Modulation_cbx",am=='1')
                     dpg.set_value("Digital_Modulation_cbx",dm=='1')
 
-                    if Laser_mode in ["1 - Constant Power","ConstantPower"]:
-                        dpg.set_item_label("LaserWin","Cobolt (const pwr mode): actual power "+Laser_power+" mW")
-                    elif Laser_mode in ["0 - Constant Current","ConstantCurrent"]:
-                        dpg.set_item_label("LaserWin","Cobolt (const current mode): actual Current "+Laser_current+" mA")
-                    elif Laser_mode in ["2 - Modulation Mode","PowerModulation"]:
-                        dpg.set_item_label("LaserWin","Cobolt (mod. pwr mode): actual power "+Laser_power+" mW")
+                    if Laser_mode in ["1 - Constant Power", "ConstantPower"]:
+                        dpg.set_item_label("LaserWin",
+                                           f"Cobolt (const pwr mode): {Laser_power} mW (setpoint: {Laser_mod_power} mW)")
+                    elif Laser_mode in ["0 - Constant Current", "ConstantCurrent"]:
+                        dpg.set_item_label("LaserWin", f"Cobolt (const current mode): {Laser_current} mA")
+                    elif Laser_mode in ["2 - Modulation Mode", "PowerModulation"]:
+                        dpg.set_item_label("LaserWin",
+                                           f"Cobolt (mod. pwr mode): {Laser_power} mW (setpoint: {Laser_mod_power} mW)")
+
             except Exception as e:
                 print(f"Cobolt render error: {e}")
 
@@ -755,6 +765,7 @@ class PyGuiOverlay(Layer):
                 elif instrument in [Instruments.SMARACT_SLIP, Instruments.SMARACT_SCANNER]:
                     self.smaractGUI = gui_Smaract.GUI_smaract(simulation=device.simulation,
                                                               serial_number=device.serial_number)
+                    self.smaractGUI.create_gui()
                     self.create_bring_window_button(self.smaractGUI.window_tag, button_label="Smaract",
                                                     tag="Smaract_button", parent="focus_group")
                     self.active_instrument_list.append(self.smaractGUI.window_tag)
@@ -953,6 +964,11 @@ class PyGuiOverlay(Layer):
             except Exception as e:
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 
+        # If this is a Femto system, create the Femto Power Calculator GUI
+        if self.system_config.system_type == SystemType.FEMTO:
+            self.femto_gui = FemtoPowerCalculator(self.kdc_101_gui)
+            self.femto_gui.create_gui()
+
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle
         pass
@@ -1039,11 +1055,13 @@ class PyGuiOverlay(Layer):
                     combo = (self.modifier_key, key_data_enum)
 
                     # Track repeated presses of same combo
-                    if combo == getattr(self, "step_tuning_key", None):
+                    # Reset counter if combo or axis changes
+                    if combo == getattr(self, "step_tuning_key", None) and axis == getattr(self, "step_tuning_axis", None):
                         self.step_tuning_counter += 1
                     else:
                         self.step_tuning_counter = 0
                         self.step_tuning_key = combo
+                        self.step_tuning_axis = axis
 
                     factor = 2 ** self.step_tuning_counter
                     print(f"{combo} → counter={self.step_tuning_counter} → factor={factor}")
@@ -1096,18 +1114,6 @@ class PyGuiOverlay(Layer):
     def handle_smaract_controls(self, key_data_enum, is_coarse):
         """Handles keyboard input for Smaract device controls."""
         try:
-            if key_data_enum == KeyboardKeys.S_KEY: # Save all even if keyboard disabled
-                #pdb.set_trace()  # Insert a manual breakpoint
-                if self.smaractGUI:
-                    self.smaractGUI.save_log_points()
-                    self.smaractGUI.save_pos()
-                if self.picomotorGUI:
-                    self.picomotorGUI.save_log_points()
-
-                if hasattr(self.opx, 'map') and self.opx.map is not None:
-                    self.opx.map.save_map_parameters()
-                return
-
             if self.smaractGUI and self.smaractGUI.dev.KeyboardEnabled:
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
@@ -1437,7 +1443,7 @@ class PyGuiOverlay(Layer):
 
     def setup_main_exp_buttons(self):
         with dpg.window(label="Main Buttons Group", tag="Main_Window",
-                          autosize=True, no_move=True):
+                          autosize=True, no_move=True, collapsed=True):
             with dpg.group(label="Main Buttons Group", horizontal=True):
                 dpg.add_text("Bring Instrument to front:")
                 with dpg.group(tag = "focus_group",horizontal=True):
@@ -1468,7 +1474,7 @@ class PyGuiOverlay(Layer):
                 dpg.add_button(label="Save Logs", callback=self.save_logs)
 
             # Console log display
-            with dpg.child_window(tag="console_output", autosize_x=True, height=270):
+            with dpg.child_window(tag="console_output", autosize_x=True, height=200):
                 dpg.add_text("Console initialized.", tag="console_log", wrap=800)
 
             # Input field for sending commands or messages

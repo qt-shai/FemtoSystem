@@ -36,6 +36,7 @@ class GUI_smaract():
         if simulation:
             print("GUI Smaract in simulation mode")
 
+    def create_gui(self):
         themes = DpgThemes()
         yellow_theme = themes.color_theme((155, 155, 0), (0, 0, 0))
         red_button_theme = themes.color_theme((255, 0, 0), (0, 0, 0))
@@ -88,49 +89,43 @@ class GUI_smaract():
                         dpg.add_button(label="Log", callback=self.btnLogPoint, tag=f"{self.prefix}_Log")
                         dpg.add_button(label="Del", callback=self.btnDelPoint)
                         dpg.add_text(tag=f"{self.prefix}logged_points", label="")
-                with dpg.group(horizontal=False, tag="_column 4_", width=child_width*0.8):
-                    dpg.add_text(" Ref.")
-                    for ch in range(self.dev.no_of_channels):
-                        dpg.add_button(label="Ref. " + str(ch))
-                    dpg.add_button(label="Paste XY", callback=self.paste_clipboard_to_moveabs)
 
-                with dpg.group(horizontal=False, tag="_column 5_", width=child_width*0.8):
-                    dpg.add_text("  Zero   ")
-                    for ch in range(self.dev.no_of_channels):
-                        dpg.add_button(label="Zero " + str(ch), callback=self.btn_zero, user_data=ch)
-                    dpg.add_button(label="Set XYZ", callback=self.fill_current_position_to_moveabs)
-
-                with dpg.group(horizontal=False, tag="_column 6_", width=child_width/3):
-                    dpg.add_text(" Move UV")
+                with dpg.group(horizontal=False, tag="_column 4_", width=child_width/3):
+                    dpg.add_text(" UV")
                     for ch in range(2):
                         with dpg.group(horizontal=True):
                             dpg.add_button(label="-", width=10, callback=self.move_uv, user_data=(ch, -1, True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
                             dpg.add_button(label="+", width=10, callback=self.move_uv, user_data=(ch, 1, True))
                             dpg.bind_item_theme(dpg.last_item(), yellow_theme)
-
-                with dpg.group(horizontal=False, tag="_column 7_", width=child_width*1.3):
+                with dpg.group(horizontal=False, width=child_width*2):
                     dpg.add_text("Move Abs. (um)")
                     for ch in range(self.dev.no_of_channels):
                         with dpg.group(horizontal=True):
                             dpg.add_input_float(label="", default_value=0, tag=f"{self.prefix}_ch" + str(ch) + "_ABS", indent=-1,
-                                                format='%.4f', width=250, step=1, step_fast=10) #
-                            
-                with dpg.group(horizontal=False, tag="_column 8_", width=child_width*.8):
+                                                format='%.4f', step=1, step_fast=10) #
+                    dpg.add_button(label="Set XYZ", callback=self.fill_current_position_to_moveabs)
+                    dpg.add_button(label="Paste XY", callback=self.paste_clipboard_to_moveabs)
+                with dpg.group(horizontal=False, width=child_width*.8):
                     dpg.add_text("   GO")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="GO", callback=self.move_absolute, user_data=ch)
-
-                with dpg.group(horizontal=False, tag="_column 9_", width=child_width):
+                with dpg.group(horizontal=False, width=child_width*0.8):
+                    dpg.add_text(" Ref.")
+                    for ch in range(self.dev.no_of_channels):
+                        dpg.add_button(label="Ref. " + str(ch))
+                with dpg.group(horizontal=False, width=child_width*0.8):
+                    dpg.add_text("  Zero   ")
+                    for ch in range(self.dev.no_of_channels):
+                        dpg.add_button(label="Zero " + str(ch), callback=self.btn_zero, user_data=ch)
+                with dpg.group(horizontal=False, width=child_width):
                     dpg.add_text("    Home")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="Home " + str(ch), callback=self.btn_move_to_home, user_data=ch,indent=10)
-
-                with dpg.group(horizontal=False, tag="_column 10_", width=child_width):
+                with dpg.group(horizontal=False, width=child_width):
                     dpg.add_text("Status")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_combo(items=["idle",""], tag="mcs_Status" + str(ch))
-
             with dpg.group(horizontal=True):
                 dpg.add_combo(label="Devices", items=self.dev.Available_Devices_List, tag=f"{self.prefix}_device_selector",
                               callback=self.cmb_device_selector, width=300)
@@ -155,7 +150,7 @@ class GUI_smaract():
 
         self.load_logged_points_from_file()
 
-        if simulation:
+        if self.simulation:
             self.dev.AxesKeyBoardLargeStep = []
             self.dev.AxesKeyBoardSmallStep = []
             self.dev.AxesPositions = []
@@ -167,10 +162,14 @@ class GUI_smaract():
             self.dev.AxesAcceleraitions = []
             self.dev.AxesState = []
             self.dev.AxesFault = []
-        else:          
+        else:
             self.connect()
             self.dev.AxesKeyBoardLargeStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Cset") * self.dev.StepsIn1mm / 1e3) for ch in range(3)]
             self.dev.AxesKeyBoardSmallStep = [int(dpg.get_value(f"{self.prefix}_ch{ch}_Fset") * self.dev.StepsIn1mm / 1e6) for ch in range(3)]
+
+    def DeleteMainWindow(self):
+        if dpg.does_item_exist(self.window_tag):
+            dpg.delete_item(self.window_tag)
 
     def fill_current_position_to_moveabs(self):
         try:
@@ -223,13 +222,16 @@ class GUI_smaract():
         except Exception as e:
             print(f"Failed to parse clipboard: {e}")
 
-    def save_pos(self):
+    def save_pos(self, profile_name="local"):
         # Define the list of windows to check and save positions for
+        # self.smaractGUI.save_pos("remote")
+        # self.smaractGUI.load_pos("remote")
         window_names = [
-            "pico_Win", "mcs_Win", "Zelux Window",'graph_window','Main_Window',
-            "OPX Window", "Map_window", "Scan_Window", "LaserWin","CLD1011LP_Win",
-            "experiments_window","graph_window", "console_window"
+            "pico_Win", "mcs_Win", "Zelux Window", "graph_window", "Main_Window",
+            "OPX Window", "Map_window", "Scan_Window", "LaserWin", "CLD1011LP_Win",
+            "experiments_window", "graph_window", "console_window"
         ]
+        file_name = f"win_pos_{profile_name}.txt"
 
         # Dynamically find and add all KDC windows
         all_windows = dpg.get_all_items()
@@ -237,6 +239,13 @@ class GUI_smaract():
             if dpg.get_item_type(item) == "mvAppItemType::mvWindowAppItem":
                 tag = dpg.get_item_alias(item) or str(item)
                 if tag.startswith("KDC101_Win_"):
+                    window_names.append(tag)
+
+        # ✅ Add the Femto_Power_Calculations window if it exists
+        for item in all_windows:
+            if dpg.get_item_type(item) == "mvAppItemType::mvWindowAppItem":
+                tag = dpg.get_item_alias(item) or str(item)
+                if tag.startswith("Femto_Window_"):
                     window_names.append(tag)
 
         # Dictionary to store window positions and dimensions
@@ -251,26 +260,22 @@ class GUI_smaract():
                 print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
 
         try:
-            # Remove any existing window position and size entries
-            lines = []
-            new_content = [line for line in lines if not any(win_name in line for win_name in window_positions.keys())]
+            # Write window positions and sizes to file
+            with open(file_name, "w") as file:
+                for win_name, (position, size) in window_positions.items():
+                    file.write(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
+                    file.write(f"{win_name}_Size: {size[0]}, {size[1]}\n")
 
-            # Append the new window positions and dimensions to the content
-            for win_name, (position, size) in window_positions.items():
-                new_content.append(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
-                new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
-
-            # Write back the updated content to the file
-            with open("win_pos.txt", "w") as file:
-                file.writelines(new_content)
-
-            print("Window positions and sizes saved successfully to win_pos.txt.")
+            print("Window positions and sizes saved successfully to win_pos_local.txt.")
         except Exception as e:
             print(f"Error saving window positions and sizes: {e}")
 
-    def load_pos(self):
+    def load_pos(self, profile_name="local"):
+        if str(profile_name) == "530":
+            profile_name = "local"
+        file_name = f"win_pos_{profile_name}.txt"
         try:
-            load_window_positions()
+            load_window_positions(file_name)
         except Exception as e:
             print(f"Error loading window positions and sizes: {e}")
 
@@ -460,6 +465,12 @@ class GUI_smaract():
     def connect(self):
         if self.simulation:
             print("Loaded smaract simulation device")
+            return
+
+        if self.dev.IsConnected:
+            print(f"{self.prefix} device already connected")
+            dpg.set_item_label(self.window_tag, f"{self.prefix} stage, {self.selectedDevice}, connected")
+            dpg.set_item_label(f"{self.prefix}_Connect", "Disconnect")
             return
 
         if self.selectedDevice != "":

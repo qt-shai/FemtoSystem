@@ -18,11 +18,14 @@ def copy_logged_points(short_code: str):
     }
 
     short_code = short_code.lower()
-    if short_code not in mapping:
-        print("Invalid input. Use 'e' for elsc, 'o' for omri, or 'p' for prawer.")
-        return
 
-    src_file = os.path.join(base_dir, mapping[short_code])
+    # Determine source file
+    if short_code in mapping:
+        src_filename = mapping[short_code]
+    else:
+        src_filename = f"logged_points_{short_code}.txt"
+
+    src_file = os.path.join(base_dir, src_filename)
     dst_file = os.path.join(base_dir, "logged_points.txt")
 
     if os.path.exists(src_file):
@@ -39,4 +42,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         copy_logged_points(sys.argv[1])
     else:
-        print("Usage: python clog.py [e|o|p]")
+        print("Usage: python clog.py [e|o|p|m|<custom_name>]")

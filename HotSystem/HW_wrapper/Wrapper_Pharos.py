@@ -77,7 +77,8 @@ class PharosLaserAPI:
 
     def setBasicTargetAttenuatorPercentage(self, value):
         # Adjust the JSON key if needed
-        return self._put("/Basic/TargetAttenuatorPercentage", data={"TargetAttenuatorPercentage": value})
+        return self._put("/Basic/TargetAttenuatorPercentage", data=value)
+        # return self._put("/Basic/TargetAttenuatorPercentage", data={"TargetAttenuatorPercentage": value})
 
     def getBasicActualOutputEnergy(self):
         return self._get("/Basic/ActualOutputEnergy")

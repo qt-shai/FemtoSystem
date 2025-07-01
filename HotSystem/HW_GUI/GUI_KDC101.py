@@ -5,6 +5,7 @@ from Common import DpgThemes
 from HW_GUI.GUI_motors import GUIMotor
 import time
 import threading
+import numpy as np
 from SystemConfig import Instruments, load_instrument_images
 
 class GUI_KDC101(GUIMotor):
@@ -58,42 +59,14 @@ class GUI_KDC101(GUIMotor):
                 dpg.add_button(label="Read Current Angle", callback=self.read_current_angle)
 
 
-
-        # self._monitor_stop_event = threading.Event()
-        # self._monitor_thread = threading.Thread(target=self._monitor_position, daemon=True)
-        # self._monitor_thread.start()
-
-    # def _monitor_position(self):
-    #     """Thread function that continuously updates the motor position every 0.2 seconds."""
-    #     while not self._monitor_stop_event.is_set():
-    #         try:
-    #             current_pos = self.dev.get_current_position()
-    #             dpg.set_value(self.position_tag, f"{current_pos:.6f}")
-    #         except Exception as e:
-    #             dpg.set_value(self.position_tag, f"Error: {e}")
-    #         time.sleep(0.2)
-    #
-    # def shutdown(self):
-    #     """Cleanly stop the monitoring thread."""
-    #     self._monitor_stop_event.set()
-    #     self._monitor_thread.join(timeout=1)
-    #
-    # def update_position_display(self):
-    #     """Updates the position display with the latest position."""
-    #     try:
-    #         current_pos = self.dev.get_current_position()
-    #         dpg.set_value(self.position_tag, f"{current_pos:.6f}")
-    #     except Exception as e:
-    #         dpg.set_value(self.position_tag, f"Error: {e}")
     def read_current_angle(self):
         try:
             angle = float(str(self.dev.get_current_position()))
             dpg.set_value(self.position_display_tag, f"{angle:.3f}°")
             print(f"Current angle: {angle:.3f}°")
         except Exception as e:
-            print(f"Error reading current angle: {e}")
-            dpg.set_value(self.position_display_tag, f"Error")
-
+                print(f"Error reading current angle: {e}")
+                dpg.set_value(self.position_display_tag, f"Error")
 
     def system_initialization(self):
         self.dev.connect()
@@ -104,16 +77,6 @@ class GUI_KDC101(GUIMotor):
         print(new_value)
         while not self.dev.is_busy():
             self.dev.MoveABSOLUTE(new_value)
-        #self.update_position_display()
-
-    # def update_position(self):
-    #     """Retrieves and displays the current motor position."""
-    #     try:
-    #         position = self.dev.get_current_position()  # Assuming `get_position()` fetches the current position
-    #         dpg.set_value(self.position_tag, f"Current Position: {position:}")
-    #     except Exception as e:
-    #         dpg.set_value(self.position_tag, f"Error: {e}")
-
 
     def home_button(self):
         """Callback for the Home button."""

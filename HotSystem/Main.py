@@ -4,14 +4,15 @@ Entry point to our SW
 
 import os
 
+from imgui import create_context
 
 from Application import Application_singletone,PyGuiOverlay,ImGuiOverlay
+# from Application import Application_singletone,PyGuiOverlay
 
 
 # todo:
 # handle error for each device and for entire SW
 # add search for devices fo Rohde Schwarz
-
 
 def main():
     gui = ImGuiOverlay() #pyimgui

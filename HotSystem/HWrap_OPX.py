@@ -25,6 +25,8 @@ import glfw
 import matplotlib
 import numpy as np
 from collections import Counter
+import json
+from Outout_to_gui import toggle_sc
 
 from qm.jobs.base_job import QmBaseJob
 from qm.qua._expressions import QuaVariable, QuaVariableType
@@ -223,7 +225,7 @@ class GUI_OPX():
         self.clicked_position = None
         self.map_item_x = 0
         self.map_item_y = 0
-        self.map_keyboard_enable = False
+
         self.move_mode = "marker"
         self.text_color = (0, 0, 0, 255)  # Set color to black
         self.active_marker_index = -1
@@ -242,12 +244,11 @@ class GUI_OPX():
         self.scan_data = np.zeros(shape=[80, 80, 60])
         self.queried_area = None
         self.queried_plane = None  # 0 - XY, 1 - YZ, 2 -XZ
-        self.bScanChkbox = False
+        self.bScanChkbox = True
         self.L_scan = [3000, 3000, 3000]  # [nm]
         self.dL_scan = [300, 300, 300]  # [nm]
         self.b_Scan = [True, True, False]
         self.b_Zcorrection = True
-        self.use_picomotor = False
         self.ZCalibrationData: np.ndarray | None = None
         self.Zcorrection_threshold = 10  # [nm]
         self.iniShift_scan = [0, 0, 0]  # [nm]
@@ -378,7 +379,7 @@ class GUI_OPX():
         self.connect_to_QM_OPX = False
         self.benchmark_switch_flag = True
         self.benchmark_one_gate_only = True
-        self.bScanChkbox = False
+        self.bScanChkbox = True
 
         self.chkbox_close_all_qm = False
         self.pharos = PharosLaserAPI(host="192.168.101.58")
@@ -409,6 +410,9 @@ class GUI_OPX():
             except Exception as e:
                 print(f"Could not connect to OPX. Error: {e}.")
 
+    def DeleteMainWindow(self):
+        if dpg.does_item_exist(self.window_tag):
+            dpg.delete_item(self.window_tag)
     def close_qm_jobs(self, fn="qua_jobs.txt"):
         with open(fn, 'r') as f:
             loaded_jobs = f.readlines()
@@ -802,7 +806,6 @@ class GUI_OPX():
     def hide_legend(self):
         """Toggle the visibility of all legend series items."""
         items = (
-            "series_counts",
             "series_counts_ref",
             "series_counts_ref2",
             "series_counts_ref3",
@@ -817,6 +820,10 @@ class GUI_OPX():
             else:
                 dpg.show_item(item)
 
+        # Hide legend
+        if dpg.does_item_exist("graph_legend"):
+            dpg.hide_item("graph_legend")
+
     # GUI controls
     def GetWindowSize(self):
         # Move to Common
@@ -828,6 +835,11 @@ class GUI_OPX():
         self.window_scale_factor = width / 3840
 
     def set_all_themes(self):
+        if dpg.does_item_exist("OnTheme_OPX"):
+            dpg.delete_item("OnTheme_OPX")  # Remove old theme first!
+        if dpg.does_item_exist("OffTheme_OPX"):
+            dpg.delete_item("OffTheme_OPX")  # Remove old theme first!
+
         with dpg.theme(tag="OnTheme_OPX"):
             with dpg.theme_component(dpg.mvSliderInt):
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color
@@ -853,14 +865,36 @@ class GUI_OPX():
         win_size = [int(self.viewport_width * 0.6), int(self.viewport_height * 0.425)]
         self.set_all_themes()
 
+        if dpg.does_item_exist("graph_window"):
+            pos_graph = dpg.get_item_pos("graph_window")
+            size_graph = [
+                dpg.get_item_width("graph_window"),
+                dpg.get_item_height("graph_window")
+            ]
+            dpg.delete_item("graph_window")
+        else:
+            pos_graph = pos
+            size_graph = [780, 400]  # fallback
+
+        if dpg.does_item_exist("experiments_window"):
+            pos_exp = dpg.get_item_pos("experiments_window")
+            size_exp = [
+                dpg.get_item_width("experiments_window"),
+                dpg.get_item_height("experiments_window")
+            ]
+            dpg.delete_item("experiments_window")
+        else:
+            pos_exp = [100, 100]
+            size_exp = [400, 400]
+
         dpg.add_window(label=self.window_tag, tag=self.window_tag, no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
-        dpg.add_window(label="Exp graph", tag="experiments_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
-        dpg.add_window(label="Exp graph", tag="graph_window", no_title_bar=True, height=-1, width=-1, pos=[int(pos[0]), int(pos[1])])
+        dpg.add_window(label="Exp graph", tag="experiments_window", no_title_bar=True, height=size_exp[1], width=size_exp[0], pos=[int(pos_exp[0]), int(pos_exp[1])])
+        dpg.add_window(label="Exp graph", tag="graph_window", no_title_bar=True, height=size_graph[1], width=size_graph[0], pos=[int(pos_graph[0]), int(pos_graph[1])])
         dpg.add_button(label = "Hide legend", tag = "Hide_legend", parent = "graph_window", callback = self.hide_legend)
 
         dpg.add_group(tag="Graph_group", parent=self.window_tag, horizontal=True)
         dpg.add_plot(label="Graph", crosshairs=True, tag="graphXY", parent="graph_window", height=-1, width=-1)# width=int(win_size[0]), height=int(win_size[1]))  # height=-1, width=-1,no_menus = False )
-        dpg.add_plot_legend(parent="graphXY")  # optionally create legend
+        dpg.add_plot_legend(tag="graph_legend", parent="graphXY")
         dpg.add_plot_axis(dpg.mvXAxis, label="time", tag="x_axis", parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_plot_axis(dpg.mvYAxis, label="I [counts/sec]", tag="y_axis", invert=False, parent="graphXY")  # REQUIRED: create x and y axes
         dpg.add_line_series(self.X_vec, self.Y_vec, label="counts", parent="y_axis", tag="series_counts")
@@ -1221,11 +1255,8 @@ class GUI_OPX():
                                      default_value=self.AWG_interval,
                                      min_value=0, max_value=10000, step=4)
 
-
-
                 dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
                 dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
-
 
                 dpg.add_slider_int(label="Laser Type",
                                    tag="on_off_slider_OPX", width = 80,
@@ -1287,8 +1318,9 @@ class GUI_OPX():
             dpg.bind_item_theme("on_off_slider_OPX", "OnTheme_OPX")
             dpg.bind_item_theme(item="btnOPX_StartG2Survey", theme="btnPurpleTheme")
 
+            self.load_scan_parameters()
+            self.GUI_ScanControls()
             dpg.set_frame_callback(1, self.load_pos)
-
         else:
             dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=True)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
@@ -1305,7 +1337,19 @@ class GUI_OPX():
         scan_time_in_seconds = self.estimatedScanTime * 60
 
         item_width = int(200 * self.window_scale_factor)
+
+        # ✅ Prevent duplicate creation
+        if dpg.does_item_exist("Scan_Window"):
+            dpg.show_item("Scan_Window")  # Optional: bring it to front
+            return
+
         if self.bScanChkbox:
+            suffix = ""
+            suffix_file = "folder_suffix.txt"
+            if os.path.exists(suffix_file):
+                with open(suffix_file, "r") as f:
+                    suffix = f.read().strip()
+
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
@@ -1366,9 +1410,6 @@ class GUI_OPX():
                                                  default_value=self.b_Zcorrection)
                                 dpg.add_text(default_value="Use Z Correction", tag="text_Zcorrection", indent=-1)
 
-                            dpg.add_input_text(label="CMD", callback=self.execute_input_string, multiline=True,
-                                               width=400, height=20)
-
                     with dpg.group(tag="start_Scan_btngroup", horizontal=False):
                         dpg.add_button(label="Start Scan", tag="btnOPX_StartScan", callback=self.btnStartScan,
                                        indent=-1, width=130)
@@ -1379,29 +1420,17 @@ class GUI_OPX():
                         dpg.add_button(label="Update images", tag="btnOPX_UpdateImages", callback=self.btnUpdateImages,
                                        indent=1, width=130)
                         dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
-                        dpg.add_button(label="Auto Focus", tag="btnOPX_AutoFocus", callback=self.btnAutoFocus,
-                                       indent=-1, width=130)
-                        dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
-                        dpg.bind_item_theme(item="btnOPX_AutoFocus", theme="btnYellowTheme")
                         with dpg.group(horizontal=True):
-                            dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100)
+                            dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100, default_value=suffix)
                             dpg.add_button(label="Mv", callback=self.move_last_saved_files)
-
                     _width = 150
                     with dpg.group(horizontal=False):
-                        # dpg.add_button(label="Updt from map", callback=self.update_from_map, width=130)
-                        # dpg.add_button(label="scan all markers", callback=self.scan_all_markers, width=130)
-                        dpg.add_button(label="Z-calibrate", callback=self.btn_z_calibrate, width=130)
-                        with dpg.group(horizontal=True):
-                            dpg.add_button(label="plot", callback=self.plot_graph)
-                            dpg.add_checkbox(label="use Pico", indent=-1, tag="checkbox_use_picomotor",
-                                             callback=self.toggle_use_picomotor,
-                                             default_value=self.use_picomotor)
-                        dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=40,width=_width)
+                        dpg.add_input_float(label="AnnTH", tag="femto_anneal_threshold", default_value=800, width=_width)
+                        dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=10,width=_width,callback=lambda s, a, u: self.pharos.setBasicTargetAttenuatorPercentage(dpg.get_value(s)))
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
                         dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0, width=_width)
-                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=5, width=_width)
+                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0, width=_width)
                         dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=10000, width=_width)
                     _width = 100
 
@@ -1411,25 +1440,37 @@ class GUI_OPX():
                         dpg.add_button(label="fill Z", callback=self.fill_z)
                         dpg.add_button(label="fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
-
-                    with dpg.group(horizontal=False):
-                        dpg.add_input_float(label="Step (um)", default_value=0.2, width=_width, tag="step_um",
-                                            format='%.4f')
-                        dpg.add_input_float(label="Z Span (um)", default_value=6.0, width=_width, tag="z_span_um",
-                                            format='%.1f')
-                        dpg.add_input_float(label="Laser Power (mW)", default_value=40.0, width=_width,
-                                            tag="laser_power_mw", format='%.1f')
-                        dpg.add_input_float(label="Int time (ms)", default_value=200.0, width=_width, tag="int_time_ms",
-                                            format='%.1f')
-                        dpg.add_input_float(label="X-Y span (um)", default_value=10.0, width=_width, tag="xy_span_um",
-                                            format='%.4f')
-                        dpg.add_input_float(label="Offset (nm)", default_value=1500.0, width=_width,
-                                            tag="offset_from_focus_nm", format='%.1f')
+                        dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
 
                     dpg.set_frame_callback(1, self.load_pos)
                     self.load_pos()
         else:
             dpg.delete_item("Scan_Window")
+
+    def save_scan_parameters(self):
+        data = {
+            "dx": self.dL_scan[0],
+            "dy": self.dL_scan[1],
+            "dz": self.dL_scan[2],
+            "Lx": self.L_scan[0],
+            "Ly": self.L_scan[1],
+            "Lz": self.L_scan[2]
+        }
+        with open("scan_parameters.json", "w") as f:
+            json.dump(data, f)
+
+    def load_scan_parameters(self):
+        try:
+            with open("scan_parameters.json", "r") as f:
+                data = json.load(f)
+                self.dL_scan[0] = data.get("dx", self.dL_scan[0])
+                self.dL_scan[1] = data.get("dy", self.dL_scan[1])
+                self.dL_scan[2] = data.get("dz", self.dL_scan[2])
+                self.L_scan[0] = data.get("Lx", self.L_scan[0])
+                self.L_scan[1] = data.get("Ly", self.L_scan[1])
+                self.L_scan[2] = data.get("Lz", self.L_scan[2])
+        except FileNotFoundError:
+            pass  # Use defaults if file doesn't exist
 
     def move_last_saved_files(self, sender=None, app_data=None, user_data=None):
         try:
@@ -1463,7 +1504,21 @@ class GUI_OPX():
                     print(f"Moved {src} → {dst}")
                     moved_any = True
                 else:
-                    print(f"{src} does not exist")
+                    # Try fallback: expNotes='' or expNotes='_'
+                    fallback_files = [
+                        os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}__" + ext),
+                        os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_" + ext)
+                    ]
+                    fallback_found = False
+                    for fallback_src in fallback_files:
+                        if os.path.exists(fallback_src):
+                            shutil.move(fallback_src, dst)
+                            print(f"Moved {fallback_src} → {dst} (fallback used)")
+                            moved_any = True
+                            fallback_found = True
+                            break
+                    if not fallback_found:
+                        print(f"{src} does not exist (and no fallback found)")
 
             # If no files moved, try from C:/temp/TempScanData
             if not moved_any:
@@ -1500,6 +1555,41 @@ class GUI_OPX():
             print(f"Set MoveAbsX = {x_pos:.6f} m, MoveAbsY = {y_pos:.6f} m (Max Intensity)")
         except Exception as e:
             print(f"Failed to set MoveABS from max intensity: {e}")
+
+    def fill_moveabs_with_picture_center(self):
+        try:
+            # === CASE 1: If V_scan exists ===
+            if hasattr(self, "V_scan") and self.V_scan is not None:
+                Xmin = self.V_scan[0].min()*1e-6
+                Xmax = self.V_scan[0].max()*1e-6
+                Ymin = self.V_scan[1].min()*1e-6
+                Ymax = self.V_scan[1].max()*1e-6
+
+            # === CASE 2: Otherwise, use startLoc & endLoc ===
+            else:
+                Xmin = float(self.startLoc[0])*1e-6
+                Xmax = float(self.endLoc[0])*1e-6
+                Ymin = float(self.startLoc[1])*1e-6
+                Ymax = float(self.endLoc[1])*1e-6
+
+            x_center = (Xmin + Xmax) / 2
+            y_center = (Ymin + Ymax) / 2
+
+            dpg.set_value("mcs_ch0_ABS", x_center)
+            dpg.set_value("mcs_ch1_ABS", y_center)
+
+            # === Z center only if available ===
+            if hasattr(self, "idx_scan") and self.idx_scan is not None and hasattr(self, "Zv"):
+                z_value = float(self.Zv[self.idx_scan[Axis.Z.value]])
+                dpg.set_value("mcs_ch2_ABS", z_value)
+                print(f"Set MoveAbsZ = {z_value:.6f} m (from current Z slice)")
+            else:
+                print("No idx_scan or Zv available — Z not updated.")
+
+            print(f"Set MoveAbsX = {x_center:.6f} m, MoveAbsY = {y_center:.6f} m (Picture Center)")
+
+        except Exception as e:
+            print(f"Failed to fill MoveABS with picture center: {e}")
 
     def fill_moveabs_from_query(self):
         try:
@@ -1585,32 +1675,6 @@ class GUI_OPX():
         except Exception as e:
             print(f"Error loading window data: {e}")
 
-    def btn_z_calibrate(self):
-        self.ScanTh = threading.Thread(target=self.z_calibrate)
-        self.ScanTh.start()
-
-    def z_calibrate(self):
-        # pdb.set_trace()  # Insert a manual breakpoint
-        xy_span_um = dpg.get_value("xy_span_um")
-        if xy_span_um > 60:
-            self.use_picomotor = True
-
-        device = self.pico if self.use_picomotor else self.positioner
-
-        self.auto_focus()
-
-        for ch in range(2):
-            position = self.get_device_position(device)
-            # pdb.set_trace()  # Insert a manual breakpoint
-            device.LoggedPoints.append(position.copy())
-            device.MoveRelative(ch if not self.use_picomotor else ch + 1, int(xy_span_um * 1e-3 * device.StepsIn1mm))
-            self.auto_focus()
-
-        position = self.get_device_position(device)
-        # pdb.set_trace()  # Insert a manual breakpoint
-        device.LoggedPoints.append(position.copy())
-        device.calc_uv()
-
     def get_device_position(self, device):
         device.GetPosition()
         position = [0] * 3
@@ -1618,53 +1682,11 @@ class GUI_OPX():
             position[channel] = int(device.AxesPositions[channel] / device.StepsIn1mm * 1e3 * 1e6)  # [pm]
         return position
 
-    # Define the callback function to run the input string
-    def execute_input_string(self, app_data, user_data):
-        try:
-            print(f"Executing: {user_data}")
-            # Run the input string as code
-            exec(user_data)
-
-        except Exception as e:
-            print(f"Error executing input string: {e}")
-
-    def toggle_use_picomotor(self, app_data, user_data):
-        self.use_picomotor = user_data
-        time.sleep(0.001)
-        dpg.set_value(item="checkbox_use_picomotor", value=self.use_picomotor)
-        # self.map.toggle_use_picomotor(app_data=app_data, user_data=user_data)
-        print("Set use_picomotor to: " + str(self.use_picomotor))
-
     def toggle_limit(self, app_data, user_data):
         self.limit = user_data
         time.sleep(0.001)
         dpg.set_value(item="checkbox_limit", value=self.limit)
         print("Limit is " + str(self.limit))
-
-    def plot_graph(self):
-        # Check if plt_x and plt_y are not None
-        if self.plt_x is not None and self.plt_y is not None:
-            plt.plot(self.plt_x, self.plt_y, label="Data")
-
-            # Check if self.max and self.max1 are not None before plotting vertical lines
-            if self.plt_max is not None:
-                plt.axvline(x=self.plt_max, color='r', linestyle='--', label=f"Max: {self.plt_max}")
-            # if self.plt_max1 is not None:
-            #     plt.axvline(x=self.plt_max1, color='g', linestyle='--', label=f"Max1: {self.plt_max1}")
-
-            # Add labels and legend
-            plt.xlabel("Z-axis")
-            plt.ylabel("Intensity")
-            plt.title("Graph with Max and Max1 Lines")
-            plt.legend()
-            plt.grid(True)
-            plt.show()
-
-            # Save the plot as a PNG file
-            file_path = "saved_plot.png"
-            plt.savefig(file_path)
-        else:
-            print("Error: plt_x or plt_y is None. Unable to plot the graph.")
 
     # not done need to be tested and verify bugs free
     def Save_2D_matrix2IMG(self, array_2d, fileName="fileName", img_format='png'):
@@ -1833,9 +1855,8 @@ class GUI_OPX():
                 raise Exception("Window does not exist")
 
             if len(arrYZ) == 1 or show_only_xy:
-                dpg.set_item_width("Scan_Window", item_width + 50)
+                pass
             else:
-                dpg.set_item_width("Scan_Window", item_width * 3 + 50)
                 # XZ plot
                 dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
                              equal_aspects=True, crosshairs=True,
@@ -1857,9 +1878,6 @@ class GUI_OPX():
                 dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
                 dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
                                      label="Scan data", parent="plotImagc_Y")
-
-            dpg.set_item_height("Scan_Window", item_height + 150)
-
             end_Plot_time = time.time()
             print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
 
@@ -1871,6 +1889,8 @@ class GUI_OPX():
         Plots a 2D scan using the provided array. If a division by zero occurs,
         the array will be set to zeros.
         """
+        if dpg.does_item_exist("plot_draw_layer"):
+            dpg.delete_item("plot_draw_layer", children_only=True)
 
         if array_2d is None:
             array_2d = np.zeros((Nx, Ny))  # Default to zeros if array is not provided
@@ -1882,7 +1902,7 @@ class GUI_OPX():
             endLoc = [Nx, Ny]
 
         start_Plot_time = time.time()
-        plot_size = [int(self.viewport_width * 0.4), int(self.viewport_height * 0.4)]
+        plot_size = [int(self.viewport_width * 0.2), int(self.viewport_height * 0.4)] #1-7-2025
 
         try:
             # Attempt to normalize the array
@@ -1955,22 +1975,15 @@ class GUI_OPX():
 
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
             dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data", parent="plotImaga_Y")
+            # Add a draw layer for text annotations (e.g., pulse energy)
+
+            dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
         except Exception as e:
             print(f"Error during plotting: {e}")
-
-        try:
-            # Update window width and height
-            item_width = dpg.get_item_width("plotImaga")
-            item_height = dpg.get_item_height("plotImaga")
-            dpg.set_item_width("Scan_Window", item_width + 150)
-            dpg.set_item_height("Scan_Window", item_height + 300)
-        except Exception as e:
-            print(f"Error updating window size: {e}")
-
         end_Plot_time = time.time()
         print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
-
         try:
             dpg.set_value("texture_tag", result_array_)
         except Exception as e:
@@ -1996,6 +2009,7 @@ class GUI_OPX():
                                max_scale=Array2D.max(),
                                colormap=dpg.mvPlotColormap_Jet)
 
+
     def UpdateGuiDuringScan_____(self, Array2D: np.ndarray):  # $$$
         # todo: remove loops keep only when an imgae is needed
         start_updatePlot_time = time.time()
@@ -2020,6 +2034,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="chkbox_scan", value=sender.bScanChkbox)
         print("Set bScan to: " + str(sender.bScanChkbox))
+        sender.load_scan_parameters()
         sender.GUI_ScanControls()
 
     def Update_close_all_qm(sender, app_data, user_data):
@@ -2077,6 +2092,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_dx_scan", value=sender.dL_scan[0])
         print("Set dx_scan to: " + str(sender.dL_scan[0]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2087,6 +2103,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_Lx_scan", value=sender.L_scan[0])
         print("Set Lx_scan to: " + str(sender.L_scan[0]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2097,6 +2114,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_dy_scan", value=sender.dL_scan[1])
         print("Set dy_scan to: " + str(sender.dL_scan[1]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2107,6 +2125,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_Ly_scan", value=sender.L_scan[1])
         print("Set Ly_scan to: " + str(sender.L_scan[1]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2117,6 +2136,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_dz_scan", value=sender.dL_scan[2])
         print("Set dz_scan to: " + str(sender.dL_scan[2]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -2127,6 +2147,7 @@ class GUI_OPX():
         time.sleep(0.001)
         dpg.set_value(item="inInt_Lz_scan", value=sender.L_scan[2])
         print("Set Lz_scan to: " + str(sender.L_scan[2]))
+        sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
@@ -10023,10 +10044,6 @@ class GUI_OPX():
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
 
-    def btnAutoFocus(self):
-        self.ScanTh = threading.Thread(target=self.auto_focus)
-        self.ScanTh.start()
-
     def btnStartPLE(self):
         self.ScanTh = threading.Thread(target=self.StartPLE)
         self.ScanTh.start()
@@ -10197,126 +10214,6 @@ class GUI_OPX():
             self.qmm.clear_all_job_results()
             return counts
 
-    def auto_focus(self, ch=2):  # units microns
-        # Dictionary to store the retrieved values
-        auto_focus = {}
-        dpg.set_value("Scan_Message", "Auto-focus started")
-        print("Auto-focus started")
-
-        # List of item tags to retrieve values from
-        item_tags = ["step_um", "z_span_um", "laser_power_mw", "int_time_ms", "offset_from_focus_nm"]
-
-        # Using a for loop to get each value and assign it to the auto_focus dictionary
-        for tag in item_tags:
-            auto_focus[tag] = dpg.get_value(tag)
-            print(f"{tag}: {auto_focus[tag]}")
-
-        # start Qua pgm
-        self.exp = Experiment.SCAN
-        self.initQUA_gen(n_count=int(auto_focus["int_time_ms"] * self.u.ms / self.Tcounter / self.u.ns),
-                         num_measurement_per_array=1)
-        res_handles = self.job.result_handles
-        self.counts_handle = res_handles.get("counts_scanLine")
-
-        # init
-        N = int(auto_focus["z_span_um"] / auto_focus["step_um"])
-        initialShift = -1 * int(auto_focus["step_um"] * N / 2)  # [um]
-        intensities = []
-        coordinate = []
-
-        # set laser PWR
-        # original_power = dpg.get_value("power_input")
-        # print(f"Original power: {original_power}")
-        # print(f"set power: {auto_focus['laser_power_mw']}")
-        # self.HW.cobolt.set_power(auto_focus["laser_power_mw"])
-
-        time.sleep(0.1)
-
-        # goto start location - relative to current position
-        self.positioner.MoveRelative(ch, int(initialShift * self.positioner.StepsIn1mm * 1e-3))
-        time.sleep(0.001)
-        while not (self.positioner.ReadIsInPosition(ch)):
-            time.sleep(0.001)
-        print(f"is in position = {self.positioner.ReadIsInPosition(ch)}")
-        self.positioner.GetPosition()
-        self.absPosunits = self.positioner.AxesPosUnits[ch]
-        self.absPos = self.positioner.AxesPositions[ch]
-
-        # init - fetch data
-        self.fetch_peak_intensity(auto_focus["int_time_ms"])
-
-        # loop over all locations
-        for i in range(N):
-            # Calculate the progress percentage
-            progress_percentage = (i + 1) / N * 100
-
-            # Update the message with the progress percentage
-            dpg.set_value("Scan_Message", f"Auto-focus in progress: {progress_percentage:.1f}%")
-
-            # fetch new data from stream
-            last_intensity = self.fetch_peak_intensity(auto_focus["int_time_ms"])[0]
-
-            # Log data
-            coordinate.append(
-                i * auto_focus["step_um"] * self.positioner.StepsIn1mm * 1e-3 + self.absPos)  # Log axis position
-            intensities.append(last_intensity)  # Loa signal to array
-
-            # move to next location (relative move)
-            self.positioner.MoveRelative(ch, int(auto_focus["step_um"] * self.positioner.StepsIn1mm * 1e-3))
-            time.sleep(0.001)
-            res = self.positioner.ReadIsInPosition(ch)
-            while not (res):
-                time.sleep(0.001)
-                res = self.positioner.ReadIsInPosition(ch)
-
-        # print
-        print(f"z(ch={ch}): ", end="")
-        for i in range(len(coordinate)):
-            print(f", {coordinate[i] / 1e3: .3f}", end="")
-        print("")
-        print(f"i(ch={ch}): ", end="")
-        for i in range(len(intensities)):
-            print(f", {intensities[i]: .3f}", end="")
-
-        # find peak intensity
-        # optional: fit to parabula
-        if True:
-            coefficients = np.polyfit(coordinate, intensities, 2)
-            a, b, c = coefficients
-            maxPos_parabula = int(-b / (2 * a))
-            print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula / 1e3}")
-
-        # find max signal
-        max_pos = coordinate[intensities.index(max(intensities))]
-        print(f"maxPos={max_pos / 1e3}")
-        max_pos = max_pos - auto_focus["offset_from_focus_nm"] * self.positioner.StepsIn1mm * 1e-6
-        print(f"maxPos after offset={max_pos / 1e3}")
-
-        self.plt_x = np.array(coordinate) * 1e-3
-        self.plt_y = intensities
-        self.plt_max = round(max_pos / 1e3, 2)
-        self.plt_max1 = round(maxPos_parabula / 1e3, 2)
-
-        # move to max signal position
-        self.positioner.MoveABSOLUTE(ch, int(max_pos))
-
-        # print(f"Original power: {original_power}")
-        # self.HW.cobolt.set_power(original_power)
-
-        # if self.use_picomotor:
-        #     print(f"Moving pico {-max_pos * 1e-9}")
-        #     self.HW.picomotor.MoveRelative(Motor=ch + 1, Steps=int(-max_pos * 1e-9 * self.pico.StepsIn1mm))
-        #     self.positioner.MoveABSOLUTE(ch, 0)
-
-        # shift back tp experiment sequence
-        self.qm.set_io1_value(0)
-        time.sleep(0.1)
-
-        # stop and close job
-        self.StopJob(self.job, self.qm)
-        dpg.set_value("Scan_Message", "Auto-focus done")
-        print("Auto-focus done")
-
     def scan_reset_data(self):
         self.stopScan = False
         self.scan_Out = []
@@ -10389,9 +10286,16 @@ class GUI_OPX():
                 for point in self.positioner.LoggedPoints:
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
 
+        cam = self.HW.camera
+        if cam.constantGrabbing:
+            toggle_sc(reverse=False)
+
         if dpg.does_item_exist("btnOPX_Stop"):
-            print('Please stop other experiment before scanning')
-            return
+            print("Stopping previous experiment before scanning...")
+            self.btnStop()
+            time.sleep(0.5)
+            # print('Please stop other experiment before scanning')
+            # return
 
         print("start scan steps")
         start_time = time.time()
@@ -10573,23 +10477,30 @@ class GUI_OPX():
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time} seconds")
 
-        # # Display slices only if Z scan is enabled (checkbox checked) # NOT WORKING YET
-        # if self.b_Scan[2]:
-        #     try:
-        #         display_all_z_slices(filepath=fn + ".csv")
-        #     except Exception as e:
-        #         print(f"Failed to display Z scan slices: {e}")
-
         if not (self.stopScan):
             self.btnStop()
+
 
     def scan3d_femto_pulses(self):  # currently flurascence scan
         if len(self.positioner.LoggedPoints) == 3:
             with open('logged_points.txt', 'w') as f:
                 for point in self.positioner.LoggedPoints:
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
+        cam = self.HW.camera
+        if cam.constantGrabbing:
+            toggle_sc(reverse=False)
+
+        if dpg.does_item_exist("btnOPX_Stop"):
+            print("Stopping previous experiment before scanning...")
+            self.btnStop()
+            time.sleep(0.5)
+
+        Att_percent = float(self.pharos.getBasicTargetAttenuatorPercentage())
+        dpg.set_value("femto_attenuator", int(Att_percent))
 
         self.Shoot_Femto_Pulses = True
+
+        parent = sys.stdout.parent
 
         print("start scan steps")
         start_time = time.time()
@@ -10624,7 +10535,7 @@ class GUI_OPX():
                         print(f"Failed to delete {file_path}: {e}")
 
             p_femto = {}
-            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp","femto_increment_hwp_anneal","femto_anneal_pulse_count"]
+            item_tags = ["femto_attenuator", "femto_increment_att", "femto_increment_hwp","femto_increment_hwp_anneal","femto_anneal_pulse_count","femto_anneal_threshold"]
             for tag in item_tags:
                 p_femto[tag] = dpg.get_value(tag)
                 print(f"{tag}: {p_femto[tag]}")
@@ -10638,6 +10549,15 @@ class GUI_OPX():
         # Loop over three axes and populate scan coordinates
         scan_coordinates = []
         self.N_scan = []
+
+        # --- Check dx, dy step size ---
+        dx_nm = self.dL_scan[0] * 1e3  # convert to nm
+        dy_nm = self.dL_scan[1] * 1e3  # convert to nm
+        if dx_nm < 500 or dy_nm < 500:
+            print(f"Scan step too small: dx = {dx_nm:.1f} nm, dy = {dy_nm:.1f} nm (must be ≥ 500 nm)")
+            return
+
+
         for i in range(3):
             if self.b_Scan[i]:
                 axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
@@ -10685,6 +10605,7 @@ class GUI_OPX():
         self.all_att_percent = []
         self.all_y_scan = []
         self.anneal_results = []  # Each entry: [timestamp_in_seconds, count_value]
+        self.all_pulse_energies = []
 
         current_hwp = 10000  # initial non-physical value
 
@@ -10730,6 +10651,23 @@ class GUI_OPX():
                         self.all_y_scan.append(self.V_scan[1][j])
                         self.all_att_percent.append(attenuator_value)
 
+                mode = dpg.get_value(parent.femto_gui.combo_tag)
+                _, pulse_energy_nJ = parent.femto_gui.calculate_laser_pulse(HWP_deg=current_hwp, Att_percent=p_femto["femto_attenuator"], mode = mode)
+
+                x_val = self.V_scan[0][-1] / 1e6 + 1
+                y_val = self.V_scan[1][j] / 1e6
+
+                text_tag = f"energy_text_{i}_{j}"  # Unique tag per scan coordinate
+                dpg.draw_text(
+                    pos=(x_val, y_val),
+                    text=f"{pulse_energy_nJ:.1f} nJ",
+                    size=1.2,
+                    color=(255, 255, 255, 255),
+                    parent="plot_draw_layer",
+                    tag=text_tag
+                )
+                self.all_pulse_energies.append(pulse_energy_nJ)
+
                 Line_time_start = time.time()
                 for k in range(self.N_scan[0]):
                     if self.stopScan:
@@ -10751,7 +10689,7 @@ class GUI_OPX():
                     self.scan_get_current_pos()
 
                     if self.Shoot_Femto_Pulses:
-                        print(f"Pulse! x={self.V_scan[0][k]} | Y = {self.V_scan[1][j]} | HWP = {current_hwp:.2f}°")
+                        print(f"{pulse_energy_nJ:8.2f} nJ | Pulse! x={self.V_scan[0][k]} | Y = {self.V_scan[1][j]} | HWP = {current_hwp:.2f}°")
                         self.pharos.enablePp()
                         time.sleep(0.2)
                         current_state = self.pharos.getAdvancedIsPpEnabled()
@@ -10761,9 +10699,6 @@ class GUI_OPX():
                         # Anneal !!!!!!!!!!!!!!!!!!!!!!!!!!!
                         if p_femto["femto_increment_hwp_anneal"]>0:
                             n_pulses_anneal = p_femto["femto_anneal_pulse_count"]
-                            n_batches = 10
-                            pulses_per_batch = max(1, n_pulses_anneal // n_batches)
-
                             n_pulse_defect = self.pharos.getAdvancedTargetPulseCount()
 
                             hwp_anneal_angle = round(current_hwp-p_femto["femto_increment_hwp_anneal"],2)
@@ -10787,23 +10722,18 @@ class GUI_OPX():
                             self.anneal_times_all = []
 
                             anneal_time_start = time.time()
-                            prev_count = None
                             stop_anneal = False
+                            above_start_time = None
 
-                            self.pharos.enablePp()
-                            time.sleep(0.2)
-
-                            for batch in range(n_batches):
-                                if self.stopScan or stop_anneal:
-                                    break
-
-                                # Set batch size
-                                self.pharos.setAdvancedTargetPulseCount(pulses_per_batch)
+                            self.pharos.setAdvancedTargetPulseCount(n_pulses_anneal)
                             self.pharos.enablePp()
                             time.sleep(0.2)
 
                             # Loop while annealing is ongoing
-                            while self.pharos.getAdvancedIsPpEnabled():
+                            while self.pharos.getAdvancedIsPpEnabled() and not stop_anneal:
+                                # 🟢 GET updated threshold live from GUI:
+                                anneal_threshold = dpg.get_value("femto_anneal_threshold")
+
                                 # Trigger QUA acquisition
                                 self.qm.set_io2_value(self.ScanTrigger)
                                 time.sleep(1e-3)
@@ -10840,16 +10770,19 @@ class GUI_OPX():
                                     dpg.fit_axis_data('y_axis')
                                     self.lock.release()
 
-                                    print(f"Batch {batch + 1}/{n_batches} | Count: {current_count:.2f}")
+                                    print(f"Count: {current_count:.2f}")
 
-                                    # Check if count decreasing
-                                    if batch > 0:
-                                        if prev_count is not None and current_count <= prev_count-5:
-                                            print("Anneal stopped: decrease in counts detected.")
+                                    # threshold‐based stop
+                                    if current_count > anneal_threshold:
+                                        if above_start_time is None:
+                                            above_start_time = time.time()
+                                        elif (time.time() - above_start_time) >= 2.0:
+                                            print(f"Anneal stopped: signal > {anneal_threshold:.1f} for ≥2 s")
                                             stop_anneal = True
+                                            self.pharos.disablePp()
                                             break
-
-                                    prev_count = current_count
+                                    else:
+                                        above_start_time = None
 
                             # rewind back to defect parameters
                             self.pharos.setAdvancedTargetPulseCount(n_pulse_defect)
@@ -10865,7 +10798,8 @@ class GUI_OPX():
                                 current_hwp = self.kdc_101.get_current_position()
 
                     # self.positioner.generatePulse(channel=0) # should trigger measurement by smaract trigger
-                    self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
+                    if not self.stopScan:
+                        self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
                     time.sleep(1e-3)  # wait for measurement do occur
                     # time.sleep(2*self.total_integration_time * 1e-3 + 5e-3)  # wait for measurement do occur
                     if not self.stopScan:
@@ -10932,7 +10866,12 @@ class GUI_OPX():
                     get_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
             file_name = self.create_scan_file_name()
             fileName = file_name + "_" + name_addition
-            RawData_to_save = {'y_data': self.all_y_scan, name_addition: self.all_hwp_angles}
+            # RawData_to_save = {'y_data': self.all_y_scan, name_addition: self.all_hwp_angles}
+            RawData_to_save = {
+                'y_data': self.all_y_scan,
+                name_addition: self.all_hwp_angles if name_addition == "hwp" else self.all_att_percent,
+                'pulse_energy_nJ': self.all_pulse_energies
+            }
             self.save_to_cvs(fileName + ".csv", RawData_to_save)
             self.GUI_ParametersControl(isStart=False)
 
@@ -11601,6 +11540,11 @@ class GUI_OPX():
         # Open the dialog with a filter for .csv files and all file types
         fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
         if fn:  # Check if a file is selected
+            # Save the directory to file for future sessions
+            last_dir = os.path.dirname(fn)
+            with open("last_scan_dir.txt", "w") as f:
+                f.write(last_dir)
+
             data = loadFromCSV(fn)
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)
@@ -12194,9 +12138,14 @@ class GUI_OPX():
         # Mask for non-zero values
         mask_non_zero = Array2D > 0
 
-        # Normalize non-zero values to stretch across the entire color scale
+        # Initialize normalized array
         normalized_array = np.zeros_like(Array2D, dtype=float)
-        normalized_array[mask_non_zero] = Array2D[mask_non_zero] / Array2D[mask_non_zero].max()
+
+        # Prevent division by zero
+        if np.any(mask_non_zero):
+            max_val = Array2D[mask_non_zero].max()
+            if max_val > 0:
+                normalized_array[mask_non_zero] = Array2D[mask_non_zero] / max_val
 
         # Generate the RGB heatmap, ignoring zeros
         result_array_ = intensity_to_rgb_heatmap_normalized(normalized_array)

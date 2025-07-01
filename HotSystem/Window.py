@@ -1,30 +1,34 @@
 from ECM import *
 from WindowEvents import *
 
+
 class WindowProps:
-    def __init__(self, Title = "HotSystem", Width = 1600, Height = 800, Major = 4, Minor = 5):
-            self.Title = Title
-            self.Width = Width
-            self.Height = Height
-            self.Major = Major
-            self.Minor = Minor
+    def __init__(self, Title="HotSystem", Width=1600, Height=800, Major=4, Minor=5):
+        self.Title = Title
+        self.Width = Width
+        self.Height = Height
+        self.Major = Major
+        self.Minor = Minor
+
 
 class WindowData:
-        def __init__(cls, callback = None, Title = "", Width = 0, Height = 0, last_Width = 0, last_Height = 0, win_pos = [0,0]):
-            cls.Title = Title
-            cls.Width = Width
-            cls.Height = Height
-            cls.last_Width = last_Width
-            cls.last_Height = last_Height
-            cls.win_pos = win_pos # vector with two parameters (x,y)
-            cls.is_FullScreen = False
-            cls.VSync = False
-            cls.event_callback = callback
+    def __init__(cls, callback=None, Title="", Width=0, Height=0, last_Width=0, last_Height=0, win_pos=[0, 0]):
+        cls.Title = Title
+        cls.Width = Width
+        cls.Height = Height
+        cls.last_Width = last_Width
+        cls.last_Height = last_Height
+        cls.win_pos = win_pos  # vector with two parameters (x,y)
+        cls.is_FullScreen = False
+        cls.VSync = False
+        cls.event_callback = callback
+
 
 class Window_singleton:
     # create singleton
     _instance = None
     _lock = threading.Lock()
+
     def __new__(cls):
         with cls._lock:
             if cls._instance is None:
@@ -38,8 +42,10 @@ class Window_singleton:
     winProps = WindowProps()
     winData = WindowData()
     s_GLFWInitialized = False
+
     def error_callback(error, description):
         print(f"Error {error}: {description}")
+
     def init(cls):
         cls.winData.Title = cls.winProps.Title
         cls.winData.Width = cls.winProps.Width
@@ -47,7 +53,7 @@ class Window_singleton:
 
         if not (cls.s_GLFWInitialized):
             success = glfw.init()
-            if not(success):
+            if not (success):
                 print("Failed to initialize GLFW")
                 exit()
 
@@ -63,19 +69,20 @@ class Window_singleton:
 
         glfw.window_hint(glfw.DECORATED, glfw.TRUE)
 
-        cls.m_Window_GL = glfw.create_window(cls.winData.Width, cls.winData.Height, cls.winData.Title, (primary if cls.winData.is_FullScreen else None), None)
-		
+        cls.m_Window_GL = glfw.create_window(cls.winData.Width, cls.winData.Height, cls.winData.Title,
+                                             (primary if cls.winData.is_FullScreen else None), None)
+
         if (cls.m_Window_GL == None):
             glfw.terminate()
             print("Failed to create GLFW window!")
-		
+
         glfw.make_context_current(cls.m_Window_GL)
-		
+
         # glfw.set_window_user_pointer(cls.m_Window_GL, cls.winData)
-        cls.SetVSync() #// at init it will flip state from flase to true
+        cls.SetVSync()  # // at init it will flip state from flase to true
 
         # set pointer to winData object
-        glfw.set_window_user_pointer(cls.m_Window_GL, cls.winData) 
+        glfw.set_window_user_pointer(cls.m_Window_GL, cls.winData)
         # set GLFW callbacks
         glfw.set_key_callback(cls.m_Window_GL, keyboard_callback)
         glfw.set_cursor_pos_callback(cls.m_Window_GL, mouse_callback)
@@ -84,7 +91,7 @@ class Window_singleton:
         glfw.set_scroll_callback(cls.m_Window_GL, scroll_callback)
         glfw.set_window_close_callback(cls.m_Window_GL, window_close_callback)
         glfw.set_mouse_button_callback(cls.m_Window_GL, mouse_callback)
-    
+
     def SetVSync(cls):
         if not (cls.winData.VSync):
             glfw.swap_interval(1)
@@ -92,18 +99,21 @@ class Window_singleton:
         else:
             glfw.swap_interval(0)
             cls.winData.VSync = False
-    def Shutdown(cls): 
+
+    def Shutdown(cls):
         glfw.DestroyWindow(cls.m_Window_GL)
+
     def OnUpdate(cls):
         glfw.poll_events()
         glfw.swap_buffers(cls.m_Window_GL)
+
     def FullScreen(cls):
         # Get the monitor of the current window
         current_monitor = glfw.get_window_monitor(cls.m_Window_GL)
 
         # Alternatively, you can get the primary monitor
         primary_monitor = glfw.get_primary_monitor()
-        
+
         if (current_monitor and not cls.winData.is_FullScreen):
             cls.winData.win_pos = glfw.get_window_pos(cls.m_Window_GL)
             cls.winData.last_Width, cls.winData.last_Height = glfw.get_window_size(cls.m_Window_GL)
@@ -112,11 +122,13 @@ class Window_singleton:
             glfw.set_window_monitor(cls.m_Window_GL, current_monitor, 0, 0, mode.width, mode.height, 0)
         elif (current_monitor):
             cls.winData.is_FullScreen = False
-            glfw.set_window_monitor(cls.m_Window_GL, None, cls.winData.win_pos[0], cls.winData.win_pos[1], cls.winData.last_Width, cls.winData.last_Height, 0)
+            glfw.set_window_monitor(cls.m_Window_GL, None, cls.winData.win_pos[0], cls.winData.win_pos[1],
+                                    cls.winData.last_Width, cls.winData.last_Height, 0)
+
     def IsVSync(cls):
         return cls.winData.VSync
     # def SetEventCallback
-             
-        
-        
+
+
+
 

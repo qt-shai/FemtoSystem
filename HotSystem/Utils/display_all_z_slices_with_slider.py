@@ -41,10 +41,20 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False):
 
     Nx = int(round((x.max() - x.min()) / step_x)) + 1
     Ny = int(round((y.max() - y.min()) / step_y)) + 1
-    Nz = len(I) // (Nx * Ny)
-    I = I[:Nx * Ny * Nz]
+    required = Nx * Ny
+    Nz = int(np.ceil(len(I) / required))
+    expected_size = Nx * Ny * Nz
 
-    I_ = I.reshape((Nz, Ny, Nx))
+    # Pad I with zeros if needed
+    if len(I) < expected_size:
+        print(f"⚠️ Padding data: expected {expected_size}, got {len(I)} — filling with zeros.")
+        I = np.pad(I, (0, expected_size - len(I)), mode='constant')
+
+    # Reshape into (Nz, Ny, Nx)
+    I_ = I[:expected_size].reshape((Nz, Ny, Nx))
+
+    print(f"len(I) = {len(I)}, expected = {Nx} x {Ny} x {Nz} = {expected_size}")
+
     X_ = np.linspace(x.min(), x.max(), Nx) * 1e-6
     Y_ = np.linspace(y.min(), y.max(), Ny) * 1e-6
     Z_ = np.linspace(z.min(), z.max(), Nz) * 1e-6
@@ -69,24 +79,35 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False):
     ax.set_ylabel("Y (µm)")
     cbar = fig.colorbar(im, ax=ax, label="kCounts/s")
 
-    # Slice slider
-    ax_slice = plt.axes([0.2, 0.15, 0.65, 0.03])
-    slider_slice = Slider(ax_slice, 'Slice', 1, Nz, valinit=1, valstep=1)
-
-    # Max I slider (same width and position style)
+    # Max I slider (always present)
     ax_max = plt.axes([0.2, 0.10, 0.65, 0.03])
     slider_max = Slider(ax_max, 'Max I', np.min(I_), np.max(I_), valinit=maxI)
 
-    def update(_):
-        idx = int(slider_slice.val) - 1
-        vmax = slider_max.val
-        im.set_data(I_[idx])
-        im.set_clim(vmin=minI, vmax=vmax)
-        ax.set_title(f"XY @ Z = {Z_[idx]:.2f} µm (slice {idx+1})")
-        fig.canvas.draw_idle()
+    if Nz > 1:
+        # Slice slider only if multiple slices
+        ax_slice = plt.axes([0.2, 0.15, 0.65, 0.03])
+        slider_slice = Slider(ax_slice, 'Slice', 1, Nz, valinit=1, valstep=1)
 
-    slider_slice.on_changed(update)
-    slider_max.on_changed(update)
+        def update(_):
+            idx = int(slider_slice.val) - 1
+            vmax = slider_max.val
+            im.set_data(I_[idx])
+            im.set_clim(vmin=minI, vmax=vmax)
+            ax.set_title(f"XY @ Z = {Z_[idx]:.2f} µm (slice {idx + 1})")
+            fig.canvas.draw_idle()
+
+        slider_slice.on_changed(update)
+        slider_max.on_changed(update)
+
+    else:
+        # Only update max I
+        def update(_):
+            vmax = slider_max.val
+            im.set_clim(vmin=minI, vmax=vmax)
+            ax.set_title(f"XY @ Z = {Z_[0]:.2f} µm (single slice)")
+            fig.canvas.draw_idle()
+
+        slider_max.on_changed(update)
 
     plt.show(block=False)
     try:

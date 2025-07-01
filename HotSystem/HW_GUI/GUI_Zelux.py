@@ -41,36 +41,34 @@ class ZeluxGUI():
         print("Background image saved.")
 
     def StartLive(self):
-        global stopBtn
         self.cam.constantGrabbing = True
         self.LiveTh = threading.Thread(target=self.cam.LiveTh)
         self.LiveTh.setDaemon(True)
         self.LiveTh.start()
-        if dpg.does_item_exist("btnStopLive"):
-            dpg.delete_item("btnStopLive")
 
-        stopBtn = dpg.add_button(label="Stop", before="btnStartLive", parent=self.window_tag, tag="btnStopLive",
-                                 callback=self.StopLive)
-        dpg.delete_item("btnStartLive")
-        # dpg.delete_item("btnSave")
-        dpg.bind_item_theme(item="btnStopLive", theme="btnRedTheme")
+        if dpg.does_item_exist("btnStartLive"):
+            # Create new button before deleting the old one
+            dpg.add_button(label="Stop", tag="btnStopLive", parent=self.window_tag,
+                           before="btnStartLive", callback=self.StopLive)
+            dpg.bind_item_theme("btnStopLive", "btnRedTheme")
+            dpg.delete_item("btnStartLive")
 
     def StopLive(self):
-        global startBtn
         self.cam.constantGrabbing = False
         self.LiveTh.join()
-        if dpg.does_item_exist("btnStartLive"):
-            dpg.delete_item("btnStartLive")
-        startBtn = dpg.add_button(label="Start", before="btnStopLive", parent=self.window_tag, tag="btnStartLive",
-                                  callback=self.StartLive)
-        dpg.delete_item("btnStopLive")
-        dpg.bind_item_theme(item="btnStartLive", theme="btnGreenTheme")
+
+        if dpg.does_item_exist("btnStopLive"):
+            # Create new button before deleting the old one
+            dpg.add_button(label="Start", tag="btnStartLive", parent=self.window_tag,
+                           before="btnStopLive", callback=self.StartLive)
+            dpg.bind_item_theme("btnStartLive", "btnGreenTheme")
+            dpg.delete_item("btnStopLive")
 
     def UpdateImage(self):
         window_size = dpg.get_item_width(self.window_tag), dpg.get_item_height(self.window_tag)
         _width, _height = window_size
-        _width = _width * 0.9
-        _height = _height * 0.9
+        _width = _width
+        _height = _height
 
         # Update image dimensions to match the new window size
         dpg.set_item_width("image_id", _width)
@@ -118,9 +116,6 @@ class ZeluxGUI():
             #       dpg.get_item_height("tex_zlx"))
             # print("array shape handed :", img.shape[:2][::-1])  # (width, height)
             _width, _height = img.shape[:2]
-
-
-
 
         # dpg.set_value("image_id", img)
         dpg.set_value("image_id", img.astype(np.float32).reshape(-1))
@@ -175,8 +170,8 @@ class ZeluxGUI():
             pixel_to_um_y = 0.04  # um/pixel
 
             # Apply shift (in microns)
-            x_shift_px = 2.38 / pixel_to_um_x
-            y_shift_px = 0.85 / pixel_to_um_y
+            x_shift_px = 3.18 / pixel_to_um_x
+            y_shift_px = 1.4 / pixel_to_um_y
 
             # Horizontal lines (Y coords - reversed + shifted down)
             y = 0
@@ -204,127 +199,23 @@ class ZeluxGUI():
                               color=(0, 255, 0, 200), parent="image_drawlist")
                 x += step_px
 
-    # def UpdateImage(self):
-    #     # 1) determine display width (90% of window)
-    #     win_w = dpg.get_item_width(self.window_tag)
-    #     win_h = dpg.get_item_height(self.window_tag)
-    #     disp_w = win_w * 0.9
-    #
-    #     # 2) fetch raw image buffer
-    #     h = self.cam.camera.image_height_pixels
-    #     w = self.cam.camera.image_width_pixels
-    #
-    #     if self.subtract_background and self.background_image is not None:
-    #         img_rgba = self.cam.lateset_image_buffer.reshape((h, w, 4))
-    #         bg_rgba = self.background_image.reshape((h, w, 4))
-    #         gray = np.mean(img_rgba[:, :, :3], axis=2)
-    #         bg_gray = np.mean(bg_rgba[:, :, :3], axis=2)
-    #         offset = 0.25
-    #         sub = np.clip(gray - bg_gray + offset, 0, None)
-    #         norm = np.clip(sub / (sub.max() + 1e-6), 0, 1)
-    #         bright = np.power(norm, 0.98)
-    #         rgba_img = np.stack([bright] * 3 + [np.ones_like(bright)], axis=-1)
-    #         img = rgba_img.astype(np.float32)
-    #     else:
-    #         img = self.cam.lateset_image_buffer.reshape((h, w, 4)).astype(np.float32)
-    #
-    #     # 3) apply 90° steps rotation if requested
-    #     if self.rotation_count:
-    #         k = (4 - self.rotation_count) % 4  # because np.rot90 is CCW
-    #         img = np.rot90(img, k=k)
-    #
-    #     # 4) determine texture size from rotated image
-    #     tex_h, tex_w = img.shape[:2]
-    #
-    #     # 5) recreate or update dynamic texture to match new dimensions
-    #     if dpg.does_item_exist("image_id"):  # texture already created
-    #         cfg = dpg.get_item_configuration("image_id")
-    #         # if size changed, delete + recreate
-    #         if cfg.get("width") != tex_w or cfg.get("height") != tex_h:
-    #             dpg.delete_item("image_id")
-    #             with dpg.texture_registry(tag="image_tag", show=False):
-    #                 dpg.add_dynamic_texture(
-    #                     width=tex_w,
-    #                     height=tex_h,
-    #                     default_value=img.reshape(-1),
-    #                     tag="image_id"
-    #                 )
-    #         else:
-    #             dpg.set_value("image_id", img.reshape(-1))
-    #     else:
-    #         # first-time setup
-    #         with dpg.texture_registry(tag="image_tag", show=False):
-    #             dpg.add_dynamic_texture(
-    #                 width=tex_w,
-    #                 height=tex_h,
-    #                 default_value=img.reshape(-1),
-    #                 tag="image_id"
-    #             )
-    #
-    #     # 6) compute display height based on camera aspect ratio
-    #     ratio = self.cam.ratio
-    #     if self.rotation_count % 2:
-    #         disp_h = disp_w / ratio
-    #     else:
-    #         disp_h = disp_w * ratio
-    #
-    #     # 7) resize image widget
-    #     dpg.set_item_width("image_id", disp_w)
-    #     dpg.set_item_height("image_id", disp_h)
-    #
-    #     # 8) rebuild drawlist and draw the image
-    #     if dpg.does_item_exist("image_drawlist"):
-    #         dpg.delete_item("image_drawlist")
-    #     dpg.add_drawlist(tag="image_drawlist", width=disp_w, height=disp_h, parent=self.window_tag)
-    #     dpg.draw_image("image_id", (0, 0), (disp_w, disp_h), parent="image_drawlist")
-    #
-    #     # 9) overlays: center cross and/or coords
-    #     if self.show_center_cross or self.show_coords_grid:
-    #         # determine center point
-    #         if self.manual_cross_pos is None:
-    #             cx = disp_w / 2
-    #             cy = disp_h / 2
-    #         else:
-    #             cx, cy = self.manual_cross_pos
-    #         # draw cross
-    #         dpg.draw_line((cx - 100, cy), (cx + 100, cy), color=(0, 255, 0, 255), thickness=1, parent="image_drawlist")
-    #         dpg.draw_line((cx, cy - 100), (cx, cy + 100), color=(0, 255, 0, 255), thickness=1, parent="image_drawlist")
-    #         # stage coords
-    #         try:
-    #             self.positioner.GetPosition()
-    #             ax = self.positioner.AxesPositions[0] * 1e-6
-    #             ay = self.positioner.AxesPositions[1] * 1e-6
-    #             az = self.positioner.AxesPositions[2] * 1e-6
-    #             coord_text = f"X = {ax:.1f}, Y = {ay:.1f}, Z = {az:.1f}"
-    #         except:
-    #             coord_text = "Stage position not available"
-    #         dpg.draw_text((10, disp_h - 20), coord_text, size=16, color=(0, 255, 0, 255), parent="image_drawlist")
-    #
-    #     # 10) grid overlay (if enabled)
-    #     if self.show_coords_grid:
-    #         step = 100
-    #         pix2um_x = pix2um_y = 0.04
-    #         shift_x = 2.38 / pix2um_x
-    #         shift_y = 0.85 / pix2um_y
-    #         # horizontal
-    #         y = 0
-    #         while y < disp_h - step:
-    #             ys = y + shift_y
-    #             off = ys - (disp_h / 2 if self.manual_cross_pos is None else cy)
-    #             coord_y = ay + off * pix2um_y
-    #             dpg.draw_line((0, ys), (disp_w, ys), color=(100, 255, 100, 80), thickness=1, parent="image_drawlist")
-    #             dpg.draw_text((5, ys + 2), f"{coord_y:.1f}", size=14, color=(0, 255, 0, 200), parent="image_drawlist")
-    #             y += step
-    #         # vertical
-    #         x = 2 * step
-    #         while x < disp_w:
-    #             xs = x + shift_x
-    #             off = xs - (disp_w / 2 if self.manual_cross_pos is None else cx)
-    #             coord_x = ax - off * pix2um_x
-    #             dpg.draw_line((xs, 0), (xs, disp_h), color=(100, 255, 100, 80), thickness=1, parent="image_drawlist")
-    #             dpg.draw_text((xs + 2, disp_h - 18), f"{coord_x:.1f}", size=14, color=(0, 255, 0, 200),
-    #                           parent="image_drawlist")
-    #             x += step
+            # ✅ Draw all future data (angles & energies)
+            if hasattr(self, "all_future_data") and self.all_future_data:
+                base_y = _width * self.cam.ratio - 770
+                N = len(self.all_future_data)
+                step_y = 61
+                block_height = N * step_y
+                Y_center = (_width * self.cam.ratio) / 2  + 55
+                base_y = Y_center - block_height / 2
+                for idx, (angle, E) in enumerate(self.all_future_data):
+                    text = f"HWP={angle:.1f}°, E={E:.1f} nJ"
+                    dpg.draw_text(
+                        (220, base_y + idx * step_y),
+                        text,
+                        size=16,
+                        color=(255, 255, 255, 255),
+                        parent="image_drawlist"
+                    )
 
     def UpdateExposure(sender, app_data, user_data):
         # a = dpg.get_value(sender)
@@ -391,7 +282,7 @@ class ZeluxGUI():
                         minExp = min(self.cam.camera.exposure_time_range_us) / 1e3
                         maxExp = max(self.cam.camera.exposure_time_range_us) / 1e3
                         dpg.add_slider_int(label="Exp", tag="slideExposure",
-                                           width=70, callback=self.UpdateExposure,
+                                           width=100, callback=self.UpdateExposure,
                                            default_value=self.cam.camera.exposure_time_us / 1e3,
                                            min_value=minExp if minExp > 0 else 1,
                                            max_value=maxExp if maxExp < 1000 else 1000)
@@ -399,7 +290,7 @@ class ZeluxGUI():
                         minGain = self.cam.camera.convert_gain_to_decibels(min(self.cam.camera.gain_range))
                         maxGain = self.cam.camera.convert_gain_to_decibels(max(self.cam.camera.gain_range))
                         dpg.add_slider_int(label="G", tag="slideGain",
-                                           width=70, callback=self.UpdateGain,
+                                           width=100, callback=self.UpdateGain,
                                            default_value=self.cam.camera.convert_gain_to_decibels(self.cam.camera.gain),
                                            min_value=minGain, max_value=maxGain)
 
@@ -408,7 +299,7 @@ class ZeluxGUI():
                         dpg.add_checkbox(label="SubBG", tag="chkSubtractBG",
                                          callback=lambda s, a, u: setattr(self, 'subtract_background', a))
                         dpg.add_checkbox(label="KpSt", tag="keepSt", default_value=False)
-                        dpg.add_button(label="Rotate 90°", tag="btnRotate", callback=self.rotate_image)
+                        # dpg.add_button(label="Rotate 90°", tag="btnRotate", callback=self.rotate_image)
                     with dpg.group(tag="controls_row2", horizontal=True):
                         dpg.add_button(label="Sv", tag="btnSaveProcessedImage", callback=self.SaveProcessedImage)
 
@@ -422,14 +313,14 @@ class ZeluxGUI():
                         dpg.add_button(label="St", tag="btnStitchFrames", callback=self.StitchFrames)
 
                         dpg.add_checkbox(label="Coords", tag="chkShowCoords", callback=self.toggle_coords_display)
-                        dpg.add_input_text(label="X_+", tag="inpCrossX",
-                                           width=50, default_value=str(int(self.cam.camera.image_width_pixels / 2)),
-                                           on_enter=True)
-                        dpg.add_input_text(label="Y_+", tag="inpCrossY",
-                                           width=50, default_value=str(int(self.cam.camera.image_height_pixels / 2)),
-                                           on_enter=True)
-                        dpg.add_button(label="Set +", tag="btnSetCross",
-                                       callback=self.set_cross_from_inputs)
+                        # dpg.add_input_text(label="X_+", tag="inpCrossX",
+                        #                    width=50, default_value=str(int(self.cam.camera.image_width_pixels / 2)),
+                        #                    on_enter=True)
+                        # dpg.add_input_text(label="Y_+", tag="inpCrossY",
+                        #                    width=50, default_value=str(int(self.cam.camera.image_height_pixels / 2)),
+                        #                    on_enter=True)
+                        # dpg.add_button(label="Set +", tag="btnSetCross",
+                        #                callback=self.set_cross_from_inputs)
 
 
         else:
@@ -443,6 +334,9 @@ class ZeluxGUI():
             self.GUI_controls(isConnected=False, _width=700)
             pass
         else:
+            if dpg.does_item_exist("image_tag"):
+                dpg.delete_item("image_tag")
+
             with dpg.texture_registry(tag="image_tag", show=False):
                 dpg.add_dynamic_texture(width=self.cam.camera.image_width_pixels,
                                         height=self.cam.camera.image_height_pixels,
@@ -710,6 +604,11 @@ class ZeluxGUI():
             print(e)
 
     def set_all_themes(self):
+        if dpg.does_item_exist("OnTheme"):
+            dpg.delete_item("OnTheme")
+        if dpg.does_item_exist("OffTheme"):
+            dpg.delete_item("OffTheme")
+
         with dpg.theme(tag="OnTheme"):
             with dpg.theme_component(dpg.mvSliderInt):
                 dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 200, 0))  # idle handle color

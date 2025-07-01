@@ -214,47 +214,45 @@ class WindowNames(Enum):
     MOKUGO = "Moku_Win"
     CONSOL = "console_window"
 
-def load_window_positions(file_name: str = "win_pos.txt") -> None:
+def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
     """
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
-
-    :param file_name: Name of the file containing window positions and sizes.
-    :return: None
+    Supports dynamic windows like KDC101 and Femto_Power_Calculations.
     """
     try:
         if not os.path.exists(file_name):
             print(f"{file_name} not found.")
             return
 
+        with open(file_name, "r") as file:
+            lines = file.readlines()
+
         window_positions = {}
         window_sizes = {}
 
-        with open(file_name, "r") as file:
-            lines = file.readlines()
-            for line in lines:
-                parts = line.split(": ")
-                if len(parts) != 2:
-                    continue  # Skip malformed lines
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
 
-                key = parts[0].strip()
-                value = parts[1].strip()
+            if "_Pos:" in line:
+                key, value = line.split("_Pos:")
+                window_name = key.strip()
+                x, y = [float(v.strip()) for v in value.split(",")]
+                window_positions[window_name] = (x, y)
 
-                if "_Pos" in key:
-                    window_name = key.replace("_Pos", "")
-                    x, y = value.split(", ")
-                    window_positions[window_name] = (float(x), float(y))
-
-                elif "_Size" in key:
-                    window_name = key.replace("_Size", "")
-                    width, height = value.split(", ")
-                    window_sizes[window_name] = (int(width), int(height))
+            elif "_Size:" in line:
+                key, value = line.split("_Size:")
+                window_name = key.strip()
+                w, h = [float(v.strip()) for v in value.split(",")]
+                window_sizes[window_name] = (w, h)
 
         for window_name, pos in window_positions.items():
             if dpg.does_item_exist(window_name):
                 dpg.set_item_pos(window_name, pos)
                 print(f"Loaded position for {window_name}: {pos}")
             else:
-                print(f"{window_name} does not exist in the current context.")
+                print(f"[load] {window_name} not found in current DPG context.")
 
         for window_name, size in window_sizes.items():
             if dpg.does_item_exist(window_name):
@@ -262,7 +260,7 @@ def load_window_positions(file_name: str = "win_pos.txt") -> None:
                 dpg.set_item_height(window_name, size[1])
                 print(f"Loaded size for {window_name}: {size}")
             else:
-                print(f"{window_name} does not exist in the current context.")
+                print(f"[load] {window_name} not found in current DPG context.")
 
     except Exception as e:
         print(f"Error loading window positions and sizes: {e}")
