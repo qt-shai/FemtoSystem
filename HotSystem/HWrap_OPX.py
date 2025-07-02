@@ -66,6 +66,7 @@ import copy
 import JobTesting_OPX
 
 from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
+from Common import show_msg_window
 
 matplotlib.use('qtagg')
 
@@ -1477,7 +1478,7 @@ class GUI_OPX():
         try:
             files_to_move = []
             extensions = [".jpg", ".xml", ".png", ".csv"]
-            self.exp.name="scan"
+
 
             if not hasattr(self, 'timeStamp') or not self.timeStamp:
                 print("No timestamp found. Save data first.")
@@ -1493,11 +1494,11 @@ class GUI_OPX():
             else:
                 # ✅ Normal timestamped base
                 if self.survey:
-                    folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/{self.exp.name}"
+                    folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/scan"
                 else:
-                    folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/{self.exp.name}/{self.HW.config.system_type}"
+                    folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}"
 
-                base_file = os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_{self.expNotes}")
+                base_file = os.path.join(folder_path, f"{self.timeStamp}_SCAN_{self.expNotes}")
                 for ext in extensions:
                     files_to_move.append(base_file + ext)
 
@@ -1508,9 +1509,9 @@ class GUI_OPX():
 
             # Build the target folder path
             if self.survey:
-                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/{self.exp.name}"
+                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/scan"
             else:
-                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/{self.exp.name}/{self.HW.config.system_type}"
+                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}"
 
             new_folder = os.path.join(folder_path, subfolder)
             if not os.path.exists(new_folder):
@@ -1603,15 +1604,10 @@ class GUI_OPX():
             if self.queried_area is None:
                 print("No queried area available.")
                 return
-
-            # a = [x_min, x_max, y_min, y_max]
             x_pos = self.queried_area[0]
             y_pos = self.queried_area[2]
-
             dpg.set_value("mcs_ch0_ABS", x_pos)
             dpg.set_value("mcs_ch1_ABS", y_pos)
-
-            print(f"Set MoveAbsX = {x_pos:.6f} m, MoveAbsY = {y_pos:.6f} m (From Query Top-Left)")
         except Exception as e:
             print(f"Failed to fill MoveABS from queried area: {e}")
 
@@ -10369,7 +10365,8 @@ class GUI_OPX():
         #self.prepare_scan_data()
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
-
+        filename_only = os.path.basename(fn)
+        show_msg_window(f"{filename_only}")
         # total experiment time
         end_time = time.time()
         print(f"end_time: {end_time}")

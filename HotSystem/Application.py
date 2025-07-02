@@ -452,7 +452,9 @@ class PyGuiOverlay(Layer):
         self.window_positions = {}
         self.messages = []
         self.command_history = []
+        self.history_index = -1
         self.MAX_HISTORY = 10  # Store last 5 commands
+        self.saved_query_points = []
 
     def on_render(self):
         jobs = dpg.get_callback_queue() # retrieves and clears queue
@@ -1098,6 +1100,38 @@ class PyGuiOverlay(Layer):
                     dpg.focus_item("cmd_input")
                     return
                 self.handle_smaract_controls(key_data_enum, is_coarse)
+                self.CURRENT_KEY = key_data_enum # 2-7-2025
+                return # 2-7-2025
+
+            # === UP arrow: try prefix search, else fallback to simple back-one
+            if key_data_enum == KeyboardKeys.UP_KEY:
+                if not (hasattr(self, "command_history") and self.command_history):
+                    print("No history yet.")
+                    return
+                if self.history_index > 0:
+                    self.history_index -= 1
+                val = self.command_history[self.history_index]
+                dpg.set_value("cmd_input", val)
+                dpg.focus_item("cmd_input")
+                return
+
+            # === DOWN arrow: go forward in history
+            if key_data_enum == KeyboardKeys.DOWN_KEY:
+                if hasattr(self, "command_history") and self.command_history:
+                    if self.history_index < len(self.command_history) - 1:
+                        self.history_index += 1
+                        val = self.command_history[self.history_index]
+                        dpg.set_value("cmd_input", val)
+                        print(f"DOWN → index {self.history_index} → {val}")
+                    else:
+                        # Past end → clear input
+                        self.history_index = len(self.command_history)
+                        dpg.set_value("cmd_input", "")
+                        print(f"DOWN -> end -> cleared")
+                    dpg.focus_item("cmd_input")
+                else:
+                    print("No history yet.")
+                return
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum

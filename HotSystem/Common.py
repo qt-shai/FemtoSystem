@@ -4,7 +4,7 @@ import socket
 import threading
 from enum import Enum
 import os
-
+import time
 import dearpygui.dearpygui as dpg
 from matplotlib import pyplot as plt
 
@@ -298,6 +298,92 @@ def copy_image_to_clipboard(image_path):
     win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
     win32clipboard.CloseClipboard()
     print("Image copied to clipboard.")
+
+def save_quti_window_screenshot(suffix: str = None):
+    window_title = "QuTi SW"
+    hwnd = win32gui.FindWindow(None, None)
+
+    def enum_handler(h, _):
+        if window_title.lower() in win32gui.GetWindowText(h).lower():
+            nonlocal hwnd
+            hwnd = h
+    win32gui.EnumWindows(enum_handler, None)
+
+    if hwnd == 0:
+        print("Window 'QuTi SW' not found.")
+        return
+
+    # Bring to front
+    win32gui.ShowWindow(hwnd, 5)  # SW_SHOW
+    win32gui.SetForegroundWindow(hwnd)
+    win32gui.BringWindowToTop(hwnd)
+
+    # Get window rect
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+
+    # Screenshot
+    screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
+
+    # Get save directory from last_scan_dir.txt
+    try:
+        with open("last_scan_dir.txt", "r") as f:
+            save_dir = f.read().strip()
+    except Exception as e:
+        print(f"Error reading last_scan_dir.txt: {e}")
+        return
+
+    if not os.path.isdir(save_dir):
+        print(f"Directory does not exist: {save_dir}")
+        return
+
+    # Build filename
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    # sanitize suffix for filesystem
+    if suffix:
+        safe = "".join(c for c in suffix if c.isalnum() or c in (" ", "_", "-")).rstrip()
+        fname = f"QUTI_{timestamp}_{safe}.png"
+    else:
+        fname = f"QUTI_{timestamp}.png"
+
+    save_path = os.path.join(save_dir, fname)
+
+    # Save it
+    try:
+        screenshot.save(save_path)
+        print(f"Saved QUTI window screenshot: {save_path}")
+    except Exception as e:
+        print(f"Failed to save screenshot: {e}")
+
+def show_msg_window(msg_text: str):
+    window_tag = "msg_Win"
+    drawlist_tag = "msg_drawlist"
+
+    # Remove old window if it exists
+    if dpg.does_item_exist(window_tag):
+        dpg.delete_item(window_tag)
+
+    # Create a new window in the center-ish
+    with dpg.window(
+        label="Message",
+        tag=window_tag,
+        no_title_bar=True,
+        no_resize=True,
+        pos=[20, 40],
+        width=1500,
+        height=100
+    ):
+        # A drawlist lets us use draw_text with size
+        dpg.add_drawlist(width=1500, height=200, tag=drawlist_tag)
+        dpg.draw_text(
+            pos=(20, 5),
+            text=msg_text,
+            color=(255, 255, 0, 255),
+            size=80,
+            parent=drawlist_tag
+        )
+        dpg.add_button(label="Close", callback=lambda: dpg.delete_item(window_tag))
+
+    print(f"Displayed message in {window_tag}: {msg_text}")
 
 def copy_quti_window_to_clipboard():
     window_title = "QuTi SW"
