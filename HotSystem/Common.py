@@ -367,15 +367,15 @@ def show_msg_window(msg_text: str):
         label="Message",
         tag=window_tag,
         no_title_bar=True,
-        no_resize=True,
-        pos=[20, 40],
-        width=1500,
+        no_resize=False,
+        pos=[5, 40],
+        width=1900,
         height=100
     ):
         # A drawlist lets us use draw_text with size
-        dpg.add_drawlist(width=1500, height=200, tag=drawlist_tag)
+        dpg.add_drawlist(width=1900, height=100, tag=drawlist_tag)
         dpg.draw_text(
-            pos=(20, 5),
+            pos=(5, 5),
             text=msg_text,
             color=(255, 255, 0, 255),
             size=80,

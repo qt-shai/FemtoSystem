@@ -15,21 +15,9 @@ import time
 # To copy all messages as a single block:
 # import pyperclip; pyperclip.copy("".join(sys.stdout.messages))
 
-# To extract and copy only the filename from the last message in your console
-# import pyperclip, os; pyperclip.copy(os.path.basename(sys.stdout.messages[-1].strip().split("→")[-1].strip()))
-
-# To fill the Dear PyGui input field with tag "MoveSubfolderInput" with the text "Omri_6-5-25" from your console GUI, simply run this one-liner command:
-# dpg.set_value("MoveSubfolderInput", "Omri_6-5-25")
-# dpg.set_value("MoveSubfolderInput", "ELSC_6-5-25")
-
 # Terminal logged_points.txt commands:
 # python clog.py o
 # python clog.py e
-
-# self.mff_101_gui[0].on_off_slider_callback(self.mff_101_gui[0],1)
-# self.mff_101_gui[0].dev.get_position()
-
-# import importlib, Outout_to_gui; importlib.reload(Outout_to_gui
 
 class DualOutput:
     def __init__(self, original_stream):
@@ -90,7 +78,6 @@ def toggle_sc(reverse=False):
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
 
-
 def run(command: str):
     """
     Simple command handler for the Dear PyGui console.
@@ -108,6 +95,8 @@ def run(command: str):
     - 'ld' load last file
     -- ("coords", "coo"): shows coordinates in zelux
     """
+    import os
+
     command = command.strip()
     parent = getattr(sys.stdout, "parent", None)
     cam = getattr(parent, "cam", None)
@@ -116,7 +105,6 @@ def run(command: str):
     parent.command_history.append(command)
     parent.command_history = parent.command_history[-10:]  # Keep last 10 only
     parent.history_index = len(parent.command_history)  # Always reset index to END
-
     # -- handle loop syntax --
     # expects: loop <start> <end> <template>
     # e.g. loop 10 11 fq{i};msg Site {i} Spectrum, Exposure 30s;spc;cc Site{i}
@@ -163,9 +151,14 @@ def run(command: str):
         print(f"Looping from {start} to {end} in background…")
         return
 
+    # Split into individual commands
     commands = [c.strip() for c in command.split(";") if c.strip()]
+
     for single_command in commands:
         try:
+            verb, sep, rest = single_command.partition(" ")
+            single_command = verb.lower() + sep + rest
+
             if single_command == "c":
                 copy_quti_window_to_clipboard()
             elif single_command.startswith("cc"):
@@ -293,18 +286,33 @@ def run(command: str):
                 import subprocess
                 subprocess.run([sys.executable, "clog.py", arg])
             elif single_command == "fn":
-                import pyperclip
-                if hasattr(sys.stdout, 'messages') and sys.stdout.messages:
-                    last_msg = sys.stdout.messages[-1].strip()
-                    if "→" in last_msg:
-                        filepath = last_msg.split("→")[-1].strip()
-                        filename = os.path.basename(filepath)
-                        pyperclip.copy(filename)
-                        print(f"Filename copied: {filename}")
-                    else:
-                        print("No '→' found in last message.")
-                else:
+                import os, re, pyperclip
+                # Ensure we have console messages
+                if not (hasattr(sys.stdout, 'messages') and sys.stdout.messages):
                     print("No messages found in sys.stdout.")
+                    return
+                last_msg = sys.stdout.messages[-1].strip()
+                filepath = None
+                # 1) Try to find any Windows/Unix‐style absolute path with an extension
+                #    e.g. C:/folder/file.ext or /home/user/file.ext
+                pattern = r'(?:[A-Za-z]:[\\/]|[/\\]).+?\.\w+'
+                matches = re.findall(pattern, last_msg)
+                if matches:
+                    filepath = matches[-1]
+                else:
+                    # 2) Fallback: find the last token that contains a dot (e.g. "file.ext")
+                    tokens = re.split(r'\s+', last_msg)
+                    for tok in reversed(tokens):
+                        tok_clean = tok.strip('",;')
+                        if '.' in tok_clean:
+                            filepath = tok_clean
+                            break
+                if filepath:
+                    filename = os.path.basename(filepath)
+                    pyperclip.copy(filename)
+                    print(f"Filename copied: {filename}")
+                else:
+                    print("No filepath found in last message.")
             elif single_command == "sc":
                 toggle_sc(reverse=False)
             elif single_command in ("!sc", "!"):
@@ -992,8 +1000,6 @@ def run(command: str):
                     print(f"Unknown command: {single_command}")
         except Exception as e:
             print(f"Error running command '{single_command}': {e}")
-    if dpg.does_item_exist("cmd_input"):
-        dpg.focus_item("cmd_input")
 import builtins
 builtins.run = run
 

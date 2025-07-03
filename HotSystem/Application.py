@@ -620,17 +620,9 @@ class PyGuiOverlay(Layer):
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
     def Callback_key_press(self,sender,app_data):
-        # print(f"sender: {sender}")
-
         ignore=True
         if not ignore:
             print(f"Callback_key_press: {app_data}") ####KKK
-
-        # if app_data == 17: # todo: map keys (17 == LCTRL):
-            # print("hellow from Left CTRL!!")
-        # if True:
-        #     print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
-        #     print(f"app_data: {app_data}")
         self.keyboard_callback(sender,app_data)
     def Callback_key_release(self,sender,app_data):
         # Map the key data to the KeyboardKeys enum
@@ -732,7 +724,7 @@ class PyGuiOverlay(Layer):
         sys.stdout.parent = self
         sys.stderr = DualOutput(sys.__stderr__)
 
-        dpg.set_frame_callback(100, lambda: dpg.focus_item("cmd_input"))
+        # dpg.set_frame_callback(100, lambda: dpg.focus_item("cmd_input"))
 
     def setup_instruments(self) -> None:
         """
@@ -1021,18 +1013,34 @@ class PyGuiOverlay(Layer):
 
         return False
 
-    def keyboard_callback(self, event, key_data):
+    def keyboard_callback(self, sender, app_data):
         """Handles keyboard input and triggers movement for various devices."""
         try:
+            # 1) Unwrap the integer key code
+            if isinstance(app_data, (list, tuple)) and app_data:
+                key_code = app_data[0]
+            elif isinstance(app_data, dict) and "key" in app_data:
+                key_code = app_data["key"]
+            else:
+                key_code = app_data
+
+            # 2) Only handle keys we know about
+            if key_code not in KeyboardKeys._value2member_map_:
+                return
+            key_data_enum = KeyboardKeys(key_code)
+
+            # If it’s Enter, execute cmd_input and clear it
+            if key_code == KeyboardKeys.ENTER_KEY.value:
+                # Read, run, and clear
+                cmd = dpg.get_value("cmd_input") or ""
+                cmd = cmd.strip()
+                if cmd:
+                    self.handle_cmd_input()
+                dpg.set_value("cmd_input", "")
+                return
 
             # Determine if coarse movement is enabled (for OPX and other devices)
             is_coarse = self.CURRENT_KEY == KeyboardKeys.CTRL_KEY
-
-            # Map the key data to the KeyboardKeys enum
-            if key_data in KeyboardKeys._value2member_map_:
-                key_data_enum = KeyboardKeys(key_data)
-            else:
-                return
 
             # Update modifier key if it's a modifier
             if key_data_enum in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
@@ -1095,10 +1103,6 @@ class PyGuiOverlay(Layer):
 
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
-                # Focus on cmd_input if Ctrl+D is pressed
-                if key_data_enum == KeyboardKeys.D_KEY:
-                    dpg.focus_item("cmd_input")
-                    return
                 self.handle_smaract_controls(key_data_enum, is_coarse)
                 self.CURRENT_KEY = key_data_enum # 2-7-2025
                 return # 2-7-2025
@@ -1112,7 +1116,6 @@ class PyGuiOverlay(Layer):
                     self.history_index -= 1
                 val = self.command_history[self.history_index]
                 dpg.set_value("cmd_input", val)
-                dpg.focus_item("cmd_input")
                 return
 
             # === DOWN arrow: go forward in history
@@ -1122,25 +1125,29 @@ class PyGuiOverlay(Layer):
                         self.history_index += 1
                         val = self.command_history[self.history_index]
                         dpg.set_value("cmd_input", val)
-                        print(f"DOWN → index {self.history_index} → {val}")
                     else:
                         # Past end → clear input
                         self.history_index = len(self.command_history)
                         dpg.set_value("cmd_input", "")
-                        print(f"DOWN -> end -> cleared")
-                    dpg.focus_item("cmd_input")
                 else:
                     print("No history yet.")
                 return
 
+            if 32 <= key_code <= 126:
+                ch = chr(key_code)
+                # avoid intercepting Return/Enter (code 13)
+                if key_code != 13:
+                    if dpg.does_item_exist("cmd_input"):
+                        cur = dpg.get_value("cmd_input") or ""
+                        dpg.set_value("cmd_input", cur + ch)
+                        dpg.focus_item("cmd_input")
+                    return
+
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
-
         except Exception as ex:
             self.error = f"Unexpected error in keyboard_callback: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
             print(self.error)
-
-
 
     def handle_smaract_controls(self, key_data_enum, is_coarse):
         """Handles keyboard input for Smaract device controls."""
@@ -1505,14 +1512,14 @@ class PyGuiOverlay(Layer):
                 dpg.add_button(label="Save Logs", callback=self.save_logs)
 
             # Console log display
-            with dpg.child_window(tag="console_output", autosize_x=True, height=200):
+            with dpg.child_window(tag="console_output", autosize_x=True, height=180):
                 dpg.add_text("Console initialized.", tag="console_log", wrap=800)
 
             # Input field for sending commands or messages
             with dpg.group(horizontal=True):
                 dpg.add_input_text(label="", tag="console_input", width=300)
                 dpg.add_button(label="Send", callback=self.send_console_input)
-                dpg.add_input_text(label="Cmd", tag="cmd_input", hint="Enter command (e.g. c, sv, mv, sub ELSC, clog e)",
+                dpg.add_input_text(label="Cmd", tag="cmd_input", hint="Enter command",
                                    on_enter=True, callback=lambda s, a, u: self.handle_cmd_input())
 
     def clear_console(self):
