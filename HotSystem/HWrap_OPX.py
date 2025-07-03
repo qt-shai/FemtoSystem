@@ -10377,6 +10377,26 @@ class GUI_OPX():
         if not (self.stopScan):
             self.btnStop()
 
+    def set_hwp_angle(self, new_hwp_angle: float):
+        """
+        Move the half-wave plate (HWP) to exactly new_hwp_angle degrees.
+        Blocks until the motion is within 0.01°.
+        """
+        try:
+            print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
+            # Kick off the motion
+            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
+            time.sleep(0.2)
+
+            # Poll until within 0.01°
+            current_hwp = self.kdc_101.get_current_position()
+            while abs(current_hwp - new_hwp_angle) > 0.01:
+                time.sleep(0.2)
+                current_hwp = self.kdc_101.get_current_position()
+
+            return current_hwp
+        except Exception as e:
+            print(f"Error in set_hwp_angle: {e}")
 
     def scan3d_femto_pulses(self):  # currently flurascence scan
         if len(self.positioner.LoggedPoints) == 3:
@@ -10436,8 +10456,8 @@ class GUI_OPX():
             for tag in item_tags:
                 p_femto[tag] = dpg.get_value(tag)
                 print(f"{tag}: {p_femto[tag]}")
-            current_hwp_angle = self.kdc_101.get_current_position()
-            print(f"!!!!!!!!!! Current HWP position is {current_hwp_angle:.2f}")
+            initial_hwp_angle = self.kdc_101.get_current_position()
+            print(f"!!!!!!!!!! Current HWP position is {initial_hwp_angle:.2f}")
             # Store original attenuator value
             original_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
             print(f"!!!!!!!!!! Original attenuator value is {original_attenuator_value:.2f}")
@@ -10522,16 +10542,10 @@ class GUI_OPX():
 
                 if self.Shoot_Femto_Pulses:
                     if p_femto["femto_increment_att"] == 0:
-                        new_hwp_angle = current_hwp_angle + p_femto["femto_increment_hwp"] * j
+                        new_hwp_angle = initial_hwp_angle + p_femto["femto_increment_hwp"] * j
                         if abs(new_hwp_angle - current_hwp) > 0.01:
-                            print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
-                            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
-                            time.sleep(0.2)
-                            # Wait until HWP reaches the new angle
-                            current_hwp = self.kdc_101.get_current_position()
-                            while abs(current_hwp - new_hwp_angle) > 0.01:
-                                time.sleep(0.2)
-                                current_hwp = self.kdc_101.get_current_position()
+                            # print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
+                            current_hwp=self.set_hwp_angle(new_hwp_angle)
                         self.all_y_scan.append(self.V_scan[1][j])
                         self.all_hwp_angles.append(current_hwp)
                     else:
@@ -10604,13 +10618,7 @@ class GUI_OPX():
                                               f"Anneal HWP angle < 0: {hwp_anneal_angle:.2f}° — Aborting anneal")
                                 return
                             print(f"!!!!! set HWP to {hwp_anneal_angle:.2f} deg !!!!!")
-                            self.kdc_101.MoveABSOLUTE(hwp_anneal_angle)
-                            time.sleep(0.2)
-                            # Wait until HWP reaches the new angle
-                            current_hwp = self.kdc_101.get_current_position()
-                            while abs(current_hwp - hwp_anneal_angle) > 0.01:
-                                time.sleep(0.2)
-                                current_hwp = self.kdc_101.get_current_position()
+                            current_hwp=self.set_hwp_angle(hwp_anneal_angle)
 
                             print(f"Anneal Pulses!")
 
@@ -10686,13 +10694,7 @@ class GUI_OPX():
 
                             new_hwp_angle = current_hwp + p_femto["femto_increment_hwp_anneal"]
                             print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
-                            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
-                            time.sleep(0.2)
-                            # Wait until HWP reaches the new angle
-                            current_hwp = self.kdc_101.get_current_position()
-                            while abs(current_hwp - new_hwp_angle) > 0.01:
-                                time.sleep(0.2)
-                                current_hwp = self.kdc_101.get_current_position()
+                            current_hwp=self.set_hwp_angle(new_hwp_angle)
 
                     # self.positioner.generatePulse(channel=0) # should trigger measurement by smaract trigger
                     if not self.stopScan:
@@ -10745,14 +10747,8 @@ class GUI_OPX():
         if self.Shoot_Femto_Pulses:
             if p_femto["femto_increment_att"] == 0:
                 name_addition = "hwp"
-                print(f"Restoring HWP to {current_hwp_angle:.2f} deg")
-                self.kdc_101.MoveABSOLUTE(current_hwp_angle)
-                time.sleep(0.2)
-                # Wait until reached
-                current_hwp = float(str(self.kdc_101.get_current_position()))
-                while abs(current_hwp - current_hwp_angle) > 0.01:
-                    time.sleep(0.2)
-                    current_hwp = float(str(self.kdc_101.get_current_position()))
+                print(f"Restoring HWP to {initial_hwp_angle:.2f} deg")
+                current_hwp=self.set_hwp_angle(initial_hwp_angle)
             else:
                 name_addition = "att"
                 print(f"Restoring attenuator to {original_attenuator_value:.2f}%")

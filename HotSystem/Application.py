@@ -1132,7 +1132,8 @@ class PyGuiOverlay(Layer):
                 else:
                     print("No history yet.")
                 return
-
+            if dpg.is_item_focused("inTxtScan_expText"):
+                return
             if 32 <= key_code <= 126:
                 ch = chr(key_code)
                 # avoid intercepting Return/Enter (code 13)
@@ -1142,7 +1143,6 @@ class PyGuiOverlay(Layer):
                         dpg.set_value("cmd_input", cur + ch)
                         dpg.focus_item("cmd_input")
                     return
-
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
         except Exception as ex:

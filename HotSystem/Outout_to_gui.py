@@ -992,6 +992,98 @@ def run(command: str):
                     print("Message window cleared.")
                 else:
                     print("No message window to clear.")
+            elif single_command == "st":
+                if parent and hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "fill_current_position_to_moveabs"):
+                    parent.smaractGUI.fill_current_position_to_moveabs()
+                else:
+                    print("smaractGUI or Set XYZ callback not available.")
+            elif single_command.lower().startswith("note "):
+                # Update the Notes field with the rest of the text
+                note_text = single_command[len("note "):]
+                show_msg_window(note_text)
+                # Update your internal variable
+                if parent and hasattr(parent, "expNotes"):
+                    parent.opx.expNotes = note_text
+                if dpg.does_item_exist("inTxtScan_expText"):
+                    dpg.set_value("inTxtScan_expText", note_text)
+                    try:
+                        parent.opx.saveExperimentsNotes(sender=None, app_data=note_text)
+                    except Exception:
+                        pass
+                print(f"Notes updated: {note_text}")
+            elif single_command.lower().startswith("att"):
+                # att<value> → override the femto attenuator to <value>%
+                try:
+                    # parse the number after "att"
+                    val_str = single_command[3:].strip()
+                    Att_percent = float(val_str)
+                except Exception:
+                    print(f"Invalid syntax. Use: att<percent>, e.g. att12.5")
+                    return
+
+                # Update the input widget if it exists
+                widget_tag = "femto_attenuator"
+                if dpg.does_item_exist(widget_tag):
+                    dpg.set_value(widget_tag, Att_percent)
+                else:
+                    print(f"Widget '{widget_tag}' not found; value will still be applied.")
+                if parent and hasattr(parent, "femto_gui") and hasattr(parent.opx.pharos, "setBasicTargetAttenuatorPercentage"):
+                    try:
+                        parent.opx.pharos.setBasicTargetAttenuatorPercentage(Att_percent)
+                        print(f"Attenuator set to {Att_percent:.1f}%")
+                        tag = parent.femto_gui.future_input_tag if parent and hasattr(parent, "femto_gui") else None
+                        if tag and dpg.does_item_exist(tag):
+                            # grab the existing range (everything before any comma)
+                            existing = dpg.get_value(tag) or ""
+                            base = existing.split(",", 1)[0].strip()
+                            new_text = f"{base},{Att_percent:.1f}%"
+                            dpg.set_value(tag, new_text)
+                            # call the same callback that the input uses
+                            try:
+                                parent.femto_gui.calculate_future(sender=None, app_data=None, user_data=None)
+                                print(f"Future attenuator set to {Att_percent:.1f}% and recalculated.")
+                            except Exception as e:
+                                print(f"Error recalculating future angles: {e}")
+                    except Exception as e:
+                        print(f"Failed to set attenuator: {e}")
+                else:
+                    print("Femto GUI or Pharos API not available.")
+            elif single_command.lower() == "fmp":
+                # Trigger the Femto Pulses button in the OPX GUI
+                if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnFemtoPulses"):
+                    try:
+                        parent.opx.btnFemtoPulses()
+                        print("Femto pulses triggered (btnFemtoPulses called).")
+                    except Exception as e:
+                        print(f"Error calling btnFemtoPulses: {e}")
+                else:
+                    print("OPX or btnFemtoPulses method not available.")
+            elif single_command.lower() == "stp":
+                # Trigger the Stop button in the OPX GUI
+                if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStop"):
+                    try:
+                        parent.opx.btnStop()
+                        print("OPX scan stopped (btnStop called).")
+                    except Exception as e:
+                        print(f"Error calling btnStop: {e}")
+                else:
+                    print("OPX or btnStop method not available.")
+            elif single_command.lower().startswith("angle"):
+                # angle<value> → set the HWP to that angle in degrees
+                try:
+                    angle_val = float(single_command[len("angle"):].strip())
+                except ValueError:
+                    print("Invalid syntax. Use: angle<degrees>, e.g. angle22.5")
+                    return
+                if parent and hasattr(parent, "opx") and hasattr(parent.opx, "set_hwp_angle"):
+                    try:
+                        parent.opx.set_hwp_angle(angle_val)
+                        parent.kdc_101_gui.read_current_angle()
+                        print(f"HWP angle command: moved to {angle_val:.2f}°")
+                    except Exception as e:
+                        print(f"Failed to set HWP angle: {e}")
+                else:
+                    print("OPX GUI or set_hwp_angle() not available.")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
