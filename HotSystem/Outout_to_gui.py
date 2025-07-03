@@ -150,15 +150,12 @@ def run(command: str):
         threading.Thread(target=worker, daemon=True).start()
         print(f"Looping from {start} to {end} in background…")
         return
-
     # Split into individual commands
     commands = [c.strip() for c in command.split(";") if c.strip()]
-
     for single_command in commands:
         try:
             verb, sep, rest = single_command.partition(" ")
             single_command = verb.lower() + sep + rest
-
             if single_command == "c":
                 copy_quti_window_to_clipboard()
             elif single_command.startswith("cc"):
@@ -1052,6 +1049,20 @@ def run(command: str):
                 # Trigger the Femto Pulses button in the OPX GUI
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnFemtoPulses"):
                     try:
+                        # 1) Set dx and dy to 2000 nm
+                        if dpg.does_item_exist("inInt_dx_scan"):
+                            dpg.set_value("inInt_dx_scan", 2000)
+                            # trigger the same callback you wired up in the GUI
+                            parent.opx.Update_dX_Scan("inInt_dx_scan", 2000)
+                            print("dx step set to 2000 nm")
+                        else:
+                            print("DX input widget not found.")
+                        if dpg.does_item_exist("inInt_dy_scan"):
+                            dpg.set_value("inInt_dy_scan", 2000)
+                            parent.opx.Update_dY_Scan("inInt_dy_scan", 2000)
+                            print("dy step set to 2000 nm")
+                        else:
+                            print("DY input widget not found.")
                         parent.opx.btnFemtoPulses()
                         print("Femto pulses triggered (btnFemtoPulses called).")
                     except Exception as e:
@@ -1084,6 +1095,16 @@ def run(command: str):
                         print(f"Failed to set HWP angle: {e}")
                 else:
                     print("OPX GUI or set_hwp_angle() not available.")
+            elif single_command.lower() == "startscan":
+                # Trigger the OPX “StartScan” button
+                if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStartScan"):
+                    try:
+                        parent.opx.btnStartScan()
+                        print("OPX scan started (btnStartScan called).")
+                    except Exception as e:
+                        print(f"Error calling btnStartScan: {e}")
+                else:
+                    print("OPX or btnStartScan method not available.")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
