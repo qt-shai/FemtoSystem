@@ -440,6 +440,7 @@ class ZeluxGUI():
         cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
         print(f"Image saved with overlays to: {filename}")
         copy_image_to_clipboard(filename)
+        return filename
 
     def rotate_image(self, sender, app_data, user_data=None):
         """Rotate the live image by 90° clockwise."""

@@ -282,12 +282,6 @@ def run(command: str):
                         print("No marker to remove.")
                 except Exception as e:
                     print(f"Error in 'unmark': {e}")
-            elif single_command == "sv":
-                if cam and hasattr(cam, "SaveProcessedImage"):
-                    cam.SaveProcessedImage()
-                    print("SaveProcessedImage executed.")
-                else:
-                    print("SaveProcessedImage not available.")
             elif single_command == "mv":
                 parent.opx.move_last_saved_files()
             elif single_command.startswith("clog "):
@@ -1118,7 +1112,7 @@ def run(command: str):
                         print(f"Error calling btnFemtoPulses: {e}")
                 else:
                     print("OPX or btnFemtoPulses method not available.")
-            elif single_command.lower() == "stp":
+            elif single_command.lower() in ("stp","stop"):
                 # Trigger the Stop button in the OPX GUI
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStop"):
                     try:
@@ -1181,6 +1175,20 @@ def run(command: str):
                         print(f"Loaded {len(parent.command_history)} entries from {fname}")
                     except Exception as e:
                         print(f"Error loading history: {e}")
+            elif single_command.lower() == "sv":
+                filename = parent.cam.SaveProcessedImage()
+                if not filename:
+                    print("SaveProcessedImage executed but returned no filename.")
+                    break
+                notes = getattr(parent.opx, "expNotes", "").strip().replace(" ", "_")
+                base, ext = os.path.splitext(filename)
+                new_name = f"{base}_{notes}{ext}" if notes else filename
+                try:
+                    if new_name != filename:
+                        os.rename(filename, new_name)
+                    print(f"Saved processed image: {new_name}")
+                except Exception as e:
+                    print(f"Image saved as {filename}, but could not rename: {e}")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
