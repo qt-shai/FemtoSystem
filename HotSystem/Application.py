@@ -1134,6 +1134,22 @@ class PyGuiOverlay(Layer):
                 return
             if dpg.is_item_focused("inTxtScan_expText"):
                 return
+            # === QUESTION MARK: search history for substring in cmd_input ===
+            if key_code == 63:  # ord('?') == 63
+                term = dpg.get_value("cmd_input") or ""
+                if not (hasattr(self, "command_history") and self.command_history):
+                    print("No history yet.")
+                else:
+                    term_l = term.lower()
+                    for idx, cmd in enumerate(self.command_history):
+                        if term_l in cmd.lower():
+                            self.history_index = idx
+                            dpg.set_value("cmd_input", cmd)
+                            print(f"History match [{idx}]: {cmd}")
+                            break
+                    else:
+                        print(f"No history entry contains '{term}'.")
+                return
             if 32 <= key_code <= 126:
                 ch = chr(key_code)
                 # avoid intercepting Return/Enter (code 13)

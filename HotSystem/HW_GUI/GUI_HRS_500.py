@@ -1,8 +1,11 @@
+from os.path import defpath
+
 import dearpygui.dearpygui as dpg
 import numpy as np
 from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
 import System.Diagnostics as diag
 import os
+from Utils import open_file_dialog
 
 class GUI_HRS500():
 
@@ -54,21 +57,66 @@ class GUI_HRS500():
                                callback=self.load_callback,
                                tag=f"load_btn_{self.prefix}")
                 dpg.bind_item_theme(f"load_btn_{self.prefix}", f"load_green_theme_{self.prefix}")
-            with dpg.group(horizontal=True,tag=f"group 2_{self.prefix}"):
-                with dpg.group(horizontal=True, tag=f"group 3_{self.prefix}"):
-                    dpg.add_input_text(label="", tag="HRS_set_filename_input", indent=-1,
-                                       callback=self.input_set_filename_callback)
-                    dpg.add_button(label="Remember Name", callback=self.set_choose_directory_callback)
-                dpg.add_group(tag=f"Graph_group_{self.prefix}", parent=self.window_tag, horizontal=True)
-                dpg.add_plot(label="Graph", crosshairs=True, tag=f"graphXY_{self.prefix}", parent=f"Graph_group_{self.prefix}", height=-1,
-                             width=-1)  # width=int(win_size[0]), height=int(win_size[1]))  # height=-1, width=-1,no_menus = False )
-                dpg.add_plot_legend(parent=f"graphXY_{self.prefix}")  # optionally create legend
-                dpg.add_plot_axis(dpg.mvXAxis, label="Wavelength [nm]", tag=f"x_axi_{self.prefix}", parent = f"graphXY_{self.prefix}")  # REQUIRED: create x and y axes
-                dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=f"y_axis_{self.prefix}", invert=False,
-                                  parent=f"graphXY_{self.prefix}")  # REQUIRED: create x and y axes
-                dpg.add_line_series([], [], label="Spectrum",
-                                    parent=f"y_axis_{self.prefix}",
-                                    tag=self.series_tag)
+                dpg.add_button(label=" Load \n Data",
+                               width=70, height=70,
+                               callback=self.load_data_callback,
+                               tag=f"load_data_{self.prefix}")
+                dpg.bind_item_theme(f"load_data_{self.prefix}", f"load_green_theme_{self.prefix}")
+                dpg.add_input_text(label="", tag="HRS_set_filename_input", indent=-1,
+                                   callback=self.input_set_filename_callback)
+                dpg.add_button(label="Remember", callback=self.set_choose_directory_callback)
+            dpg.add_group(tag=f"Graph_group_{self.prefix}", parent=self.window_tag, horizontal=True)
+            dpg.add_plot(label="Graph", crosshairs=True, tag=f"graphXY_{self.prefix}", parent=f"Graph_group_{self.prefix}", height=-1,
+                         width=-1)  # width=int(win_size[0]), height=int(win_size[1]))  # height=-1, width=-1,no_menus = False )
+            dpg.add_plot_legend(parent=f"graphXY_{self.prefix}",tag="spectrum_graph_legend" )
+            dpg.add_plot_axis(dpg.mvXAxis, label="Wavelength [nm]", tag=f"x_axi_{self.prefix}", parent = f"graphXY_{self.prefix}")  # REQUIRED: create x and y axes
+            dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=f"y_axis_{self.prefix}", invert=False,
+                              parent=f"graphXY_{self.prefix}")  # REQUIRED: create x and y axes
+            dpg.add_line_series([], [], label="Spectrum",
+                                parent=f"y_axis_{self.prefix}",
+                                tag=self.series_tag)
+    def load_data_callback(self):
+        # Bring up a file dialog for CSV filesa
+        start_dir = r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer"
+        file_path = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],initial_folder=start_dir)
+        if not file_path:
+            print("Load canceled or no file selected.")
+            return
+
+        try:
+            # load & sort
+            data = np.genfromtxt(file_path, delimiter=',', skip_header=1)  # adjust if you have header
+            data = data[data[:,0].argsort()]
+            self.data = data
+            print(f"Loaded data from: {file_path}")
+        except Exception as e:
+            print(f"Failed to load CSV '{file_path}': {e}")
+            return
+
+        # split into x/y
+        x_vals = data[:,0].tolist()
+        y_vals = data[:,1].tolist()
+
+        # plot (overwrite or create)
+        if dpg.does_item_exist(self.series_tag):
+            dpg.set_value(self.series_tag, [x_vals, y_vals])
+        else:
+            dpg.add_line_series(x_vals, y_vals,
+                                label="Spectrum",
+                                parent=f"y_axis_{self.prefix}",
+                                tag=self.series_tag)
+
+        # hide the legend if desired
+        if dpg.does_item_exist("spectrum_graph_legend"):
+            dpg.hide_item("spectrum_graph_legend")
+
+        # fit axes
+        dpg.fit_axis_data(f"x_axi_{self.prefix}")
+        dpg.fit_axis_data(f"y_axis_{self.prefix}")
+
+        # update window title to filename only
+        fname = os.path.basename(file_path)
+        dpg.set_item_label(f"graphXY_{self.prefix}", fname)
 
     def acquire_callback(self):
         self.data = self.dev.acquire_Data()
@@ -92,10 +140,28 @@ class GUI_HRS500():
             dpg.add_line_series(x_vals, y_vals, label="Spectrum",
                                 parent=f"y_axis_{self.prefix}",
                                 tag=self.series_tag)
-
+        if dpg.does_item_exist("spectrum_graph_legend"):
+            dpg.hide_item("spectrum_graph_legend")
         # 4) optionally fit axes to new data
         dpg.fit_axis_data(f"x_axi_{self.prefix}")
         dpg.fit_axis_data(f"y_axis_{self.prefix}")
+        # ─── rename the plot window to the filename ───
+        try:
+            # If your device stored the last file path:
+            filepath = getattr(self.dev, 'last_saved_csv', None)
+            if filepath is None:
+                # fallback: use the current input‐box value
+                filepath = getattr(self, 'file_name', None)
+
+            if filepath:
+                # Only the base name:
+                fname = os.path.basename(filepath)
+                # Change the plot’s title bar
+                dpg.set_item_label(f"graphXY_{self.prefix}", fname)
+            else:
+                dpg.set_item_label(f"graphXY_{self.prefix}", "Spectrum")
+        except Exception as e:
+            print(f"Could not update plot label to filename: {e}")
 
     def load_callback(self):
         #file_path = "C:\\Users\\ice\\Work Folders\\Documents\\LightField\\Experiments\\Experiment2.lfe"

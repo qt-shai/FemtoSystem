@@ -75,6 +75,21 @@ def toggle_sc(reverse=False):
             pos = flipper.dev.get_position()
             if (not reverse and pos == 1) or (reverse and pos == 2):
                 flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
+
+        # If dx > 200, reset both dx & dy to 150 nm
+        if dpg.does_item_exist("inInt_dx_scan"):
+            dx = dpg.get_value("inInt_dx_scan")
+            if dx > 200:
+                dpg.set_value("inInt_dx_scan", 150)
+                dpg.set_value("inInt_dy_scan", 150)
+                parent = getattr(sys.stdout, "parent", None)
+                if parent and hasattr(parent, "opx"):
+                    # Trigger the same callbacks your GUI uses
+                    if hasattr(parent.opx, "Update_dX_Scan"):
+                        parent.opx.Update_dX_Scan("inInt_dx_scan", 150, None)
+                    if hasattr(parent.opx, "Update_dY_Scan"):
+                        parent.opx.Update_dY_Scan("inInt_dy_scan", 150, None)
+                print("dx > 200: reset dx & dy to 150 nm")
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
 
@@ -103,7 +118,7 @@ def run(command: str):
     if not hasattr(parent, "command_history"):
         parent.command_history = []
     parent.command_history.append(command)
-    parent.command_history = parent.command_history[-10:]  # Keep last 10 only
+    parent.command_history = parent.command_history[-100:]  # Keep last 100 commands
     parent.history_index = len(parent.command_history)  # Always reset index to END
     # -- handle loop syntax --
     # expects: loop <start> <end> <template>
@@ -162,7 +177,17 @@ def run(command: str):
                 import threading
                 # parse optional suffix
                 parts = single_command.split(" ", 1)
-                suffix = parts[1].strip() if len(parts) > 1 else None
+                notes = getattr(getattr(parent, "opx", None), "expNotes", None)
+                user_suffix = parts[1].strip() if len(parts) > 1 else ""
+                # build the final suffix
+                if user_suffix and notes:
+                    suffix = f"{user_suffix}_{notes}"
+                elif user_suffix:
+                    suffix = user_suffix
+                elif notes:
+                    suffix = notes
+                else:
+                    suffix = None
                 print(f"cc: scheduling screenshot{' with suffix ' + suffix if suffix else ''}")
                 def delayed_save():
                     try:
@@ -236,7 +261,6 @@ def run(command: str):
                     )
 
                     print(f"Marked cross + circle at X={x:.4f}, Y={y:.4f} with center gap")
-
                 except Exception as e:
                     print(f"Error in 'mark': {e}")
             elif single_command == "unmark":
@@ -265,19 +289,7 @@ def run(command: str):
                 else:
                     print("SaveProcessedImage not available.")
             elif single_command == "mv":
-                if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "move_last_saved_files"):
-                    sys.stdout.parent.move_last_saved_files()
-                    # Try to extract and copy the last moved filename
-                    if hasattr(sys.stdout, "messages") and sys.stdout.messages:
-                        last_msg = sys.stdout.messages[-1].strip()
-                        if "→" in last_msg:
-                            filepath = last_msg.split("→")[-1].strip()
-                            filename = os.path.basename(filepath)
-                            import pyperclip
-                            pyperclip.copy(filename)
-                            print(f"Filename copied to clipboard: {filename}")
-                else:
-                    print("move_last_saved_files not available.")
+                parent.opx.move_last_saved_files()
             elif single_command.startswith("clog "):
                 arg = single_command.split("clog ", 1)[1].strip().lower()
                 import subprocess
@@ -736,6 +748,12 @@ def run(command: str):
                                     parent.smaractGUI.move_absolute(None, None, 0)
                                     parent.smaractGUI.move_absolute(None, None, 1)
                                 print(f"Moved to stored point #{index_to_go}: X={x:.2f}, Y={y:.2f}")
+                                note_text=f"Point #{index_to_go}"
+                                show_msg_window(note_text)
+                                parent.opx.expNotes = note_text
+                                if dpg.does_item_exist("inTxtScan_expText"):
+                                    dpg.set_value("inTxtScan_expText", note_text)
+                                    parent.opx.saveExperimentsNotes(sender=None, app_data=note_text)
                             else:
                                 print(f"No stored point with index {index_to_go}.")
                         else:
@@ -894,49 +912,59 @@ def run(command: str):
                     for idx_num, x_val, y_val in parent.saved_query_points:
                         print(f"{idx_num}: X={x_val:.6f}, Y={y_val:.6f}")
             elif single_command.startswith("insert"):
-                parent = getattr(sys.stdout, "parent", None)
-                if not parent or not hasattr(parent, "saved_query_points") or len(parent.saved_query_points) < 2:
-                    print("Need at least 2 points to calculate average dx/dy.")
+                pts = getattr(parent, "saved_query_points", None)
+                if not parent or not pts or len(pts) < 1:
+                    print("Need at least 1 existing point to insert relative to.")
                     return
 
-                try:
-                    num_to_insert = int(single_command[len("insert"):].strip())
-                    if num_to_insert <= 0:
-                        print("Number of points to insert must be positive.")
+                body = single_command[len("insert"):].strip()  # e.g. "3" or "5(0,-2)"
+                # extract count N
+                if "(" in body and body.endswith(")"):
+                    num_str, args = body.split("(", 1)
+                    num_to_insert = int(num_str)
+                    args = args[:-1]  # strip trailing ")"
+                    try:
+                        dx_str, dy_str = args.split(",", 1)
+                        dx = float(dx_str)
+                        dy = float(dy_str)
+                        print(f"Inserting {num_to_insert} points each shifted by ΔX={dx}, ΔY={dy}")
+                    except:
+                        print("Invalid syntax. Use insertN or insertN(dx,dy), e.g. insert3 or insert5(0,-2)")
                         return
-                except Exception as e:
-                    print(f"Invalid syntax. Use: insertN (e.g. insert3). Error: {e}")
+                else:
+                    # no custom shift, only a count
+                    num_to_insert = int(body)
+                    if len(pts) < 2:
+                        print("Need at least 2 points to compute average shift.")
+                        return
+                    # compute average adjacent shift
+                    dxs = []
+                    dys = []
+                    for a, b in zip(pts, pts[1:]):
+                        _, x1, y1 = a
+                        _, x2, y2 = b
+                        dxs.append(x2 - x1)
+                        dys.append(y2 - y1)
+                    dx = sum(dxs) / len(dxs)
+                    dy = sum(dys) / len(dys)
+                    print(f"No custom shift given; averaging shifts: ΔX={dx:.6f}, ΔY={dy:.6f}")
+
+                if num_to_insert <= 0:
+                    print("Number of points to insert must be positive.")
                     return
 
-                points = parent.saved_query_points
-
-                # Calculate all dx, dy between adjacent points
-                dxs = []
-                dys = []
-                for i in range(len(points) - 1):
-                    _, x1, y1 = points[i]
-                    _, x2, y2 = points[i + 1]
-                    dxs.append(x2 - x1)
-                    dys.append(y2 - y1)
-
-                avg_dx = sum(dxs) / len(dxs)
-                avg_dy = sum(dys) / len(dys)
-
-                print(f"Averaged ΔX={avg_dx:.6f}, ΔY={avg_dy:.6f}")
-
-                # Start from the last point
-                last_index, last_x, last_y = points[-1]
-
+                # start from last point
+                last_index, last_x, last_y = pts[-1]
                 for i in range(1, num_to_insert + 1):
                     new_index = last_index + i
-                    new_x = last_x + i * avg_dx
-                    new_y = last_y + i * avg_dy
-                    parent.saved_query_points.append((new_index, new_x, new_y))
+                    new_x = last_x + i * dx
+                    new_y = last_y + i * dy
+                    pts.append((new_index, new_x, new_y))
                     print(f"Inserted point #{new_index}: X={new_x:.6f}, Y={new_y:.6f}")
 
-                # Show updated list
+                # print updated list
                 print("Updated points:")
-                for idx_num, x_val, y_val in parent.saved_query_points:
+                for idx_num, x_val, y_val in pts:
                     print(f"{idx_num}: X={x_val:.6f}, Y={y_val:.6f}")
             elif single_command == "savelist":
                 if parent and hasattr(parent, "saved_query_points") and parent.saved_query_points:
@@ -972,10 +1000,33 @@ def run(command: str):
                     print(f"Error loading list: {e}")
             elif single_command == "spc":
                 parent = getattr(sys.stdout, "parent", None)
+                import glob
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "spc"):
                     if hasattr(parent.opx.spc, "acquire_Data"):
-                        parent.hrs_500_gui.acquire_callback()
-                        print("SPC -> acquire_Data() called.")
+                        hrs = getattr(parent, "hrs_500_gui", None)
+                        hrs.acquire_callback()
+                        notes = getattr(parent.opx, "expNotes", None) if hasattr(parent, "opx") else None
+                        fp = getattr(hrs.dev, "last_saved_csv", None)
+                        if not fp or not os.path.isfile(fp):
+                            # fallback: search the save directory for the newest *.csv
+                            save_dir = hrs.dev.save_directory  # wherever you set it
+                            matches = glob.glob(os.path.join(save_dir, "*.csv"))
+                            if not matches:
+                                print("No CSV found to rename.")
+                                return
+                            fp = max(matches, key=os.path.getmtime)
+
+                        # 3) Rename to include expNotes (if any)
+                        dirname, fname = os.path.split(fp)
+                        base, ext = os.path.splitext(fname)
+                        if notes:
+                            new_fname = f"{base}_{notes}{ext}"
+                            new_fp = os.path.join(dirname, new_fname)
+                            try:
+                                os.replace(fp, new_fp)
+                                print(f"Renamed SPC file → {new_fp}")
+                            except Exception as e:
+                                print(f"Failed to rename SPC file: {e}")
                     else:
                         print("OPX SPC has no 'acquire_Data' method.")
                 else:
@@ -998,9 +1049,7 @@ def run(command: str):
                 # Update the Notes field with the rest of the text
                 note_text = single_command[len("note "):]
                 show_msg_window(note_text)
-                # Update your internal variable
-                if parent and hasattr(parent, "expNotes"):
-                    parent.opx.expNotes = note_text
+                parent.opx.expNotes = note_text
                 if dpg.does_item_exist("inTxtScan_expText"):
                     dpg.set_value("inTxtScan_expText", note_text)
                     try:
@@ -1105,6 +1154,33 @@ def run(command: str):
                         print(f"Error calling btnStartScan: {e}")
                 else:
                     print("OPX or btnStartScan method not available.")
+            elif single_command.lower() == "savehistory":
+                # Save the current  history buffer to a file
+                if parent and hasattr(parent, "command_history"):
+                    fname = "command_history.txt"
+                    try:
+                        with open(fname, "w") as f:
+                            for cmd in parent.command_history:
+                                f.write(cmd.replace("\n", "") + "\n")
+                        print(f"Saved {len(parent.command_history)} history entries to {fname}")
+                    except Exception as e:
+                        print(f"Error saving history: {e}")
+                else:
+                    print("No command history to save.")
+            elif single_command.lower() == "loadhistory":
+                # Load history back from disk (overwrites current buffer)
+                fname = "command_history.txt"
+                if not os.path.exists(fname):
+                    print(f"History file not found: {fname}")
+                else:
+                    try:
+                        with open(fname, "r") as f:
+                            lines = [line.strip() for line in f if line.strip()]
+                        parent.command_history = lines[-10:]  # enforce your 10-item limit
+                        parent.history_index = len(parent.command_history)
+                        print(f"Loaded {len(parent.command_history)} entries from {fname}")
+                    except Exception as e:
+                        print(f"Error loading history: {e}")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})

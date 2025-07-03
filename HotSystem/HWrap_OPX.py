@@ -917,7 +917,7 @@ class GUI_OPX():
     def GUI_ParametersControl(self, isStart):
         child_width = int(2900 * self.window_scale_factor)
         child_height = int(80 * self.window_scale_factor)
-        item_width = int(270 * self.window_scale_factor)
+        item_width = int(150 * self.window_scale_factor)
         dpg.delete_item("Params_Controls")
         dpg.delete_item("Buttons_Controls")
 
@@ -1308,7 +1308,6 @@ class GUI_OPX():
                            callback=self.btnStartAWG_FP_SCAN,
                            indent=-1, width=_width)
 
-            # dpg.add_checkbox(label="Radio Button1", source="bool_value")
             dpg.bind_item_theme(item="Params_Controls", theme="NewTheme")
             dpg.bind_item_theme(item="btnOPX_StartCounter", theme="btnYellowTheme")
             dpg.bind_item_theme(item="btnOPX_StartODMR", theme="btnRedTheme")
@@ -1324,11 +1323,12 @@ class GUI_OPX():
             self.GUI_ScanControls()
             dpg.set_frame_callback(1, self.load_pos)
         else:
-            dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=True)
+            dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=False)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
             dpg.bind_item_theme(item="btnOPX_Stop", theme="btnRedTheme")
             dpg.add_button(label="Find Max Intensity", parent="Params_Controls", tag="btnOPX_StartFindMaxIntensity",
                            callback=self.MoveToPeakIntensity, indent=-1)
+            dpg.add_text(parent="Params_Controls",default_value = f"Int.time:\n{self.total_integration_time:.1f} ms",tag = "text_total_integration_time_display",indent = 10)
 
     def GUI_ScanControls(self):
         self.Calc_estimatedScanTime()
@@ -1771,7 +1771,7 @@ class GUI_OPX():
         try:
             start_Plot_time = time.time()
 
-            plot_size = [int(self.viewport_width * 0.3), int(self.viewport_height * 0.4)]
+            plot_size = [int(self.viewport_width * 0.2), int(self.viewport_height * 0.4)]
 
             # Check if scan_data and idx_scan are available
             if self.scan_data is None or self.idx_scan is None:
