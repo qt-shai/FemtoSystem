@@ -1,4 +1,5 @@
 import datetime
+import traceback
 from datetime import datetime
 import socket
 import threading
@@ -153,7 +154,19 @@ class KeyboardKeys(Enum): # Mapping keys to custom values
     Z_KEY = 90
 
     OEM_COMMA = 188  # ,
-    OEM_PERIOD = 190  # .
+    OEM_PERIOD = 190  #
+
+    # ─── Printable digits ───
+    KEY_0 = 48
+    KEY_1 = 49
+    KEY_2 = 50
+    KEY_3 = 51
+    KEY_4 = 52
+    KEY_5 = 53
+    KEY_6 = 54
+    KEY_7 = 55
+    KEY_8 = 56
+    KEY_9 = 57
 
 from PIL import Image, ImageEnhance
 
@@ -354,6 +367,36 @@ def save_quti_window_screenshot(suffix: str = None):
     except Exception as e:
         print(f"Failed to save screenshot: {e}")
 
+# def show_msg_window(msg_text: str):
+#     window_tag = "msg_Win"
+#     drawlist_tag = "msg_drawlist"
+#
+#     # Remove old window if it exists
+#     if dpg.does_item_exist(window_tag):
+#         dpg.delete_item(window_tag)
+#
+#     # Create a new window in the center-ish
+#     with dpg.window(
+#         label="Message",
+#         tag=window_tag,
+#         no_title_bar=True,
+#         no_resize=False,
+#         pos=[5, 40],
+#         width=1900,
+#         height=100
+#     ):
+#         # A drawlist lets us use draw_text with size
+#         dpg.add_drawlist(width=1900, height=100, tag=drawlist_tag)
+#         dpg.draw_text(
+#             pos=(5, 5),
+#             text=msg_text,
+#             color=(255, 255, 0, 255),
+#             size=80,
+#             parent=drawlist_tag
+#         )
+#         dpg.add_button(label="Close", callback=lambda: dpg.delete_item(window_tag))
+#
+#     print(f"Displayed message in {window_tag}: {msg_text}")
 def show_msg_window(msg_text: str):
     window_tag = "msg_Win"
     drawlist_tag = "msg_drawlist"
@@ -368,18 +411,26 @@ def show_msg_window(msg_text: str):
         tag=window_tag,
         no_title_bar=True,
         no_resize=False,
-        pos=[5, 40],
-        width=1900,
-        height=100
+        pos=[0, 40],
+        width=1890,
+        height=110
     ):
         # A drawlist lets us use draw_text with size
-        dpg.add_drawlist(width=1900, height=100, tag=drawlist_tag)
+        dpg.add_drawlist(width=1900, height=100, tag="msg_drawlist")
         dpg.draw_text(
-            pos=(5, 5),
+            pos=(0, 5),
             text=msg_text,
             color=(255, 255, 0, 255),
             size=80,
             parent=drawlist_tag
+        )
+        # child_window for scrolling
+        dpg.add_child_window(tag="msg_child", parent=window_tag)
+        dpg.add_text(
+            default_value=msg_text,
+            wrap=780,  # wrap just inside the child width
+            parent="msg_child",
+            color=(255, 255, 0, 255),
         )
         dpg.add_button(label="Close", callback=lambda: dpg.delete_item(window_tag))
 

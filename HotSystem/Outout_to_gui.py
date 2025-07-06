@@ -67,6 +67,7 @@ def toggle_sc(reverse=False):
             if reverse and hasattr(cam, "StartLive"):
                 cam.StartLive()
                 print("Camera live view started.")
+                parent.opx.btnStartCounterLive()
             elif not reverse and hasattr(cam, "StopLive"):
                 cam.StopLive()
                 print("Camera live view stopped.")
@@ -95,21 +96,47 @@ def toggle_sc(reverse=False):
 
 def run(command: str):
     """
-    Simple command handler for the Dear PyGui console.
-    Supports:
-    Handles single or multiple commands separated by ';'
-    - 'c' → copy 'QuTi SW' window to clipboard
-    - 'sv' → call SaveProcessedImage()
-    - 'mv' → call move_last_saved_files()
-    - 'sub <folder>' → set MoveSubfolderInput to '<folder>_6-5-25'
-    - 'fn' → copy only filename from last message like: "Copied ... → .../file.ext"
-    - 'sc or !sc' toggles both flippers using the existing on_off_slider_callback method only if each flipper is in position 1
-    - 'sub'
-    - 'cn' counter
-    - 'reload'
-    - 'ld' load last file
-    -- ("coords", "coo"): shows coordinates in zelux
+        # Loop syntax:
+        #   expects: loop <start> <end> <template>
+        #   e.g.    loop 10 11 fq{i};msg Site {i} Spectrum…;spc;cc Site{i}
+
+        Simple command handler for the Dear PyGui console.
+        Supports single or multiple commands separated by ';':
+          • 'angle<N>'        -> move half-wave plate to <N> degrees
+          • 'att<N>'          -> set femto attenuator to <N>% and recalc future
+          • 'c'               -> copy 'QuTi SW' window to clipboard
+          • 'cc [suffix]'     -> schedule a delayed screenshot (optional suffix)
+          • 'cn'              -> start live counter in OPX GUI
+          • 'coords' / 'coo'  -> toggle coordinate grid in Zelux plot
+          • 'fmp'             -> trigger femto pulses in OPX GUI
+          • 'fn'              -> copy only filename from last message
+          • 'fq[N]'           -> fill & move to N-th stored query point (or store new)
+          • 'help'            -> show this menu
+          • 'hl'              -> hide OPX plot legend
+          • 'ld'              -> load & plot most recent CSV from last_scan_dir
+          • 'loadhistory'     -> load command history from disk
+          • 'loadlist'        -> load saved query points from file
+          • 'loop'            -> loop a sequence of sub-commands from start to end
+          • 'lp [name]'       -> load Smaract positions profile <name> ('r' for remote)
+          • 'mark'            -> draw a temporary cross+circle at current position
+          • 'msg <text>'      -> pop up a centered message window
+          • 'msgclear'        -> close the message window
+          • 'mv'              -> call move_last_saved_files()
+          • 'note <text>'     -> write <text> into Notes field and save
+          • 'plf'             -> annotate future femto energies on plot
+          • 'reload [mod]'    -> reload a module or GUI component
+          • 'sc' / '!sc'      -> stop/start camera & retract/extend flippers
+          • 'savelist'        -> write stored query points to disk
+          • 'savehistory'     -> write recent commands to disk
+          • 'sp [name]'       -> save Smaract positions profile <name> ('r' for remote)
+          • 'spc'             -> acquire HRS500 spectrum & tag with Notes
+          • 'startscan'       -> trigger OPX StartScan
+          • 'st'              -> fill Smaract XYZ from current position
+          • 'stop' / 'stp'    -> trigger OPX Stop
+          • 'sub <folder>'    -> set MoveSubfolderInput to '<folder>_suffix'
+          • 'sv'              -> call SaveProcessedImage()
     """
+
     import os
 
     command = command.strip()
@@ -120,7 +147,6 @@ def run(command: str):
     parent.command_history.append(command)
     parent.command_history = parent.command_history[-100:]  # Keep last 100 commands
     parent.history_index = len(parent.command_history)  # Always reset index to END
-    # -- handle loop syntax --
     # expects: loop <start> <end> <template>
     # e.g. loop 10 11 fq{i};msg Site {i} Spectrum, Exposure 30s;spc;cc Site{i}
     if command.startswith("loop "):
@@ -318,7 +344,7 @@ def run(command: str):
                     print("No filepath found in last message.")
             elif single_command == "sc":
                 toggle_sc(reverse=False)
-            elif single_command in ("!sc", "!"):
+            elif single_command in ("!sc", "l"):
                 toggle_sc(reverse=True)
             elif single_command.startswith("sub "):
                 try:
@@ -610,6 +636,7 @@ def run(command: str):
                         else:
                             module = importlib.import_module(module_name)
                             print(f"Imported and reloaded: {module_name}")
+                    # dpg.focus_item("console_window")
                 except Exception as e:
                     traceback.print_exc()
                     print(f"Reload failed for '{module_name}': {e}")
@@ -731,8 +758,16 @@ def run(command: str):
                         except ValueError:
                             print(f"Invalid index in command: {parts}")
                     if index_to_go:
+                        # If no points yet, store current position as point #N
+                        if not hasattr(parent, "saved_query_points") or not parent.saved_query_points:
+                            parent.saved_query_points = []
+                            x = dpg.get_value("mcs_ch0_ABS")
+                            y = dpg.get_value("mcs_ch1_ABS")
+                            parent.saved_query_points.append((index_to_go, x, y))
+                            print(
+                                f"No points yet → stored current position as point #{index_to_go}: X={x:.2f}, Y={y:.2f}")
                         # === Move to stored index ===
-                        if hasattr(parent, "saved_query_points"):
+                        else:
                             found = [pt for pt in parent.saved_query_points if pt[0] == index_to_go]
                             if found:
                                 _, x, y = found[0]
@@ -750,8 +785,6 @@ def run(command: str):
                                     parent.opx.saveExperimentsNotes(sender=None, app_data=note_text)
                             else:
                                 print(f"No stored point with index {index_to_go}.")
-                        else:
-                            print("No stored points available.")
                     else:
                         # === Regular fill/move/store ===
                         parent.opx.fill_moveabs_from_query()
@@ -1189,6 +1222,15 @@ def run(command: str):
                     print(f"Saved processed image: {new_name}")
                 except Exception as e:
                     print(f"Image saved as {filename}, but could not rename: {e}")
+            elif single_command.lower() == "help":
+                # Extract the bullet-list from our own docstring and display it
+                import inspect
+                doc = inspect.getdoc(run) or ""
+                # grab only the lines starting with a bullet
+                lines = [l.strip()[2:] for l in doc.splitlines() if l.strip().startswith("•")]
+                help_txt = "\n".join(lines)
+                show_msg_window(help_txt)
+                print("Displayed help menu in msg window.")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
@@ -1197,6 +1239,7 @@ def run(command: str):
                     print(f"Unknown command: {single_command}")
         except Exception as e:
             print(f"Error running command '{single_command}': {e}")
+
 import builtins
 builtins.run = run
 

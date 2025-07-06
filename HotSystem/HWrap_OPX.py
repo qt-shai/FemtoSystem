@@ -1431,11 +1431,10 @@ class GUI_OPX():
                         dpg.add_input_float(label="AnnTH", tag="femto_anneal_threshold", default_value=800, width=_width)
                         dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=10,width=_width,callback=lambda s, a, u: self.pharos.setBasicTargetAttenuatorPercentage(dpg.get_value(s)))
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
-                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0, width=_width)
+                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=1, width=_width)
                         dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0, width=_width)
                         dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=10000, width=_width)
                     _width = 100
-
                     with dpg.group(horizontal=False):
                         dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
                                          default_value=self.limit)
@@ -10369,10 +10368,10 @@ class GUI_OPX():
         show_msg_window(f"{filename_only}")
         # total experiment time
         end_time = time.time()
-        print(f"end_time: {end_time}")
+        # print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
-        print(f"Elapsed time: {elapsed_time} seconds")
+        print(f"Elapsed time: {elapsed_time:.0f} seconds")
 
         if not (self.stopScan):
             self.btnStop()
@@ -10777,10 +10776,10 @@ class GUI_OPX():
 
         # total experiment time
         end_time = time.time()
-        print(f"end_time: {end_time}")
+        # print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
-        print(f"Elapsed time: {elapsed_time} seconds")
+        print(f"Elapsed time: {elapsed_time:.0f} seconds")
 
         if self.anneal_results:
             file_prefix = self.create_scan_file_name(local=False)
@@ -11280,9 +11279,9 @@ class GUI_OPX():
         self.writeParametersToXML(fn + ".xml")
         self.to_xml()
         end_time = time.time()
-        print(f"end_time: {end_time}")
+        # print(f"end_time: {end_time}")
         print(f"number of points = {Nx * Ny * Nz}")
-        print(f"Elapsed time: {end_time - start_time} seconds")
+        print(f"Elapsed time: {end_time - start_time:.0f} seconds")
 
         if not self.stopScan:
             self.btnStop()

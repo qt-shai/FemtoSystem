@@ -203,22 +203,35 @@ class GUI_smaract():
 
     def paste_clipboard_to_moveabs(self):
         try:
-            # Read clipboard text
-            clipboard_text = pyperclip.paste()
+            clipboard_text = pyperclip.paste().strip()
             print(f"Clipboard text: {clipboard_text}")
 
-            # Parse X and Y
-            x_str = clipboard_text.split('X=')[1].split(',')[0]
-            y_str = clipboard_text.split('Y=')[1].split(']')[0]
+            if clipboard_text.lower().startswith("site"):
+                # New “Site (x, y, z)” format
+                start = clipboard_text.find("(")
+                end = clipboard_text.find(")", start)
+                coords = clipboard_text[start + 1:end].split(",")
+                x_value, y_value, z_value = [float(c.strip()) for c in coords]
 
-            x_value = float(x_str.strip())
-            y_value = float(y_str.strip())
+                dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
+                dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
+                dpg.set_value(f"{self.prefix}_ch2_ABS", z_value)
 
-            # Set values to MoveABS input fields
-            dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
-            dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
+                print(f"Set MoveAbsX={x_value}, MoveAbsY={y_value}, MoveAbsZ={z_value}")
 
-            print(f"Set MoveAbsX = {x_value}, MoveAbsY = {y_value}")
+            else:
+                # Legacy "X=..., Y=...[...]" format
+                x_str = clipboard_text.split('X=')[1].split(',')[0]
+                y_str = clipboard_text.split('Y=')[1].split(']')[0]
+                x_value = float(x_str.strip())
+                y_value = float(y_str.strip())
+
+                # only set X and Y
+                dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
+                dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
+
+                print(f"Set MoveAbsX={x_value}, MoveAbsY={y_value} (Z unchanged)")
+
         except Exception as e:
             print(f"Failed to parse clipboard: {e}")
 
