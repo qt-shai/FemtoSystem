@@ -105,11 +105,11 @@ class GUI_smaract():
                             dpg.add_input_float(label="", default_value=0, tag=f"{self.prefix}_ch" + str(ch) + "_ABS", indent=-1,
                                                 format='%.4f', step=1, step_fast=10) #
                     dpg.add_button(label="Set XYZ", callback=self.fill_current_position_to_moveabs)
-                    dpg.add_button(label="Paste XY", callback=self.paste_clipboard_to_moveabs)
                 with dpg.group(horizontal=False, width=child_width*.8):
                     dpg.add_text("   GO")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="GO", callback=self.move_absolute, user_data=ch)
+                    dpg.add_button(label="Pst", callback=self.paste_clipboard_to_moveabs)
                 with dpg.group(horizontal=False, width=child_width*0.8):
                     dpg.add_text(" Ref.")
                     for ch in range(self.dev.no_of_channels):
@@ -126,12 +126,12 @@ class GUI_smaract():
                     dpg.add_text("Status")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_combo(items=["idle",""], tag="mcs_Status" + str(ch))
-            with dpg.group(horizontal=True):
-                dpg.add_combo(label="Devices", items=self.dev.Available_Devices_List, tag=f"{self.prefix}_device_selector",
-                              callback=self.cmb_device_selector, width=300)
-                dpg.add_button(label="Refresh", callback=self.btn_get_av_device_list)
-                dpg.add_text(" Disable keyboard")
-                dpg.add_checkbox(tag="mcs_Disable_Keyboard", callback=self.cbx_disable_keyboard)
+                with dpg.group(horizontal=False):
+                    dpg.add_combo(label="Devices", items=self.dev.Available_Devices_List, tag=f"{self.prefix}_device_selector",
+                                  callback=self.cmb_device_selector, width=300)
+                    dpg.add_button(label="Refresh", callback=self.btn_get_av_device_list)
+                    dpg.add_text(" Disable keys")
+                    dpg.add_checkbox(tag="mcs_Disable_Keyboard", callback=self.cbx_disable_keyboard)
             with dpg.group(horizontal=False, tag="table_group"):
                 with dpg.group(horizontal=True, tag="table_group2"):
                     dpg.add_button(label="Load logged from file", callback=self.load_logged_points_from_file)

@@ -26,6 +26,7 @@ class FemtoPowerCalculator:
             dpg.delete_item(self.window_tag)
 
     def create_gui(self):
+        default_future_value = self.load_future_input()
         with dpg.window(label="Femto Power Calculations", tag=self.window_tag, width=400, height=200):
             dpg.add_combo(items=["Default", "50um pinhole"],
                           default_value="Default",
@@ -48,13 +49,44 @@ class FemtoPowerCalculator:
             dpg.add_input_text(label="Future angles (start:step:end)",
                                tag=self.future_input_tag,
                                hint="e.g., 5:5:20,10%",
-                               default_value="1:1:15,10%",
+                               default_value=default_future_value,
                                on_enter=True,
-                               callback=self.calculate_future)
+                               callback=lambda s, a, u: [self.store_future_input(s, a), self.calculate_future(s, a, u)])
             dpg.add_separator()
             dpg.add_text("Future Results:", color=(255, 255, 0))
             with dpg.group(tag=self.future_output_group):
                 pass  # This will hold the dynamic output rows
+            self.calculate_future()
+
+    def store_future_input(self, sender, app_data):
+        """
+        Stores the future input text to a file.
+        """
+        filename = "future_angles.txt"
+        try:
+            with open(filename, "w") as f:
+                f.write(app_data)
+            print(f"Stored future input to {filename}: {app_data}")
+        except Exception as e:
+            print(f"Failed to store future input: {e}")
+
+    def load_future_input(self):
+        """
+        Loads the future input text from file if it exists,
+        otherwise returns a default value.
+        """
+        filename = "future_angles.txt"
+        try:
+            with open(filename, "r") as f:
+                value = f.read().strip()
+                if value:
+                    print(f"Loaded future input from {filename}: {value}")
+                    return value
+        except FileNotFoundError:
+            pass  # No file yet, use default
+
+        # Fallback default
+        return "1:1:15,10%"
 
     def calculate_laser_pulse(self, HWP_deg: float, Att_percent: float, mode: str, rep_rate: float = 50e3) -> tuple[float, float]:
         # Choose polynomial based on mode
@@ -92,7 +124,7 @@ class FemtoPowerCalculator:
             dpg.set_value(self.power_tag, "Error")
             dpg.set_value(self.energy_tag, "Error")
 
-    def calculate_future(self, sender, app_data, user_data):
+    def calculate_future(self, sender=None, app_data=None, user_data=None):
         try:
             input_str = dpg.get_value(self.future_input_tag)
 

@@ -81,15 +81,13 @@ def toggle_sc(reverse=False):
         if dpg.does_item_exist("inInt_dx_scan"):
             dx = dpg.get_value("inInt_dx_scan")
             if dx > 200:
-                dpg.set_value("inInt_dx_scan", 150)
-                dpg.set_value("inInt_dy_scan", 150)
                 parent = getattr(sys.stdout, "parent", None)
                 if parent and hasattr(parent, "opx"):
                     # Trigger the same callbacks your GUI uses
                     if hasattr(parent.opx, "Update_dX_Scan"):
-                        parent.opx.Update_dX_Scan("inInt_dx_scan", 150, None)
+                        parent.opx.Update_dX_Scan("inInt_dx_scan", 150)
                     if hasattr(parent.opx, "Update_dY_Scan"):
-                        parent.opx.Update_dY_Scan("inInt_dy_scan", 150, None)
+                        parent.opx.Update_dY_Scan("inInt_dy_scan", 150)
                 print("dx > 200: reset dx & dy to 150 nm")
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
@@ -136,7 +134,6 @@ def run(command: str):
           • 'sub <folder>'    -> set MoveSubfolderInput to '<folder>_suffix'
           • 'sv'              -> call SaveProcessedImage()
     """
-
     import os
 
     command = command.strip()
@@ -410,7 +407,7 @@ def run(command: str):
             elif single_command.startswith("sp "):
                 # Example: sp r → save_pos("remote"), sp xyz → save_pos("xyz")
                 arg = single_command.split("sp ", 1)[1].strip()
-                profile_name = "remote" if arg == "r" else arg
+                profile_name = "remote" if arg in ["r","R"] else arg
                 if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "smaractGUI"):
                     sys.stdout.parent.smaractGUI.save_pos(profile_name)
                     print(f"Saved positions with profile: {profile_name}")
@@ -555,6 +552,43 @@ def run(command: str):
                         dpg.set_item_height(parent.opx.window_tag, size[1])
 
                         print("Reloaded HWrap_OPX and recreated GUI_OPX.")
+                    elif raw_name and raw_name.lower() in ["kdc", "kdc_101"]:
+                        import HW_GUI.GUI_KDC101 as gui_KDC
+                        importlib.reload(gui_KDC)
+
+                        # Remove old window if it exists
+                        if hasattr(parent, "kdc_101_gui") and parent.kdc_101_gui:
+                            try:
+                                pos = dpg.get_item_pos(parent.kdc_101_gui.window_tag)
+                                size = dpg.get_item_rect_size(parent.kdc_101_gui.window_tag)
+                                parent.kdc_101_gui.DeleteMainWindow()
+                            except Exception as e:
+                                print(f"Old KDC_101 GUI removal failed: {e}")
+
+                        # Recreate KDC_101 GUI
+                        parent.kdc_101_gui = gui_KDC.GUI_KDC101(
+                            serial_number=parent.kdc_101_gui.device.serial_number,
+                            device=hw_devices.HW_devices().kdc_101
+                        )
+
+                        # Bring-to-front button
+                        if dpg.does_item_exist("kdc_101_button"):
+                            dpg.delete_item("kdc_101_button")
+
+                        parent.create_bring_window_button(
+                            parent.kdc_101_gui.window_tag,
+                            button_label="kdc_101",
+                            tag="kdc_101_button",
+                            parent="focus_group"
+                        )
+                        parent.active_instrument_list.append(parent.kdc_101_gui.window_tag)
+
+                        # Restore position & size
+                        dpg.set_item_pos(parent.kdc_101_gui.window_tag, pos)
+                        dpg.set_item_width(parent.kdc_101_gui.window_tag, size[0])
+                        dpg.set_item_height(parent.kdc_101_gui.window_tag, size[1])
+
+                        print("Reloaded HW_GUI.GUI_KDC101 and recreated KDC_101 GUI.")
                     elif raw_name and raw_name.lower() in ["smaract", "smaract_gui"]:
                         import HW_GUI.GUI_Smaract as gui_Smaract
                         importlib.reload(gui_Smaract)
@@ -782,7 +816,7 @@ def run(command: str):
                                 parent.opx.expNotes = note_text
                                 if dpg.does_item_exist("inTxtScan_expText"):
                                     dpg.set_value("inTxtScan_expText", note_text)
-                                    parent.opx.saveExperimentsNotes(sender=None, app_data=note_text)
+                                    parent.opx.saveExperimentsNotes(note=note_text)
                             else:
                                 print(f"No stored point with index {index_to_go}.")
                     else:
@@ -1023,6 +1057,7 @@ def run(command: str):
                             y = float(parts[2])
                             parent.saved_query_points.append((idx, x, y))
                     print(f"Loaded {len(parent.saved_query_points)} points from {file_name}")
+                    run("list")
                 except Exception as e:
                     print(f"Error loading list: {e}")
             elif single_command == "spc":
@@ -1127,14 +1162,11 @@ def run(command: str):
                     try:
                         # 1) Set dx and dy to 2000 nm
                         if dpg.does_item_exist("inInt_dx_scan"):
-                            dpg.set_value("inInt_dx_scan", 2000)
-                            # trigger the same callback you wired up in the GUI
                             parent.opx.Update_dX_Scan("inInt_dx_scan", 2000)
                             print("dx step set to 2000 nm")
                         else:
                             print("DX input widget not found.")
                         if dpg.does_item_exist("inInt_dy_scan"):
-                            dpg.set_value("inInt_dy_scan", 2000)
                             parent.opx.Update_dY_Scan("inInt_dy_scan", 2000)
                             print("dy step set to 2000 nm")
                         else:
@@ -1239,6 +1271,7 @@ def run(command: str):
                     print(f"Unknown command: {single_command}")
         except Exception as e:
             print(f"Error running command '{single_command}': {e}")
+        dpg.focus_item("OPX Window")
 
 import builtins
 builtins.run = run

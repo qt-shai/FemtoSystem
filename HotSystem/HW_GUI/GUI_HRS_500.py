@@ -4,7 +4,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
 import System.Diagnostics as diag
-import os
+import os, time
 from Utils import open_file_dialog
 
 class GUI_HRS500():
@@ -119,6 +119,7 @@ class GUI_HRS500():
         dpg.set_item_label(f"graphXY_{self.prefix}", fname)
 
     def acquire_callback(self):
+        start_time = time.time()  # ✅ Start the timer
         self.data = self.dev.acquire_Data()
         # sp = LightFieldSpectrometer(self.dev)
         # self.data = sp.load_experiment()
@@ -154,10 +155,23 @@ class GUI_HRS500():
                 filepath = getattr(self, 'file_name', None)
 
             if filepath:
-                # Only the base name:
-                fname = os.path.basename(filepath)
-                # Change the plot’s title bar
-                dpg.set_item_label(f"graphXY_{self.prefix}", fname)
+                elapsed = time.time() - start_time  # ✅ Compute elapsed time
+                elapsed_str = f"{elapsed:.0f}s"
+
+                dirname, fname = os.path.split(filepath)
+                base, ext = os.path.splitext(fname)
+                new_fname = f"{base}_{elapsed_str}{ext}"
+                new_fp = os.path.join(dirname, new_fname)
+
+                try:
+                    os.rename(filepath, new_fp)
+                    print(f"Renamed file → {new_fp} | Time elapsed: {elapsed:.2f}s")
+                    # Update your device’s last_saved_csv to the new name too:
+                    self.dev.last_saved_csv = new_fp
+                except Exception as e:
+                    print(f"Failed to rename file with elapsed time: {e}")
+
+                dpg.set_item_label(f"graphXY_{self.prefix}", os.path.basename(new_fp))
             else:
                 dpg.set_item_label(f"graphXY_{self.prefix}", "Spectrum")
         except Exception as e:

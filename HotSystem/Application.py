@@ -660,7 +660,7 @@ class PyGuiOverlay(Layer):
 
         fontScale = self.Monitor_width/3840 #3840 from reference screen resolution
         pos = [int(0.0*self.Monitor_width),int(0.0*self.Monitor_height)]     # position relative to actual screen size
-        size = [int(1.0*self.Monitor_width),int(0.97*self.Monitor_height)]   # new window width,height
+        size = [int(1.0*self.Monitor_width),int(1*self.Monitor_height)]   # new window width,height
 
         with dpg.font_registry():
             default_font = dpg.add_font("C:\\Windows\\Fonts\\Calibri.ttf", int(30*fontScale)+1)
@@ -689,8 +689,6 @@ class PyGuiOverlay(Layer):
 
         dpg.create_viewport(title='QuTi SW', width=size[0], height=size[1],
                             x_pos = int(pos[0]), y_pos = int(pos[1]), always_on_top = False,
-                            # min_width=100, max_width=1200,
-                            # min_height=100, max_height=900,
                             resizable=True,
                             vsync=True, decorated=True, clear_color=True,
                             disable_close=False)
@@ -1016,6 +1014,10 @@ class PyGuiOverlay(Layer):
     def keyboard_callback(self, sender, app_data):
         """Handles keyboard input and triggers movement for various devices."""
         try:
+            # ── if the user is actively typing into the command box, bail out immediately ──
+            if dpg.is_item_focused("cmd_input"):
+                return
+
             # 1) Unwrap the integer key code
             if isinstance(app_data, (list, tuple)) and app_data:
                 key_code = app_data[0]
@@ -1150,15 +1152,24 @@ class PyGuiOverlay(Layer):
                     else:
                         print(f"No history entry contains '{term}'.")
                 return
+            # ── BACKSPACE ──
+            if key_code == KeyboardKeys.BACK_KEY.value:
+                cur = dpg.get_value("cmd_input") or ""
+                # Shift+Backspace clears all
+                if getattr(self, "modifier_key", None) == KeyboardKeys.SHIFT_KEY:
+                    dpg.set_value("cmd_input", "")
+                    self.modifier_key=None
+                else:
+                    dpg.set_value("cmd_input", cur[:-1])
+                return
+
+            # ── Printable characters ──
             if 32 <= key_code <= 126:
                 ch = chr(key_code)
-                # avoid intercepting Return/Enter (code 13)
-                if key_code != 13:
-                    if dpg.does_item_exist("cmd_input"):
-                        cur = dpg.get_value("cmd_input") or ""
-                        dpg.set_value("cmd_input", cur + ch)
-                        dpg.focus_item("cmd_input")
-                    return
+                if dpg.does_item_exist("cmd_input"):
+                    cur = dpg.get_value("cmd_input") or ""
+                    dpg.set_value("cmd_input", cur + ch)
+                return
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
         except Exception as ex:
@@ -1528,8 +1539,16 @@ class PyGuiOverlay(Layer):
                 dpg.add_button(label="Save Logs", callback=self.save_logs)
 
             # Console log display
+            # with dpg.child_window(tag="console_output", autosize_x=True, height=180):
+            #     dpg.add_text("Console initialized.", tag="console_log", wrap=800)
             with dpg.child_window(tag="console_output", autosize_x=True, height=180):
-                dpg.add_text("Console initialized.", tag="console_log", wrap=800)
+                dpg.add_input_text(
+                    tag="console_log",
+                    multiline=True,
+                    no_spaces=True,  # no wrapping → horizontal scroll
+                    width=-1,  # fill the child window
+                    height=-1,
+                )
 
             # Input field for sending commands or messages
             with dpg.group(horizontal=True):

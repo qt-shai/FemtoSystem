@@ -1338,7 +1338,7 @@ class GUI_OPX():
         win_pos = [int(self.viewport_width * 0.05) * 0, int(self.viewport_height * 0.5)]
         scan_time_in_seconds = self.estimatedScanTime * 60
 
-        item_width = int(200 * self.window_scale_factor)
+        item_width = int(150 * self.window_scale_factor)
 
         # ✅ Prevent duplicate creation
         if dpg.does_item_exist("Scan_Window"):
@@ -1423,9 +1423,8 @@ class GUI_OPX():
                                        indent=1, width=130)
                         dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
-                        with dpg.group(horizontal=True):
-                            dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100, default_value=suffix)
-                            dpg.add_button(label="Mv", callback=self.move_last_saved_files)
+                        dpg.add_input_text(label="", tag="MoveSubfolderInput", width=130, default_value=suffix)
+                        dpg.add_button(label="Mv File", callback=self.move_last_saved_files)
                     _width = 150
                     with dpg.group(horizontal=False):
                         dpg.add_input_float(label="AnnTH", tag="femto_anneal_threshold", default_value=800, width=_width)
@@ -11875,12 +11874,12 @@ class GUI_OPX():
         return str(now.year) + "_" + str(now.month) + "_" + str(now.day) + "_" + str(now.hour) + "_" + str(
             now.minute) + "_" + str(now.second)
 
-    def saveExperimentsNotes(self, appdata, sender):
+    def saveExperimentsNotes(self, appdata=None, note=None):
         # dpg.set_value("text item", f"Mouse Button ID: {app_data}")
-        self.expNotes = sender
-        self.HW.camera.imageNotes = sender
+        self.expNotes = note
+        self.HW.camera.imageNotes = note
         # if self.added_comments is not None:
-        self.added_comments = sender
+        self.added_comments = note
 
     def save_to_cvs(self, file_name, data, to_append: bool = False):
         print("Starting to save data to CSV.")
