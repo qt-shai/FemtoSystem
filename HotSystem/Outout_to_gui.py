@@ -58,7 +58,7 @@ class DualOutput:
         """
         self.original_stream.flush()
 
-def toggle_sc(reverse=False):
+def toggle_sc(reverse=False, check_dx=True):
     try:
         parent = sys.stdout.parent
         cam = getattr(parent, "cam", None)
@@ -78,17 +78,18 @@ def toggle_sc(reverse=False):
                 flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
 
         # If dx > 200, reset both dx & dy to 150 nm
-        if dpg.does_item_exist("inInt_dx_scan"):
-            dx = dpg.get_value("inInt_dx_scan")
-            if dx > 200:
-                parent = getattr(sys.stdout, "parent", None)
-                if parent and hasattr(parent, "opx"):
-                    # Trigger the same callbacks your GUI uses
-                    if hasattr(parent.opx, "Update_dX_Scan"):
-                        parent.opx.Update_dX_Scan("inInt_dx_scan", 150)
-                    if hasattr(parent.opx, "Update_dY_Scan"):
-                        parent.opx.Update_dY_Scan("inInt_dy_scan", 150)
-                print("dx > 200: reset dx & dy to 150 nm")
+        if check_dx:
+            if dpg.does_item_exist("inInt_dx_scan"):
+                dx = dpg.get_value("inInt_dx_scan")
+                if dx > 200:
+                    parent = getattr(sys.stdout, "parent", None)
+                    if parent and hasattr(parent, "opx"):
+                        # Trigger the same callbacks your GUI uses
+                        if hasattr(parent.opx, "Update_dX_Scan"):
+                            parent.opx.Update_dX_Scan("inInt_dx_scan", 150)
+                        if hasattr(parent.opx, "Update_dY_Scan"):
+                            parent.opx.Update_dY_Scan("inInt_dy_scan", 150)
+                    print("dx > 200: reset dx & dy to 150 nm")
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
 
@@ -145,7 +146,7 @@ def run(command: str):
     parent.command_history = parent.command_history[-100:]  # Keep last 100 commands
     parent.history_index = len(parent.command_history)  # Always reset index to END
     # expects: loop <start> <end> <template>
-    # e.g. loop 10 11 fq{i};msg Site {i} Spectrum, Exposure 30s;spc;cc Site{i}
+    # e.g. loop 10 11 fq{i};mark;spc;cc
     if command.startswith("loop "):
         import threading
         parts = command.split(" ", 3)
@@ -433,7 +434,7 @@ def run(command: str):
 
                     print(f"Trying to reload: {module_name}")
 
-                    if raw_name and raw_name.lower() in ["gui_zelux", "zel"]:
+                    if raw_name and raw_name.lower() in ["gui_zelux", "zel","zelux"]:
                         import HW_GUI.GUI_Zelux as gui_Zelux
                         importlib.reload(gui_Zelux)
                         # Clean up old window if needed:

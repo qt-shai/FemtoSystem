@@ -415,6 +415,7 @@ class GUI_OPX():
     def DeleteMainWindow(self):
         if dpg.does_item_exist(self.window_tag):
             dpg.delete_item(self.window_tag)
+
     def close_qm_jobs(self, fn="qua_jobs.txt"):
         with open(fn, 'r') as f:
             loaded_jobs = f.readlines()
@@ -1338,7 +1339,7 @@ class GUI_OPX():
         win_pos = [int(self.viewport_width * 0.05) * 0, int(self.viewport_height * 0.5)]
         scan_time_in_seconds = self.estimatedScanTime * 60
 
-        item_width = int(150 * self.window_scale_factor)
+        item_width = int(190 * self.window_scale_factor)
 
         # ✅ Prevent duplicate creation
         if dpg.does_item_exist("Scan_Window"):
@@ -1351,7 +1352,6 @@ class GUI_OPX():
             if os.path.exists(suffix_file):
                 with open(suffix_file, "r") as f:
                     suffix = f.read().strip()
-
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
@@ -1444,6 +1444,7 @@ class GUI_OPX():
 
                     dpg.set_frame_callback(1, self.load_pos)
                     self.load_pos()
+            self.hide_legend()
         else:
             dpg.delete_item("Scan_Window")
 
@@ -1476,7 +1477,6 @@ class GUI_OPX():
         try:
             files_to_move = []
             extensions = [".jpg", ".xml", ".png", ".csv"]
-
 
             if not hasattr(self, 'timeStamp') or not self.timeStamp:
                 print("No timestamp found. Save data first.")
@@ -1525,21 +1525,33 @@ class GUI_OPX():
                     moved_any = True
                 else:
                     print(f"{src} does not exist.")
-
+                    # ✅ Try to find file with same timestamp but any notes
+                    folder = os.path.dirname(src)
+                    base_pattern = f"{self.timeStamp}_SCAN_"
+                    found = False
+                    for f in os.listdir(folder):
+                        if f.startswith(base_pattern) and os.path.splitext(f)[1] == os.path.splitext(src)[1]:
+                            old_src = os.path.join(folder, f)
+                            new_name = f"{self.timeStamp}_SCAN_{self.expNotes}{os.path.splitext(f)[1]}"
+                            dst = os.path.join(new_folder, new_name)
+                            shutil.copy(old_src, dst)
+                            print(f"Copied {old_src} → {dst} with new notes.")
+                            moved_any = True
+                            found = True
+                    if not found:
+                        print(f"No alternative files found for {src}")
             # Fallback: TempScanData
             if not moved_any:
                 temp_folder = "C:/temp/TempScanData"
                 if not os.path.exists(temp_folder):
                     print(f"Temp folder does not exist. Creating: {temp_folder}")
                     os.makedirs(temp_folder)
-
                 for filename in os.listdir(temp_folder):
                     if hasattr(self, 'timeStamp') and self.timeStamp and filename.startswith(self.timeStamp):
                         src = os.path.join(temp_folder, filename)
                         dst = os.path.join(new_folder, filename)
                         shutil.move(src, dst)
                         print(f"Moved {src} → {dst}")
-
         except Exception as e:
             print(f"Error moving files: {e}")
 
@@ -10403,7 +10415,7 @@ class GUI_OPX():
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
         cam = self.HW.camera
         if cam.constantGrabbing:
-            toggle_sc(reverse=False)
+            toggle_sc(reverse=False,check_dx=False)
 
         if dpg.does_item_exist("btnOPX_Stop"):
             print("Stopping previous experiment before scanning...")
