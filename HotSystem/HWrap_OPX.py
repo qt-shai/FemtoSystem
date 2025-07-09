@@ -1347,11 +1347,10 @@ class GUI_OPX():
             return
 
         if self.bScanChkbox:
-            suffix = ""
-            suffix_file = "folder_suffix.txt"
-            if os.path.exists(suffix_file):
-                with open(suffix_file, "r") as f:
-                    suffix = f.read().strip()
+            last_dir = ""
+            if os.path.exists("last_scan_dir.txt"):
+                with open("last_scan_dir.txt", "r") as f:
+                    last_dir = f.read().strip()
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
@@ -1400,6 +1399,10 @@ class GUI_OPX():
                             with dpg.group(horizontal=True):
                                 dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=450,
                                                    callback=self.saveExperimentsNotes, default_value=self.expNotes)
+                                dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
+                                                 callback=self.Update_bZcorrection,
+                                                 default_value=self.b_Zcorrection)
+                                dpg.add_text(default_value="Use Z", tag="text_Zcorrection", indent=-1)
 
                             dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
                                          tag="text_expectedScanTime",
@@ -1407,10 +1410,6 @@ class GUI_OPX():
 
                             with dpg.group(horizontal=True):
                                 dpg.add_text(label="Message: ", tag="Scan_Message")
-                                dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
-                                                 callback=self.Update_bZcorrection,
-                                                 default_value=self.b_Zcorrection)
-                                dpg.add_text(default_value="Use Z Correction", tag="text_Zcorrection", indent=-1)
 
                     with dpg.group(tag="start_Scan_btngroup", horizontal=False):
                         dpg.add_button(label="Start Scan", tag="btnOPX_StartScan", callback=self.btnStartScan,
@@ -1423,7 +1422,7 @@ class GUI_OPX():
                                        indent=1, width=130)
                         dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
-                        dpg.add_input_text(label="", tag="MoveSubfolderInput", width=130, default_value=suffix)
+                        dpg.add_input_text(label="", tag="MoveSubfolderInput", width=130, default_value=last_dir)
                         dpg.add_button(label="Mv File", callback=self.move_last_saved_files)
                     _width = 150
                     with dpg.group(horizontal=False):
@@ -1431,8 +1430,8 @@ class GUI_OPX():
                         dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=10,width=_width,callback=lambda s, a, u: self.pharos.setBasicTargetAttenuatorPercentage(dpg.get_value(s)))
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
                         dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=1, width=_width)
-                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0, width=_width)
-                        dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=10000, width=_width)
+                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0.01, width=_width)
+                        dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=100, width=_width)
                     _width = 100
                     with dpg.group(horizontal=False):
                         dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
@@ -1441,9 +1440,7 @@ class GUI_OPX():
                         dpg.add_button(label="fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
                         dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
-
-                    dpg.set_frame_callback(1, self.load_pos)
-                    self.load_pos()
+                    dpg.set_frame_callback(dpg.get_frame_count() + 1, self.load_pos)
             self.hide_legend()
         else:
             dpg.delete_item("Scan_Window")
@@ -1480,17 +1477,20 @@ class GUI_OPX():
 
             if not hasattr(self, 'timeStamp') or not self.timeStamp:
                 print("No timestamp found. Save data first.")
-                # ✅ Try using the last loaded file instead
                 if hasattr(self, 'last_loaded_file') and self.last_loaded_file:
                     base, ext = os.path.splitext(self.last_loaded_file)
                     for extra_ext in extensions:
                         files_to_move.append(base + extra_ext)
                     print(f"Using last loaded file base: {base} → with extensions: {extensions}")
+
+                    # ✅ Add _pulse_data.csv, keep its unique name
+                    pulse_data_file = base + "_pulse_data.csv"
+                    files_to_move.append(pulse_data_file)
+
                 else:
                     print("No loaded file to move.")
                     return
             else:
-                # ✅ Normal timestamped base
                 if self.survey:
                     folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/scan"
                 else:
@@ -1500,12 +1500,15 @@ class GUI_OPX():
                 for ext in extensions:
                     files_to_move.append(base_file + ext)
 
+                # ✅ Add _pulse_data.csv, keep suffix
+                pulse_data_file = base_file + "_pulse_data.csv"
+                files_to_move.append(pulse_data_file)
+
             subfolder = dpg.get_value("MoveSubfolderInput")
             if not subfolder:
                 print("Subfolder name is empty.")
                 return
 
-            # Build the target folder path
             if self.survey:
                 folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/scan"
             else:
@@ -1525,14 +1528,19 @@ class GUI_OPX():
                     moved_any = True
                 else:
                     print(f"{src} does not exist.")
-                    # ✅ Try to find file with same timestamp but any notes
                     folder = os.path.dirname(src)
                     base_pattern = f"{self.timeStamp}_SCAN_"
                     found = False
                     for f in os.listdir(folder):
                         if f.startswith(base_pattern) and os.path.splitext(f)[1] == os.path.splitext(src)[1]:
                             old_src = os.path.join(folder, f)
-                            new_name = f"{self.timeStamp}_SCAN_{self.expNotes}{os.path.splitext(f)[1]}"
+
+                            # ✅ Special: do NOT rename if this is a _pulse_data.csv
+                            if f.endswith("_pulse_data.csv"):
+                                new_name = f  # Keep as is
+                            else:
+                                new_name = f"{self.timeStamp}_SCAN_{self.expNotes}{os.path.splitext(f)[1]}"
+
                             dst = os.path.join(new_folder, new_name)
                             shutil.copy(old_src, dst)
                             print(f"Copied {old_src} → {dst} with new notes.")
@@ -1540,7 +1548,7 @@ class GUI_OPX():
                             found = True
                     if not found:
                         print(f"No alternative files found for {src}")
-            # Fallback: TempScanData
+
             if not moved_any:
                 temp_folder = "C:/temp/TempScanData"
                 if not os.path.exists(temp_folder):
@@ -1552,6 +1560,7 @@ class GUI_OPX():
                         dst = os.path.join(new_folder, filename)
                         shutil.move(src, dst)
                         print(f"Moved {src} → {dst}")
+
         except Exception as e:
             print(f"Error moving files: {e}")
 
@@ -2133,7 +2142,7 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_Ly_Scan(sender, app_data, user_data):
+    def Update_Ly_Scan(sender, app_data=None, user_data=None):
         sender.L_scan[1] = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_Ly_scan", value=sender.L_scan[1])
@@ -10792,16 +10801,41 @@ class GUI_OPX():
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
         print(f"Elapsed time: {elapsed_time:.0f} seconds")
 
+        # Always save _pulse_data with header
+        file_prefix = self.create_scan_file_name(local=False)
+        pulse_data_filename = file_prefix + "_pulse_data.csv"
+
+        # Build header parts
+        hwp_start = initial_hwp_angle
+        hwp_step = p_femto["femto_increment_hwp"]
+        hwp_end = hwp_start + hwp_step * self.N_scan[1]
+        att_percent = p_femto["femto_attenuator"]
+
+        dx_um = self.dL_scan[0]  # um
+        dy_um = self.dL_scan[1]  # um
+        Lx_um = self.L_scan[0] # um
+        Ly_um = self.L_scan[1] # um
+        hwp_ann = p_femto["femto_increment_hwp_anneal"]
+        n_pulses_ann = p_femto["femto_anneal_pulse_count"]
+
+        header_line = f"{hwp_start:.1f}:{hwp_step:.1f}:{hwp_end:.1f},{att_percent:.1f}%, dx={dx_um:.0f} dy={dy_um:.0f} Lx={Lx_um:.0f} Ly={Ly_um:.0f} HWPAnn={hwp_ann:.3f} nPlsAnn={n_pulses_ann}"
+
+        # If there are anneal results, write them; else just header
         if self.anneal_results:
-            file_prefix = self.create_scan_file_name(local=False)
-            self.save_to_cvs(file_prefix + "_anneal.csv", {
+            data_to_save = {
                 "Time (s)": [row[0] for row in self.anneal_results],
                 "Count (kCounts/s)": [row[1] for row in self.anneal_results],
                 "X (abs)": [row[2] for row in self.anneal_results],
                 "Y (abs)": [row[3] for row in self.anneal_results],
                 "HWP (deg)": [row[4] for row in self.anneal_results],
-            })
-            print(f"Anneal results saved to: {file_prefix}_anneal.csv")
+            }
+            self.save_to_cvs(pulse_data_filename, data_to_save, header=header_line)
+            print(f"Pulse data with anneal saved to: {pulse_data_filename}")
+        else:
+            # Just write header line
+            with open(pulse_data_filename, 'w') as f:
+                f.write(header_line + "\n")
+            print(f"Pulse header saved to: {pulse_data_filename}")
 
         self.Shoot_Femto_Pulses = False
         if not (self.stopScan):
@@ -11500,7 +11534,11 @@ class GUI_OPX():
             self.scan_data = self.Scan_matrix
             self.idx_scan = [Nz - 1, 0, 0]
 
-            self.startLoc = [Scan_array[1, 4] / 1e6, Scan_array[1, 5] / 1e6, Scan_array[1, 6] / 1e6]
+            if Scan_array.shape[0] > 1:
+                self.startLoc = [Scan_array[1, 4] / 1e6,Scan_array[1, 5] / 1e6,Scan_array[1, 6] / 1e6]
+            else:
+                self.startLoc = [Scan_array[0, 4] / 1e6,Scan_array[0, 5] / 1e6,Scan_array[0, 6] / 1e6]
+
             if Nz == 0:
                 self.endLoc = [self.startLoc[0] + self.dL_scan[0] * (Nx - 1) / 1e3,
                                self.startLoc[1] + self.dL_scan[1] * (Ny - 1) / 1e3, 0]
@@ -11893,9 +11931,8 @@ class GUI_OPX():
         # if self.added_comments is not None:
         self.added_comments = note
 
-    def save_to_cvs(self, file_name, data, to_append: bool = False):
+    def save_to_cvs(self, file_name, data, to_append: bool = False, header: str = None):
         print("Starting to save data to CSV.")
-
 
         # Ensure data is a dictionary
         if not isinstance(data, dict) or not all(isinstance(v, list) for v in data.values()):
@@ -11916,6 +11953,11 @@ class GUI_OPX():
             # Open the file in append or write mode
             with open(file_name, mode='a' if to_append else 'w', newline='') as file:
                 writer = csv.writer(file)
+
+                # If writing a fresh file and header is provided → write header line first
+                if not to_append and not file_exists and header:
+                    print("Writing custom header line...")
+                    file.write(header + "\n")
 
                 # Write headers if not appending or file doesn't exist
                 if not to_append or not file_exists:

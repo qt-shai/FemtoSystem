@@ -172,7 +172,7 @@ class FemtoPowerCalculator:
                     # dpg.add_text(f"P: {P:.1f} µW", color=(0, 255, 255))
 
                 print(f"Future -> {angle:.1f}°, Att: {Att_percent:.1f}%, E: {E:.1f} nJ, P: {P:.1f} µW")
-
+            return Ly
         except Exception as e:
             print(f"Error in future calculation: {e}")
             with dpg.group(parent=self.future_output_group):

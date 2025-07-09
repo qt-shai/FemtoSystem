@@ -1,9 +1,9 @@
 import sys
-import dearpygui.dearpygui as dpg
+# import dearpygui.dearpygui as dpg
 from Common import *
-import pyperclip, os
+# import pyperclip, os
 from Utils import loadFromCSV
-import importlib
+# import importlib
 import HW_wrapper.HW_devices as hw_devices
 from HW_GUI.GUI_MFF_101 import GUI_MFF
 import traceback
@@ -23,7 +23,7 @@ class DualOutput:
     def __init__(self, original_stream):
         """
         Initialize the dual output.
-        :param append_callback: Function to append messages to the Dear PyGui console.
+        :param append_to_console: Function to append messages to the Dear PyGui console.
         :param original_stream: The original output stream (e.g., sys.stdout or sys.stderr).
         """
         self.append_callback =  self.append_to_console
@@ -60,7 +60,7 @@ class DualOutput:
 
 def toggle_sc(reverse=False, check_dx=True):
     try:
-        parent = sys.stdout.parent
+        parent = getattr(sys.stdout, "parent", None)
         cam = getattr(parent, "cam", None)
         mff = getattr(parent, "mff_101_gui", [])
         if cam:
@@ -76,22 +76,48 @@ def toggle_sc(reverse=False, check_dx=True):
             pos = flipper.dev.get_position()
             if (not reverse and pos == 1) or (reverse and pos == 2):
                 flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
-
-        # If dx > 200, reset both dx & dy to 150 nm
+        # If dx > 200, reset both dx & dy based on dz
         if check_dx:
             if dpg.does_item_exist("inInt_dx_scan"):
                 dx = dpg.get_value("inInt_dx_scan")
                 if dx > 200:
+                    dz_value = 150  # fallback default
+                    if dpg.does_item_exist("inInt_dz_scan"):
+                        dz_value = dpg.get_value("inInt_dz_scan")
                     parent = getattr(sys.stdout, "parent", None)
                     if parent and hasattr(parent, "opx"):
-                        # Trigger the same callbacks your GUI uses
                         if hasattr(parent.opx, "Update_dX_Scan"):
-                            parent.opx.Update_dX_Scan("inInt_dx_scan", 150)
+                            parent.opx.Update_dX_Scan("inInt_dx_scan", dz_value)
                         if hasattr(parent.opx, "Update_dY_Scan"):
-                            parent.opx.Update_dY_Scan("inInt_dy_scan", 150)
-                    print("dx > 200: reset dx & dy to 150 nm")
+                            parent.opx.Update_dY_Scan("inInt_dy_scan", dz_value)
+                    print(f"dx > 200: reset dx & dy to dz value {dz_value} nm")
+
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
+
+def load_saved_points(parent, file_name="saved_query_points.txt"):
+    """Load saved query points from file and populate parent.saved_query_points"""
+    if not os.path.exists(file_name):
+        print(f"❌ File {file_name} not found.")
+        return False
+
+    try:
+        with open(file_name, "r") as f:
+            lines = f.readlines()
+        parent.saved_query_points = []
+        for line in lines:
+            parts = line.strip().split(",")
+            if len(parts) == 3:
+                idx = int(parts[0])
+                x = float(parts[1])
+                y = float(parts[2])
+                parent.saved_query_points.append((idx, x, y))
+        print(f"✅ Loaded {len(parent.saved_query_points)} points from {file_name}")
+        run("list")
+        return True
+    except Exception as e:
+        print(f"❌ Error loading points: {e}")
+        return False
 
 def run(command: str):
     """
@@ -101,52 +127,18 @@ def run(command: str):
 
         Simple command handler for the Dear PyGui console.
         Supports single or multiple commands separated by ';':
-          • 'angle<N>'        -> move half-wave plate to <N> degrees
-          • 'att<N>'          -> set femto attenuator to <N>% and recalc future
-          • 'c'               -> copy 'QuTi SW' window to clipboard
-          • 'cc [suffix]'     -> schedule a delayed screenshot (optional suffix)
-          • 'cn'              -> start live counter in OPX GUI
-          • 'coords' / 'coo'  -> toggle coordinate grid in Zelux plot
-          • 'fmp'             -> trigger femto pulses in OPX GUI
-          • 'fn'              -> copy only filename from last message
-          • 'fq[N]'           -> fill & move to N-th stored query point (or store new)
-          • 'help'            -> show this menu
-          • 'hl'              -> hide OPX plot legend
-          • 'ld'              -> load & plot most recent CSV from last_scan_dir
-          • 'loadhistory'     -> load command history from disk
-          • 'loadlist'        -> load saved query points from file
-          • 'loop'            -> loop a sequence of sub-commands from start to end
-          • 'lp [name]'       -> load Smaract positions profile <name> ('r' for remote)
-          • 'mark'            -> draw a temporary cross+circle at current position
-          • 'msg <text>'      -> pop up a centered message window
-          • 'msgclear'        -> close the message window
-          • 'mv'              -> call move_last_saved_files()
-          • 'note <text>'     -> write <text> into Notes field and save
-          • 'plf'             -> annotate future femto energies on plot
-          • 'reload [mod]'    -> reload a module or GUI component
-          • 'sc' / '!sc'      -> stop/start camera & retract/extend flippers
-          • 'savelist'        -> write stored query points to disk
-          • 'savehistory'     -> write recent commands to disk
-          • 'sp [name]'       -> save Smaract positions profile <name> ('r' for remote)
-          • 'spc'             -> acquire HRS500 spectrum & tag with Notes
-          • 'startscan'       -> trigger OPX StartScan
-          • 'st'              -> fill Smaract XYZ from current position
-          • 'stop' / 'stp'    -> trigger OPX Stop
-          • 'sub <folder>'    -> set MoveSubfolderInput to '<folder>_suffix'
-          • 'sv'              -> call SaveProcessedImage()
-    """
+        """
     import os
-
     command = command.strip()
     parent = getattr(sys.stdout, "parent", None)
-    cam = getattr(parent, "cam", None)
+    if parent is None:
+        print("Warning: run() called but sys.stdout.parent is not set yet.")
+        return
     if not hasattr(parent, "command_history"):
         parent.command_history = []
-    parent.command_history.append(command)
-    parent.command_history = parent.command_history[-100:]  # Keep last 100 commands
+    parent.update_command_history(command)
     parent.history_index = len(parent.command_history)  # Always reset index to END
-    # expects: loop <start> <end> <template>
-    # e.g. loop 10 11 fq{i};mark;spc;cc
+    # expects: loop <start> <end> <template> e.g. loop 10 11 fq{i};mark;spc;cc
     if command.startswith("loop "):
         import threading
         parts = command.split(" ", 3)
@@ -163,21 +155,20 @@ def run(command: str):
         def worker():
             for i in range(start, end + 1):
                 # 1) Format sub-commands for this iteration
-                subs = [cmd.strip().format(i=i)
-                        for cmd in template.split(";") if cmd.strip()]
+                subs = [c.strip().format(i=i) for c in template.split(";") if c.strip()]
                 # 2) Run everything *except* cc immediately or via DPG callback
                 cc_suffixes = []
-                for cmd in subs:
-                    if cmd.lower().startswith("msg "):
-                        msg_text1 = cmd.split(" ", 1)[1]
+                for sub_cmd in subs:
+                    if sub_cmd.lower().startswith("msg "):
+                        msg_text1 = sub_cmd.split(" ", 1)[1]
                         show_msg_window(msg_text1)
-                        print(f"[loop {i}] scheduled: {cmd}")
-                    elif cmd.lower().startswith("cc "):
+                        print(f"[loop {i}] scheduled: {sub_cmd}")
+                    elif sub_cmd.lower().startswith("cc "):
                         # collect suffix for later
-                        cc_suffixes.append(cmd.split(" ", 1)[1])
+                        cc_suffixes.append(sub_cmd .split(" ", 1)[1])
                     else:
-                        print(f"[loop {i}] running: {cmd}")
-                        run(cmd)
+                        print(f"[loop {i}] running: {sub_cmd}")
+                        run(sub_cmd)
                 # 3) Wait for UI to paint msg & for spc to finish
                 time.sleep(0.5)
                 # 4) Now do all your cc’s synchronously
@@ -195,8 +186,25 @@ def run(command: str):
         try:
             verb, sep, rest = single_command.partition(" ")
             single_command = verb.lower() + sep + rest
-            if single_command == "c":
+            if single_command == "":
+                print("This line cannot be reached")
+            # @desc: add new PPT slide & paste clipboard image
+            elif single_command == "a":
+                import subprocess
+                try:
+                    copy_quti_window_to_clipboard()
+                    script_path = os.path.join("Utils", "add_slide_paste_clipboard.py")
+                    subprocess.run(
+                        [sys.executable, script_path],
+                        check=True
+                    )
+                    print("✅ Added slide & pasted clipboard image to PowerPoint.")
+                except Exception as e:
+                    print(f"❌ Could not add slide: {e}")
+            # @desc: Copy 'QuTi SW' window to clipboard
+            elif single_command == "c":
                 copy_quti_window_to_clipboard()
+            # @desc: Schedule a delayed screenshot (optional suffix) & save to file
             elif single_command.startswith("cc"):
                 import threading
                 # parse optional suffix
@@ -216,19 +224,21 @@ def run(command: str):
                 def delayed_save():
                     try:
                         save_quti_window_screenshot(suffix)
-                        print("cc: delayed save complete.")
+                        # print("cc: delayed save complete.")
                     except Exception as e:
                         print(f"cc: delayed save failed: {e}")
                 timer = threading.Timer(0.3, delayed_save)
                 timer.daemon = True
                 timer.start()
                 print("cc: screenshot scheduled in ~0.3 s")
+            # @desc: Hide OPX plot legend
             elif single_command == "hl":
                 if hasattr(parent, "opx") and hasattr(parent.opx, "hide_legend"):
                     parent.opx.hide_legend()
                     print("OPX legend hidden.")
                 else:
                     print("OPX or hide_legend() not available.")
+            # @desc: Draw a cross + circle marker on the plot
             elif single_command == "mark":
                 try:
                     x = dpg.get_value("mcs_ch0_ABS")
@@ -287,6 +297,7 @@ def run(command: str):
                     print(f"Marked cross + circle at X={x:.4f}, Y={y:.4f} with center gap")
                 except Exception as e:
                     print(f"Error in 'mark': {e}")
+            # @desc: Remove the temporary marker
             elif single_command == "unmark":
                 try:
                     cross_tag = "temp_cross_marker"
@@ -306,12 +317,15 @@ def run(command: str):
                         print("No marker to remove.")
                 except Exception as e:
                     print(f"Error in 'unmark': {e}")
+            # @desc: Move last saved files
             elif single_command == "mv":
                 parent.opx.move_last_saved_files()
+            # @desc: Call external clog script with argument
             elif single_command.startswith("clog "):
                 arg = single_command.split("clog ", 1)[1].strip().lower()
                 import subprocess
                 subprocess.run([sys.executable, "clog.py", arg])
+            # @desc: Copy filename from last message to clipboard
             elif single_command == "fn":
                 import os, re, pyperclip
                 # Ensure we have console messages
@@ -340,36 +354,32 @@ def run(command: str):
                     print(f"Filename copied: {filename}")
                 else:
                     print("No filepath found in last message.")
+            # @desc: Stop camera & retract flippers
             elif single_command == "sc":
                 toggle_sc(reverse=False)
+            # @desc: Start camera & extend flippers
             elif single_command in ("!sc", "l"):
                 toggle_sc(reverse=True)
+            # @desc: Set subfolder suffix for MoveSubfolderInput
             elif single_command.startswith("sub "):
                 try:
                     folder = single_command.split("sub ", 1)[1].strip()
-                    suffix_file = "folder_suffix.txt"
-
-                    # Ensure the suffix file exists
-                    if not os.path.exists(suffix_file):
-                        with open(suffix_file, "w") as f:
-                            pass  # Create empty file
-
-                    # Read suffix (default to empty string if file is empty)
-                    with open(suffix_file, "r") as f:
-                        suffix = f.read().strip()
-
-                    full_folder = f"{folder}_{suffix}"
+                    # suffix_file = "folder_suffix.txt"
 
                     # Check if MoveSubfolderInput exists
                     if not dpg.does_item_exist("MoveSubfolderInput"):
                         dpg.set_value("chkbox_scan", True)
-                        if hasattr(sys.stdout.parent, "opx"):
-                            sys.stdout.parent.opx.Update_scan(app_data=None, user_data=True)
+                        if hasattr(parent, "opx"):
+                            parent.opx.Update_scan(app_data=None, user_data=True)
 
-                    wait_for_item_and_set("MoveSubfolderInput", full_folder)
-                    print(f"Subfolder set to: {full_folder}")
+                    wait_for_item_and_set("MoveSubfolderInput", folder)
+                    print(f"Subfolder set to: {folder}")
+                    with open("last_scan_dir.txt", "w") as f:
+                        f.write(folder)
+
                 except Exception as e:
                     print(f"Error in 'sub' command: {e}")
+            # @desc: Run COBOLT power set command
             elif single_command.startswith("cob "):
                 try:
                     power_mw = float(single_command.split("cob ", 1)[1].strip())
@@ -381,19 +391,22 @@ def run(command: str):
                         print("Cobolt laser not connected or unavailable.")
                 except Exception as e:
                     print(f"Failed to set Cobolt power: {e}")
+            # @desc: Launched external clipboard script
             elif single_command == "pp":
                 import subprocess
                 subprocess.Popen([
                     sys.executable, "copy_window_to_clipboard.py"
                 ])
                 print("Launched external clipboard script.")
+            # @desc: Start counter live in OPX
             elif single_command == "cn":
                 if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "opx"):
                     sys.stdout.parent.opx.btnStartCounterLive()
                     print("Counter live started.")
                 else:
                     print("Counter live not available.")
-            elif single_command.startswith("lp"):
+            # @desc: Load windows position profile
+            elif single_command.startswith("lpos"):
                 parts = single_command.split(" ", 1)
                 if len(parts) == 1:
                     profile_name = "local"  # or whatever default you want
@@ -405,16 +418,43 @@ def run(command: str):
                     print(f"Loaded positions.")
                 else:
                     print("smaractGUI not available.")
-            elif single_command.startswith("sp "):
-                # Example: sp r → save_pos("remote"), sp xyz → save_pos("xyz")
-                arg = single_command.split("sp ", 1)[1].strip()
-                profile_name = "remote" if arg in ["r","R"] else arg
+            # @desc: Save windows position profile
+            elif single_command.startswith("spos"):
+                parts = single_command.split(" ", 1)
+                if len(parts) == 1 or not parts[1].strip():
+                    # No argument → auto pick based on resolution
+                    if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "smaractGUI"):
+                        # Example: use your actual check here
+                        if is_remote_resolution():
+                            profile_name = "remote"
+                        else:
+                            profile_name = "local"
+                    else:
+                        print("smaractGUI not available.")
+                        profile_name = "local"
+                else:
+                    arg = parts[1].strip()
+                    profile_name = "remote" if arg.lower() == "r" else arg
+
                 if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "smaractGUI"):
                     sys.stdout.parent.smaractGUI.save_pos(profile_name)
                     print(f"Saved positions with profile: {profile_name}")
                 else:
                     print("smaractGUI not available.")
+            # @desc: Reload keys handler / GUI / given module
             elif single_command.startswith("reload"):
+                if single_command.strip().lower() == "reload keys":
+                    handler_tag = "key_press_handler"
+
+                    if dpg.does_item_exist(handler_tag):
+                        dpg.delete_item(handler_tag)
+                        print(f"[reload keys] Deleted existing key press handler: {handler_tag}")
+
+                    # Create a new one inside a fresh registry
+                    with dpg.handler_registry():
+                        dpg.add_key_press_handler(callback=parent.Callback_key_press, tag=handler_tag)
+                    print(f"[reload keys] Added new key press handler: {handler_tag}")
+                    return
                 try:
                     import importlib
                     parts = single_command.split()
@@ -675,9 +715,9 @@ def run(command: str):
                 except Exception as e:
                     traceback.print_exc()
                     print(f"Reload failed for '{module_name}': {e}")
+            # @desc: Plot future femto annotations
             elif single_command == "plf":
                 try:
-                    parent = sys.stdout.parent
                     if not (hasattr(parent, "opx") and hasattr(parent, "femto_gui")):
                         print("Missing 'opx' or 'femto_gui' in parent.")
                         return
@@ -735,6 +775,7 @@ def run(command: str):
                         parent.future_annots.append(annot_tag)
                 except Exception as e:
                     print(f"Error running 'plf': {e}")
+            # @desc: Load & plot most recent CSV
             elif single_command == "ld":
                 try:
                     parent = sys.stdout.parent
@@ -771,6 +812,7 @@ def run(command: str):
                     print(f"Loaded and plotted: {fn}")
                 except Exception as e:
                     print(f"Error in ld command: {e}")
+            # @desc: Toggle coordinate grid in Zelux plot
             elif single_command in ("coords", "coo"):
                 parent = getattr(sys.stdout, "parent", None)
                 if parent and hasattr(parent, "cam") and hasattr(parent.cam, "toggle_coords_display"):
@@ -781,6 +823,7 @@ def run(command: str):
                     print(f"Coordinate grid display set to: {new_value}")
                 else:
                     print("cam or toggle_coords_display not available.")
+            # @desc: Fill & move to N-th stored query point
             elif single_command.startswith("fq"):
                 parent = getattr(sys.stdout, "parent", None)
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "fill_moveabs_from_query"):
@@ -820,6 +863,7 @@ def run(command: str):
                                     parent.opx.saveExperimentsNotes(note=note_text)
                             else:
                                 print(f"No stored point with index {index_to_go}.")
+                        run("list")
                     else:
                         # === Regular fill/move/store ===
                         parent.opx.fill_moveabs_from_query()
@@ -845,6 +889,7 @@ def run(command: str):
                             print(f"Could not store queried point: {e}")
                 else:
                     print("OPX not available or missing 'fill_moveabs_from_query'.")
+            # @desc: List all stored query points on the OPX graph
             elif single_command == "list":
                 parent = getattr(sys.stdout, "parent", None)
 
@@ -893,6 +938,7 @@ def run(command: str):
                         parent.query_annots.extend([dot_tag, annot_tag])
                 else:
                     print("No points stored.")
+            # @desc: Clear stored query points
             elif single_command.startswith("clear"):
                 parent = getattr(sys.stdout, "parent", None)
                 # If user gave index list: e.g. clear4,5,6
@@ -940,6 +986,7 @@ def run(command: str):
                         print("All query annotations cleared.")
                     else:
                         print("No query annotations to clear.")
+            # @desc: Shift stored query point by dx, dy
             elif single_command.startswith("shift"):
                 parent = getattr(sys.stdout, "parent", None)
                 if not parent or not hasattr(parent, "saved_query_points"):
@@ -973,6 +1020,7 @@ def run(command: str):
                     print("Updated points:")
                     for idx_num, x_val, y_val in parent.saved_query_points:
                         print(f"{idx_num}: X={x_val:.6f}, Y={y_val:.6f}")
+            # @desc: Insert new points based on last
             elif single_command.startswith("insert"):
                 pts = getattr(parent, "saved_query_points", None)
                 if not parent or not pts or len(pts) < 1:
@@ -1028,6 +1076,7 @@ def run(command: str):
                 print("Updated points:")
                 for idx_num, x_val, y_val in pts:
                     print(f"{idx_num}: X={x_val:.6f}, Y={y_val:.6f}")
+            # @desc: Save stored query points to file
             elif single_command == "savelist":
                 if parent and hasattr(parent, "saved_query_points") and parent.saved_query_points:
                     file_name = "saved_query_points.txt"
@@ -1041,31 +1090,38 @@ def run(command: str):
                         print(f"Error saving list: {e}")
                 else:
                     print("No stored points to save.")
+            # @desc: Load stored query points from default file
             elif single_command == "loadlist":
-                file_name = "saved_query_points.txt"
-                if not os.path.exists(file_name):
-                    print(f"File {file_name} not found.")
-                    return
-                try:
-                    with open(file_name, "r") as f:
-                        lines = f.readlines()
-                    parent.saved_query_points = []
-                    for line in lines:
-                        parts = line.strip().split(",")
-                        if len(parts) == 3:
-                            idx = int(parts[0])
-                            x = float(parts[1])
-                            y = float(parts[2])
-                            parent.saved_query_points.append((idx, x, y))
-                    print(f"Loaded {len(parent.saved_query_points)} points from {file_name}")
-                    run("list")
-                except Exception as e:
-                    print(f"Error loading list: {e}")
+                load_saved_points(parent)
+            # @desc: Generate points file from last loaded CSV and load if < 1000
+            elif single_command in ("gen list", "genlist"):
+                if hasattr(parent, "opx") and hasattr(parent.opx, "last_loaded_file"):
+                    from Utils.export_points import export_points
+                    csv_file = parent.opx.last_loaded_file
+                    if not os.path.exists(csv_file):
+                        print(f"❌ Last loaded file not found: {csv_file}")
+                        return
+
+                    output_file = export_points(csv_file)
+                    print(f"✅ Points file generated: {output_file}")
+
+                    # Try to auto-load if reasonable
+                    if output_file and os.path.exists(output_file):
+                        with open(output_file, "r") as f:
+                            line_count = sum(1 for _ in f)
+                        if line_count < 1000:
+                            load_saved_points(parent, output_file)
+                        else:
+                            print(f"⚠️ Not auto-loading: {line_count} points > 1000.")
+                else:
+                    print("❌ parent.opx.last_loaded_file not available.")
+            # @desc: Acquire HRS500 spectrum and rename
             elif single_command == "spc":
-                parent = getattr(sys.stdout, "parent", None)
                 import glob
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "spc"):
                     if hasattr(parent.opx.spc, "acquire_Data"):
+                        toggle_sc(reverse=False)
+
                         hrs = getattr(parent, "hrs_500_gui", None)
                         hrs.acquire_callback()
                         notes = getattr(parent.opx, "expNotes", None) if hasattr(parent, "opx") else None
@@ -1094,20 +1150,25 @@ def run(command: str):
                         print("OPX SPC has no 'acquire_Data' method.")
                 else:
                     print("Parent OPX or SPC not available.")
+                run("a")
+            # @desc: display a message window with large yellow text
             elif single_command.startswith("msg "):
                 msg_text = single_command.split(" ", 1)[1]
                 show_msg_window(msg_text)
+            # @desc: Clear the message window
             elif single_command == "msgclear":
                 if dpg.does_item_exist("msg_Win"):
                     dpg.delete_item("msg_Win")
                     print("Message window cleared.")
                 else:
                     print("No message window to clear.")
+            # @desc: Fill Smaract absolute XYZ from current position
             elif single_command == "st":
                 if parent and hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "fill_current_position_to_moveabs"):
                     parent.smaractGUI.fill_current_position_to_moveabs()
                 else:
                     print("smaractGUI or Set XYZ callback not available.")
+            # @desc: Update experiment notes field & display it in msg window
             elif single_command.lower().startswith("note "):
                 # Update the Notes field with the rest of the text
                 note_text = single_command[len("note "):]
@@ -1115,11 +1176,9 @@ def run(command: str):
                 parent.opx.expNotes = note_text
                 if dpg.does_item_exist("inTxtScan_expText"):
                     dpg.set_value("inTxtScan_expText", note_text)
-                    try:
-                        parent.opx.saveExperimentsNotes(sender=None, app_data=note_text)
-                    except Exception:
-                        pass
+                    parent.opx.saveExperimentsNotes(note=note_text)
                 print(f"Notes updated: {note_text}")
+            # @desc: Set femto attenuator to percent
             elif single_command.lower().startswith("att"):
                 # att<value> → override the femto attenuator to <value>%
                 try:
@@ -1157,6 +1216,70 @@ def run(command: str):
                         print(f"Failed to set attenuator: {e}")
                 else:
                     print("Femto GUI or Pharos API not available.")
+            # @desc: Calculate future femto pulses steps
+            elif single_command.lower().startswith("future"):
+                # Example: future10:3:29,20%
+                future_args = single_command[len("future"):].strip()
+                if not future_args:
+                    print("Syntax: future<start:step:end,percent>")
+                    continue
+
+                if hasattr(parent, "femto_gui") and hasattr(parent.femto_gui, "future_input_tag"):
+                    # Write the input string to the input widget
+                    dpg.set_value(parent.femto_gui.future_input_tag, future_args)
+
+                    # 2) Parse step and att
+                    range_part, *rest = future_args.split(",")
+                    parts = [float(x.strip()) for x in range_part.strip().split(":")]
+                    if len(parts) == 3:
+                        step_size = parts[1]
+                        if dpg.does_item_exist("femto_increment_hwp"):
+                            dpg.set_value("femto_increment_hwp", step_size)
+                            print(f"HWPInc set to {step_size}")
+                        else:
+                            print("HWPInc input widget not found.")
+                    else:
+                        print("Invalid range format, expected start:step:end")
+
+                    if rest:
+                        att_str = rest[0].strip().replace("%", "")
+                        try:
+                            att_value = float(att_str)
+                            if dpg.does_item_exist("femto_attenuator"):
+                                dpg.set_value("femto_attenuator", att_value)
+                                print(f"Attenuator set to {att_value}%")
+                                # If you want the callback to run, do it explicitly:
+                                parent.opx.pharos.setBasicTargetAttenuatorPercentage(att_value)
+                            else:
+                                print("Attenuator input widget not found.")
+                        except Exception as e:
+                            print(f"Could not parse Att %: {e}")
+
+                    # Call the same calculate_future logic
+                    try:
+                        Ly = parent.femto_gui.calculate_future(sender=None, app_data=None, user_data=None)
+                        print(f"Future calculation done for input: {future_args}")
+                        if Ly is not None and dpg.does_item_exist("inInt_Ly_scan") and Ly>0:
+                            dpg.set_value("inInt_Ly_scan", int(Ly))
+                            parent.opx.Update_Ly_Scan(user_data=int(Ly))
+                            print(f"Ly set to {int(Ly)} nm in scan settings.")
+                        else:
+                            print("inInt_Ly_scan not found or Ly = 0.")
+
+                    except Exception as e:
+                        print(f"Error calculating future: {e}")
+                else:
+                    print("Femto GUI or input tag not available.")
+            # @desc: Press Femto calculate button
+            elif single_command.lower() == "fmc":
+                if parent and hasattr(parent, "femto_gui"):
+                    try:
+                        parent.femto_gui.calculate_button()
+                    except Exception as e:
+                        print(f"❌ Error running Femto calculate_button: {e}")
+                else:
+                    print("❌ Femto GUI not available.")
+            # @desc: Trigger Femto pulses in OPX GUI
             elif single_command.lower() == "fmp":
                 # Trigger the Femto Pulses button in the OPX GUI
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnFemtoPulses"):
@@ -1178,6 +1301,7 @@ def run(command: str):
                         print(f"Error calling btnFemtoPulses: {e}")
                 else:
                     print("OPX or btnFemtoPulses method not available.")
+            # @desc: Stop OPX scan
             elif single_command.lower() in ("stp","stop"):
                 # Trigger the Stop button in the OPX GUI
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStop"):
@@ -1188,6 +1312,7 @@ def run(command: str):
                         print(f"Error calling btnStop: {e}")
                 else:
                     print("OPX or btnStop method not available.")
+            # @desc: Set HWP angle to degrees
             elif single_command.lower().startswith("angle"):
                 # angle<value> → set the HWP to that angle in degrees
                 try:
@@ -1204,16 +1329,19 @@ def run(command: str):
                         print(f"Failed to set HWP angle: {e}")
                 else:
                     print("OPX GUI or set_hwp_angle() not available.")
-            elif single_command.lower() == "startscan":
+            # @desc: Trigger OPX StartScan
+            elif single_command.lower() in ("start", "startscan"):
                 # Trigger the OPX “StartScan” button
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStartScan"):
                     try:
+                        toggle_sc(reverse=False)
                         parent.opx.btnStartScan()
                         print("OPX scan started (btnStartScan called).")
                     except Exception as e:
                         print(f"Error calling btnStartScan: {e}")
                 else:
                     print("OPX or btnStartScan method not available.")
+            # @desc: Save recent command history to file
             elif single_command.lower() == "savehistory":
                 # Save the current  history buffer to a file
                 if parent and hasattr(parent, "command_history"):
@@ -1227,6 +1355,7 @@ def run(command: str):
                         print(f"Error saving history: {e}")
                 else:
                     print("No command history to save.")
+            # @desc: Load command history from file
             elif single_command.lower() == "loadhistory":
                 # Load history back from disk (overwrites current buffer)
                 fname = "command_history.txt"
@@ -1241,6 +1370,7 @@ def run(command: str):
                         print(f"Loaded {len(parent.command_history)} entries from {fname}")
                     except Exception as e:
                         print(f"Error loading history: {e}")
+            # @desc: Save processed image from Zelux GUI
             elif single_command.lower() == "sv":
                 filename = parent.cam.SaveProcessedImage()
                 if not filename:
@@ -1255,15 +1385,79 @@ def run(command: str):
                     print(f"Saved processed image: {new_name}")
                 except Exception as e:
                     print(f"Image saved as {filename}, but could not rename: {e}")
+            # @desc: Show all DPG windows
+            elif single_command.lower() == "show windows":
+                try:
+                    window_names = []
+                    for item in dpg.get_all_items():
+                        item_type = dpg.get_item_type(item)
+                        if "Window" in item_type:
+                            tag = dpg.get_item_alias(item)
+                            window_names.append((tag, item, item_type))
+                    if window_names:
+                        print("📋 DPG windows & child windows:")
+                        for tag, item, item_type in window_names:
+                            is_shown = dpg.is_item_shown(item)
+                            print(f" {tag} [shown={is_shown}] type={item_type}")
+                    else:
+                        print("No DPG windows found.")
+                except Exception as e:
+                    print(f"Error listing windows: {e}")
+            # @desc: Show a given DPG window
+            elif single_command.lower().startswith("show "):
+                try:
+                    _, _, tag = single_command.partition(" ")
+                    tag = tag.strip()
+                    if not tag:
+                        print("Usage: show <window_tag>")
+                    elif dpg.does_item_exist(tag):
+                        dpg.show_item(tag)
+                        print(f"✅ Shown: {tag}")
+                    else:
+                        print(f"❌ Window '{tag}' not found.")
+                except Exception as e:
+                    print(f"Error showing window '{tag}': {e}")
+            # @desc: Hide a given DPG window
+            elif single_command.lower().startswith("hide "):
+                try:
+                    _, _, tag = single_command.partition(" ")
+                    tag = tag.strip()
+                    if not tag:
+                        print("Usage: hide <window_tag>")
+                    elif dpg.does_item_exist(tag):
+                        dpg.hide_item(tag)
+                        print(f"✅ Hidden: {tag}")
+                    else:
+                        print(f"❌ Window '{tag}' not found.")
+                except Exception as e:
+                    print(f"Error hiding window '{tag}': {e}")
+            # @desc: Copy OPX initial scan location as Site (X,Y,Z)
+            elif single_command.strip().lower() == "scpos":
+                if hasattr(parent, "opx") and hasattr(parent.opx, "initial_scan_Location"):
+                    import pyperclip
+                    initial_pos = [v * 1e-6 for v in parent.opx.initial_scan_Location]
+                    pos_str = f"Site ({initial_pos[0]:.1f}, {initial_pos[1]:.1f}, {initial_pos[2]:.1f})"
+                    pyperclip.copy(pos_str)
+                    print(f"Copied scan start location to clipboard: {pos_str}")
+                else:
+                    print("OPX or initial_scan_Location not available.")
+            # @desc: Auto-scan all elif and show help
             elif single_command.lower() == "help":
-                # Extract the bullet-list from our own docstring and display it
-                import inspect
-                doc = inspect.getdoc(run) or ""
-                # grab only the lines starting with a bullet
-                lines = [l.strip()[2:] for l in doc.splitlines() if l.strip().startswith("•")]
-                help_txt = "\n".join(lines)
+                import inspect, re
+                run_src = inspect.getsource(run)
+                pattern = r"#\s*@desc:(.*?)\n\s*elif\s+single_command.*?(\.\w+|\s*==|\s*!=|\s*startswith).*?['\"](.*?)['\"]"
+                matches = re.findall(pattern, run_src, flags=re.DOTALL)
+                if matches:
+                    lines = []
+                    for desc, op, cmd in matches:
+                        desc = desc.strip()
+                        cmd = cmd.strip()
+                        lines.append(f"{cmd} -> {desc}")
+                    help_txt = "Available commands:\n\n" + "\n".join(f" {l}" for l in lines)
+                else:
+                    help_txt = "No commands with @desc found."
+
                 show_msg_window(help_txt)
-                print("Displayed help menu in msg window.")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})

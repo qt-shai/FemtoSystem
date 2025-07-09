@@ -279,7 +279,7 @@ class GUI_smaract():
                     file.write(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
                     file.write(f"{win_name}_Size: {size[0]}, {size[1]}\n")
 
-            print("Window positions and sizes saved successfully to win_pos_local.txt.")
+            print(f"Window positions and sizes saved successfully to {file_name}")
         except Exception as e:
             print(f"Error saving window positions and sizes: {e}")
 

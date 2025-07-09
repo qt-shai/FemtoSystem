@@ -39,6 +39,7 @@ from HWrap_OPX import GUI_OPX, Experiment
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Utils.Common import calculate_z_series
 from Common import WindowNames
+from Common import load_window_positions
 from Window import Window_singleton
 from Outout_to_gui import DualOutput
 import threading
@@ -453,7 +454,7 @@ class PyGuiOverlay(Layer):
         self.messages = []
         self.command_history = []
         self.history_index = -1
-        self.MAX_HISTORY = 10  # Store last 5 commands
+        self.MAX_HISTORY = 100  # Store last 100 commands
         self.saved_query_points = []
 
     def on_render(self):
@@ -681,7 +682,7 @@ class PyGuiOverlay(Layer):
             dpg.add_mouse_release_handler(callback=self.Callback_mouse_release)
             dpg.add_mouse_wheel_handler(callback=self.Callback_mouse_wheel)
             dpg.add_key_down_handler(callback=self.Callback_key_down)
-            dpg.add_key_press_handler(callback=self.Callback_key_press)
+            dpg.add_key_press_handler(callback=self.Callback_key_press,tag="my_key_press_handler")
             dpg.add_key_release_handler(callback=self.Callback_key_release)
 
         if IsDemo:
@@ -957,6 +958,20 @@ class PyGuiOverlay(Layer):
         if self.system_config.system_type == SystemType.FEMTO:
             self.femto_gui = FemtoPowerCalculator(self.kdc_101_gui)
             self.femto_gui.create_gui()
+            input_str = dpg.get_value(self.femto_gui.future_input_tag)
+
+            def try_run_future():
+                parent = getattr(sys.stdout, "parent", None)
+                if parent:
+                    outout.run(f"future{input_str}")
+                    print(f"[DPG frame callback] Ran future: {input_str}")
+                    load_window_positions()
+                else:
+                    # Retry on next frame
+                    dpg.set_frame_callback(dpg.get_frame_count() + 1, try_run_future)
+                    print("[DPG frame callback] Parent not ready — retrying next frame…")
+
+            dpg.set_frame_callback(dpg.get_frame_count() + 1, try_run_future)
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle
@@ -1106,8 +1121,13 @@ class PyGuiOverlay(Layer):
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
                 self.handle_smaract_controls(key_data_enum, is_coarse)
-                self.CURRENT_KEY = key_data_enum # 2-7-2025
-                return # 2-7-2025
+                # self.CURRENT_KEY = key_data_enum
+                if key_data_enum in [KeyboardKeys.UP_KEY, KeyboardKeys.DOWN_KEY, KeyboardKeys.LEFT_KEY,KeyboardKeys.RIGHT_KEY,
+                                     KeyboardKeys.PAGEUP_KEY, KeyboardKeys.PAGEDOWN_KEY]:
+                    return
+                else:
+                    self.CURRENT_KEY = key_data_enum  # 8-7-2025
+                    return
 
             # === UP arrow: try prefix search, else fallback to simple back-one
             if key_data_enum == KeyboardKeys.UP_KEY:
@@ -1137,7 +1157,7 @@ class PyGuiOverlay(Layer):
             if dpg.is_item_focused("inTxtScan_expText"):
                 return
             # === QUESTION MARK: search history for substring in cmd_input ===
-            if key_code == 63:  # ord('?') == 63
+            if key_code == KeyboardKeys.OEM_2.value:  # ord('?') == 63
                 term = dpg.get_value("cmd_input") or ""
                 if not (hasattr(self, "command_history") and self.command_history):
                     print("No history yet.")
@@ -1164,11 +1184,19 @@ class PyGuiOverlay(Layer):
                 return
 
             # ── Printable characters ──
-            if 32 <= key_code <= 126:
-                ch = chr(key_code)
+            if 32 <= key_code <= 126 or key_code in [KeyboardKeys.OEM_1.value, KeyboardKeys.OEM_PERIOD.value]:
+                if key_code == KeyboardKeys.OEM_1.value:
+                    ch = ';'
+                elif key_code == KeyboardKeys.OEM_PERIOD.value:
+                    ch = '.'
+                else:
+                    ch = chr(key_code)
                 if dpg.does_item_exist("cmd_input"):
                     cur = dpg.get_value("cmd_input") or ""
-                    dpg.set_value("cmd_input", cur + ch)
+                    new_value = cur + ch
+                    dpg.set_value("cmd_input", new_value)
+                    if len(new_value) == 1:
+                        dpg.focus_item("cmd_input")
                 return
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
@@ -1535,20 +1563,20 @@ class PyGuiOverlay(Layer):
         with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Clear Console", callback=self.clear_console)
-                dpg.add_combo(items=[], tag="command_history", width=120, callback=self.fill_input)
+                dpg.add_combo(items=[], tag="command_history", width=120, callback=self.fill_console_input)
                 dpg.add_button(label="Save Logs", callback=self.save_logs)
 
             # Console log display
-            # with dpg.child_window(tag="console_output", autosize_x=True, height=180):
-            #     dpg.add_text("Console initialized.", tag="console_log", wrap=800)
             with dpg.child_window(tag="console_output", autosize_x=True, height=180):
-                dpg.add_input_text(
-                    tag="console_log",
-                    multiline=True,
-                    no_spaces=True,  # no wrapping → horizontal scroll
-                    width=-1,  # fill the child window
-                    height=-1,
-                )
+                dpg.add_text("Console initialized.", tag="console_log", wrap=1500)
+            # with dpg.child_window(tag="console_output", autosize_x=True, height=180):
+            #     dpg.add_input_text(
+            #         tag="console_log",
+            #         multiline=True,
+            #         no_spaces=True,  # no wrapping → horizontal scroll
+            #         width=-1,  # fill the child window
+            #         height=-1,
+            #     )
 
             # Input field for sending commands or messages
             with dpg.group(horizontal=True):
@@ -1603,16 +1631,16 @@ class PyGuiOverlay(Layer):
         if command in self.command_history:
             self.command_history.remove(command)  # Remove duplicate before re-adding
 
-        self.command_history.insert(0, command)  # Insert at the top
+        self.command_history.append(command)  # Insert at the top
         if len(self.command_history) > self.MAX_HISTORY:
             self.command_history.pop()  # Remove the oldest entry
 
         # Update the combo box
         dpg.configure_item("command_history", items=self.command_history)
 
-    def fill_input(self, sender, app_data):
+    def fill_console_input(self, sender, app_data):
         """Fills the input field with the selected command."""
-        dpg.set_value("console_input", app_data)
+        dpg.set_value("cmd_input", app_data)
 
     def on_detach(self):
         sys.stdout = sys.__stdout__

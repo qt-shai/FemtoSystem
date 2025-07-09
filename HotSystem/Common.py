@@ -155,6 +155,8 @@ class KeyboardKeys(Enum): # Mapping keys to custom values
 
     OEM_COMMA = 188  # ,
     OEM_PERIOD = 190  #
+    OEM_1 = 186  # ; :
+    OEM_2 = 191  # / or ? key
 
     # ─── Printable digits ───
     KEY_0 = 48
@@ -236,16 +238,34 @@ class WindowNames(Enum):
     MOKUGO = "Moku_Win"
     CONSOL = "console_window"
 
+def is_remote_resolution() -> bool:
+    """
+    Detect if the system is running on the 'remote' resolution.
+    This matches the check used in load_window_positions().
+    """
+    try:
+        w, h = get_primary_resolution()
+        print(f"[is_remote_resolution] Primary resolution: {w} x {h}")
+
+        # Adjust to your real remote screen dimensions
+        if w == 3840 and h == 1600:
+            print("[is_remote_resolution] Remote resolution detected -> True")
+            return True
+        else:
+            print("[is_remote_resolution] Local resolution -> False")
+            return False
+
+    except Exception as e:
+        print(f"[is_remote_resolution] Error detecting resolution: {e}")
+        return False
+
 def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
     """
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
     Supports dynamic windows like KDC101 and Femto_Power_Calculations.
     """
     try:
-        w, h = get_primary_resolution()
-        print(f"Primary screen resolution: {w} x {h}")
-
-        if w == 3840 and h == 1600:
+        if is_remote_resolution():  # <- call your helper
             file_name = "win_pos_remote.txt"
             print(f"Remote resolution detected → Using {file_name}")
         else:
