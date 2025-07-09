@@ -58,7 +58,7 @@ class DualOutput:
         """
         self.original_stream.flush()
 
-def toggle_sc(reverse=False, check_dx=True):
+def toggle_sc(reverse=False):
     try:
         parent = getattr(sys.stdout, "parent", None)
         cam = getattr(parent, "cam", None)
@@ -76,21 +76,7 @@ def toggle_sc(reverse=False, check_dx=True):
             pos = flipper.dev.get_position()
             if (not reverse and pos == 1) or (reverse and pos == 2):
                 flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
-        # If dx > 200, reset both dx & dy based on dz
-        if check_dx:
-            if dpg.does_item_exist("inInt_dx_scan"):
-                dx = dpg.get_value("inInt_dx_scan")
-                if dx > 200:
-                    dz_value = 150  # fallback default
-                    if dpg.does_item_exist("inInt_dz_scan"):
-                        dz_value = dpg.get_value("inInt_dz_scan")
-                    parent = getattr(sys.stdout, "parent", None)
-                    if parent and hasattr(parent, "opx"):
-                        if hasattr(parent.opx, "Update_dX_Scan"):
-                            parent.opx.Update_dX_Scan("inInt_dx_scan", dz_value)
-                        if hasattr(parent.opx, "Update_dY_Scan"):
-                            parent.opx.Update_dY_Scan("inInt_dy_scan", dz_value)
-                    print(f"dx > 200: reset dx & dy to dz value {dz_value} nm")
+
 
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
@@ -364,19 +350,14 @@ def run(command: str):
             elif single_command.startswith("sub "):
                 try:
                     folder = single_command.split("sub ", 1)[1].strip()
-                    # suffix_file = "folder_suffix.txt"
-
-                    # Check if MoveSubfolderInput exists
                     if not dpg.does_item_exist("MoveSubfolderInput"):
                         dpg.set_value("chkbox_scan", True)
                         if hasattr(parent, "opx"):
                             parent.opx.Update_scan(app_data=None, user_data=True)
-
                     wait_for_item_and_set("MoveSubfolderInput", folder)
                     print(f"Subfolder set to: {folder}")
                     with open("last_scan_dir.txt", "w") as f:
                         f.write(folder)
-
                 except Exception as e:
                     print(f"Error in 'sub' command: {e}")
             # @desc: Run COBOLT power set command
@@ -778,7 +759,6 @@ def run(command: str):
             # @desc: Load & plot most recent CSV
             elif single_command == "ld":
                 try:
-                    parent = sys.stdout.parent
                     if not hasattr(parent, "opx"):
                         print("Parent has no opx.")
                         return
@@ -1218,18 +1198,43 @@ def run(command: str):
                     print("Femto GUI or Pharos API not available.")
             # @desc: Calculate future femto pulses steps
             elif single_command.lower().startswith("future"):
-                # Example: future10:3:29,20%
+                # Example: future10:3:29,20%x100
                 future_args = single_command[len("future"):].strip()
                 if not future_args:
-                    print("Syntax: future<start:step:end,percent>")
+                    print("Syntax: future<start:step:end,percent>xN")
                     continue
 
                 if hasattr(parent, "femto_gui") and hasattr(parent.femto_gui, "future_input_tag"):
                     # Write the input string to the input widget
                     dpg.set_value(parent.femto_gui.future_input_tag, future_args)
 
-                    # 2) Parse step and att
+                    # Split range, att and optional xN
                     range_part, *rest = future_args.split(",")
+                    pulse_count = None
+
+                    if rest:
+                        att_part = rest[0].strip()
+                        if "x" in att_part:
+                            att_str, x_part = att_part.split("x", 1)
+                            att_str = att_str.strip().replace("%", "")
+                            x_part = x_part.strip()
+                            pulse_count = int(x_part)
+                        else:
+                            att_str = att_part.strip().replace("%", "")
+                            x_part = None
+
+                        try:
+                            att_value = float(att_str)
+                            if dpg.does_item_exist("femto_attenuator"):
+                                dpg.set_value("femto_attenuator", att_value)
+                                print(f"Attenuator set to {att_value}%")
+                                parent.opx.pharos.setBasicTargetAttenuatorPercentage(att_value)
+                            else:
+                                print("Attenuator input widget not found.")
+                        except Exception as e:
+                            print(f"Could not parse Att %: {e}")
+
+                    # Always parse the range and update step
                     parts = [float(x.strip()) for x in range_part.strip().split(":")]
                     if len(parts) == 3:
                         step_size = parts[1]
@@ -1241,35 +1246,34 @@ def run(command: str):
                     else:
                         print("Invalid range format, expected start:step:end")
 
-                    if rest:
-                        att_str = rest[0].strip().replace("%", "")
-                        try:
-                            att_value = float(att_str)
-                            if dpg.does_item_exist("femto_attenuator"):
-                                dpg.set_value("femto_attenuator", att_value)
-                                print(f"Attenuator set to {att_value}%")
-                                # If you want the callback to run, do it explicitly:
-                                parent.opx.pharos.setBasicTargetAttenuatorPercentage(att_value)
-                            else:
-                                print("Attenuator input widget not found.")
-                        except Exception as e:
-                            print(f"Could not parse Att %: {e}")
+                    # ✅ If xN found, set anneal params
+                    if pulse_count is not None:
+                        if dpg.does_item_exist("femto_anneal_pulse_count"):
+                            dpg.set_value("femto_anneal_pulse_count", pulse_count - 1)
+                            print(f"nPlsAnn set to {pulse_count - 1}")
+                        if dpg.does_item_exist("femto_increment_hwp_anneal"):
+                            hwp_ann_val = 0.01 if pulse_count > 1 else 0.0
+                            dpg.set_value("femto_increment_hwp_anneal", hwp_ann_val)
+                            print(f"HWPAnn set to 0.01")
 
-                    # Call the same calculate_future logic
+                    # Call future logic
                     try:
                         Ly = parent.femto_gui.calculate_future(sender=None, app_data=None, user_data=None)
                         print(f"Future calculation done for input: {future_args}")
-                        if Ly is not None and dpg.does_item_exist("inInt_Ly_scan") and Ly>0:
+                        if Ly is not None and dpg.does_item_exist("inInt_Ly_scan") and Ly > 0:
                             dpg.set_value("inInt_Ly_scan", int(Ly))
                             parent.opx.Update_Ly_Scan(user_data=int(Ly))
                             print(f"Ly set to {int(Ly)} nm in scan settings.")
                         else:
                             print("inInt_Ly_scan not found or Ly = 0.")
+                        parent.opx.Update_dX_Scan("inInt_dx_scan", 2000)
+                        parent.opx.Update_dY_Scan("inInt_dy_scan", 2000)
 
                     except Exception as e:
                         print(f"Error calculating future: {e}")
                 else:
                     print("Femto GUI or input tag not available.")
+
             # @desc: Press Femto calculate button
             elif single_command.lower() == "fmc":
                 if parent and hasattr(parent, "femto_gui"):
@@ -1335,6 +1339,22 @@ def run(command: str):
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStartScan"):
                     try:
                         toggle_sc(reverse=False)
+
+                        # If dx > 200, reset both dx & dy based on dz
+                        if dpg.does_item_exist("inInt_dx_scan"):
+                            dx = dpg.get_value("inInt_dx_scan")
+                            if dx > 200:
+                                dz_value = 150  # fallback default
+                                if dpg.does_item_exist("inInt_dz_scan"):
+                                    dz_value = dpg.get_value("inInt_dz_scan")
+                                parent = getattr(sys.stdout, "parent", None)
+                                if parent and hasattr(parent, "opx"):
+                                    if hasattr(parent.opx, "Update_dX_Scan"):
+                                        parent.opx.Update_dX_Scan("inInt_dx_scan", dz_value)
+                                    if hasattr(parent.opx, "Update_dY_Scan"):
+                                        parent.opx.Update_dY_Scan("inInt_dy_scan", dz_value)
+                                print(f"dx > 200: reset dx & dy to dz value {dz_value} nm")
+
                         parent.opx.btnStartScan()
                         print("OPX scan started (btnStartScan called).")
                     except Exception as e:
@@ -1441,6 +1461,27 @@ def run(command: str):
                     print(f"Copied scan start location to clipboard: {pos_str}")
                 else:
                     print("OPX or initial_scan_Location not available.")
+            # @desc: Set Zelux camera exposure time to <N> milliseconds
+            elif single_command.lower().startswith("exp"):
+                try:
+                    value_str = single_command[3:].strip()
+                    if not value_str:
+                        print("Usage: exp<N> → e.g. exp100 or exp15.5 for 15.5 ms.")
+                        return
+
+                    exposure_ms = float(value_str)  # ✅ Accept decimal values
+
+                    if hasattr(parent, "cam") and hasattr(parent.cam, "cam") and hasattr(parent.cam.cam, "camera"):
+                        parent.cam.cam.SetExposureTime(int(exposure_ms * 1e3))  # ms → µs, then int
+                        time.sleep(0.001)
+
+                        dpg.set_value("slideExposure", parent.cam.cam.camera.exposure_time_us / 1e3)
+                        print(f"Actual exposure time: {parent.cam.cam.camera.exposure_time_us / 1e3:.1f} ms")
+                    else:
+                        print("Zelux camera not found.")
+                except Exception as e:
+                    print(f"Invalid exposure command or value: {e}")
+
             # @desc: Auto-scan all elif and show help
             elif single_command.lower() == "help":
                 import inspect, re

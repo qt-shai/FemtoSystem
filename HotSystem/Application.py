@@ -1126,6 +1126,16 @@ class PyGuiOverlay(Layer):
                                      KeyboardKeys.PAGEUP_KEY, KeyboardKeys.PAGEDOWN_KEY]:
                     return
                 else:
+                    # === Ctrl + V: paste clipboard to cmd_input ===
+                    if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.V_KEY:
+                        try:
+                            import pyperclip
+                            paste_text = pyperclip.paste()
+                            dpg.set_value("cmd_input", paste_text)
+                            dpg.focus_item("cmd_input")
+                            print(f"Pasted to cmd_input: {paste_text}")
+                        except Exception as clip_ex:
+                            print(f"Failed to paste clipboard: {clip_ex}")
                     self.CURRENT_KEY = key_data_enum  # 8-7-2025
                     return
 
@@ -1184,20 +1194,10 @@ class PyGuiOverlay(Layer):
                 return
 
             # ── Printable characters ──
-            if 32 <= key_code <= 126 or key_code in [KeyboardKeys.OEM_1.value, KeyboardKeys.OEM_PERIOD.value]:
-                if key_code == KeyboardKeys.OEM_1.value:
-                    ch = ';'
-                elif key_code == KeyboardKeys.OEM_PERIOD.value:
-                    ch = '.'
-                else:
-                    ch = chr(key_code)
-                if dpg.does_item_exist("cmd_input"):
-                    cur = dpg.get_value("cmd_input") or ""
-                    new_value = cur + ch
-                    dpg.set_value("cmd_input", new_value)
-                    if len(new_value) == 1:
-                        dpg.focus_item("cmd_input")
-                return
+            if 32 <= key_code <= 126:
+                if len(dpg.get_value("cmd_input")) == 0:
+                    dpg.focus_item("cmd_input")
+
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
         except Exception as ex:
@@ -1536,7 +1536,7 @@ class PyGuiOverlay(Layer):
 
     def setup_main_exp_buttons(self):
         with dpg.window(label="Main Buttons Group", tag="Main_Window",
-                          autosize=True, no_move=True, collapsed=True):
+                          autosize=True, no_move=False, collapsed=True):
             with dpg.group(label="Main Buttons Group", horizontal=True):
                 dpg.add_text("Bring Instrument to front:")
                 with dpg.group(tag = "focus_group",horizontal=True):
