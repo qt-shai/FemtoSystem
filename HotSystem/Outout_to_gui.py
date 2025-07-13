@@ -907,6 +907,44 @@ def run(command: str):
                         print("move_absolute not found in smaractGUI.")
                 else:
                     print("smaractGUI or last_z_value not available.")
+            # @desc: Round current position to <n> digits, move, update XYZ. Example: round2
+            elif single_command.strip().lower().startswith("round"):
+                try:
+                    # Extract number from command (e.g., round1 → 1)
+                    suffix = single_command.strip()[5:]
+                    precision = int(suffix) if suffix else 0
+
+                    if hasattr(parent.opx, "positioner") and hasattr(parent.opx.positioner, "AxesPositions"):
+                        pos_pm = parent.opx.positioner.AxesPositions
+                        pos_um = [p * 1e-6 for p in pos_pm]
+                        raw = [round(p, precision) for p in pos_um]
+
+                        snap = []
+                        eps = 0.5 * 10 ** (-precision)  # half of one least significant digit
+                        for p in raw:
+                            integer = float(int(p))
+                            frac = p - integer
+                            if frac > 1 - eps:
+                                integer += 1.0
+                                p = integer  # drop fraction
+                            snap.append(p)
+
+                        dpg.set_value("mcs_ch0_ABS", snap[0])
+                        dpg.set_value("mcs_ch1_ABS", snap[1])
+                        dpg.set_value("mcs_ch2_ABS", snap[2])
+                        parent.smaractGUI.move_absolute(None, None, 0)
+                        parent.smaractGUI.move_absolute(None, None, 1)
+                        parent.smaractGUI.move_absolute(None, None, 2)
+                        time.sleep(0.5)
+
+                        note = f"Rounded to ({pos_rounded[0]:.{precision}f}, {pos_rounded[1]:.{precision}f}, {pos_rounded[2]:.{precision}f})"
+                        print(note)
+                        run("st")
+
+                    else:
+                        print("Positioner or AxesPositions not available.")
+                except Exception as e:
+                    print(f"Error in round<n> command: {e}")
             # @desc: List all stored query points on the OPX graph
             elif single_command == "list":
                 if parent and hasattr(parent, "saved_query_points") and parent.saved_query_points:
@@ -1192,7 +1230,7 @@ def run(command: str):
                     if append_text:
                         append_text = append_text[:1].upper() + append_text[1:]
                     existing_note = getattr(parent.opx, "expNotes", "")
-                    note_text = (existing_note + " " + append_text).strip()
+                    note_text = (existing_note + ", " + append_text).strip()
                 else:
                     note_text = note_text[:1].upper() + note_text[1:] # Capitalize first letter of a new note
                 show_msg_window(note_text)
@@ -1396,6 +1434,7 @@ def run(command: str):
                                     if hasattr(parent.opx, "Update_dY_Scan"):
                                         parent.opx.Update_dY_Scan("inInt_dy_scan", dz_value)
                                 print(f"dx > 200: reset dx & dy to dz value {dz_value} nm")
+                                time.sleep(0.5)
 
                         parent.opx.btnStartScan()
                         print("OPX scan started (btnStartScan called).")
@@ -1536,6 +1575,45 @@ def run(command: str):
                         print("No file loaded to display.")
                 except Exception as e:
                     print(f"Error running 'disp': {e}")
+            # @desc: Set total integration time and append note (e.g., int200)
+            elif single_command.lower().startswith("int"):
+                import re
+                match = re.match(r"int(\d+)", single_command.lower())
+                if match:
+                    value_ms = int(match.group(1))
+                    print(f"Setting integration time to {value_ms} ms")
+                    parent.opx.UpdateCounterIntegrationTime(user_data=value_ms)
+                    appended_note = f"!Int {value_ms} ms" # Append to note
+                    run(f"note {appended_note}")
+                else:
+                    print(f"Could not parse integration time from: {single_command}, remove spaces.")
+            # @desc: Enable or disable HRS_500 device for next run
+            elif single_command.lower().startswith("nextrun "):
+                import re
+                action = single_command[len("nextrun "):].strip().lower()
+                xml_path = os.path.join("SystemConfig", "xml_configs", "system_info.xml")
+                try:
+                    text = open(xml_path, "r").read()
+                    if action in ("hrs", "hrs on"):
+                        # Uncomment HRS_500 block
+                        new_text = re.sub(
+                            r'<!--\s*(<Device>\s*<Instrument>HRS_500</Instrument>[\s\S]*?</Device>)\s*-->',
+                            r'\1', text, flags=re.DOTALL
+                        )
+                        open(xml_path, "w").write(new_text)
+                        print("HRS_500 enabled for next run.")
+                    elif action in ("!hrs", "hrs off", "hrs off"):
+                        # Comment HRS_500 block
+                        new_text = re.sub(
+                            r'(<Device>\s*<Instrument>HRS_500</Instrument>[\s\S]*?</Device>)',
+                            r'<!--\1-->', text, flags=re.DOTALL
+                        )
+                        open(xml_path, "w").write(new_text)
+                        print("HRS_500 disabled for next run.")
+                    else:
+                        print(f"Unknown action for nextrun: '{action}'. Use 'nextrun hrs' or 'nextrun !hrs'.")
+                except Exception as e:
+                    print(f"Failed to process 'nextrun': {e}")
             # @desc: Auto-scan all `elif` branches and display command descriptions; also supports `help <cmd>` for single command info
             elif single_command.lower().startswith("help"):
                 import inspect, re

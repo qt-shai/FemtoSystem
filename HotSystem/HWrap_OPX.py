@@ -447,7 +447,7 @@ class GUI_OPX():
             val = max
         return int(val)
 
-    def UpdateCounterIntegrationTime(sender, app_data, user_data):
+    def UpdateCounterIntegrationTime(sender, app_data=None, user_data=5):
         sender.total_integration_time = user_data
         time.sleep(0.001)
         dpg.set_value(item="inDbl_total_integration_time", value=sender.total_integration_time)
