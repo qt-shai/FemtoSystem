@@ -184,9 +184,9 @@ def run(command: str):
                         [sys.executable, script_path],
                         check=True
                     )
-                    print("✅ Added slide & pasted clipboard image to PowerPoint.")
+                    print("Added slide & pasted clipboard image to PowerPoint.")
                 except Exception as e:
-                    print(f"❌ Could not add slide: {e}")
+                    print(f"Could not add slide: {e}")
             # @desc: Copy 'QuTi SW' window to clipboard
             elif single_command == "c":
                 copy_quti_window_to_clipboard()
@@ -364,9 +364,8 @@ def run(command: str):
             elif single_command.startswith("cob "):
                 try:
                     power_mw = float(single_command.split("cob ", 1)[1].strip())
-                    p = getattr(sys.stdout, "parent", None)
-                    if p and hasattr(p,"coboltGUI") and p.coboltGUI and p.coboltGUI.laser and p.coboltGUI.laser.is_connected():
-                        p.coboltGUI.laser.set_modulation_power(power_mw)
+                    if parent and hasattr(parent,"coboltGUI") and parent.coboltGUI and parent.coboltGUI.laser and parent.coboltGUI.laser.is_connected():
+                        parent.coboltGUI.laser.set_modulation_power(power_mw)
                         print(f"Cobolt modulation power set to {power_mw:.2f} mW")
                     else:
                         print("Cobolt laser not connected or unavailable.")
@@ -805,7 +804,6 @@ def run(command: str):
                     print("cam or toggle_coords_display not available.")
             # @desc: Fill & move to N-th stored query point
             elif single_command.startswith("fq"):
-                parent = getattr(sys.stdout, "parent", None)
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "fill_moveabs_from_query"):
                     # If user wrote fq7 → extract number
                     parts = single_command.strip()
@@ -869,10 +867,48 @@ def run(command: str):
                             print(f"Could not store queried point: {e}")
                 else:
                     print("OPX not available or missing 'fill_moveabs_from_query'.")
+            # @desc: Move to last recorded Z value (optionally add offset) and note
+            elif single_command.strip().lower().startswith("z"):
+                if parent and hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "last_z_value"):
+                    base_z = parent.smaractGUI.last_z_value
+                    offset = 0.0
+                    try: # Try parsing offset from command (e.g., "z-10")
+                        if len(single_command.strip()) > 1:
+                            offset = float(single_command.strip()[1:])
+                    except Exception as e:
+                        print(f"Could not parse offset from '{single_command}': {e}")
+                        offset = 0.0
+                    target_z = base_z + offset
+                    dpg.set_value("mcs_ch2_ABS", target_z)
+                    if hasattr(parent.smaractGUI, "move_absolute"):
+                        parent.smaractGUI.move_absolute(None, None, 2)
+                        print(f"Moved to Z = {target_z:.2f} µm (base: {base_z:.2f}, offset: {offset:+.2f})")
+                        # ✅ Generate note based on offset
+                        if abs(offset) < 1e-6:
+                            note_text = "Surface"
+                        else:
+                            note_text = f"{abs(offset):.1f} µm Deep"
+
+                        try:
+                            setpoint_mW = parent.coboltGUI.laser.get_power_setpoint()*1e-3
+                            if setpoint_mW > 0.9:
+                                note_text += f", Green {setpoint_mW:.1f} mW"
+                            else:
+                                note_text += ", Red 250 mA"
+                        except Exception as e:
+                            print(f"Could not get Cobolt setpoint: {e}")
+
+                        show_msg_window(note_text)
+                        parent.opx.expNotes = note_text
+                        if dpg.does_item_exist("inTxtScan_expText"):
+                            dpg.set_value("inTxtScan_expText", note_text)
+                            parent.opx.saveExperimentsNotes(note=note_text)
+                    else:
+                        print("move_absolute not found in smaractGUI.")
+                else:
+                    print("smaractGUI or last_z_value not available.")
             # @desc: List all stored query points on the OPX graph
             elif single_command == "list":
-                parent = getattr(sys.stdout, "parent", None)
-
                 if parent and hasattr(parent, "saved_query_points") and parent.saved_query_points:
                     print("Stored points:")
                     for idx, (index, x, y) in enumerate(parent.saved_query_points):
@@ -1148,10 +1184,17 @@ def run(command: str):
                     parent.smaractGUI.fill_current_position_to_moveabs()
                 else:
                     print("smaractGUI or Set XYZ callback not available.")
-            # @desc: Update experiment notes field & display it in msg window
+            # @desc: Set or append to the experiment notes
             elif single_command.lower().startswith("note "):
-                # Update the Notes field with the rest of the text
-                note_text = single_command[len("note "):]
+                note_text = single_command[len("note "):].strip()
+                if note_text.startswith("!"): # Check if we should append to the existing note
+                    append_text = note_text[1:].strip()
+                    if append_text:
+                        append_text = append_text[:1].upper() + append_text[1:]
+                    existing_note = getattr(parent.opx, "expNotes", "")
+                    note_text = (existing_note + " " + append_text).strip()
+                else:
+                    note_text = note_text[:1].upper() + note_text[1:] # Capitalize first letter of a new note
                 show_msg_window(note_text)
                 parent.opx.expNotes = note_text
                 if dpg.does_item_exist("inTxtScan_expText"):
@@ -1273,7 +1316,6 @@ def run(command: str):
                         print(f"Error calculating future: {e}")
                 else:
                     print("Femto GUI or input tag not available.")
-
             # @desc: Press Femto calculate button
             elif single_command.lower() == "fmc":
                 if parent and hasattr(parent, "femto_gui"):
@@ -1481,24 +1523,50 @@ def run(command: str):
                         print("Zelux camera not found.")
                 except Exception as e:
                     print(f"Invalid exposure command or value: {e}")
-
-            # @desc: Auto-scan all elif and show help
-            elif single_command.lower() == "help":
+            # @desc: Interactive viewer for visualizing all Z-slices in a CSV scan file; automatically uses the last loaded file.
+            elif single_command.lower() == "disp":
+                try:
+                    if hasattr(parent.opx, "last_loaded_file") and parent.opx.last_loaded_file:
+                        disp_script = os.path.join("Utils", "display_all_z_slices_with_slider.py")
+                        filepath = parent.opx.last_loaded_file
+                        import subprocess
+                        subprocess.Popen(["python", disp_script, filepath], shell=True)
+                        print(f"Displaying Z slices for {filepath}")
+                    else:
+                        print("No file loaded to display.")
+                except Exception as e:
+                    print(f"Error running 'disp': {e}")
+            # @desc: Auto-scan all `elif` branches and display command descriptions; also supports `help <cmd>` for single command info
+            elif single_command.lower().startswith("help"):
                 import inspect, re
+                parts = single_command.strip().split()
+                query_cmd = parts[1].lower() if len(parts) > 1 else None
                 run_src = inspect.getsource(run)
                 pattern = r"#\s*@desc:(.*?)\n\s*elif\s+single_command.*?(\.\w+|\s*==|\s*!=|\s*startswith).*?['\"](.*?)['\"]"
                 matches = re.findall(pattern, run_src, flags=re.DOTALL)
-                if matches:
-                    lines = []
-                    for desc, op, cmd in matches:
-                        desc = desc.strip()
-                        cmd = cmd.strip()
-                        lines.append(f"{cmd} -> {desc}")
-                    help_txt = "Available commands:\n\n" + "\n".join(f" {l}" for l in lines)
-                else:
-                    help_txt = "No commands with @desc found."
+                if not matches:
+                    print("No commands with @desc found.")
+                    return
 
-                show_msg_window(help_txt)
+                lines = []
+                for desc, _, cmd in matches:
+                    desc = desc.strip()
+                    cmd = cmd.strip()
+                    lines.append((cmd.lower(), f"{cmd} -> {desc}"))
+
+                lines.sort(key=lambda x: x[0]) # Sort by command name
+
+                if query_cmd: # Search for specific command
+                    filtered = [line for cmd, line in lines if query_cmd == cmd]
+                    if filtered:
+                        print(filtered[0])  # normal size
+                    else:
+                        print(f"Command '{query_cmd}' not found.")
+                else: # Show all
+                    help_txt = "Available commands:\n\n" + "\n".join(f" {l}" for _, l in lines)
+                    show_msg_window(help_txt, height=1400)
+                # help_txt = "Available commands:\n\n" + "\n".join(f" {l}" for l in lines)
+                # show_msg_window(help_txt, height=1400)
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})

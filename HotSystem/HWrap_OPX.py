@@ -1484,7 +1484,8 @@ class GUI_OPX():
                     print(f"Using last loaded file base: {base} → with extensions: {extensions}")
 
                     # ✅ Add _pulse_data.csv, keep its unique name
-                    pulse_data_file = base + "_pulse_data.csv"
+                    base_with_notes = f"{base}_{self.expNotes}" if self.expNotes else base
+                    pulse_data_file = base_with_notes + "_pulse_data.csv"
                     files_to_move.append(pulse_data_file)
 
                 else:

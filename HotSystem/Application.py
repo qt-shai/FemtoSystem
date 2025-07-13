@@ -1191,6 +1191,7 @@ class PyGuiOverlay(Layer):
                     self.modifier_key=None
                 else:
                     dpg.set_value("cmd_input", cur[:-1])
+                dpg.focus_item("cmd_input")
                 return
 
             # ── Printable characters ──

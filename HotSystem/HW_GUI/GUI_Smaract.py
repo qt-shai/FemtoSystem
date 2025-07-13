@@ -19,6 +19,7 @@ from Common import load_window_positions
 
 class GUI_smaract():
     def __init__(self, simulation: bool = False, serial_number:str = "") -> None:
+        self.last_z_value = None
         self.HW = hw_devices.HW_devices()
         self.dev = self.HW.positioner
         self.selectedDevice = serial_number
@@ -192,7 +193,9 @@ class GUI_smaract():
             dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
             dpg.set_value(f"{self.prefix}_ch2_ABS", z_value)
 
-            # print(f"Set MoveAbsX = {x_value:.2f} µm, MoveAbsY = {y_value:.2f} µm, MoveAbsZ = {z_value:.2f} µm")
+            # ✅ Store Z value
+            self.last_z_value = z_value
+            
             # Format and copy to clipboard
             clipboard_str = f"Site ({x_value:.1f}, {y_value:.1f}, {z_value:.1f})"
             pyperclip.copy(clipboard_str)

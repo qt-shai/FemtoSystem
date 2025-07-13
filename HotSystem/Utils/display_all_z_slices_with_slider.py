@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 import os
+import sys
 
 try:
     from Utils.Common import open_file_dialog
@@ -116,6 +117,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False):
     except KeyboardInterrupt:
         pass
 
-# Example usage
 if __name__ == "__main__":
-    display_all_z_slices()
+    path = sys.argv[1] if len(sys.argv) > 1 else None
+    display_all_z_slices(filepath=path)
