@@ -1511,14 +1511,14 @@ def run(command: str):
             # @desc: Trigger OPX StartScan
             elif single_command.lower() in ("start", "startscan"):
                 # Trigger the OPX “StartScan” button
+                import time
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStartScan"):
                     try:
                         toggle_sc(reverse=False)
-
-                        # If dx > 200, reset both dx & dy based on dz
+                        # If dx > 500, reset both dx & dy based on dz
                         if dpg.does_item_exist("inInt_dx_scan"):
                             dx = dpg.get_value("inInt_dx_scan")
-                            if dx > 200:
+                            if dx > 500:
                                 dz_value = 150  # fallback default
                                 if dpg.does_item_exist("inInt_dz_scan"):
                                     dz_value = dpg.get_value("inInt_dz_scan")
@@ -1530,7 +1530,6 @@ def run(command: str):
                                         parent.opx.Update_dY_Scan("inInt_dy_scan", dz_value)
                                 print(f"dx > 200: reset dx & dy to dz value {dz_value} nm")
                                 time.sleep(0.5)
-
                         parent.opx.btnStartScan()
                         print("OPX scan started (btnStartScan called).")
                     except Exception as e:

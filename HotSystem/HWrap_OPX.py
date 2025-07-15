@@ -436,7 +436,7 @@ class GUI_OPX():
                 if self.dL_scan[i] > 0:
                     N[i] = self.L_scan[i] / self.dL_scan[i]
         self.estimatedScanTime = round(np.prod(N) * (self.singleStepTime_scan + self.total_integration_time / 1e3) / 60,
-                                       1)
+                                       1)*2
 
     # Callbacks
     def time_in_multiples_cycle_time(self, val, cycleTime: int = 4, min: int = 16, max: int = 50000000):
@@ -1365,10 +1365,10 @@ class GUI_OPX():
                                 dpg.add_input_int(label="", tag="inInt_dx_scan", indent=-1, width=item_width,
                                                   callback=self.Update_dX_Scan,
                                                   default_value=self.dL_scan[0], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Lx [nm]", tag="text_Lx_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Lx_scan", indent=-1, width=item_width,
+                                dpg.add_text(default_value="Lx [um]", tag="text_Lx_scan", indent=-1)
+                                dpg.add_input_float(label="", tag="inInt_Lx_scan", indent=-1, width=item_width,
                                                   callback=self.Update_Lx_Scan,
-                                                  default_value=self.L_scan[0], min_value=0, max_value=500000, step=1)
+                                                  default_value=self.L_scan[0]/1000, min_value=0, max_value=500000, step=1)
 
                             with dpg.group(tag="Y_Scan_Range", horizontal=True):
                                 dpg.add_checkbox(label="", tag="chkbox_bY_Scan", indent=-1,
@@ -1378,10 +1378,10 @@ class GUI_OPX():
                                 dpg.add_input_int(label="", tag="inInt_dy_scan", indent=-1, width=item_width,
                                                   callback=self.Update_dY_Scan,
                                                   default_value=self.dL_scan[1], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Ly [nm]", tag="text_Ly_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Ly_scan", indent=-1, width=item_width,
+                                dpg.add_text(default_value="Ly [um]", tag="text_Ly_scan", indent=-1)
+                                dpg.add_input_float(label="", tag="inInt_Ly_scan", indent=-1, width=item_width,
                                                   callback=self.Update_Ly_Scan,
-                                                  default_value=self.L_scan[1], min_value=0, max_value=500000, step=1)
+                                                  default_value=self.L_scan[1]/1000, min_value=0, max_value=500000, step=1)
 
                             with dpg.group(tag="Z_Scan_Range", horizontal=True):
                                 dpg.add_checkbox(label="", tag="chkbox_bZ_Scan", indent=-1,
@@ -1391,10 +1391,10 @@ class GUI_OPX():
                                 dpg.add_input_int(label="", tag="inInt_dz_scan", indent=-1, width=item_width,
                                                   callback=self.Update_dZ_Scan,
                                                   default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Lz [nm]", tag="text_Lz_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Lz_scan", indent=-1, width=item_width,
+                                dpg.add_text(default_value="Lz [um]", tag="text_Lz_scan", indent=-1)
+                                dpg.add_input_float(label="", tag="inInt_Lz_scan", indent=-1, width=item_width,
                                                   callback=self.Update_Lz_Scan,
-                                                  default_value=self.L_scan[2], min_value=0, max_value=500000, step=1)
+                                                  default_value=self.L_scan[2]/1000, min_value=0, max_value=500000, step=1)
 
                             with dpg.group(horizontal=True):
                                 dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=450,
@@ -1543,7 +1543,7 @@ class GUI_OPX():
 
                             dst = os.path.join(new_folder, new_name)
                             shutil.copy(old_src, dst)
-                            print(f"Copied {old_src} → {dst} with new notes.")
+                            print(f"Copied {old_src} -> {dst} with new notes.")
                             moved_any = True
                             found = True
                     # if not found:
@@ -1558,7 +1558,7 @@ class GUI_OPX():
                         src = os.path.join(temp_folder, filename)
                         dst = os.path.join(new_folder, filename)
                         shutil.move(src, dst)
-                        print(f"Moved {src} → {dst}")
+                        print(f"Moved {src} -> {dst}")
                         moved_any = True
 
             # ✅ Fallback: Move last_loaded_file if nothing was moved
@@ -1573,7 +1573,6 @@ class GUI_OPX():
                     moved_any = True
                 else:
                     print(f"Last loaded file does not exist: {self.last_loaded_file}")
-
         except Exception as e:
             print(f"Error moving files: {e}")
 
@@ -2134,10 +2133,10 @@ class GUI_OPX():
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_Lx_Scan(sender, app_data, user_data):
-        sender.L_scan[0] = (int(user_data))
+        sender.L_scan[0] = (int(user_data*1000))
         time.sleep(0.001)
-        dpg.set_value(item="inInt_Lx_scan", value=sender.L_scan[0])
-        print("Set Lx_scan to: " + str(sender.L_scan[0]))
+        dpg.set_value(item="inInt_Lx_scan", value=user_data)
+        print("Set Lx_scan to: " + str(sender.L_scan[0]) + "nm")
         sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
@@ -2156,10 +2155,10 @@ class GUI_OPX():
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_Ly_Scan(sender, app_data=None, user_data=None):
-        sender.L_scan[1] = (int(user_data))
+        sender.L_scan[1] = (int(user_data*1000))
         time.sleep(0.001)
-        dpg.set_value(item="inInt_Ly_scan", value=sender.L_scan[1])
-        print("Set Ly_scan to: " + str(sender.L_scan[1]))
+        dpg.set_value(item="inInt_Ly_scan", value=user_data)
+        print("Set Ly_scan to: " + str(sender.L_scan[1]) + "nm")
         sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
@@ -2178,10 +2177,10 @@ class GUI_OPX():
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
     def Update_Lz_Scan(sender, app_data, user_data):
-        sender.L_scan[2] = (int(user_data))
+        sender.L_scan[2] = (int(user_data*1000))
         time.sleep(0.001)
-        dpg.set_value(item="inInt_Lz_scan", value=sender.L_scan[2])
-        print("Set Lz_scan to: " + str(sender.L_scan[2]))
+        dpg.set_value(item="inInt_Lz_scan", value=user_data)
+        print("Set Lz_scan to: " + str(sender.L_scan[2]) + "nm")
         sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
