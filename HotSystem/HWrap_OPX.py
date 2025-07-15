@@ -1397,7 +1397,7 @@ class GUI_OPX():
                                                   default_value=self.L_scan[2]/1000, min_value=0, max_value=500000, step=1)
 
                             with dpg.group(horizontal=True):
-                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=450,
+                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=300,
                                                    callback=self.saveExperimentsNotes, default_value=self.expNotes)
                                 dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
                                                  callback=self.Update_bZcorrection,
@@ -1436,8 +1436,8 @@ class GUI_OPX():
                     with dpg.group(horizontal=False):
                         dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
                                          default_value=self.limit)
-                        dpg.add_button(label="fill Z", callback=self.fill_z)
-                        dpg.add_button(label="fill Max", callback=self.set_moveabs_to_max_intensity)
+                        dpg.add_button(label="Fn n ill Z", callback=self.fill_z)
+                        dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
                         dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
                     dpg.set_frame_callback(dpg.get_frame_count() + 1, self.load_pos)

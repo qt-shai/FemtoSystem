@@ -14,7 +14,7 @@ import time
 from PIL import ImageGrab, Image
 import pytesseract
 from Utils.extract_positions import preprocess_image, extract_positions, TESSERACT_CONFIG
-
+import re
 # To copy the last message to the clipboard:
 # import pyperclip; pyperclip.copy(sys.stdout.messages[-2])
 
@@ -82,8 +82,6 @@ def toggle_sc(reverse=False):
             pos = flipper.dev.get_position()
             if (not reverse and pos == 1) or (reverse and pos == 2):
                 flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
-
-
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
 
@@ -120,7 +118,7 @@ def run(command: str, record_history: bool = True):
         Simple command handler for the Dear PyGui console.
         Supports single or multiple commands separated by ';':
         """
-    import os
+    import os,re
     command = command.strip()
     parent = getattr(sys.stdout, "parent", None)
     if parent is None:
@@ -1824,6 +1822,7 @@ def run(command: str, record_history: bool = True):
                     proc = preprocess_image(img)
                     ocr_txt = pytesseract.image_to_string(proc, config=TESSERACT_CONFIG)
                     _, pos = extract_positions(ocr_txt)
+                    coords = [None, None, None]
 
                     for axis, ch in enumerate(("Ch0", "Ch1", "Ch2")):
                         v = pos.get(ch)
@@ -1833,9 +1832,115 @@ def run(command: str, record_history: bool = True):
                         tag = f"mcs_ch{axis}_ABS"
                         dpg.set_value(tag, v)
                         # parent.smaractGUI.move_absolute(None, None, axis)
-                        print(f"ocr -> moved axis {axis} to {v:.2f}")
+                        # print(f"ocr -> moved axis {axis} to {v:.2f}")
+                        coords[axis] = v
+                    if None not in coords:
+                        site_str = f"Site ({coords[0]:.2f}, {coords[1]:.2f}, {coords[2]:.2f})"
+                        print(site_str)
+                        try:
+                            import pyperclip
+                            pyperclip.copy(site_str)
+                            print(site_str + " Copied to clipboard.")
+                        except ImportError:
+                            print("pyperclip not installed; cannot copy to clipboard.")
+
                 except Exception as e:
                     print(f"ocr command failed: {e}")
+            # @desc: Go → trigger Smaract “go” (move_absolute) on one or all axes
+            elif single_command.lower().startswith("go"):
+                cmd = single_command.strip().lower()
+                try:
+                    # all axes
+                    if cmd == "go":
+                        axes = (0, 1, 2)
+                    # numeric form: go0, go1, go2
+                    elif cmd in ("go0", "go1", "go2"):
+                        axes = (int(cmd[2]),)
+                    # letter form: gox, goy, goz
+                    elif cmd in ("gox", "goy", "goz"):
+                        axes = ({"gox":0, "goy":1, "goz":2}[cmd],)
+                    else:
+                        raise ValueError
+                    for axis in axes:
+                        parent.smaractGUI.move_absolute(None, None, axis)
+                    names = ["X","Y","Z"]
+                    moved = ", ".join(names[a] for a in axes)
+                    print(f"go -> moved axis {moved}")
+                except Exception:
+                    print("Invalid syntax. Use `go`, `go0`/`go1`/`go2` or `gox`/`goy`/`goz`.")
+            # @desc: moveN <Δ> or move{x|y|z} <Δ> → shift ABS by Δ then go
+            elif single_command.lower().startswith(("move0","move1","move2",
+                                                   "movex","movey","movez")):
+                parts = single_command.split(maxsplit=1)
+                cmd = parts[0].lower()
+                if len(parts) != 2:
+                    print("Invalid syntax. Use move0 <Δ> or movey <Δ>")
+                    return
+                try:
+                    delta = float(parts[1])
+                except ValueError:
+                    print(f"Could not parse Δ from '{parts[1]}'")
+                    return
+
+                # map command to axis index
+                if cmd.startswith("move") and cmd[4] in "012":
+                    axis = int(cmd[4])
+                else:
+                    axis = {"movex":0,"movey":1,"movez":2}[cmd]
+
+                # field tag
+                field = f"mcs_ch{axis}_ABS"
+                # read current, apply delta
+                cur = dpg.get_value(field)
+                new = cur + delta
+                dpg.set_value(field, new)
+                # trigger move
+                parent.smaractGUI.move_absolute(None, None, axis)
+                print(f"move axis {axis} shifted by {delta:.2f} -> now {new:.2f}")
+            # @desc: Copy last scan dir to clipboard; if “open” or “1” suffix, also open in Explorer
+            elif single_command.lower().startswith("lastdir"):
+                try:
+                    import os, subprocess, pyperclip
+
+                    # parse suffix
+                    cmd = single_command.lower().strip()
+                    suffix = cmd[len("lastdir"):].strip()
+
+                    # read path
+                    with open("last_scan_dir.txt", "r") as f:
+                        path = f.read().strip()
+                    path = os.path.abspath(path)
+                    if not os.path.isdir(path):
+                        print("-> lastdir: invalid path")
+                        return
+
+                    # copy to clipboard
+                    pyperclip.copy(path)
+                    print(f"-> copied {path}")
+
+                    # open if requested
+                    if suffix in ("open", "1", "1") or cmd == "lastdir1":
+                        subprocess.Popen(f'explorer "{path}"')
+                        print(f"-> opened {path}")
+
+                except Exception as e:
+                    print(f"-> lastdir failed: {e}")
+            # @desc: Set absolute X/Y/Z via x<num>, y<num>, z<num> and move
+            elif re.match(r'^[xyz]-?\d+(\.\d+)?$', single_command):
+                # map command letter to Smaract axis
+                axis_map = {'x': 0, 'y': 1, 'z': 2}
+                axis = axis_map[single_command[0]]
+                try:
+                    val = float(single_command[1:])
+                except ValueError:
+                    print("-> Invalid syntax. Use x<num>, y<num> or z<num>, e.g. x2030")
+                    return
+
+                # fill the absolute field and move
+                dpg.set_value(f"mcs_ch{axis}_ABS", val)
+                parent.smaractGUI.move_absolute(None, None, axis)
+                print(f"-> moved axis {axis} to {val:.2f}")
+
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
