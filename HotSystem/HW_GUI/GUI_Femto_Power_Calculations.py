@@ -125,71 +125,13 @@ class FemtoPowerCalculator:
             dpg.set_value(self.power_tag, "Error")
             dpg.set_value(self.energy_tag, "Error")
 
-    # def calculate_future(self, sender=None, app_data=None, user_data=None):
-    #     try:
-    #         input_str = dpg.get_value(self.future_input_tag)
-    #
-    #         # ✅ Copy to clipboard with "future " prefix
-    #         try:
-    #             import pyperclip
-    #             pyperclip.copy(f"future{input_str}")
-    #             print(f"Copied to clipboard: future {input_str}")
-    #         except Exception as copy_error:
-    #             print(f"Clipboard copy failed: {copy_error}")
-    #
-    #         # Split by comma if user added Att
-    #         if "," in input_str:
-    #             range_part, att_part = input_str.split(",")
-    #             range_part = range_part.strip()
-    #             att_part = att_part.strip().replace("%", "")
-    #             override_att = float(att_part)
-    #         else:
-    #             range_part = input_str.strip()
-    #             override_att = None
-    #
-    #         parts = [float(x.strip()) for x in range_part.split(":")]
-    #         if len(parts) != 3:
-    #             raise ValueError("Input must be start:step:end")
-    #
-    #         start, step, end = parts
-    #         angles = np.arange(start, end + step, step)
-    #
-    #         # Use override if provided, else read Pharos
-    #         if override_att is not None:
-    #             Att_percent = override_att
-    #         else:
-    #             Att_percent = float(self.pharos.getBasicTargetAttenuatorPercentage())
-    #
-    #         mode = dpg.get_value(self.combo_tag)
-    #
-    #         children = dpg.get_item_children(self.future_output_group, 1)
-    #         if children:
-    #             for child in children:
-    #                 dpg.delete_item(child)
-    #
-    #         dy = 2000  # nm
-    #         num_points = len(angles)
-    #         Ly = (num_points-1) * dy  # nm
-    #
-    #         dpg.add_text(f"# pnts:{num_points},Ly:{Ly}", color=(255, 255, 0), parent=self.future_output_group)
-    #
-    #         for angle in angles:
-    #             P, E = self.calculate_laser_pulse(angle, Att_percent, mode)
-    #             with dpg.group(parent=self.future_output_group, horizontal=True):
-    #                 dpg.add_text(f"{angle:.1f}°", color=(200, 255, 0))
-    #                 dpg.add_text(f"E: {E:.1f} nJ", color=(0, 255, 255))
-    #                 # dpg.add_text(f"P: {P:.1f} µW", color=(0, 255, 255))
-    #
-    #             print(f"HWP -> {angle:.1f}°, Att: {Att_percent:.1f}%, E: {E:.1f} nJ, P: {P:.1f} µW")
-    #         return Ly
-    #     except Exception as e:
-    #         print(f"Error in future calculation: {e}")
-    #         with dpg.group(parent=self.future_output_group):
-    #             dpg.add_text("Error parsing input or calculating.", color=(255, 0, 0))
     def calculate_future(self, sender=None, app_data=None, user_data=None):
         try:
             input_str = dpg.get_value(self.future_input_tag)
-
+            # If prefixed with "!", treat as no-op and return Ly = 0
+            if input_str.startswith("!"):
+                print("Future calculation skipped (bang-prefix).")
+                return 0
             # ✅ Copy to clipboard with "future " prefix
             try:
                 import pyperclip
@@ -197,12 +139,10 @@ class FemtoPowerCalculator:
                 print(f"Copied to clipboard: future {input_str}")
             except Exception as copy_error:
                 print(f"Clipboard copy failed: {copy_error}")
-
             # ✅ Split by ',' to separate range and Att, then detect 'xN'
             if "," in input_str:
                 range_part, rest_part = input_str.split(",", 1)
                 range_part = range_part.strip()
-
                 # Support formats like '30%x100'
                 if "x" in rest_part:
                     att_part, pulse_part = rest_part.split("x", 1)
@@ -211,41 +151,32 @@ class FemtoPowerCalculator:
                 else:
                     att_part = rest_part.strip().replace("%", "")
                     pulse_count = 1
-
                 override_att = float(att_part)
             else:
                 range_part = input_str.strip()
                 override_att = None
                 pulse_count = 1
-
             parts = [float(x.strip()) for x in range_part.split(":")]
             if len(parts) != 3:
                 raise ValueError("Input must be start:step:end")
-
             start, step, end = parts
             angles = np.arange(start, end + step, step)
-
             # Use override if provided, else read Pharos
             if override_att is not None:
                 Att_percent = override_att
             else:
                 Att_percent = float(self.pharos.getBasicTargetAttenuatorPercentage())
-
             mode = dpg.get_value(self.combo_tag)
-
             # Clear previous output
             children = dpg.get_item_children(self.future_output_group, 1)
             if children:
                 for child in children:
                     dpg.delete_item(child)
-
             dy = 2000  # nm
             num_points = len(angles)
             Ly = (num_points - 1) * dy  # nm
-
             dpg.add_text(f"# pnts:{num_points}, Ly:{Ly} nm, Pulses: x{pulse_count}",
                          color=(255, 255, 0), parent=self.future_output_group)
-
             for angle in angles:
                 P, E = self.calculate_laser_pulse(angle, Att_percent, mode)
                 with dpg.group(parent=self.future_output_group, horizontal=True):
@@ -254,9 +185,7 @@ class FemtoPowerCalculator:
                                  color=(0, 255, 255))
                 print(
                     f"HWP -> {angle:.1f}°, Att: {Att_percent:.1f}%, E: {E:.1f} nJ x {pulse_count}, P: {P:.1f} µW")
-
             return Ly
-
         except Exception as e:
             print(f"Error in future calculation: {e}")
             with dpg.group(parent=self.future_output_group):

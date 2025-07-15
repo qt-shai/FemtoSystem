@@ -1350,7 +1350,7 @@ class GUI_OPX():
             last_dir = ""
             if os.path.exists("last_scan_dir.txt"):
                 with open("last_scan_dir.txt", "r") as f:
-                    last_dir = f.read().strip()
+                    last_dir = f.read().strip().replace("\\", "/").split("/")[-1]
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
@@ -1547,9 +1547,8 @@ class GUI_OPX():
                             print(f"Copied {old_src} → {dst} with new notes.")
                             moved_any = True
                             found = True
-                    if not found:
-                        print(f"No alternative files found for {src}")
-
+                    # if not found:
+                    #     print(f"No alternative files found for {src}")
             if not moved_any:
                 temp_folder = "C:/temp/TempScanData"
                 if not os.path.exists(temp_folder):
@@ -2154,7 +2153,7 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_dZ_Scan(sender, app_data, user_data):
+    def Update_dZ_Scan(sender, app_data=None, user_data=True):
         sender.dL_scan[2] = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_dz_scan", value=sender.dL_scan[2])

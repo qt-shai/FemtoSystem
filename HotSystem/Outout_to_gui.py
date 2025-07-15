@@ -1,4 +1,7 @@
 import sys
+
+import numpy as np
+
 # import dearpygui.dearpygui as dpg
 from Common import *
 # import pyperclip, os
@@ -756,11 +759,22 @@ def run(command: str):
                 except Exception as e:
                     print(f"Error running 'plf': {e}")
             # @desc: Load & plot most recent CSV
-            elif single_command == "ld":
+            elif single_command.startswith("ld"):
                 try:
                     if not hasattr(parent, "opx"):
                         print("Parent has no opx.")
                         return
+                    # Parse dz value if present
+                    dz_val = None
+                    try:
+                        dz_val = int(single_command[2:])
+                    except ValueError:
+                        pass  # No numeric value; it's just "ld"
+                    # If dz value is specified, enable limit and set dz
+                    if dz_val is not None:
+                        print(f"Setting dz to {dz_val} and enabling limit...")
+                        parent.opx.toggle_limit(app_data=None, user_data=True)
+                        parent.opx.Update_dZ_Scan(app_data=None, user_data=dz_val)
                     try:
                         with open("last_scan_dir.txt", "r") as f:
                             last_scan_dir = f.read().strip()
@@ -768,6 +782,7 @@ def run(command: str):
                     except FileNotFoundError:
                         print("No last_scan_dir.txt found.")
                         return
+
                     if not last_scan_dir or not os.path.isdir(last_scan_dir):
                         print(f"Invalid last scan dir: {last_scan_dir}")
                         return
@@ -776,7 +791,7 @@ def run(command: str):
                         os.path.join(last_scan_dir, f)
                         for f in os.listdir(last_scan_dir)
                         if f.lower().endswith(".csv")
-                        ]
+                    ]
                     if not csv_files:
                         print("No CSV files found in last scan directory.")
                         return
@@ -863,10 +878,91 @@ def run(command: str):
                                 new_index = 1
                             parent.saved_query_points.append((new_index, x, y))
                             print(f"Stored queried point #{new_index}: X={x:.2f}, Y={y:.2f}")
+                            run("list")
                         except Exception as e:
                             print(f"Could not store queried point: {e}")
                 else:
                     print("OPX not available or missing 'fill_moveabs_from_query'.")
+            # @desc: Find the maximum Z value inside the currently defined queried_area.
+            #        Move the stage to the X,Y location of the maximum, update the GUI,
+            #        and store the location as a new query point in saved_query_points.
+            elif single_command == "findq":
+                try:
+                    from HWrap_OPX import Axis
+                    if not hasattr(parent, "opx"):
+                        print("OPX unavailable.")
+                        return
+
+                    opx = parent.opx
+
+                    # Check queried area
+                    queried_area = getattr(opx, "queried_area", None)
+                    if queried_area is None or len(queried_area) < 4:
+                        print("No queried area defined.")
+                        return
+
+                    x0, x1, y0, y1 = queried_area
+                    xmin, xmax = min(x0, x1), max(x0, x1)
+                    ymin, ymax = min(y0, y1), max(y0, y1)
+
+                    # Get scan data and coordinate vectors
+                    scan = getattr(opx, "scan_data", None)
+                    if scan is None or not hasattr(opx, "Xv") or not hasattr(opx, "Yv") or not hasattr(opx, "idx_scan"):
+                        print("Scan data or coordinate vectors are missing.")
+                        return
+
+                    Xv = np.array(opx.Xv)
+                    Yv = np.array(opx.Yv)
+                    flipped_Yv = Yv[::-1]  # Flip Y for flipped image
+
+                    z_idx = opx.idx_scan[Axis.Z.value]
+                    z_value = float(opx.Zv[z_idx])
+
+                    # Extract 2D Z-slice (XY plane at current Z index) and flip
+                    flipped_arrXY = np.flipud(scan[z_idx, :, :])  # Match display orientation
+
+                    # Get index masks inside queried rectangle
+                    mask_x = (Xv >= xmin) & (Xv <= xmax)
+                    mask_y = (flipped_Yv >= ymin) & (flipped_Yv <= ymax)
+
+                    ix = np.where(mask_x)[0]
+                    iy = np.where(mask_y)[0]
+
+                    if ix.size == 0 or iy.size == 0:
+                        print("No scan points inside queried area.")
+                        return
+
+                    # Extract the sub-region and find max
+                    sub_arr = flipped_arrXY[np.ix_(iy, ix)]
+                    if sub_arr.size == 0:
+                        print("Sub-region is empty.")
+                        return
+
+                    iy_max, ix_max = np.unravel_index(np.argmax(sub_arr), sub_arr.shape)
+                    x_max = Xv[ix[ix_max]]
+                    y_max = flipped_Yv[iy[iy_max]]
+                    z_max = sub_arr[iy_max, ix_max]
+
+                    print(f"Max Z={z_max:.2f} found at X={x_max:.2f}, Y={y_max:.2f}, Z slice={z_value:.2f}")
+
+                    # Move GUI sliders
+                    dpg.set_value("mcs_ch0_ABS", x_max)
+                    dpg.set_value("mcs_ch1_ABS", y_max)
+
+                    if hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "move_absolute"):
+                        parent.smaractGUI.move_absolute(None, None, 0)
+                        parent.smaractGUI.move_absolute(None, None, 1)
+
+                    # Save as a query point
+                    if not hasattr(parent, "saved_query_points"):
+                        parent.saved_query_points = []
+                    new_index = parent.saved_query_points[-1][0] + 1 if parent.saved_query_points else 1
+                    parent.saved_query_points.append((new_index, x_max, y_max))
+                    print(f"Stored query point #{new_index}: X={x_max:.2f}, Y={y_max:.2f}")
+                    run("list")
+
+                except Exception as e:
+                    print(f"Error in findq command: {e}")
             # @desc: Move to last recorded Z value (optionally add offset) and note
             elif single_command.strip().lower().startswith("z"):
                 if parent and hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "last_z_value"):
@@ -937,7 +1033,7 @@ def run(command: str):
                         parent.smaractGUI.move_absolute(None, None, 2)
                         time.sleep(0.5)
 
-                        note = f"Rounded to ({pos_rounded[0]:.{precision}f}, {pos_rounded[1]:.{precision}f}, {pos_rounded[2]:.{precision}f})"
+                        note = f"Rounded to ({snap[0]:.{precision}f}, {snap[1]:.{precision}f}, {snap[2]:.{precision}f})"
                         print(note)
                         run("st")
 
@@ -1204,7 +1300,6 @@ def run(command: str):
                         print("OPX SPC has no 'acquire_Data' method.")
                 else:
                     print("Parent OPX or SPC not available.")
-                run("a")
             # @desc: display a message window with large yellow text
             elif single_command.startswith("msg "):
                 msg_text = single_command.split(" ", 1)[1]
@@ -1345,10 +1440,10 @@ def run(command: str):
                             dpg.set_value("inInt_Ly_scan", int(Ly))
                             parent.opx.Update_Ly_Scan(user_data=int(Ly))
                             print(f"Ly set to {int(Ly)} nm in scan settings.")
+                            parent.opx.Update_dX_Scan("inInt_dx_scan", 2000)
+                            parent.opx.Update_dY_Scan("inInt_dy_scan", 2000)
                         else:
                             print("inInt_Ly_scan not found or Ly = 0.")
-                        parent.opx.Update_dX_Scan("inInt_dx_scan", 2000)
-                        parent.opx.Update_dY_Scan("inInt_dy_scan", 2000)
 
                     except Exception as e:
                         print(f"Error calculating future: {e}")
@@ -1653,7 +1748,8 @@ def run(command: str):
                     print(f"Unknown command: {single_command}")
         except Exception as e:
             print(f"Error running command '{single_command}': {e}")
-        dpg.focus_item("OPX Window")
+        # dpg.focus_item("OPX Window")
+        dpg.focus_item("cmd_input")
 
 import builtins
 builtins.run = run
