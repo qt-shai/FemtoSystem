@@ -1476,7 +1476,6 @@ class GUI_OPX():
             extensions = [".jpg", ".xml", ".png", ".csv"]
 
             if not hasattr(self, 'timeStamp') or not self.timeStamp:
-                print("No timestamp found. Save data first.")
                 if hasattr(self, 'last_loaded_file') and self.last_loaded_file:
                     base, ext = os.path.splitext(self.last_loaded_file)
                     for extra_ext in extensions:
@@ -1527,8 +1526,8 @@ class GUI_OPX():
                     shutil.move(src, dst)
                     print(f"Moved {src} → {dst}")
                     moved_any = True
-                else:
-                    print(f"{src} does not exist.")
+                elif hasattr(self, 'timeStamp'):
+                    # print(f"{src} does not exist.")
                     folder = os.path.dirname(src)
                     base_pattern = f"{self.timeStamp}_SCAN_"
                     found = False
@@ -1560,6 +1559,20 @@ class GUI_OPX():
                         dst = os.path.join(new_folder, filename)
                         shutil.move(src, dst)
                         print(f"Moved {src} → {dst}")
+                        moved_any = True
+
+            # ✅ Fallback: Move last_loaded_file if nothing was moved
+            if not moved_any and hasattr(self, 'last_loaded_file') and self.last_loaded_file:
+                if os.path.exists(self.last_loaded_file):
+                    base_name = os.path.basename(self.last_loaded_file)
+                    name, ext = os.path.splitext(base_name)
+                    new_name = f"{name}_{self.expNotes}{ext}" if self.expNotes else base_name
+                    dst = os.path.join(new_folder, new_name)
+                    shutil.copy(self.last_loaded_file, dst)
+                    print(f"Copied last loaded file to {dst} with updated name.")
+                    moved_any = True
+                else:
+                    print(f"Last loaded file does not exist: {self.last_loaded_file}")
 
         except Exception as e:
             print(f"Error moving files: {e}")
@@ -1704,7 +1717,7 @@ class GUI_OPX():
             position[channel] = int(device.AxesPositions[channel] / device.StepsIn1mm * 1e3 * 1e6)  # [pm]
         return position
 
-    def toggle_limit(self, app_data, user_data):
+    def toggle_limit(self, app_data=None, user_data=True):
         self.limit = user_data
         time.sleep(0.001)
         dpg.set_value(item="checkbox_limit", value=self.limit)
@@ -9159,14 +9172,17 @@ class GUI_OPX():
         return [item for item in lst for _ in range(k)]
 
     def btnStartCounterLive(self, b_startFetch=True):
-        self.exp = Experiment.COUNTER
-        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
-        # TODO: Boaz - Check for edge cases in number of measurements per array
-        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-                         num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
+        try:
+            self.exp = Experiment.COUNTER
+            self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+            # TODO: Boaz - Check for edge cases in number of measurements per array
+            self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                             num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
 
-        if b_startFetch and not self.bEnableSimulate:
-            self.StartFetch(_target=self.FetchData)
+            if b_startFetch and not self.bEnableSimulate:
+                self.StartFetch(_target=self.FetchData)
+        except Exception as e:
+            print(f"Failed to start counter live: {e}")
 
     def btnStartG2Survey(self) -> None:
         """
@@ -10035,8 +10051,6 @@ class GUI_OPX():
                                 check_srs_stability=check_srs_stability)
 
     def StartScan(self):
-        if self.positioner:
-            self.positioner.KeyboardEnabled = False  # TODO: Update the check box in the gui!!
         if self.HW.atto_scanner:
 
             # Move and read functions for mixed axes control
@@ -10112,8 +10126,6 @@ class GUI_OPX():
             self.HW.atto_positioner.start_updates()
         else:
             self.StartScan3D()
-        if self.positioner:
-            self.positioner.KeyboardEnabled = True  # TODO: Update the check box in the gui!!
 
     def fetch_peak_intensity(self, integration_time):
         self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
@@ -11348,49 +11360,6 @@ class GUI_OPX():
                     z = z_vec[i]
                     I = self.scan_intensities[k, j, i]
                     self.scan_Out.append([x, y, z, I, x, y, z])
-
-    # def prepare_scan_data(self):
-    #     """
-    #     Prepare scan data with actual positions (X_vec, Y_vec, Z_vec), intensities,
-    #     and expected positions derived from V_scan. If actual positions are None,
-    #     they default to expected positions.
-    #     """
-    #     # Create an object to be saved in Excel
-    #     self.scan_Out = []
-    #
-    #     # Get dimensions
-    #     Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
-    #
-    #     # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
-    #     intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, Nz)
-    #     Ny = intensities_data.shape[1]
-    #     # Loop over Z, Y, and X scan coordinates
-    #     for i in range(Nz):  # Z dimension
-    #         for j in range(Ny):  # Y dimension
-    #             for k in range(Nx):  # X dimension
-    #                 # Expected positions derived from V_scan
-    #                 x_expected = self.V_scan[0][k]
-    #                 y_expected = self.V_scan[1][j]
-    #                 z_expected = self.V_scan[2][i]
-    #
-    #                 # Actual positions
-    #                 x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
-    #                 y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
-    #                 z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
-    #
-    #                 # Intensity at the current position
-    #                 intensities = (
-    #                     intensities_data[k, j, i]
-    #                     if intensities_data is not None
-    #                        and k < intensities_data.shape[0]
-    #                        and j < intensities_data.shape[1]
-    #                        and i < intensities_data.shape[2]
-    #                     else 0
-    #                 )
-    #
-    #                 # Append data for this point
-    #                 self.scan_Out.append(
-    #                     [x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)

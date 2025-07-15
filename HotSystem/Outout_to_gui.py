@@ -171,7 +171,7 @@ def run(command: str):
         return
     # Split into individual commands
     commands = [c.strip() for c in command.split(";") if c.strip()]
-    for single_command in commands:
+    for idx, single_command in enumerate(commands):
         try:
             verb, sep, rest = single_command.partition(" ")
             single_command = verb.lower() + sep + rest
@@ -1740,6 +1740,26 @@ def run(command: str):
                     show_msg_window(help_txt, height=1400)
                 # help_txt = "Available commands:\n\n" + "\n".join(f" {l}" for l in lines)
                 # show_msg_window(help_txt, height=1400)
+            # @desc: wait<ms> — sleep in background, then run EVERY remaining command
+            elif single_command.lower().startswith("wait"):
+                import threading, time
+                ms_str = single_command[len("wait"):].strip()
+                try:
+                    ms = int(ms_str)
+                except ValueError:
+                    print(f"Invalid syntax. Use: wait<ms>, e.g. wait1000. Got '{ms_str}'")
+                    return
+                # capture everything after this in the same line
+                remaining = commands[idx + 1:]
+                def _delayed_runner():
+                    time.sleep(ms / 1000.0)
+                    print(f"[wait] {ms} ms elapsed → now running {remaining}")
+                    for cmd in remaining:
+                        run(cmd)
+                threading.Thread(target=_delayed_runner, daemon=True).start()
+                print(f"Started background wait for {ms} ms… deferring {remaining}")
+                # stop here—don't run the rest now
+                return
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})

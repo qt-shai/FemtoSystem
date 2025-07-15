@@ -131,8 +131,6 @@ class GUI_smaract():
                     dpg.add_combo(label="Devices", items=self.dev.Available_Devices_List, tag=f"{self.prefix}_device_selector",
                                   callback=self.cmb_device_selector, width=300)
                     dpg.add_button(label="Refresh", callback=self.btn_get_av_device_list)
-                    dpg.add_text(" Disable keys")
-                    dpg.add_checkbox(tag="mcs_Disable_Keyboard", callback=self.cbx_disable_keyboard)
             with dpg.group(horizontal=False, tag="table_group"):
                 with dpg.group(horizontal=True, tag="table_group2"):
                     dpg.add_button(label="Load logged from file", callback=self.load_logged_points_from_file)
@@ -294,12 +292,6 @@ class GUI_smaract():
             load_window_positions(file_name)
         except Exception as e:
             print(f"Error loading window positions and sizes: {e}")
-
-    def cbx_disable_keyboard(self, app_data, user_data):
-        if user_data:
-            self.dev.KeyboardEnabled = False
-        else:
-            self.dev.KeyboardEnabled = True
 
     def ipt_large_step(self,app_data,user_data):
         ch=int(app_data[6])        

@@ -125,6 +125,19 @@ class GUI_HRS500():
         # self.data = sp.load_experiment()
         self.data = np.asarray(self.data, dtype = float)
         self.data = self.data[self.data[:,0].argsort()]
+
+        # ✅ Remove outliers: drop rows where y >> mean
+        y_mean = np.mean(self.data[:, 1])
+        y_std = np.std(self.data[:, 1])
+
+        # Define threshold (e.g., keep only values within 5× std from mean)
+        threshold = y_mean + 8 * y_std
+        mask = self.data[:, 1] < threshold
+        filtered = self.data[mask]
+        if len(filtered) < len(self.data):
+            print(f"Removed {len(self.data) - len(filtered)} outlier(s) with Y > {threshold:.2f}")
+        self.data = filtered
+
         print(f"Data : {self.data}")
         if self.data is None or len(self.data) == 0:
             print("No data returned!")

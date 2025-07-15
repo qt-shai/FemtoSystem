@@ -1195,9 +1195,8 @@ class PyGuiOverlay(Layer):
                 return
 
             # ── Printable characters ──
-            if 32 <= key_code <= 126:
-                if len(dpg.get_value("cmd_input")) == 0:
-                    dpg.focus_item("cmd_input")
+            if key_code in (KeyboardKeys.C_KEY.value, KeyboardKeys.SPACE_KEY.value):
+                dpg.focus_item("cmd_input")
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
@@ -1207,8 +1206,8 @@ class PyGuiOverlay(Layer):
 
     def handle_smaract_controls(self, key_data_enum, is_coarse):
         """Handles keyboard input for Smaract device controls."""
-        try:
-            if self.smaractGUI and self.smaractGUI.dev.KeyboardEnabled:
+        try:#and self.smaractGUI.dev.KeyboardEnabled:
+            if self.smaractGUI:
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
                     self.smaract_log_points()
