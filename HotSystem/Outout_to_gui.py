@@ -108,7 +108,7 @@ def load_saved_points(parent, file_name="saved_query_points.txt"):
         print(f"❌ Error loading points: {e}")
         return False
 
-def run(command: str):
+def run(command: str, record_history: bool = True):
     """
         # Loop syntax:
         #   expects: loop <start> <end> <template>
@@ -123,10 +123,18 @@ def run(command: str):
     if parent is None:
         print("Warning: run() called but sys.stdout.parent is not set yet.")
         return
+    if not command:
+        # empty input: bounce focus to main OPX window and do *not* record history
+        dpg.focus_item("OPX Window")
+        return
+
     if not hasattr(parent, "command_history"):
         parent.command_history = []
-    parent.update_command_history(command)
-    parent.history_index = len(parent.command_history)  # Always reset index to END
+
+    if record_history:
+        parent.update_command_history(command)
+        parent.history_index = len(parent.command_history)  # Always reset index to END
+
     # expects: loop <start> <end> <template> e.g. loop 10 11 fq{i};mark;spc;cc
     if command.startswith("loop "):
         import threading
@@ -856,7 +864,7 @@ def run(command: str):
                                     parent.opx.saveExperimentsNotes(note=note_text)
                             else:
                                 print(f"No stored point with index {index_to_go}.")
-                        run("list")
+                        run("list", record_history=False)
                     else:
                         # === Regular fill/move/store ===
                         parent.opx.fill_moveabs_from_query()
@@ -878,7 +886,7 @@ def run(command: str):
                                 new_index = 1
                             parent.saved_query_points.append((new_index, x, y))
                             print(f"Stored queried point #{new_index}: X={x:.2f}, Y={y:.2f}")
-                            run("list")
+                            run("list", record_history=False)
                         except Exception as e:
                             print(f"Could not store queried point: {e}")
                 else:
@@ -959,8 +967,7 @@ def run(command: str):
                     new_index = parent.saved_query_points[-1][0] + 1 if parent.saved_query_points else 1
                     parent.saved_query_points.append((new_index, x_max, y_max))
                     print(f"Stored query point #{new_index}: X={x_max:.2f}, Y={y_max:.2f}")
-                    run("list")
-
+                    run("list", record_history=False)
                 except Exception as e:
                     print(f"Error in findq command: {e}")
             # @desc: Move to last recorded Z value (optionally add offset) and note
@@ -1003,6 +1010,50 @@ def run(command: str):
                         print("move_absolute not found in smaractGUI.")
                 else:
                     print("smaractGUI or last_z_value not available.")
+            # @desc: Set absolute X, then move
+            elif single_command.lower().startswith("xabs"):
+                try:
+                    val = float(single_command[len("xabs"):].strip())
+                except ValueError:
+                    print(f"Invalid syntax. Use: xabs<num>, e.g. xabs12.5")
+                    return
+                # fill the X absolute field
+                dpg.set_value("mcs_ch0_ABS", val)
+                # trigger move on axis 0 (X)
+                parent.smaractGUI.move_absolute(None, None, 0)
+                print(f"Moved X to absolute {val:.3f}")
+            # @desc: Set absolute Y, then move
+            elif single_command.lower().startswith("yabs"):
+                try:
+                    val = float(single_command[len("yabs"):].strip())
+                except ValueError:
+                    print(f"Invalid syntax. Use: yabs<num>, e.g. yabs-5")
+                    return
+                dpg.set_value("mcs_ch1_ABS", val)
+                parent.smaractGUI.move_absolute(None, None, 1)
+                print(f"Moved Y to absolute {val:.3f}")
+            # @desc: Set absolute Z, then move
+            elif single_command.lower().startswith("zabs"):
+                try:
+                    val = float(single_command[len("zabs"):].strip())
+                except ValueError:
+                    print(f"Invalid syntax. Use: zabs<num>, e.g. zabs11500")
+                    return
+                dpg.set_value("mcs_ch2_ABS", val)
+                parent.smaractGUI.move_absolute(None, None, 2)
+                print(f"Moved Z to absolute {val:.3f}")
+            # @desc: Save current Z as last_z_value and then move to z=11500 µm
+            elif single_command.strip().lower() == "down":
+                if parent and hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "last_z_value"):
+                    # current_z = dpg.get_value("mcs_ch2_ABS")
+                    current_z = parent.smaractGUI.dev.AxesPositions[2]*1e-6
+                    parent.smaractGUI.last_z_value = current_z
+                    target_z = 11500.0
+                    dpg.set_value("mcs_ch2_ABS", target_z)
+                    parent.smaractGUI.move_absolute(None, None, 2)
+                    print(f"Saved last_z_value={current_z:.2f} µm; moved to {target_z:.2f} µm")
+                else:
+                    print("down: smaractGUI or last_z_value not available.")
             # @desc: Round current position to <n> digits, move, update XYZ. Example: round2
             elif single_command.strip().lower().startswith("round"):
                 try:
@@ -1035,7 +1086,7 @@ def run(command: str):
 
                         note = f"Rounded to ({snap[0]:.{precision}f}, {snap[1]:.{precision}f}, {snap[2]:.{precision}f})"
                         print(note)
-                        run("st")
+                        run("st", record_history=False)
 
                     else:
                         print("Positioner or AxesPositions not available.")
