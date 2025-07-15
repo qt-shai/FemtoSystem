@@ -69,9 +69,9 @@ def main():
 
     norm, positions = extract_positions(ocr)
 
-    print("── Normalized OCR text ──")
-    print(norm.strip())
-    print("─────────────────────────\n")
+    # print("── Normalized OCR text ──")
+    # print(norm.strip())
+    # print("─────────────────────────\n")
 
     for ch in ("Ch0", "Ch1", "Ch2"):
         val = positions[ch]

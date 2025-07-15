@@ -11,6 +11,9 @@ import HW_wrapper.HW_devices as hw_devices
 from HW_GUI.GUI_MFF_101 import GUI_MFF
 import traceback
 import time
+from PIL import ImageGrab, Image
+import pytesseract
+from Utils.extract_positions import preprocess_image, extract_positions, TESSERACT_CONFIG
 
 # To copy the last message to the clipboard:
 # import pyperclip; pyperclip.copy(sys.stdout.messages[-2])
@@ -1810,6 +1813,29 @@ def run(command: str, record_history: bool = True):
                 print(f"Started background wait for {ms} ms… deferring {remaining}")
                 # stop here—don't run the rest now
                 return
+            # @desc: OCR → extract Ch0–Ch2 from clipboard image, fill & move
+            elif single_command.strip().lower() == "ocr":
+                try:
+                    img = ImageGrab.grabclipboard()
+                    if not isinstance(img, Image.Image):
+                        print("ocr: no image found in clipboard.")
+                        return
+
+                    proc = preprocess_image(img)
+                    ocr_txt = pytesseract.image_to_string(proc, config=TESSERACT_CONFIG)
+                    _, pos = extract_positions(ocr_txt)
+
+                    for axis, ch in enumerate(("Ch0", "Ch1", "Ch2")):
+                        v = pos.get(ch)
+                        if v is None:
+                            print(f"{ch}: not found")
+                            continue
+                        tag = f"mcs_ch{axis}_ABS"
+                        dpg.set_value(tag, v)
+                        # parent.smaractGUI.move_absolute(None, None, axis)
+                        print(f"ocr -> moved axis {axis} to {v:.2f}")
+                except Exception as e:
+                    print(f"ocr command failed: {e}")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
