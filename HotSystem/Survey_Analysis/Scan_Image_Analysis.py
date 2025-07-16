@@ -288,20 +288,20 @@ class ScanImageAnalysis:
         self.plot_circles(centres, radii, ax=ax, fixed_radius=circle_mode)
         plt.show()
 
-image = ScanImageAnalysis()
-path = "C:\\users\\Daniel\\Work Folders\\Documents\\2025_5_6_4_2_49_SCAN_Pillar4.5_array4.csv"
-image.load_image(path)
-image._grid[image._grid > 70] = 70
-# ax = image.plot_image(image._grid, clim=(0,70))
-# circles = image.compute_hough_circles()
-# image.plot_hough_circles(circles, ax=ax)
+# image = ScanImageAnalysis()
+# path = "C:\\users\\Daniel\\Work Folders\\Documents\\2025_5_6_4_2_49_SCAN_Pillar4.5_array4.csv"
+# image.load_image(path)
+# image._grid[image._grid > 70] = 70
+# # ax = image.plot_image(image._grid, clim=(0,70))
+# # circles = image.compute_hough_circles()
+# # image.plot_hough_circles(circles, ax=ax)
+# # plt.show()
+#
+# contours = image.compute_pillar_contours(im = image._grid, clim_max=70.0, thresh_frac=0.21)
+# # ax = image.plot_image(image._grid, clim=(0, 70), cmap="rainbow")  # background
+# # image.plot_contours(contours, ax=ax, outline_color="white", outline_width=1.2)
+#
+# # image.plot_contours(contours)
+# # centres, radii = image.compute_circle_fit(contours)
+# image.show_pillars()
 # plt.show()
-
-contours = image.compute_pillar_contours(im = image._grid, clim_max=70.0, thresh_frac=0.21)
-# ax = image.plot_image(image._grid, clim=(0, 70), cmap="rainbow")  # background
-# image.plot_contours(contours, ax=ax, outline_color="white", outline_width=1.2)
-
-# image.plot_contours(contours)
-# centres, radii = image.compute_circle_fit(contours)
-image.show_pillars()
-plt.show()

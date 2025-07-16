@@ -273,7 +273,7 @@ class GUI_OPX():
         self.tTrackingSignaIntegrationTime = 50  # [msec]
         self.tGetTrackingSignalEveryTime = float(3)  # [sec]
         self.TrackingThreshold = 0.95  # track signal threshold
-        self.N_tracking_search = 5  # max number of point to scan on each axis
+        self.N_tracking_search = 20  # max number of point to scan on each axis
 
         # Qua config object
         self.quaCFG = configs.QuaConfigSelector.get_qua_config(self.HW.config.system_type)
@@ -637,7 +637,7 @@ class GUI_OPX():
         dpg.set_value(item="ind_gate_number", value=sender.gate_number)
         print("Set gate_number to: " + str(sender.gate_number))
 
-    def UpdateN_tracking_search(sender, app_data, user_data):
+    def UpdateN_tracking_search(sender, app_data=None, user_data=None):
         sender.N_tracking_search = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_N_tracking_search", value=sender.N_tracking_search)
@@ -9174,10 +9174,8 @@ class GUI_OPX():
         try:
             self.exp = Experiment.COUNTER
             self.GUI_ParametersControl(isStart=self.bEnableSimulate)
-            # TODO: Boaz - Check for edge cases in number of measurements per array
             self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
                              num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
-
             if b_startFetch and not self.bEnableSimulate:
                 self.StartFetch(_target=self.FetchData)
         except Exception as e:
@@ -11574,7 +11572,7 @@ class GUI_OPX():
 
     def FindMaxSignal(self):
         self.track_numberOfPoints = self.N_tracking_search  # number of point to scan for each axis
-        self.trackStep = 50000  # [pm], step size
+        self.trackStep = 30000  # [pm], step size
         initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
         # self.numberOfRefPoints = 1000
 
@@ -11582,27 +11580,23 @@ class GUI_OPX():
         self.coordinate = []
 
         for ch in range(3):
-            print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ch{ch} !!!!!!!!!!!!!!!!!!!!")
+            print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ch{ch} !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             self.track_X = []
             self.coordinate = []
 
             if (ch == 2):
-                self.trackStep = 2 * 75000  # [pm]
+                self.trackStep = 50000  # [pm]
                 initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
 
             # goto start location
             self.positioner.MoveRelative(ch, -1 * initialShift)
-            time.sleep(0.001)
+            time.sleep(0.01)
             while not (self.positioner.ReadIsInPosition(ch)):
-                time.sleep(0.001)
+                time.sleep(0.01)
             # print(f"is in position = {self.positioner.ReadIsInPosition(ch)}")
             self.positioner.GetPosition()
             self.absPosunits = self.positioner.AxesPosUnits[ch]
             self.absPos = self.positioner.AxesPositions[ch]
-
-            self.GlobalFetchData()
-            lastRef = self.tracking_ref
-            # last_iteration = self.iteration
 
             for i in range(self.track_numberOfPoints):
                 # grab/fetch new data from stream
@@ -11612,13 +11606,12 @@ class GUI_OPX():
                 time.sleep(0.01)  # according to OS priorities
                 self.GlobalFetchData()
                 self.lock.acquire()
-                lastRef = self.tracking_ref
-                # last_iteration = self.iteration
+                current_signal = self.counter_Signal[0]
                 self.lock.release()
 
                 # Log data                
                 self.coordinate.append(i * self.trackStep + self.absPos)  # Log axis position
-                self.track_X.append(lastRef)  # Loa signal to array
+                self.track_X.append(current_signal)  # Loa signal to array
 
                 # move to next location (relative move)
                 self.positioner.MoveRelative(ch, self.trackStep)
@@ -11626,37 +11619,30 @@ class GUI_OPX():
                 while not (res):
                     res = self.positioner.ReadIsInPosition(ch)  # print(f"i = {i}, ch = {ch}, is in position = {res}")
 
-            print(f"x(ch={ch}): ", end="")
-            for i in range(len(self.coordinate)):
-                print(f", {self.coordinate[i]: .3f}", end="")
-            print("")
-            print(f"y(ch={ch}): ", end="")
-            for i in range(len(self.track_X)):
-                print(f", {self.track_X[i]: .3f}", end="")
-            print("")
-
-            # optional: fit to parabula
-            # if False:
-            #     coefficients = np.polyfit(self.coordinate, self.track_X, 2)
-            #     a, b, c = coefficients
-            #     maxPos_parabula = int(-b / (2 * a))
-            #     print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula}")
+            print(f"ch={ch}:")
+            coords_str = ", ".join(f"{c*1e-6: .2f}" for c in self.coordinate)
+            print(f"{coords_str}")
+            intensity_vals = ", ".join(f"{v: .0f}" for v in self.track_X)
+            print(f"{intensity_vals}")
 
             # find max signal
             maxPos = self.coordinate[self.track_X.index(max(self.track_X))]
-            print(f"maxPos={maxPos}")
+            print(f"maxPos={maxPos*1e-6:.1f}")
 
             # move to max signal position
             self.positioner.MoveABSOLUTE(ch, maxPos)
+            time.sleep(0.01)
+
+            print("Is it good?")
 
         # update new ref signal
         self.refSignal = max(self.track_X)
         print(f"new ref Signal = {self.refSignal}")
 
-        # get new val for comparison
-        time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001 + 0.1)  # [sec]
-        self.GlobalFetchData()
-        print(f"self.tracking_ref = {self.tracking_ref}")
+        # # get new val for comparison
+        # time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001 + 0.1)  # [sec]
+        # self.GlobalFetchData()
+        # print(f"self.tracking_ref = {self.tracking_ref}")
 
         # shift back tp experiment sequence
         self.qm.set_io1_value(0)

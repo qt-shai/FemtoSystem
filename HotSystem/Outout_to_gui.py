@@ -4,6 +4,7 @@ import numpy as np
 
 # import dearpygui.dearpygui as dpg
 from Common import *
+from Survey_Analysis.Scan_Image_Analysis import ScanImageAnalysis
 # import pyperclip, os
 from Utils import loadFromCSV
 # import importlib
@@ -1962,7 +1963,6 @@ def run(command: str, record_history: bool = True):
             #        smart1: reuse last 3D + detect (only if no points) + fine-scan
             #        smart2: reuse last 3D + detect + NO fine-scan
             elif single_command.split()[0] in ("sur", "sur1", "sur2"):
-                import time
                 try:
                     parts = single_command.split()
                     mode = parts[0]                   # "smart", "smart1" or "smart2"
@@ -2009,7 +2009,8 @@ def run(command: str, record_history: bool = True):
                                         text=str(idx),
                                         color=(255, 255, 0, 255),
                                         parent="plot_draw_layer",
-                                        tag=txt_tag
+                                        tag=txt_tag,
+                                        size = 1.2,
                                     )
                                     print(f"{idx}: intensity {val:.1f} -> at ({x_phys:.3f}, {y_phys:.3f})")
                     # --- FINE-SCAN FUNCTION ---
@@ -2051,8 +2052,99 @@ def run(command: str, record_history: bool = True):
                                 break
 
                         print(f"  -> hotspot {idx}: peak {peak:.1f} -> at ({x_um:.6f} m, {y_um:.6f} m)")
+                    # --- DETECTION FUNCTION using contours ---
+                    def detect_and_draw1():
+                        # 1) Set up analyzer grid from your last scan
+                        analyzer = ScanImageAnalysis()
+                        analyzer._grid = parent.opx.scan_data[0, :, :]  # (Ny, Nx)
+                        analyzer._xu = np.array(parent.opx.Xv)  # length Nx, in µm
+                        analyzer._yu = np.array(parent.opx.Yv)  # length Ny, in µm
 
-                # 1) fresh scan for "smart"
+                        # 2) find raw contours
+                        max_intensity = np.nanmax(analyzer._grid)
+                        contours = analyzer.compute_pillar_contours(
+                            im=analyzer._grid,
+                            clim_max=max_intensity,
+                            thresh_frac=0.3
+                        )
+
+                        if True:
+                            # --- DEBUG: print contour info ---
+                            print(f"Found {len(contours)} contours")
+                            for i, cnt in enumerate(contours, start=1):
+                                # ensure shape is (N,2)
+                                pts = cnt.reshape(-1, 2)
+                                xs, ys = pts[:, 0], pts[:, 1]
+                                print(
+                                    f"  Contour {i}: {len(pts)} points, x∈[{xs.min():.3f},{xs.max():.3f}], y∈[{ys.min():.3f},{ys.max():.3f}]")
+
+                            # --- PLOT with contours overlaid in red ---
+                            fig, ax = plt.subplots(figsize=(6, 6))
+                            # show the scan with correct physical extents
+                            im = ax.imshow(
+                                analyzer._grid,
+                                origin='lower',
+                                cmap='viridis',
+                                extent=(analyzer._xu.min(), analyzer._xu.max(),
+                                        analyzer._yu.min(), analyzer._yu.max())
+                            )
+                            fig.colorbar(im, ax=ax, label='Intensity')
+
+                            # overlay each contour
+                            for cnt in contours:
+                                pts = cnt.reshape(-1, 2)
+                                ax.plot(pts[:, 0], pts[:, 1], '-r', linewidth=1)
+
+                            ax.set_xlabel('X [μm]')
+                            ax.set_ylabel('Y [μm]')
+                            ax.set_title('Detected Pillar Contours')
+                            plt.show()
+
+
+
+
+                        # 3) compute pixel‐based min_dist for 2 µm physical separation
+                        dx = analyzer._xu[1] - analyzer._xu[0]  # µm per pixel
+                        min_dist_px = int(round(2.0 / dx))*0
+
+                        # 4) fit & filter overlapping circles
+                        centres_px, radii_px = analyzer.compute_circle_fit(contours, min_dist=min_dist_px)
+
+                        # 5) clear old points & create a fresh draw layer
+                        parent.saved_query_points = []
+                        if dpg.does_item_exist("plot_draw_layer"):
+                            dpg.delete_item("plot_draw_layer")
+                        dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+
+                        # 6) map each centre back to physical X/Y and draw
+                        for idx, (x_c_px, y_c_px) in enumerate(centres_px, start=1):
+                            col = int(round(x_c_px))
+                            row = int(round(y_c_px))
+                            x_phys = analyzer._xu[col]
+                            y_phys = analyzer._yu[row]
+                            parent.saved_query_points.append((idx, x_phys, y_phys))
+
+                            dot_tag = f"sur_dot_{idx}"
+                            txt_tag = f"sur_txt_{idx}"
+
+                            dpg.draw_circle(
+                                center=(x_phys, y_phys),
+                                radius=0.10,  # small fixed radius in µm
+                                fill=(255, 0, 0, 255),
+                                parent="plot_draw_layer",
+                                tag=dot_tag
+                            )
+                            dpg.draw_text(
+                                pos=(x_phys, y_phys),
+                                text=str(idx),
+                                color=(255, 255, 0, 255),
+                                parent="plot_draw_layer",
+                                tag=txt_tag,
+                                size=1.2,
+                            )
+                            print(f"{idx}: detected pillar at ({x_phys:.3f}, {y_phys:.3f})")
+
+                    # 1) fresh scan for "smart"
                     if mode == "sur":
                         parent.opx.StartScan3D()
                         detect_and_draw()
@@ -2070,6 +2162,7 @@ def run(command: str, record_history: bool = True):
                     print(f"-> smart command failed: {e}")
             # @desc: fmax → run FindMaxSignal on the OPX and move each axis to its max‐signal position
             elif single_command.strip().lower() == "fmax":
+                toggle_sc(reverse=False)
                 def _fmax_worker():
                     try:
                         parent.opx.survey = True
@@ -2087,6 +2180,15 @@ def run(command: str, record_history: bool = True):
                 survey_thread = threading.Thread(target=_fmax_worker, daemon=True)
                 survey_thread.start()
                 print("fmax → running in background…")
+            # @desc: ntrack<num> → set N_tracking_search via UpdateN_tracking_search callback
+            elif single_command.lower().startswith("ntrack"):
+                try:
+                    val = int(single_command[6:].strip())
+                    parent.opx.UpdateN_tracking_search(user_data=val)
+                except Exception as e:
+                    traceback.print_exc()
+                    print(f"-> failed to set N_tracking_search: {e}")
+
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
