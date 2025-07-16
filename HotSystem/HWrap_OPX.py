@@ -1436,7 +1436,7 @@ class GUI_OPX():
                     with dpg.group(horizontal=False):
                         dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
                                          default_value=self.limit)
-                        dpg.add_button(label="Fn n ill Z", callback=self.fill_z)
+                        dpg.add_button(label="Fill Z", callback=self.fill_z)
                         dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
                         dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
@@ -2121,7 +2121,7 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_dX_Scan(sender, app_data, user_data):
+    def Update_dX_Scan(sender, app_data=None, user_data=None):
         sender.dL_scan[0] = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_dx_scan", value=sender.dL_scan[0])
@@ -2132,7 +2132,7 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_Lx_Scan(sender, app_data, user_data):
+    def Update_Lx_Scan(sender, app_data=None, user_data=None):
         sender.L_scan[0] = (int(user_data*1000))
         time.sleep(0.001)
         dpg.set_value(item="inInt_Lx_scan", value=user_data)
@@ -2143,7 +2143,7 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_dY_Scan(sender, app_data, user_data):
+    def Update_dY_Scan(sender, app_data=None, user_data=None):
         sender.dL_scan[1] = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_dy_scan", value=sender.dL_scan[1])
@@ -2176,7 +2176,7 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_Lz_Scan(sender, app_data, user_data):
+    def Update_Lz_Scan(sender, app_data=None, user_data=None):
         sender.L_scan[2] = (int(user_data*1000))
         time.sleep(0.001)
         dpg.set_value(item="inInt_Lz_scan", value=user_data)
@@ -2187,7 +2187,7 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_bZcorrection(sender, app_data, user_data):
+    def Update_bZcorrection(sender, app_data=None, user_data=None):
         sender.b_Zcorrection = user_data
         time.sleep(0.001)
         dpg.set_value(item="chkbox_Zcorrection", value=sender.b_Zcorrection)
@@ -10407,6 +10407,8 @@ class GUI_OPX():
         if not (self.stopScan):
             self.btnStop()
 
+        return self.scan_data
+
     def set_hwp_angle(self, new_hwp_angle: float):
         """
         Move the half-wave plate (HWP) to exactly new_hwp_angle degrees.
@@ -11572,7 +11574,7 @@ class GUI_OPX():
 
     def FindMaxSignal(self):
         self.track_numberOfPoints = self.N_tracking_search  # number of point to scan for each axis
-        self.trackStep = 75000  # [pm], step size
+        self.trackStep = 50000  # [pm], step size
         initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
         # self.numberOfRefPoints = 1000
 
@@ -11580,6 +11582,7 @@ class GUI_OPX():
         self.coordinate = []
 
         for ch in range(3):
+            print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ch{ch} !!!!!!!!!!!!!!!!!!!!")
             self.track_X = []
             self.coordinate = []
 
@@ -11592,25 +11595,25 @@ class GUI_OPX():
             time.sleep(0.001)
             while not (self.positioner.ReadIsInPosition(ch)):
                 time.sleep(0.001)
-            print(f"is in position = {self.positioner.ReadIsInPosition(ch)}")
+            # print(f"is in position = {self.positioner.ReadIsInPosition(ch)}")
             self.positioner.GetPosition()
             self.absPosunits = self.positioner.AxesPosUnits[ch]
             self.absPos = self.positioner.AxesPositions[ch]
 
             self.GlobalFetchData()
             lastRef = self.tracking_ref
-            last_iteration = self.iteration
+            # last_iteration = self.iteration
 
             for i in range(self.track_numberOfPoints):
                 # grab/fetch new data from stream
                 time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001)  # [sec]
                 self.GlobalFetchData()
-                while (last_iteration == self.iteration):  # wait for new data
-                    time.sleep(0.01)  # according to OS priorities
-                    self.GlobalFetchData()
+                # while (last_iteration == self.iteration):  # wait for new data
+                time.sleep(0.01)  # according to OS priorities
+                self.GlobalFetchData()
                 self.lock.acquire()
                 lastRef = self.tracking_ref
-                last_iteration = self.iteration
+                # last_iteration = self.iteration
                 self.lock.release()
 
                 # Log data                
@@ -11800,8 +11803,8 @@ class GUI_OPX():
     def MoveToPeakIntensity(self):
         print('Start looking for peak intensity')
         if self.bEnableSignalIntensityCorrection or self.survey:
-            print(f"self.HW.atto_scanner is {self.HW.atto_scanner}")
-            print(f"self.HW.atto_positioner is {self.HW.atto_positioner}")
+            # print(f"self.HW.atto_scanner is {self.HW.atto_scanner}")
+            # print(f"self.HW.atto_positioner is {self.HW.atto_positioner}")
             if self.HW.atto_scanner or self.HW.atto_positioner:
                 print("Working in Atto system")
                 self.MAxSignalTh = threading.Thread(target=self.tracking_function)

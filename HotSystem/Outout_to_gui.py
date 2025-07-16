@@ -118,7 +118,7 @@ def run(command: str, record_history: bool = True):
         Simple command handler for the Dear PyGui console.
         Supports single or multiple commands separated by ';':
         """
-    import os,re
+    import os,re,time,threading
     command = command.strip()
     parent = getattr(sys.stdout, "parent", None)
     if parent is None:
@@ -138,7 +138,6 @@ def run(command: str, record_history: bool = True):
 
     # expects: loop <start> <end> <template> e.g. loop 10 11 fq{i};mark;spc;cc
     if command.startswith("loop "):
-        import threading
         parts = command.split(" ", 3)
         if len(parts) < 4:
             print("Usage: loop <start> <end> <template>")
@@ -204,7 +203,6 @@ def run(command: str, record_history: bool = True):
                 copy_quti_window_to_clipboard()
             # @desc: Schedule a delayed screenshot (optional suffix) & save to file
             elif single_command.startswith("cc"):
-                import threading
                 # parse optional suffix
                 parts = single_command.split(" ", 1)
                 notes = getattr(getattr(parent, "opx", None), "expNotes", None)
@@ -652,7 +650,6 @@ def run(command: str, record_history: bool = True):
                         dpg.set_item_height(parent.smaractGUI.window_tag, size[1])
                         # If not simulation, restart the Smaract thread
                         if not parent.smaractGUI.simulation:
-                            import threading
                             parent.smaract_thread = threading.Thread(target=parent.render_smaract)
                             parent.smaract_thread.start()
                         print("Reloaded HW_GUI.GUI_Smaract and recreated GUI_smaract.")
@@ -971,46 +968,38 @@ def run(command: str, record_history: bool = True):
                     run("list", record_history=False)
                 except Exception as e:
                     print(f"Error in findq command: {e}")
-            # @desc: Move to last recorded Z value (optionally add offset) and note
-            elif single_command.strip().lower().startswith("z"):
+            # @desc: lz[offset] → Move to last recorded Z value + optional offset, and note
+            elif single_command.strip().lower().startswith("lastz"):
                 if parent and hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "last_z_value"):
                     base_z = parent.smaractGUI.last_z_value
                     offset = 0.0
-                    try: # Try parsing offset from command (e.g., "z-10")
-                        if len(single_command.strip()) > 1:
-                            offset = float(single_command.strip()[1:])
-                    except Exception as e:
-                        print(f"Could not parse offset from '{single_command}': {e}")
+                    cmd = single_command.strip()[2:]  # drop "lastz"
+                    try:
+                        if cmd:
+                            offset = float(cmd)
+                    except Exception:
                         offset = 0.0
                     target_z = base_z + offset
                     dpg.set_value("mcs_ch2_ABS", target_z)
                     if hasattr(parent.smaractGUI, "move_absolute"):
                         parent.smaractGUI.move_absolute(None, None, 2)
-                        print(f"Moved to Z = {target_z:.2f} µm (base: {base_z:.2f}, offset: {offset:+.2f})")
-                        # ✅ Generate note based on offset
-                        if abs(offset) < 1e-6:
-                            note_text = "Surface"
-                        else:
-                            note_text = f"{abs(offset):.1f} µm Deep"
-
+                        print(f"-> moved Z to {target_z:.2f} (base {base_z:.2f} +{offset:.2f})")
+                        # generate note
+                        note_text = "Surface" if abs(offset) < 1e-6 else f"{abs(offset):.1f} µm Deep"
                         try:
-                            setpoint_mW = parent.coboltGUI.laser.get_power_setpoint()*1e-3
-                            if setpoint_mW > 0.9:
-                                note_text += f", Green {setpoint_mW:.1f} mW"
-                            else:
-                                note_text += ", Red 250 mA"
-                        except Exception as e:
-                            print(f"Could not get Cobolt setpoint: {e}")
-
+                            p = parent.coboltGUI.laser.get_power_setpoint() * 1e-3
+                            note_text += p > 0.9 and f", Green {p:.1f} mW" or ", Red 250 mA"
+                        except Exception:
+                            pass
                         show_msg_window(note_text)
                         parent.opx.expNotes = note_text
                         if dpg.does_item_exist("inTxtScan_expText"):
                             dpg.set_value("inTxtScan_expText", note_text)
                             parent.opx.saveExperimentsNotes(note=note_text)
                     else:
-                        print("move_absolute not found in smaractGUI.")
+                        print("-> move_absolute not available")
                 else:
-                    print("smaractGUI or last_z_value not available.")
+                    print("-> smaractGUI or last_z_value not available")
             # @desc: Set absolute X, then move
             elif single_command.lower().startswith("xabs"):
                 try:
@@ -1140,54 +1129,25 @@ def run(command: str, record_history: bool = True):
                         parent.query_annots.extend([dot_tag, annot_tag])
                 else:
                     print("No points stored.")
-            # @desc: Clear stored query points
-            elif single_command.startswith("clear"):
+            # @desc: Clear all saved points & annotations
+            elif single_command.strip().startswith("clear"):
                 parent = getattr(sys.stdout, "parent", None)
-                # If user gave index list: e.g. clear4,5,6
-                if len(single_command) > len("clear"):
-                    try:
-                        index_part = single_command[len("clear"):].strip()
-                        index_list = [int(x.strip()) for x in index_part.split(",") if x.strip()]
-                    except Exception as e:
-                        print(f"Invalid syntax. Use: clearN or clearN,M,...  Error: {e}")
-                        return
-                    if not index_list:
-                        print("No valid indices provided.")
-                        return
-                    # Remove matching points
-                    if parent and hasattr(parent, "saved_query_points"):
-                        before_len = len(parent.saved_query_points)
-                        parent.saved_query_points = [
-                            (idx, x, y) for (idx, x, y) in parent.saved_query_points if idx not in index_list
-                        ]
-                        removed_count = before_len - len(parent.saved_query_points)
-                        print(f"Removed {removed_count} points with indices {index_list}.")
-                    # Remove matching annotations
-                    if parent and hasattr(parent, "query_annots") and parent.query_annots:
-                        new_annots = []
-                        for tag in parent.query_annots:
-                            if any(f"_{idx}" in tag for idx in index_list):
-                                if dpg.does_item_exist(tag):
-                                    dpg.delete_item(tag)
-                                    print(f"Deleted annotation: {tag}")
-                            else:
-                                new_annots.append(tag)
-                        parent.query_annots = new_annots
+                # 1) Clear the saved list
+                if parent and hasattr(parent, "saved_query_points"):
+                    parent.saved_query_points = []
+                    print("-> stored query points cleared")
                 else:
-                    # If no index, clear everything
-                    if parent and hasattr(parent, "saved_query_points"):
-                        parent.saved_query_points = []
-                        print("Stored points cleared.")
-                    else:
-                        print("No stored points to clear.")
-                    if parent and hasattr(parent, "query_annots") and parent.query_annots:
-                        for tag in parent.query_annots:
-                            if dpg.does_item_exist(tag):
-                                dpg.delete_item(tag)
-                        parent.query_annots = []
-                        print("All query annotations cleared.")
-                    else:
-                        print("No query annotations to clear.")
+                    print("-> no stored query points to clear")
+                # 2) Wipe out the draw layer completely
+                layer = "plot_draw_layer"
+                if dpg.does_item_exist(layer):
+                    # delete the whole layer (removes all its children)
+                    dpg.delete_item(layer)
+                    # recreate an empty layer
+                    dpg.add_draw_layer(parent="plotImaga", tag=layer)
+                    print("-> all annotations cleared")
+                else:
+                    print("-> no drawing layer found")
             # @desc: Shift stored query point by dx, dy
             elif single_command.startswith("shift"):
                 parent = getattr(sys.stdout, "parent", None)
@@ -1431,7 +1391,9 @@ def run(command: str, record_history: bool = True):
                 if not future_args:
                     print("Syntax: future<start:step:end,percent>xN")
                     continue
-
+                # If the user prefixed with '!', bail out immediately
+                if future_args.startswith("!"):
+                    return
                 if hasattr(parent, "femto_gui") and hasattr(parent.femto_gui, "future_input_tag"):
                     # Write the input string to the input widget
                     dpg.set_value(parent.femto_gui.future_input_tag, future_args)
@@ -1563,31 +1525,87 @@ def run(command: str, record_history: bool = True):
             # @desc: Trigger OPX StartScan
             elif single_command.lower() in ("start", "startscan"):
                 # Trigger the OPX “StartScan” button
-                import time
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStartScan"):
                     try:
                         toggle_sc(reverse=False)
-                        # If dx > 500, reset both dx & dy based on dz
-                        if dpg.does_item_exist("inInt_dx_scan"):
-                            dx = dpg.get_value("inInt_dx_scan")
-                            if dx > 500:
-                                dz_value = 150  # fallback default
-                                if dpg.does_item_exist("inInt_dz_scan"):
-                                    dz_value = dpg.get_value("inInt_dz_scan")
-                                parent = getattr(sys.stdout, "parent", None)
-                                if parent and hasattr(parent, "opx"):
-                                    if hasattr(parent.opx, "Update_dX_Scan"):
-                                        parent.opx.Update_dX_Scan("inInt_dx_scan", dz_value)
-                                    if hasattr(parent.opx, "Update_dY_Scan"):
-                                        parent.opx.Update_dY_Scan("inInt_dy_scan", dz_value)
-                                print(f"dx > 200: reset dx & dy to dz value {dz_value} nm")
-                                time.sleep(0.5)
                         parent.opx.btnStartScan()
                         print("OPX scan started (btnStartScan called).")
                     except Exception as e:
                         print(f"Error calling btnStartScan: {e}")
                 else:
                     print("OPX or btnStartScan method not available.")
+            # @desc: dx<number> → set dx only
+            elif single_command.lower().startswith("dx"):
+                try:
+                    val = int(single_command[2:].strip())
+                    parent.opx.Update_dX_Scan("inInt_dx_scan", val)
+                    print(f"-> dx set to {val} nm")
+                except Exception as e:
+                    print(f"-> failed to set dx: {e}")
+            # @desc: dy<number> → set dy only
+            elif single_command.lower().startswith("dy"):
+                try:
+                    val = int(single_command[2:].strip())
+                    parent.opx.Update_dY_Scan("inInt_dy_scan", val)
+                    print(f"-> dy set to {val} nm")
+                except Exception as e:
+                    print(f"-> failed to set dy: {e}")
+            # @desc: dz → toggle Z‐scan checkbox
+            elif single_command.strip().lower() == "dz":
+                try:
+                    # read current state, flip it
+                    current = dpg.get_value("chkbox_bZ_Scan")
+                    new_state = not current
+                    dpg.set_value("chkbox_bZ_Scan", new_state)
+                    # call the same callback that the GUI would
+                    if hasattr(parent, "opx") and hasattr(parent.opx, "Update_bZ_Scan"):
+                        parent.opx.Update_bZ_Scan(app_data=None, user_data=new_state)
+                    state_txt = "enabled" if new_state else "disabled"
+                    print(f"-> dz scan {state_txt}")
+                except Exception as e:
+                    print(f"-> failed to toggle dz scan: {e}")
+            # @desc: dz<number> → set dz only
+            elif single_command.lower().startswith("dz") and single_command.strip().lower() != "dz":
+                try:
+                    val = int(single_command[2:].strip())
+                    parent.opx.Update_dZ_Scan("inInt_dz_scan", val)
+                    print(f"-> dz set to {val} nm")
+                except Exception as e:
+                    print(f"-> failed to set dz: {e}")
+            # @desc: d<number> → set dx, dy, and dz all at once
+            elif single_command.lower().startswith("d"):
+                try:
+                    val = int(single_command[1:].strip())
+                    parent.opx.Update_dX_Scan("inInt_dx_scan", val)
+                    parent.opx.Update_dY_Scan("inInt_dy_scan", val)
+                    parent.opx.Update_dZ_Scan("inInt_dz_scan", val)
+                    print(f"-> dx, dy, dz all set to {val} nm")
+                except Exception as e:
+                    print(f"-> failed to set all step sizes: {e}")
+            # @desc: lx<number> → set total X‐scan length only
+            elif single_command.lower().startswith("lx"):
+                try:
+                    val = float(single_command[2:].strip())
+                    parent.opx.Update_Lx_Scan(user_data=val)
+                    print(f"-> Lx set to {val:.2f} µm")
+                except Exception as e:
+                    print(f"-> failed to set Lx: {e}")
+            # @desc: ly<number> → set total Y‐scan length only
+            elif single_command.lower().startswith("ly"):
+                try:
+                    val = float(single_command[2:].strip())
+                    parent.opx.Update_Ly_Scan(user_data=val)
+                    print(f"-> Ly set to {val:.2f} µm")
+                except Exception as e:
+                    print(f"-> failed to set Ly: {e}")
+                    # @desc: ly<number> → set total Y‐scan length only
+            elif single_command.lower().startswith("lz"):
+                try:
+                    val = float(single_command[2:].strip())
+                    parent.opx.Update_Lz_Scan(user_data=val)
+                    print(f"-> Lz set to {val:.2f} µm")
+                except Exception as e:
+                    print(f"-> failed to set Ly: {e}")
             # @desc: Save recent command history to file
             elif single_command.lower() == "savehistory":
                 # Save the current  history buffer to a file
@@ -1793,7 +1811,6 @@ def run(command: str, record_history: bool = True):
                 # show_msg_window(help_txt, height=1400)
             # @desc: wait<ms> — sleep in background, then run EVERY remaining command
             elif single_command.lower().startswith("wait"):
-                import threading, time
                 ms_str = single_command[len("wait"):].strip()
                 try:
                     ms = int(ms_str)
@@ -1940,7 +1957,136 @@ def run(command: str, record_history: bool = True):
                 dpg.set_value(f"mcs_ch{axis}_ABS", val)
                 parent.smaractGUI.move_absolute(None, None, axis)
                 print(f"-> moved axis {axis} to {val:.2f}")
+            # @desc: smart / smart1 / smart2 [<N>] →
+            #        smart:  fresh 3D scan + detect + fine-scan
+            #        smart1: reuse last 3D + detect (only if no points) + fine-scan
+            #        smart2: reuse last 3D + detect + NO fine-scan
+            elif single_command.split()[0] in ("sur", "sur1", "sur2"):
+                import time
+                try:
+                    parts = single_command.split()
+                    mode = parts[0]                   # "smart", "smart1" or "smart2"
+                    N    = float(parts[1]) if len(parts) > 1 else 2.0
+                    # --- DETECTION FUNCTION ---
+                    def detect_and_draw():
+                        scan3d  = parent.opx.scan_data        # (Nz, Ny, Nx)
+                        slice2d = scan3d[0, :, :]             # (Ny, Nx)
+                        Xv = np.array(parent.opx.Xv)          # Nx
+                        Yv = np.array(parent.opx.Yv)          # Ny
+                        flipped_Yv = Yv[::-1]
+                        flipped = np.flipud(slice2d)
+                        μ, σ   = flipped.mean(), flipped.std()
+                        thresh = μ + N * σ
 
+                        # clear old points + layer
+                        parent.saved_query_points = []
+                        if dpg.does_item_exist("plot_draw_layer"):
+                            dpg.delete_item("plot_draw_layer")
+                        dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+
+                        Ny2, Nx2 = flipped.shape
+                        idx = 0
+                        for yi in range(Ny2):
+                            for xi in range(Nx2):
+                                val = flipped[yi, xi]
+                                if val > thresh:
+                                    idx += 1
+                                    x_phys = Xv[xi]
+                                    y_phys = flipped_Yv[yi]
+                                    parent.saved_query_points.append((idx, x_phys, y_phys))
+
+                                    dot_tag = f"smart_dot_{idx}"
+                                    txt_tag = f"smart_txt_{idx}"
+                                    dpg.draw_circle(
+                                        center=(x_phys, y_phys),
+                                        radius=0.15,
+                                        fill=(255, 0, 0, 255),
+                                        parent="plot_draw_layer",
+                                        tag=dot_tag
+                                    )
+                                    dpg.draw_text(
+                                        pos=(x_phys, y_phys),
+                                        text=str(idx),
+                                        color=(255, 255, 0, 255),
+                                        parent="plot_draw_layer",
+                                        tag=txt_tag
+                                    )
+                                    print(f"{idx}: intensity {val:.1f} -> at ({x_phys:.3f}, {y_phys:.3f})")
+                    # --- FINE-SCAN FUNCTION ---
+                    def fine_scan(idx, x0, y0):
+                        print(f"x={x0}, y={y0}")
+                        requested_p = np.array([int(x0 * 1e6), int(y0 * 1e6)])
+                        refP = parent.opx.get_device_position(parent.opx.positioner)
+                        p_new = int(parent.opx.Z_correction(refP, requested_p))
+                        dpg.set_value("mcs_ch2_ABS", round(p_new * 1e-6,3))
+                        dpg.set_value("mcs_ch0_ABS", round(x0,3))
+                        dpg.set_value("mcs_ch1_ABS", round(y0,3))
+                        time.sleep(0.2)
+                        parent.smaractGUI.move_absolute(None, None, 0)
+                        parent.smaractGUI.move_absolute(None, None, 1)
+                        parent.smaractGUI.move_absolute(None, None, 2)
+
+                        parent.opx.Update_Lx_Scan(user_data=1.5)
+                        parent.opx.Update_Ly_Scan(user_data=1.5)
+                        parent.opx.Update_dX_Scan(user_data=150)
+                        parent.opx.Update_dY_Scan(user_data=150)
+                        scan3d = parent.opx.StartScan3D()
+                        # parent.opx.btnStartScan()
+                        data2d = scan3d[0, :, :]
+                        # 4) **Exactly** the same peak-finding you use in set_moveabs_to_max_intensity**
+                        arr = np.array(data2d)
+                        row, col = np.unravel_index(np.argmax(arr), arr.shape)
+                        peak = float(arr[row, col])
+
+                        # 5) Convert back to physical X/Y exactly like you do there
+                        x_raw = parent.opx.V_scan[0][row]  # in pm
+                        y_raw = parent.opx.V_scan[1][col]  # in pm
+                        x_um = x_raw * 1e-6  # to um
+                        y_um = y_raw * 1e-6
+
+                        # 6) Replace the original query point entry with the new peak
+                        for i1, (n, xx, yy) in enumerate(parent.saved_query_points):
+                            if n == idx:
+                                parent.saved_query_points[i1] = (n, x_um, y_um)
+                                break
+
+                        print(f"  -> hotspot {idx}: peak {peak:.1f} -> at ({x_um:.6f} m, {y_um:.6f} m)")
+
+                # 1) fresh scan for "smart"
+                    if mode == "sur":
+                        parent.opx.StartScan3D()
+                        detect_and_draw()
+                    # 2) reuse & detect for smart1/smart2
+                    elif mode in ("sur1", "sur2"):
+                        if not parent.saved_query_points:
+                            detect_and_draw()
+                    # 3) run fine-scan for smart & smart1 only
+                    if mode in ("sur", "sur1"):
+                        for idx, x0, y0 in parent.saved_query_points:
+                            run(f"note Survey Point #{idx}",record_history=False)
+                            fine_scan(idx, x0, y0)
+                except Exception as e:
+                    traceback.print_exc()
+                    print(f"-> smart command failed: {e}")
+            # @desc: fmax → run FindMaxSignal on the OPX and move each axis to its max‐signal position
+            elif single_command.strip().lower() == "fmax":
+                def _fmax_worker():
+                    try:
+                        parent.opx.survey = True
+                        print("Starting live counter.")
+                        parent.opx.Y_vec = []
+                        parent.opx.btnStartCounterLive()
+                        time.sleep(1)
+                        parent.opx.wait_for_job()
+                        print("Moving to peak intensity.")
+                        parent.opx.MoveToPeakIntensity()
+                        # time.sleep(1)
+                        # parent.opx.FindMaxSignal()
+                    except Exception as e:
+                        print(f"-> fmax command failed: {e}")
+                survey_thread = threading.Thread(target=_fmax_worker, daemon=True)
+                survey_thread.start()
+                print("fmax → running in background…")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
@@ -1948,13 +2094,14 @@ def run(command: str, record_history: bool = True):
                 except Exception:
                     print(f"Unknown command: {single_command}")
         except Exception as e:
+            traceback.print_exc()
             print(f"Error running command '{single_command}': {e}")
         # dpg.focus_item("OPX Window")
         dpg.focus_item("cmd_input")
 
 import builtins
 builtins.run = run
-
+# traceback.print_exc()
 
 
 
