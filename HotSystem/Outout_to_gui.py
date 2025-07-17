@@ -99,11 +99,12 @@ def load_saved_points(parent, file_name="saved_query_points.txt"):
         parent.saved_query_points = []
         for line in lines:
             parts = line.strip().split(",")
-            if len(parts) == 3:
+            if len(parts) == 4:
                 idx = int(parts[0])
                 x = float(parts[1])
                 y = float(parts[2])
-                parent.saved_query_points.append((idx, x, y))
+                z = float(parts[3])
+                parent.saved_query_points.append((idx, x, y, z))
         print(f"✅ Loaded {len(parent.saved_query_points)} points from {file_name}")
         run("list")
         return True
@@ -239,8 +240,13 @@ def run(command: str, record_history: bool = True):
             # @desc: Draw a cross + circle marker on the plot
             elif single_command == "mark":
                 try:
-                    x = dpg.get_value("mcs_ch0_ABS")
-                    y = dpg.get_value("mcs_ch1_ABS")
+                    pos_pm = parent.opx.positioner.AxesPositions
+                    pos_um = [p * 1e-6 for p in pos_pm]
+                    x = pos_um[0]
+                    y = pos_um[1]
+                    # z = pos_um[2]
+                    # x = dpg.get_value("mcs_ch0_ABS")
+                    # y = dpg.get_value("mcs_ch1_ABS")
                     cross_tag = "temp_cross_marker"
 
                     # Remove any old parts
@@ -841,12 +847,17 @@ def run(command: str, record_history: bool = True):
                         # If no points yet, store current position as point #N
                         if not hasattr(parent, "saved_query_points") or not parent.saved_query_points:
                             parent.saved_query_points = []
-                            x = dpg.get_value("mcs_ch0_ABS")
-                            y = dpg.get_value("mcs_ch1_ABS")
-                            z = dpg.get_value("mcs_ch2_ABS")
+                            # x = dpg.get_value("mcs_ch0_ABS")
+                            # y = dpg.get_value("mcs_ch1_ABS")
+                            # z = dpg.get_value("mcs_ch2_ABS")
+                            pos_pm = parent.opx.positioner.AxesPositions
+                            pos_um = [p * 1e-6 for p in pos_pm]
+                            x = pos_um[0]
+                            y = pos_um[1]
+                            z = pos_um[2]
                             parent.saved_query_points.append((index_to_go, x, y, z))
                             print(
-                                f"No points yet → stored current position as point #{index_to_go}: X={x:.2f}, Y={y:.2f}")
+                                f"No points yet -> stored current position as point #{index_to_go}: X={x:.2f}, Y={y:.2f}")
                         # === Move to stored index ===
                         else:
                             found = [pt for pt in parent.saved_query_points if pt[0] == index_to_go]
@@ -1186,11 +1197,9 @@ def run(command: str, record_history: bool = True):
                         print("-> no drawing layer found")
             # @desc: Shift stored query point by dx, dy
             elif single_command.startswith("shift"):
-                parent = getattr(sys.stdout, "parent", None)
                 if not parent or not hasattr(parent, "saved_query_points"):
                     print("No saved points found.")
                     return
-
                 try:
                     # Example: shift3(0,-1)
                     inside = single_command.strip()[len("shift"):].strip()
@@ -1203,21 +1212,18 @@ def run(command: str, record_history: bool = True):
 
                 # Find the point with matching index
                 found = False
-                for i, (stored_index, x, y) in enumerate(parent.saved_query_points):
+                for i, (stored_index, x, y, z) in enumerate(parent.saved_query_points):
                     if stored_index == index_to_shift:
                         new_x = x + dx
                         new_y = y + dy
-                        parent.saved_query_points[i] = (stored_index, new_x, new_y)
-                        print(f"Shifted point #{stored_index} by ΔX={dx}, ΔY={dy} → New: X={new_x:.6f}, Y={new_y:.6f}")
+                        parent.saved_query_points[i] = (stored_index, new_x, new_y, z)
+                        print(f"Shifted point #{stored_index} by dX={dx}, dY={dy} -> New: X={new_x:.2f}, Y={new_y:.2f}")
                         found = True
                         break
 
                 if not found:
                     print(f"No point with index {index_to_shift} found.")
-                else:
-                    print("Updated points:")
-                    for idx_num, x_val, y_val in parent.saved_query_points:
-                        print(f"{idx_num}: X={x_val:.6f}, Y={y_val:.6f}")
+
             # @desc: Insert new points based on last
             elif single_command.startswith("insert"):
                 pts = getattr(parent, "saved_query_points", None)
@@ -1281,8 +1287,8 @@ def run(command: str, record_history: bool = True):
                     try:
                         with open(file_name, "w") as f:
                             for point in parent.saved_query_points:
-                                idx, x, y = point
-                                f.write(f"{idx},{x:.6f},{y:.6f}\n")
+                                idx, x, y, z = point
+                                f.write(f"{idx},{x:.6f},{y:.6f},{z:.6f}\n")
                         print(f"Saved {len(parent.saved_query_points)} points to {file_name}")
                     except Exception as e:
                         print(f"Error saving list: {e}")
@@ -1563,6 +1569,7 @@ def run(command: str, record_history: bool = True):
                 # Trigger the OPX “StartScan” button
                 if parent and hasattr(parent, "opx") and hasattr(parent.opx, "btnStartScan"):
                     try:
+                        parent.smaractGUI.fill_current_position_to_moveabs()
                         toggle_sc(reverse=False)
                         parent.opx.btnStartScan()
                         print("OPX scan started (btnStartScan called).")

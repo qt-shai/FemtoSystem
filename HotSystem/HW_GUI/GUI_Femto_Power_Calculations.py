@@ -134,7 +134,6 @@ class FemtoPowerCalculator:
                 return 0
             # ✅ Copy to clipboard with "future " prefix
             try:
-                import pyperclip
                 pyperclip.copy(f"future {input_str}")
                 print(f"Copied to clipboard: future {input_str}")
             except Exception as copy_error:
