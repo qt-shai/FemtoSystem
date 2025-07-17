@@ -1574,7 +1574,8 @@ def run(command: str, record_history: bool = True):
                 except Exception as e:
                     print(f"-> failed to set dz: {e}")
             # @desc: d<number> → set dx, dy, and dz all at once
-            elif single_command.lower().startswith("d"):
+            elif re.match(r"^d-?\d+$", single_command.lower()):
+                # now “det” will NOT match, only e.g. “d5”, “d200”, or “d-10”
                 try:
                     val = int(single_command[1:].strip())
                     parent.opx.Update_dX_Scan("inInt_dx_scan", val)
@@ -1943,223 +1944,67 @@ def run(command: str, record_history: bool = True):
 
                 except Exception as e:
                     print(f"-> lastdir failed: {e}")
-            # @desc: Set absolute X/Y/Z via x<num>, y<num>, z<num> and move
-            elif re.match(r'^[xyz]-?\d+(\.\d+)?$', single_command):
-                # map command letter to Smaract axis
-                axis_map = {'x': 0, 'y': 1, 'z': 2}
-                axis = axis_map[single_command[0]]
+            # @desc: x<num>, y<num>, or z<num> → set absolute & move
+            elif single_command and single_command[0].lower() in ("x", "y", "z"):
+                letter = single_command[0].lower()
+                rest = single_command[1:]
                 try:
-                    val = float(single_command[1:])
+                    val = float(rest)
                 except ValueError:
-                    print("-> Invalid syntax. Use x<num>, y<num> or z<num>, e.g. x2030")
-                    return
+                    # not a pure coordinate command, fall through
+                    pass
+                else:
+                    axis = {"x": 0, "y": 1, "z": 2}[letter]
+                    dpg.set_value(f"mcs_ch{axis}_ABS", val)
+                    parent.smaractGUI.move_absolute(None, None, axis)
+                    print(f"-> moved axis {axis} to {val:.2f}")
+            # @desc: detect & draw
+            elif single_command.strip().lower() == "det":
+                image = ScanImageAnalysis()
+                image.load_image(parent.opx.last_loaded_file)
+                Scan_array = np.asarray(parent.opx.scan_Out)
+                scale=1e6
+                x = Scan_array[:, 4].astype(float) / scale
+                y = Scan_array[:, 5].astype(float) / scale
+                intensity = Scan_array[:, 3]
 
-                # fill the absolute field and move
-                dpg.set_value(f"mcs_ch{axis}_ABS", val)
-                parent.smaractGUI.move_absolute(None, None, axis)
-                print(f"-> moved axis {axis} to {val:.2f}")
-            # @desc: smart / smart1 / smart2 [<N>] →
-            #        smart:  fresh 3D scan + detect + fine-scan
-            #        smart1: reuse last 3D + detect (only if no points) + fine-scan
-            #        smart2: reuse last 3D + detect + NO fine-scan
-            elif single_command.split()[0] in ("sur", "sur1", "sur2"):
-                try:
-                    parts = single_command.split()
-                    mode = parts[0]                   # "smart", "smart1" or "smart2"
-                    N    = float(parts[1]) if len(parts) > 1 else 2.0
-                    # --- DETECTION FUNCTION ---
-                    def detect_and_draw():
-                        scan3d  = parent.opx.scan_data        # (Nz, Ny, Nx)
-                        slice2d = scan3d[0, :, :]             # (Ny, Nx)
-                        Xv = np.array(parent.opx.Xv)          # Nx
-                        Yv = np.array(parent.opx.Yv)          # Ny
-                        flipped_Yv = Yv[::-1]
-                        flipped = np.flipud(slice2d)
-                        μ, σ   = flipped.mean(), flipped.std()
-                        thresh = μ + N * σ
-
-                        # clear old points + layer
-                        parent.saved_query_points = []
-                        if dpg.does_item_exist("plot_draw_layer"):
-                            dpg.delete_item("plot_draw_layer")
-                        dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
-
-                        Ny2, Nx2 = flipped.shape
-                        idx = 0
-                        for yi in range(Ny2):
-                            for xi in range(Nx2):
-                                val = flipped[yi, xi]
-                                if val > thresh:
-                                    idx += 1
-                                    x_phys = Xv[xi]
-                                    y_phys = flipped_Yv[yi]
-                                    parent.saved_query_points.append((idx, x_phys, y_phys))
-
-                                    dot_tag = f"smart_dot_{idx}"
-                                    txt_tag = f"smart_txt_{idx}"
-                                    dpg.draw_circle(
-                                        center=(x_phys, y_phys),
-                                        radius=0.15,
-                                        fill=(255, 0, 0, 255),
-                                        parent="plot_draw_layer",
-                                        tag=dot_tag
-                                    )
-                                    dpg.draw_text(
-                                        pos=(x_phys, y_phys),
-                                        text=str(idx),
-                                        color=(255, 255, 0, 255),
-                                        parent="plot_draw_layer",
-                                        tag=txt_tag,
-                                        size = 1.2,
-                                    )
-                                    print(f"{idx}: intensity {val:.1f} -> at ({x_phys:.3f}, {y_phys:.3f})")
-                    # --- FINE-SCAN FUNCTION ---
-                    def fine_scan(idx, x0, y0):
-                        print(f"x={x0}, y={y0}")
-                        requested_p = np.array([int(x0 * 1e6), int(y0 * 1e6)])
-                        refP = parent.opx.get_device_position(parent.opx.positioner)
-                        p_new = int(parent.opx.Z_correction(refP, requested_p))
-                        dpg.set_value("mcs_ch2_ABS", round(p_new * 1e-6,3))
-                        dpg.set_value("mcs_ch0_ABS", round(x0,3))
-                        dpg.set_value("mcs_ch1_ABS", round(y0,3))
-                        time.sleep(0.2)
-                        parent.smaractGUI.move_absolute(None, None, 0)
-                        parent.smaractGUI.move_absolute(None, None, 1)
-                        parent.smaractGUI.move_absolute(None, None, 2)
-
-                        parent.opx.Update_Lx_Scan(user_data=1.5)
-                        parent.opx.Update_Ly_Scan(user_data=1.5)
-                        parent.opx.Update_dX_Scan(user_data=150)
-                        parent.opx.Update_dY_Scan(user_data=150)
-                        scan3d = parent.opx.StartScan3D()
-                        # parent.opx.btnStartScan()
-                        data2d = scan3d[0, :, :]
-                        # 4) **Exactly** the same peak-finding you use in set_moveabs_to_max_intensity**
-                        arr = np.array(data2d)
-                        row, col = np.unravel_index(np.argmax(arr), arr.shape)
-                        peak = float(arr[row, col])
-
-                        # 5) Convert back to physical X/Y exactly like you do there
-                        x_raw = parent.opx.V_scan[0][row]  # in pm
-                        y_raw = parent.opx.V_scan[1][col]  # in pm
-                        x_um = x_raw * 1e-6  # to um
-                        y_um = y_raw * 1e-6
-
-                        # 6) Replace the original query point entry with the new peak
-                        for i1, (n, xx, yy) in enumerate(parent.saved_query_points):
-                            if n == idx:
-                                parent.saved_query_points[i1] = (n, x_um, y_um)
-                                break
-
-                        print(f"  -> hotspot {idx}: peak {peak:.1f} -> at ({x_um:.6f} m, {y_um:.6f} m)")
-                    # --- DETECTION FUNCTION using contours ---
-                    def detect_and_draw1():
-                        # 1) Set up analyzer grid from your last scan
-                        analyzer = ScanImageAnalysis()
-                        analyzer._grid = parent.opx.scan_data[0, :, :]  # (Ny, Nx)
-                        analyzer._xu = np.array(parent.opx.Xv)  # length Nx, in µm
-                        analyzer._yu = np.array(parent.opx.Yv)  # length Ny, in µm
-
-                        # 2) find raw contours
-                        max_intensity = np.nanmax(analyzer._grid)
-                        contours = analyzer.compute_pillar_contours(
-                            im=analyzer._grid,
-                            clim_max=max_intensity,
-                            thresh_frac=0.3
-                        )
-
-                        if True:
-                            # --- DEBUG: print contour info ---
-                            print(f"Found {len(contours)} contours")
-                            for i, cnt in enumerate(contours, start=1):
-                                # ensure shape is (N,2)
-                                pts = cnt.reshape(-1, 2)
-                                xs, ys = pts[:, 0], pts[:, 1]
-                                print(
-                                    f"  Contour {i}: {len(pts)} points, x∈[{xs.min():.3f},{xs.max():.3f}], y∈[{ys.min():.3f},{ys.max():.3f}]")
-
-                            # --- PLOT with contours overlaid in red ---
-                            fig, ax = plt.subplots(figsize=(6, 6))
-                            # show the scan with correct physical extents
-                            im = ax.imshow(
-                                analyzer._grid,
-                                origin='lower',
-                                cmap='viridis',
-                                extent=(analyzer._xu.min(), analyzer._xu.max(),
-                                        analyzer._yu.min(), analyzer._yu.max())
-                            )
-                            fig.colorbar(im, ax=ax, label='Intensity')
-
-                            # overlay each contour
-                            for cnt in contours:
-                                pts = cnt.reshape(-1, 2)
-                                ax.plot(pts[:, 0], pts[:, 1], '-r', linewidth=1)
-
-                            ax.set_xlabel('X [μm]')
-                            ax.set_ylabel('Y [μm]')
-                            ax.set_title('Detected Pillar Contours')
-                            plt.show()
-
-
-
-
-                        # 3) compute pixel‐based min_dist for 2 µm physical separation
-                        dx = analyzer._xu[1] - analyzer._xu[0]  # µm per pixel
-                        min_dist_px = int(round(2.0 / dx))*0
-
-                        # 4) fit & filter overlapping circles
-                        centres_px, radii_px = analyzer.compute_circle_fit(contours, min_dist=min_dist_px)
-
-                        # 5) clear old points & create a fresh draw layer
-                        parent.saved_query_points = []
-                        if dpg.does_item_exist("plot_draw_layer"):
-                            dpg.delete_item("plot_draw_layer")
-                        dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
-
-                        # 6) map each centre back to physical X/Y and draw
-                        for idx, (x_c_px, y_c_px) in enumerate(centres_px, start=1):
-                            col = int(round(x_c_px))
-                            row = int(round(y_c_px))
-                            x_phys = analyzer._xu[col]
-                            y_phys = analyzer._yu[row]
-                            parent.saved_query_points.append((idx, x_phys, y_phys))
-
-                            dot_tag = f"sur_dot_{idx}"
-                            txt_tag = f"sur_txt_{idx}"
-
-                            dpg.draw_circle(
-                                center=(x_phys, y_phys),
-                                radius=0.10,  # small fixed radius in µm
-                                fill=(255, 0, 0, 255),
-                                parent="plot_draw_layer",
-                                tag=dot_tag
-                            )
-                            dpg.draw_text(
-                                pos=(x_phys, y_phys),
-                                text=str(idx),
-                                color=(255, 255, 0, 255),
-                                parent="plot_draw_layer",
-                                tag=txt_tag,
-                                size=1.2,
-                            )
-                            print(f"{idx}: detected pillar at ({x_phys:.3f}, {y_phys:.3f})")
-
-                    # 1) fresh scan for "smart"
-                    if mode == "sur":
-                        parent.opx.StartScan3D()
-                        detect_and_draw()
-                    # 2) reuse & detect for smart1/smart2
-                    elif mode in ("sur1", "sur2"):
-                        if not parent.saved_query_points:
-                            detect_and_draw()
-                    # 3) run fine-scan for smart & smart1 only
-                    if mode in ("sur", "sur1"):
-                        for idx, x0, y0 in parent.saved_query_points:
-                            run(f"note Survey Point #{idx}",record_history=False)
-                            fine_scan(idx, x0, y0)
-                except Exception as e:
-                    traceback.print_exc()
-                    print(f"-> smart command failed: {e}")
+                image.image = np.column_stack((x, y, intensity)).astype(float)
+                image._build_grid()
+                image._hp_grid = None
+                image._bp_grid = None
+                clim = 3000
+                image._grid[image._grid > clim] = clim
+                # ax = image.plot_image(image._grid, clim=(0, clim))
+                contours = image.compute_pillar_contours(im=image._grid, clim_max=clim, thresh_frac=0.21)
+                centres, radii = image.compute_circle_fit(contours)
+                parent.saved_query_points = []
+                if dpg.does_item_exist("plot_draw_layer"):
+                    dpg.delete_item("plot_draw_layer")
+                dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+                for idx, (x_f, y_f) in enumerate(centres, start=1):
+                    xi = int(x_f)  # e.g. 0.0 → 0, 17.5 → 17
+                    yi = int(y_f)
+                    x_phys = parent.opx.Xv[xi]
+                    y_phys = parent.opx.Yv[yi]
+                    parent.saved_query_points.append((idx, x_phys, y_phys))
+                    dot_tag = f"sur_dot_{idx}"
+                    txt_tag = f"sur_txt_{idx}"
+                    dpg.draw_circle(
+                        center=(x_phys, y_phys),
+                        radius=0.10,  # small fixed radius in µm
+                        fill=(255, 0, 0, 255),
+                        parent="plot_draw_layer",
+                        tag=dot_tag
+                    )
+                    dpg.draw_text(
+                        pos=(x_phys, y_phys),
+                        text=str(idx),
+                        color=(255, 255, 0, 255),
+                        parent="plot_draw_layer",
+                        tag=txt_tag,
+                        size=1.2,
+                    )
+                    print(f"{idx}: detected pillar at ({x_phys:.3f}, {y_phys:.3f})")
             # @desc: fmax → run FindMaxSignal on the OPX and move each axis to its max‐signal position
             elif single_command.strip().lower() == "fmax":
                 toggle_sc(reverse=False)

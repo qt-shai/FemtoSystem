@@ -127,10 +127,11 @@ class ScanImageAnalysis:
         return contours
 
     # .....................................................................
-    def compute_circle_fit(self, contours, min_dist: float = 16.0):
+    def compute_circle_fit(self, contours, min_dist: float = 0.0):
         """
         Fit min-enclosing circles to *contours*, then remove overlapping circles:
         if two centres are closer than `min_dist`, keep the one with higher grid intensity.
+        min_dist is in pixels
         """
         if self._grid is None:
             raise ValueError("Load image first.")
@@ -165,6 +166,7 @@ class ScanImageAnalysis:
                 _, x_c, y_c, r = cands[k]
                 centres.append((x_c, y_c))
                 radii.append(r)
+        # print(centres)
         return centres, radii
 
     # .....................................................................
@@ -240,7 +242,7 @@ class ScanImageAnalysis:
 
     # .....................................................................
     def plot_contours(self, contours, *, ax=None, outline_color="white", outline_width=1.0):
-        """Overlay raw contour paths."""
+        """Overlay raw contour paths. Only works on top of image"""
         if not contours:
             warnings.warn("No contours to display.")
             return ax
@@ -252,7 +254,7 @@ class ScanImageAnalysis:
         return ax
 
     # .....................................................................
-    def plot_circles(self, centres, radii, *, ax=None, outline_color="white", outline_width=1.0, fixed_radius=None):
+    def plot_circles(self, centres, radii, *, ax=None, outline_color="black", outline_width=1.0, fixed_radius=None):
         """Overlay circles – *fixed_radius* can be scalar or 'median'."""
         if not centres:
             warnings.warn("No circles to display.")
@@ -289,19 +291,20 @@ class ScanImageAnalysis:
         plt.show()
 
 # image = ScanImageAnalysis()
-# path = "C:\\users\\Daniel\\Work Folders\\Documents\\2025_5_6_4_2_49_SCAN_Pillar4.5_array4.csv"
+# path = "Q:\\QT-Quantum_Optic_Lab\\expData\\scan\\SystemType.FEMTO\\2025_7_16_8_55_39_SCAN__.csv"
 # image.load_image(path)
-# image._grid[image._grid > 70] = 70
-# # ax = image.plot_image(image._grid, clim=(0,70))
+# clim = 3000
+# image._grid[image._grid > clim] = clim
+# ax = image.plot_image(image._grid, clim=(0,clim))
 # # circles = image.compute_hough_circles()
 # # image.plot_hough_circles(circles, ax=ax)
 # # plt.show()
 #
-# contours = image.compute_pillar_contours(im = image._grid, clim_max=70.0, thresh_frac=0.21)
-# # ax = image.plot_image(image._grid, clim=(0, 70), cmap="rainbow")  # background
-# # image.plot_contours(contours, ax=ax, outline_color="white", outline_width=1.2)
+# contours = image.compute_pillar_contours(im = image._grid, clim_max=clim, thresh_frac=0.21)
+# ax = image.plot_image(image._grid, clim=(0, clim), cmap="rainbow")  # background
+# image.plot_contours(contours, ax=ax, outline_color="white", outline_width=1.2)
 #
 # # image.plot_contours(contours)
 # # centres, radii = image.compute_circle_fit(contours)
-# image.show_pillars()
+# image.show_pillars(clim_max = clim)
 # plt.show()

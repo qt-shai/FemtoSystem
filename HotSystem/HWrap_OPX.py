@@ -11365,6 +11365,7 @@ class GUI_OPX():
 
     def Plot_data(self, data, bLoad=False):
         np_array = np.array(data) #numpy array of the csv data
+        self.scan_Out=np_array # new
         # Nx = int(np_array[1,10])
         # Ny = int(np_array[1,11])
         # Nz = int(np_array[1,12])
