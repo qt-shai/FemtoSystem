@@ -128,6 +128,7 @@ class GUI_OPX():
         # TODO: Move measure_type definition to be read from config
         # measure_type = MeasurementType.ANALOG
         # self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
+        self.counter_is_live = False
         self.last_loaded_file = None
         self.stop_survey: bool = False
         self.survey_stop_flag = False
@@ -9178,6 +9179,7 @@ class GUI_OPX():
                              num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
             if b_startFetch and not self.bEnableSimulate:
                 self.StartFetch(_target=self.FetchData)
+            self.counter_is_live = True
         except Exception as e:
             print(f"Failed to start counter live: {e}")
 
@@ -9844,7 +9846,7 @@ class GUI_OPX():
             self.Shoot_Femto_Pulses = False
 
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN or self.exp == Experiment.G2:
-                pass
+                self.counter_is_live=False
             else:
                 if hasattr(self.mwModule, 'RFstate'):
                     self.mwModule.Get_RF_state()

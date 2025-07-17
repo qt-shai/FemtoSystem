@@ -74,7 +74,8 @@ def toggle_sc(reverse=False):
             if reverse and hasattr(cam, "StartLive"):
                 cam.StartLive()
                 print("Camera live view started.")
-                parent.opx.btnStartCounterLive()
+                if not parent.opx.counter_is_live:
+                    parent.opx.btnStartCounterLive()
             elif not reverse and hasattr(cam, "StopLive"):
                 cam.StopLive()
                 print("Camera live view stopped.")
@@ -392,7 +393,8 @@ def run(command: str, record_history: bool = True):
             # @desc: Start counter live in OPX
             elif single_command == "cn":
                 if hasattr(sys.stdout, "parent") and hasattr(sys.stdout.parent, "opx"):
-                    sys.stdout.parent.opx.btnStartCounterLive()
+                    if not parent.opx.counter_is_live:
+                        parent.opx.btnStartCounterLive()
                     print("Counter live started.")
                 else:
                     print("Counter live not available.")
@@ -841,20 +843,23 @@ def run(command: str, record_history: bool = True):
                             parent.saved_query_points = []
                             x = dpg.get_value("mcs_ch0_ABS")
                             y = dpg.get_value("mcs_ch1_ABS")
-                            parent.saved_query_points.append((index_to_go, x, y))
+                            z = dpg.get_value("mcs_ch2_ABS")
+                            parent.saved_query_points.append((index_to_go, x, y, z))
                             print(
                                 f"No points yet → stored current position as point #{index_to_go}: X={x:.2f}, Y={y:.2f}")
                         # === Move to stored index ===
                         else:
                             found = [pt for pt in parent.saved_query_points if pt[0] == index_to_go]
                             if found:
-                                _, x, y = found[0]
+                                _, x, y, z = found[0]
                                 dpg.set_value("mcs_ch0_ABS", x)
                                 dpg.set_value("mcs_ch1_ABS", y)
+                                dpg.set_value("mcs_ch2_ABS", z)
                                 if hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "move_absolute"):
                                     parent.smaractGUI.move_absolute(None, None, 0)
                                     parent.smaractGUI.move_absolute(None, None, 1)
-                                print(f"Moved to stored point #{index_to_go}: X={x:.2f}, Y={y:.2f}")
+                                    parent.smaractGUI.move_absolute(None, None, 2)
+                                print(f"Moved to stored point #{index_to_go}: X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
                                 note_text=f"Point #{index_to_go}"
                                 show_msg_window(note_text)
                                 parent.opx.expNotes = note_text
@@ -870,12 +875,14 @@ def run(command: str, record_history: bool = True):
                         if hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "move_absolute"):
                             parent.smaractGUI.move_absolute(None, None, 0)
                             parent.smaractGUI.move_absolute(None, None, 1)
+                            parent.smaractGUI.move_absolute(None, None, 2)
                         else:
                             print("Smaract GUI not available or missing 'move_absolute'.")
                         # Save new queried point
                         try:
                             x = dpg.get_value("mcs_ch0_ABS")
                             y = dpg.get_value("mcs_ch1_ABS")
+                            z = dpg.get_value("mcs_ch2_ABS")
                             if not hasattr(parent, "saved_query_points"):
                                 parent.saved_query_points = []
                             if parent.saved_query_points:
@@ -883,8 +890,8 @@ def run(command: str, record_history: bool = True):
                                 new_index = last_index + 1
                             else:
                                 new_index = 1
-                            parent.saved_query_points.append((new_index, x, y))
-                            print(f"Stored queried point #{new_index}: X={x:.2f}, Y={y:.2f}")
+                            parent.saved_query_points.append((new_index, x, y, z))
+                            print(f"Stored queried point #{new_index}: X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
                             run("list", record_history=False)
                         except Exception as e:
                             print(f"Could not store queried point: {e}")
@@ -955,6 +962,7 @@ def run(command: str, record_history: bool = True):
                     # Move GUI sliders
                     dpg.set_value("mcs_ch0_ABS", x_max)
                     dpg.set_value("mcs_ch1_ABS", y_max)
+                    z=dpg.get_value("mcs_ch2_ABS")
 
                     if hasattr(parent, "smaractGUI") and hasattr(parent.smaractGUI, "move_absolute"):
                         parent.smaractGUI.move_absolute(None, None, 0)
@@ -964,7 +972,7 @@ def run(command: str, record_history: bool = True):
                     if not hasattr(parent, "saved_query_points"):
                         parent.saved_query_points = []
                     new_index = parent.saved_query_points[-1][0] + 1 if parent.saved_query_points else 1
-                    parent.saved_query_points.append((new_index, x_max, y_max))
+                    parent.saved_query_points.append((new_index, x_max, y_max,z))
                     print(f"Stored query point #{new_index}: X={x_max:.2f}, Y={y_max:.2f}")
                     run("list", record_history=False)
                 except Exception as e:
@@ -1087,8 +1095,9 @@ def run(command: str, record_history: bool = True):
             elif single_command == "list":
                 if parent and hasattr(parent, "saved_query_points") and parent.saved_query_points:
                     print("Stored points:")
-                    for idx, (index, x, y) in enumerate(parent.saved_query_points):
-                        print(f"{index}: X={x:.6f}, Y={y:.6f}")
+                    for idx, (index, x, y, z) in enumerate(parent.saved_query_points):
+                        if record_history:
+                            print(f"{index}: X={x:.6f}, Y={y:.6f}, Z={z:.6f}")
                         x_val = x
                         y_val = y
                         if not dpg.does_item_exist("plotImaga_Y"):
@@ -1114,7 +1123,7 @@ def run(command: str, record_history: bool = True):
                         annot_tag = f"stored_point_annot_{index}"
                         if dpg.does_item_exist(annot_tag):
                             dpg.configure_item(annot_tag, pos=(x_val, y_val), text=f"{index}")
-                            print(f"Updated existing annotation {annot_tag}")
+                            # print(f"Updated existing annotation {annot_tag}")
                         else:
                             dpg.draw_text(
                                 pos=(x_val, y_val),
@@ -1132,23 +1141,49 @@ def run(command: str, record_history: bool = True):
                     print("No points stored.")
             # @desc: Clear all saved points & annotations
             elif single_command.strip().startswith("clear"):
-                parent = getattr(sys.stdout, "parent", None)
-                # 1) Clear the saved list
-                if parent and hasattr(parent, "saved_query_points"):
-                    parent.saved_query_points = []
-                    print("-> stored query points cleared")
-                else:
-                    print("-> no stored query points to clear")
-                # 2) Wipe out the draw layer completely
-                layer = "plot_draw_layer"
-                if dpg.does_item_exist(layer):
-                    # delete the whole layer (removes all its children)
-                    dpg.delete_item(layer)
-                    # recreate an empty layer
-                    dpg.add_draw_layer(parent="plotImaga", tag=layer)
-                    print("-> all annotations cleared")
-                else:
-                    print("-> no drawing layer found")
+                cmd = single_command.strip().lower()
+                if cmd in ("clear ann","clear annotation","clear annotations"):
+                    if dpg.does_item_exist("plot_draw_layer"):
+                        dpg.delete_item("plot_draw_layer")
+                        dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+                        print("-> draw layer deleted and recreated (annotations cleared)")
+                    else:
+                        print("-> no drawing layer found")
+                elif cmd.startswith("clear") and cmd[5:].strip().isdigit():
+                    idx_to_remove = int(cmd[5:].strip())
+                    if not hasattr(parent, "saved_query_points") or not parent.saved_query_points:
+                        print("-> no stored query points to delete")
+                    else:
+                        before = len(parent.saved_query_points)
+                        parent.saved_query_points = [pt for pt in parent.saved_query_points if pt[0] != idx_to_remove]
+                        after = len(parent.saved_query_points)
+                        if before == after:
+                            print(f"-> point #{idx_to_remove} not found in saved points")
+                        else:
+                            print(f"-> deleted point #{idx_to_remove} from saved list")
+                        # delete annotation and marker if exists
+                        for prefix in ["stored_point_dot_", "stored_point_annot_"]:
+                            tag = f"{prefix}{idx_to_remove}"
+                            if dpg.does_item_exist(tag):
+                                dpg.delete_item(tag)
+                                print(f"-> deleted draw item {tag}")
+                else: # full clear
+                    # 1) Clear the saved list
+                    if parent and hasattr(parent, "saved_query_points"):
+                        parent.saved_query_points = []
+                        print("-> stored query points cleared")
+                    else:
+                        print("-> no stored query points to clear")
+                    # 2) Wipe out the draw layer completely
+                    layer = "plot_draw_layer"
+                    if dpg.does_item_exist(layer):
+                        # delete the whole layer (removes all its children)
+                        dpg.delete_item(layer)
+                        # recreate an empty layer
+                        dpg.add_draw_layer(parent="plotImaga", tag=layer)
+                        print("-> all annotations cleared")
+                    else:
+                        print("-> no drawing layer found")
             # @desc: Shift stored query point by dx, dy
             elif single_command.startswith("shift"):
                 parent = getattr(sys.stdout, "parent", None)
@@ -1960,6 +1995,7 @@ def run(command: str, record_history: bool = True):
                     print(f"-> moved axis {axis} to {val:.2f}")
             # @desc: detect & draw
             elif single_command.strip().lower() == "det":
+                z = dpg.get_value("mcs_ch2_ABS")
                 image = ScanImageAnalysis()
                 image.load_image(parent.opx.last_loaded_file)
                 Scan_array = np.asarray(parent.opx.scan_Out)
@@ -1986,7 +2022,7 @@ def run(command: str, record_history: bool = True):
                     yi = int(y_f)
                     x_phys = parent.opx.Xv[xi]
                     y_phys = parent.opx.Yv[yi]
-                    parent.saved_query_points.append((idx, x_phys, y_phys))
+                    parent.saved_query_points.append((idx, x_phys, y_phys, z))
                     dot_tag = f"sur_dot_{idx}"
                     txt_tag = f"sur_txt_{idx}"
                     dpg.draw_circle(
@@ -2006,34 +2042,78 @@ def run(command: str, record_history: bool = True):
                     )
                     print(f"{idx}: detected pillar at ({x_phys:.3f}, {y_phys:.3f})")
             # @desc: fmax → run FindMaxSignal on the OPX and move each axis to its max‐signal position
-            elif single_command.strip().lower() == "fmax":
-                toggle_sc(reverse=False)
-                def _fmax_worker():
-                    try:
-                        parent.opx.survey = True
-                        print("Starting live counter.")
-                        parent.opx.Y_vec = []
-                        parent.opx.btnStartCounterLive()
-                        time.sleep(1)
-                        parent.opx.wait_for_job()
-                        print("Moving to peak intensity.")
-                        parent.opx.MoveToPeakIntensity()
-                        # time.sleep(1)
-                        # parent.opx.FindMaxSignal()
-                    except Exception as e:
-                        print(f"-> fmax command failed: {e}")
-                survey_thread = threading.Thread(target=_fmax_worker, daemon=True)
-                survey_thread.start()
-                print("fmax → running in background…")
+            elif single_command.strip().lower().startswith("fmax"):
+                try:
+                    suffix = single_command[4:].strip()
+                    point_index = None
+                    if suffix:
+                        try:
+                            point_index = int(suffix)
+                        except ValueError:
+                            print("-> Invalid syntax. Use fmax or fmax<num>, e.g., fmax or fmax2")
+                            return
+                        # Run fq<num> first
+                        run(f"fq{point_index}")
+
+                    toggle_sc(reverse=False)
+                    def _fmax_worker():
+                        try:
+                            parent.opx.survey = True
+                            print("Starting live counter.")
+                            parent.opx.Y_vec = []
+                            if not parent.opx.counter_is_live:
+                                parent.opx.btnStartCounterLive()
+                            time.sleep(1)
+                            parent.opx.wait_for_job()
+                            print("Moving to peak intensity.")
+                            # parent.opx.MoveToPeakIntensity()
+                            parent.opx.FindMaxSignal()
+                            if point_index is not None:
+                                parent.opx.positioner.GetPosition()  # Ensure it's updated
+
+                                x = parent.opx.positioner.AxesPositions[0] * 1e-6
+                                y = parent.opx.positioner.AxesPositions[1] * 1e-6
+                                z = parent.opx.positioner.AxesPositions[2] * 1e-6
+
+                                print(f"Trying to save {x}, {y}, {z} !!!!!!!!!!!")
+
+                                if not hasattr(parent, "saved_query_points"):
+                                    parent.saved_query_points = []
+                                updated = False
+                                for i, pt in enumerate(parent.saved_query_points):
+                                    if pt[0] == point_index:
+                                        parent.saved_query_points[i] = (point_index, x, y, z)
+                                        updated = True
+                                        print(f"Updated point #{point_index} → X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
+                                        break
+                                if not updated:
+                                    parent.saved_query_points.append((point_index, x, y, z))
+                                    print(f"Appended new point #{point_index} → X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
+                                # 🟡 Update annotation if it exists
+                                annot_tag = f"stored_point_annot_{point_index}"
+                                if dpg.does_item_exist(annot_tag):
+                                    dpg.configure_item(annot_tag, pos=(x, y), text=f"{point_index}")
+                                    print(f"Annotation {annot_tag} updated to new position ({x:.2f}, {y:.2f})")
+                                run("list", record_history=False)
+                        except Exception as e:
+                            print(f"-> fmax command failed: {e}")
+                    survey_thread = threading.Thread(target=_fmax_worker, daemon=True)
+                    survey_thread.start()
+
+                except Exception as e:
+                    print(f"-> fmax command error: {e}")
             # @desc: ntrack<num> → set N_tracking_search via UpdateN_tracking_search callback
             elif single_command.lower().startswith("ntrack"):
                 try:
-                    val = int(single_command[6:].strip())
-                    parent.opx.UpdateN_tracking_search(user_data=val)
+                    suffix = single_command[6:].strip()
+                    if suffix:  # user typed something like "ntrack 7"
+                        val = int(suffix)
+                        parent.opx.UpdateN_tracking_search(user_data=val)
+                    else:  # user typed only "ntrack"
+                        print(f"-> current N_tracking_search = {parent.opx.N_tracking_search}")
                 except Exception as e:
                     traceback.print_exc()
-                    print(f"-> failed to set N_tracking_search: {e}")
-
+                    print(f"-> failed to set or read N_tracking_search: {e}")
             else: # Try to evaluate as a simple expression
                 try:
                     result = eval(single_command, {"__builtins__": {}})
