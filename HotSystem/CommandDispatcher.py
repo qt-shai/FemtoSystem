@@ -75,9 +75,8 @@ class CommandDispatcher:
             "mv":                self.handle_move_files,
             "clog":              self.handle_clog,
             "fn":                self.handle_copy_filename,
-            "sc":                lambda arg: self.handle_toggle_sc(reverse=False),
-            "!sc":               lambda arg: self.handle_toggle_sc(reverse=True),
-            "l":                 lambda arg: self.handle_toggle_sc(reverse=True),
+            "sc":                self.handle_prepare_for_scan,
+            "l":                 self.handle_start_camera,
             "sub":               self.handle_set_subfolder,
             "cob":               self.handle_set_cobolt_power,
             "pp":                self.handle_external_clipboard,
@@ -109,7 +108,7 @@ class CommandDispatcher:
             "msg":               self.handle_message,
             "msgclear":          self.handle_message_clear,
             "st":                self.handle_set_xyz,
-            "note":              self.handle_note,
+            "note":              self.handle_update_note,
             "att":               self.handle_set_attenuator,
             "future":            self.handle_future,
             "fmc":               self.handle_femto_calculate,
@@ -1168,31 +1167,134 @@ class CommandDispatcher:
         p.smaractGUI.fill_current_position_to_moveabs()
         print("XYZ filled.")
 
-    def handle_note(self, arg):
-        """Set or append to expNotes."""
-        p=self.get_parent()
-        text=arg
-        if text.startswith("!"):
-            p.opx.expNotes+= ", "+text[1:].strip()
+    def handle_update_note(self, arg):
+        """Set or append to experiment notes."""
+        p = self.get_parent()
+        raw = arg.strip()
+        # Determine new note text
+        if raw.startswith("!"):
+            append = raw[1:].strip()
+            existing = getattr(p.opx, "expNotes", "")
+            note_text = (existing + ", " + append).strip()
         else:
-            p.opx.expNotes=text
-        print(f"Notes: {p.opx.expNotes}")
+            note_text = raw.capitalize()
+        show_msg_window(note_text)
+        p.opx.expNotes = note_text
+        # Update GUI text box if present
+        if dpg.does_item_exist("inTxtScan_expText"):
+            dpg.set_value("inTxtScan_expText", note_text)
+            p.opx.saveExperimentsNotes(note=note_text)
+        print(f"Notes updated: {note_text}")
 
     def handle_set_attenuator(self, arg):
-        """Set femto attenuator %."""
-        p=self.get_parent()
+        """Set femto attenuator to percent."""
+        p = self.get_parent()
         try:
-            pct=float(arg)
-            p.opx.pharos.setBasicTargetAttenuatorPercentage(pct)
-            print(f"Att set to {pct}%")
-        except:
-            print("att failed.")
+            percent = float(arg.strip())
+        except ValueError:
+            print("Invalid syntax. Use: att<percent>, e.g. att12.5")
+            return
+        # Update GUI widget if it exists
+        widget = "femto_attenuator"
+        if dpg.does_item_exist(widget):
+            dpg.set_value(widget, percent)
+        else:
+            print(f"Widget '{widget}' not found; value will still be applied.")
+        # Apply to hardware and recalc future
+        if hasattr(p, "femto_gui") and hasattr(p.opx, "pharos") \
+                and hasattr(p.opx.pharos, "setBasicTargetAttenuatorPercentage"):
+            try:
+                p.opx.pharos.setBasicTargetAttenuatorPercentage(percent)
+                print(f"Attenuator set to {percent:.1f}%")
+                tag = getattr(p.femto_gui, "future_input_tag", None)
+                if tag and dpg.does_item_exist(tag):
+                    existing = dpg.get_value(tag) or ""
+                    base = existing.split(",", 1)[0].strip()
+                    newtxt = f"{base},{percent:.1f}%"
+                    dpg.set_value(tag, newtxt)
+                    p.femto_gui.calculate_future(None, None, None)
+                    print(f"Future attenuator set to {percent:.1f}% and recalculated.")
+            except Exception as e:
+                print(f"Failed to set attenuator: {e}")
+        else:
+            print("Femto GUI or Pharos API not available.")
 
     def handle_future(self, arg):
-        """Compute future femto pulses."""
-        p=self.get_parent()
-        p.femto_gui.calculate_future()
-        print("Future computed.")
+        """Parse future pulses input, update widgets, and calculate femto‐pulse steps."""
+        p = self.get_parent()
+        future_args = arg.strip()
+        # 1) Syntax check
+        if not future_args:
+            print("Syntax: future<start:step:end,percent>xN")
+            return
+        # 2) Bail out if user wants to cancel (leading '!')
+        if future_args.startswith("!"):
+            return
+        # 3) Must have femto GUI input tag
+        tag = getattr(p.femto_gui, "future_input_tag", None)
+        if not (hasattr(p, "femto_gui") and tag):
+            print("Femto GUI or input tag not available.")
+            return
+        # 4) Write the raw input string into the future‐input widget
+        dpg.set_value(tag, future_args)
+        # 5) Split off the attenuation part, if present
+        parts = future_args.split(",", 1)
+        range_part = parts[0].strip()
+        att_value = None
+        pulse_count = None
+        if len(parts) > 1:
+            att_part = parts[1].strip()
+            # detect “xN” suffix (pulse count)
+            if "x" in att_part:
+                att_str, x_part = att_part.split("x", 1)
+                att_value = float(att_str.rstrip("%"))
+                pulse_count = int(x_part)
+            else:
+                att_value = float(att_part.rstrip("%"))
+            # apply attenuator
+            if dpg.does_item_exist("femto_attenuator"):
+                dpg.set_value("femto_attenuator", att_value)
+                print(f"Attenuator set to {att_value}%")
+                try:
+                    p.opx.pharos.setBasicTargetAttenuatorPercentage(att_value)
+                except Exception as e:
+                    print(f"Failed to set Pharos attenuator: {e}")
+            else:
+                print("Attenuator input widget not found.")
+        # 6) Parse and apply HWP increment
+        try:
+            start, step, end = [float(x) for x in range_part.split(":")]
+            if dpg.does_item_exist("femto_increment_hwp"):
+                dpg.set_value("femto_increment_hwp", step)
+                print(f"HWPInc set to {step}")
+            else:
+                print("HWPInc input widget not found.")
+        except Exception:
+            print("Invalid range format, expected start:step:end")
+        # 7) If pulse_count was given, set anneal params
+        if pulse_count is not None:
+            if dpg.does_item_exist("femto_anneal_pulse_count"):
+                dpg.set_value("femto_anneal_pulse_count", pulse_count - 1)
+                print(f"nPlsAnn set to {pulse_count - 1}")
+            if dpg.does_item_exist("femto_increment_hwp_anneal"):
+                val = 0.01 if pulse_count > 1 else 0.0
+                dpg.set_value("femto_increment_hwp_anneal", val)
+                print(f"HWPAnn set to {val}")
+        # 8) Finally call the calculate_future logic
+        try:
+            Ly = p.femto_gui.calculate_future(sender=None, app_data=None, user_data=None)
+            print(f"Future calculation done for input: {future_args}")
+            # 9) Update scan settings if Ly valid
+            if Ly and dpg.does_item_exist("inInt_Ly_scan") and Ly > 0:
+                dpg.set_value("inInt_Ly_scan", int(Ly))
+                p.opx.Update_Ly_Scan(user_data=int(Ly))
+                print(f"Ly set to {int(Ly)} nm in scan settings.")
+                p.opx.Update_dX_Scan("inInt_dx_scan", 2000)
+                p.opx.Update_dY_Scan("inInt_dy_scan", 2000)
+            else:
+                print("inInt_Ly_scan not found or Ly = 0.")
+        except Exception as e:
+            print(f"Error calculating future: {e}")
 
     def handle_femto_calculate(self, arg):
         """Press femto calculate."""
@@ -1201,10 +1303,38 @@ class CommandDispatcher:
         print("Femto calculate pressed.")
 
     def handle_femto_pulses(self, arg):
-        """Trigger femto pulses."""
-        p=self.get_parent()
-        p.opx.btnFemtoPulses()
-        print("Femto pulses triggered.")
+        """Trigger Femto pulses in OPX GUI."""
+        p = self.get_parent()
+        # 1) Existence check
+        if hasattr(p, "opx") and hasattr(p.opx, "btnFemtoPulses"):
+            try:
+                # 2) Ensure dx=2000
+                if dpg.does_item_exist("inInt_dx_scan"):
+                    p.opx.Update_dX_Scan("inInt_dx_scan", 2000)
+                    print("dx step set to 2000 nm")
+                else:
+                    print("DX input widget not found.")
+                # 3) Ensure dy=2000
+                if dpg.does_item_exist("inInt_dy_scan"):
+                    p.opx.Update_dY_Scan("inInt_dy_scan", 2000)
+                    print("dy step set to 2000 nm")
+                else:
+                    print("DY input widget not found.")
+                # 4) Fire the pulses
+                p.opx.btnFemtoPulses()
+                print("Femto pulses triggered (btnFemtoPulses called).")
+            except Exception as e:
+                print(f"Error calling btnFemtoPulses: {e}")
+        else:
+            print("OPX or btnFemtoPulses method not available.")
+
+    def handle_prepare_for_scan(self,arg):
+        """Stop camera live view & retract flippers."""
+        self.handle_toggle_sc(reverse=False)
+
+    def handle_start_camera(selfself,arg):
+        """Start camera live view & extend flippers."""
+        self.handle_toggle_sc(reverse=True)
 
     def handle_stop_scan(self, arg):
         """Stop OPX scan."""
@@ -1218,15 +1348,22 @@ class CommandDispatcher:
         try:
             ang=float(arg)
             p.opx.set_hwp_angle(ang)
-            print(f"Angle set to {ang}°")
+            if hasattr(p, "kdc_101_gui"):
+                p.kdc_101_gui.read_current_angle()
+            print(f"HWP angle command: moved to {ang:.2f}°")
         except:
             print("angle failed.")
 
     def handle_start_scan(self, arg):
         """Start OPX scan."""
         p=self.get_parent()
-        p.opx.btnStartScan()
-        print("Scan started.")
+        try:
+            p.smaractGUI.fill_current_position_to_moveabs()
+            self.handle_toggle_sc(reverse=False)
+            p.opx.btnStartScan()
+            print("Scan started.")
+        except Exception as e:
+            print(f"Error Start Scan: {e}")
 
     def handle_set_dx(self, arg):
         """Set dx scan step."""
@@ -1261,15 +1398,30 @@ class CommandDispatcher:
             print(f"dz toggled to {not cur}")
 
     def handle_set_all_steps(self, arg):
-        """Set dx,dy,dz to same value."""
-        p=self.get_parent()
+        """Set dx, dy, and dz scan step sizes to the same value."""
+        p = self.get_parent()
+        # 1) Parse the value as an integer
         try:
-            v=int(arg)
-            for tag in ("inInt_dx_scan","inInt_dy_scan","inInt_dz_scan"):
-                p.opx.Update_dZ_Scan(tag,v)
-            print(f"All steps set to {v}")
-        except:
-            print("d failed.")
+            v = int(arg.strip())
+        except ValueError:
+            print("Invalid syntax. Use: allsteps<value>, e.g. allsteps200")
+            return
+        # 2) Update each axis in turn, with the same print style as individual commands
+        try:
+            p.opx.Update_dX_Scan("inInt_dx_scan", v)
+            print(f"-> dx set to {v} nm")
+        except Exception as e:
+            print(f"-> failed to set dx: {e}")
+        try:
+            p.opx.Update_dY_Scan("inInt_dy_scan", v)
+            print(f"-> dy set to {v} nm")
+        except Exception as e:
+            print(f"-> failed to set dy: {e}")
+        try:
+            p.opx.Update_dZ_Scan("inInt_dz_scan", v)
+            print(f"-> dz set to {v} nm")
+        except Exception as e:
+            print(f"-> failed to set dz: {e}")
 
     def handle_set_Lx(self, arg):
         """Set Lx scan length."""
@@ -1418,13 +1570,64 @@ class CommandDispatcher:
             print("nextrun failed.")
 
     def handle_help(self, arg):
-        """Show help for commands."""
-        lines=[]
-        for k,fn in self.handlers.items():
-            doc=fn.__doc__.strip().splitlines()[0] if fn.__doc__ else ""
-            lines.append(f"{k:<10} - {doc}")
-        helptext="\n".join(lines)
-        show_msg_window(helptext)
+        """Show help for commands in a larger window with search."""
+        # 1) Build the full help text
+        lines = []
+        for k, fn in self.handlers.items():
+            doc = fn.__doc__.strip().splitlines()[0] if fn.__doc__ else ""
+            lines.append(f"{k:<12} - {doc}")
+        full_help = "\n".join(lines)
+
+        # 2) Remove any existing help window
+        if dpg.does_item_exist("help_window"):
+            dpg.delete_item("help_window")
+
+        # 3) Create the help window
+        with dpg.window(tag="help_window", label="Command Help", width=600, height=400, autosize=False):
+            # --- Search bar & button in a horizontal group ---
+            with dpg.group(horizontal=True):
+                dpg.add_input_text(
+                    tag="help_search_input",
+                    label="",
+                    width=200,
+                    hint="Type part of a command and press Enter",
+                    on_enter=True,
+                    callback=lambda s, a, u: self._help_search()
+                )
+                dpg.add_button(
+                    label="Lookup",
+                    callback=lambda s, a, u: self._help_search()
+                )
+
+            # --- Main help text area ---
+            dpg.add_input_text(
+                tag="help_text",
+                default_value=full_help,
+                multiline=True,
+                readonly=True,
+                width=-1,
+                height=-1
+            )
+
+    def _help_search(self):
+        """Callback for help lookup."""
+        query = dpg.get_value("help_search_input").strip().lower()
+        if not query:
+            print("Please type a search term first.")
+            return
+
+        matches = []
+        for cmd, fn in self.handlers.items():
+            if query in cmd.lower():
+                doc = fn.__doc__.strip().splitlines()[0] if fn.__doc__ else ""
+                matches.append(f"{cmd:<12} - {doc}")
+
+        if matches:
+            print("Help search results:")
+            for line in matches:
+                print("  " + line)
+        else:
+            print(f"No commands matching '{query}' found.")
 
     def handle_wait(self, arg):
         """Delay subsequent commands (handled in run())."""
@@ -1458,12 +1661,24 @@ class CommandDispatcher:
             p.smaractGUI.move_absolute(None,None,ax)
         print(f"Moved axes {axes}.")
 
-    def handle_move0(self, arg): self._move_delta(0,arg)
-    def handle_move1(self, arg): self._move_delta(1,arg)
-    def handle_move2(self, arg): self._move_delta(2,arg)
-    def handle_moveX(self, arg): self._move_delta(0,arg)
-    def handle_moveY(self, arg): self._move_delta(1,arg)
-    def handle_moveZ(self, arg): self._move_delta(2,arg)
+    def handle_move0(self, arg):
+        """Move axis0 (X) by the specified delta."""
+        self._move_delta(0,arg)
+    def handle_move1(self, arg):
+        """Move axis1(Y) by the specified delta."""
+        self._move_delta(1,arg)
+    def handle_move2(self, arg):
+        """Move axis2 (Z) by the specified delta."""
+        self._move_delta(2,arg)
+    def handle_moveX(self, arg):
+        """move X axis by the specified delta."""
+        self._move_delta(0,arg)
+    def handle_moveY(self, arg):
+        """move Y axis by the specified delta."""
+        self._move_delta(1,arg)
+    def handle_moveZ(self, arg):
+        """move Z axis by the specified delta."""
+        self._move_delta(2,arg)
 
     def _move_delta(self, axis, arg):
         p=self.get_parent()
