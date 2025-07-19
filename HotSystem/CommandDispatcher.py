@@ -64,6 +64,7 @@ class CommandDispatcher:
     """
     def __init__(self):
         # Map command verbs to handler methods
+        self.default_graph_size = (None, None)
         self.handlers = {
             # simple commands
             "a":                 self.handle_add_slide,
@@ -150,6 +151,8 @@ class CommandDispatcher:
             "det":               self.handle_detect_and_draw,
             "fmax":              self.handle_fmax,
             "ntrack":            self.handle_ntrack,
+            "gr":                self.handle_set_graph_size,
+            "auto":              self.handle_auto,
         }
 
     def get_parent(self):
@@ -246,6 +249,35 @@ class CommandDispatcher:
         dpg.focus_item("cmd_input")
 
     # --- Handlers (methods) ---
+    def handle_auto(self, arg):
+        """Apply auto‑fit to OPX graph axes: 'auto', 'auto x', 'auto y'."""
+        x_tag = "plotImaga_X"
+        y_tag = "plotImaga_Y"
+
+        which = arg.strip().lower()
+        if which == "x":
+            if dpg.does_item_exist(x_tag):
+                dpg.fit_axis_data(x_tag)
+                print("Auto‑fit X applied")
+            else:
+                print(f"Axis '{x_tag}' not found; skipping.")
+        elif which == "y":
+            if dpg.does_item_exist(y_tag):
+                dpg.fit_axis_data(y_tag)
+                print("Auto‑fit Y applied")
+            else:
+                print(f"Axis '{y_tag}' not found; skipping.")
+        elif which == "":
+            # Fit both axes
+            for tag, label in ((x_tag, "X"), (y_tag, "Y")):
+                if dpg.does_item_exist(tag):
+                    dpg.fit_axis_data(tag)
+                    print(f"Auto‑fit {label} applied")
+                else:
+                    print(f"Axis '{tag}' not found; skipping.")
+        else:
+            print("Invalid syntax. Use: auto, auto x, or auto y.")
+
     def handle_mark(self, arg):
         """Draw cross+circle at OPX position."""
         try:
@@ -308,6 +340,65 @@ class CommandDispatcher:
             print("Window copied to clipboard.")
         except Exception as e:
             print(f"Copy window failed: {e}")
+
+    def handle_set_graph_size(self, arg):
+        """Set OPX graph width and height: gr<width> or gr<width>,<height>; no arg resets to defaults."""
+        tag = "plotImaga"
+        # 1) Ensure the graph exists
+        if not dpg.does_item_exist(tag):
+            print(f"Graph tag '{tag}' not found.")
+            return
+
+        # 2) On first call, capture the default size
+        # Initialize or refresh default size if missing or incomplete
+        if (not hasattr(self, "default_graph_size")
+                or self.default_graph_size is None
+                or self.default_graph_size[0] is None
+                or self.default_graph_size[1] is None):
+            try:
+                default_w = dpg.get_item_width(tag)
+                default_h = dpg.get_item_height(tag)
+            except Exception:
+                default_w, default_h = None, None
+            self.default_graph_size = (default_w, default_h)
+
+        # 3) No args → reset to default size
+        if not arg.strip():
+            default_w, default_h = self.default_graph_size
+            if default_w is None or default_h is None:
+                print("Default graph size is unknown; cannot reset.")
+                return
+            dpg.set_item_width(tag, default_w)
+            dpg.set_item_height(tag, default_h)
+            print(f"Graph size reset to default: {default_w}×{default_h}")
+            return
+
+        # 4) Parse width and optional height
+        parts = arg.strip().split(",", 1)
+        try:
+            w = int(parts[0])
+        except ValueError:
+            print("Invalid syntax. Use: gr<width> or gr<width>,<height>, e.g. gr100 or gr100,200")
+            return
+
+        if len(parts) > 1 and parts[1].strip():
+            try:
+                h = int(parts[1])
+            except ValueError:
+                print("Invalid syntax. Use: gr<width> or gr<width>,<height>, e.g. gr100 or gr100,200")
+                return
+        else:
+            # Only width specified → keep default height
+            _, default_h = self.default_graph_size
+            if default_h is None:
+                print("Default graph height is unknown; cannot set width only.")
+                return
+            h = default_h
+
+        # 5) Apply the new size
+        dpg.set_item_width(tag, w)
+        dpg.set_item_height(tag, h)
+        print(f"Graph size set to {w}×{h}")
 
     def handle_screenshot_delayed(self, arg):
         """Schedule a delayed screenshot (cc) with optional suffix."""
@@ -1111,21 +1202,79 @@ class CommandDispatcher:
         except Exception as e:
             print(f"genlist failed: {e}")
 
+    # def handle_acquire_spectrum(self, arg):
+    #     """Acquire HRS500 spectrum and rename with notes."""
+    #     p = self.get_parent()
+    #     import glob, os
+    #     # 1) Stop camera & flippers
+    #     try:
+    #         self.handle_toggle_sc(False)
+    #     except Exception:
+    #         pass
+    #     # 2) Acquire data
+    #     if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data"):
+    #         p.opx.spc.acquire_Data()
+    #     else:
+    #         print("Parent OPX or SPC not available.")
+    #         return
+    #     # 3) Locate CSV file
+    #     fp = getattr(p.hrs_500_gui.dev, "last_saved_csv", None)
+    #     if not fp or not os.path.isfile(fp):
+    #         save_dir = getattr(p.hrs_500_gui.dev, "save_directory", None)
+    #         if not save_dir:
+    #             print("No CSV found to rename.")
+    #             return
+    #         matches = glob.glob(os.path.join(save_dir, "*.csv"))
+    #         if not matches:
+    #             print("No CSV found to rename.")
+    #             return
+    #         fp = max(matches, key=os.path.getmtime)
+    #     # 4) Rename file with notes
+    #     notes = getattr(p.opx, "expNotes", "")
+    #     dirname, basename = os.path.split(fp)
+    #     base, ext = os.path.splitext(basename)
+    #     if notes:
+    #         new_name = f"{base}_{notes}{ext}"
+    #         new_fp = os.path.join(dirname, new_name)
+    #         try:
+    #             os.replace(fp, new_fp)
+    #             print(f"Renamed SPC file → {new_fp}")
+    #         except Exception as e:
+    #             print(f"Failed to rename SPC file: {e}")
     def handle_acquire_spectrum(self, arg):
-        """Acquire HRS500 spectrum and rename with notes."""
+        """Acquire HRS500 spectrum and rename with notes.
+        Optionally: spc <seconds> to set integration time before acquisition."""
         p = self.get_parent()
-        import glob, os
+        import glob
+        # 0) If the user passed a time, try to set it
+        secs_str = arg.strip()
+        if secs_str:
+            # LightField CameraSettings constant for exposure time
+            from PrincetonInstruments.LightField.AddIns import CameraSettings
+            try:
+                secs = float(secs_str)
+                # p.hrs_500_gui.dev is the LightFieldSpectrometer instance
+                p.hrs_500_gui.dev.set_value(
+                    CameraSettings.ShutterTimingExposureTime,
+                    secs
+                )
+                print(f"Integration time set to {secs} s")
+            except Exception as e:
+                print(f"Could not set integration time to '{secs_str}': {e}")
+
         # 1) Stop camera & flippers
         try:
             self.handle_toggle_sc(False)
         except Exception:
             pass
+
         # 2) Acquire data
         if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data"):
             p.opx.spc.acquire_Data()
         else:
             print("Parent OPX or SPC not available.")
             return
+
         # 3) Locate CSV file
         fp = getattr(p.hrs_500_gui.dev, "last_saved_csv", None)
         if not fp or not os.path.isfile(fp):
@@ -1138,6 +1287,7 @@ class CommandDispatcher:
                 print("No CSV found to rename.")
                 return
             fp = max(matches, key=os.path.getmtime)
+
         # 4) Rename file with notes
         notes = getattr(p.opx, "expNotes", "")
         dirname, basename = os.path.split(fp)

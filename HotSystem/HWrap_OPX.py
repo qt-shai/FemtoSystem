@@ -1863,7 +1863,7 @@ class GUI_OPX():
                          equal_aspects=True, crosshairs=True,
                          query=True, callback=self.queryXY_callback)
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]),
-                              parent="plotImaga")
+                              parent="plotImaga",tag="plotImaga_X")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImaga", tag="plotImaga_Y")
 
             if self.system_name == SystemType.FEMTO.value:
@@ -1889,30 +1889,30 @@ class GUI_OPX():
             if (item_width is None) or (item_height is None):
                 raise Exception("Window does not exist")
 
-            if len(arrYZ) == 1 or show_only_xy:
-                pass
-            else:
-                # XZ plot
-                dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
-                             equal_aspects=True, crosshairs=True,
-                             query=True, callback=self.queryXZ_callback)
-                dpg.add_plot_axis(dpg.mvXAxis,
-                                  label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),
-                                  parent="plotImagb")
-                dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagb", tag="plotImagb_Y")
-                dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]], bounds_max=[self.endLoc[0], self.endLoc[2]],
-                                     label="Scan data", parent="plotImagb_Y")
-
-                # YZ plot
-                dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1],
-                             equal_aspects=True, crosshairs=True,
-                             query=True, callback=self.queryYZ_callback)
-                dpg.add_plot_axis(dpg.mvXAxis,
-                                  label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),
-                                  parent="plotImagc")
-                dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
-                dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
-                                     label="Scan data", parent="plotImagc_Y")
+            # if len(arrYZ) == 1 or show_only_xy:
+            #     pass
+            # else:
+            #     # XZ plot
+            #     dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
+            #                  equal_aspects=True, crosshairs=True,
+            #                  query=True, callback=self.queryXZ_callback)
+            #     dpg.add_plot_axis(dpg.mvXAxis,
+            #                       label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),
+            #                       parent="plotImagb")
+            #     dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagb", tag="plotImagb_Y")
+            #     dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]], bounds_max=[self.endLoc[0], self.endLoc[2]],
+            #                          label="Scan data", parent="plotImagb_Y")
+            #
+            #     # YZ plot
+            #     dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1],
+            #                  equal_aspects=True, crosshairs=True,
+            #                  query=True, callback=self.queryYZ_callback)
+            #     dpg.add_plot_axis(dpg.mvXAxis,
+            #                       label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),
+            #                       parent="plotImagc")
+            #     dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
+            #     dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
+            #                          label="Scan data", parent="plotImagc_Y")
             end_Plot_time = time.time()
             print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
 
@@ -2006,7 +2006,7 @@ class GUI_OPX():
             dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
                          equal_aspects=True, crosshairs=True,query=True, callback=self.queryXY_callback)
             z_label = f"x axis [um]{f' @ Z={current_z:.1f} µm' if current_z is not None else ''}"
-            dpg.add_plot_axis(dpg.mvXAxis, label=z_label, parent="plotImaga")
+            dpg.add_plot_axis(dpg.mvXAxis, label=z_label, parent="plotImaga",tag="plotImaga_X")
 
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
             dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data", parent="plotImaga_Y")
