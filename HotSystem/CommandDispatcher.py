@@ -59,6 +59,10 @@ class DualOutput:
         """
         self.original_stream.flush()
 
+class Axis(Enum):
+    Z = 0
+    Y = 1
+    X = 2
 
 class CommandDispatcher:
     """
@@ -160,6 +164,7 @@ class CommandDispatcher:
             "copy":              self.handle_copy_last_msg,
             "exit":              self.handle_exit,
             "quit":              self.handle_exit,
+            "fillspan":          self.handle_fill_span,
         }
 
     def get_parent(self):
@@ -1144,7 +1149,6 @@ class CommandDispatcher:
         else:
             print("No points stored.")
 
-
     def handle_clear(self, arg):
         """Clear points or annotations."""
         p = self.get_parent()
@@ -1476,6 +1480,47 @@ class CommandDispatcher:
                 print(f"Error calling btnFemtoPulses: {e}")
         else:
             print("OPX or btnFemtoPulses method not available.")
+
+    def handle_fill_span(self, arg):
+        """Compute dx, dy, Lx, Ly from the loaded scan and fill the Scan Parameters inputs."""
+        p = self.get_parent()
+        gui = getattr(p, "opx", p)
+
+        try:
+            if gui.scan_data is None or gui.idx_scan is None:
+                print("No scan is loaded—can't fill span.")
+                return
+
+            # XY slice at the current Z index
+            z_idx = gui.idx_scan[Axis.Z.value]
+            arrXY = gui.scan_data[z_idx, :, :]
+            ny, nx = arrXY.shape
+
+            # --- CAST TO FLOAT ---
+            x0 = float(gui.startLoc[0])
+            y0 = float(gui.startLoc[1])
+            x1 = float(gui.endLoc[0])
+            y1 = float(gui.endLoc[1])
+
+            # compute spans (in nm)
+            Lx_um = (x1 - x0)*1e-6
+            Ly_um = (y1 - y0)*1e-6
+            dx_nm = Lx_um / (nx - 3)
+            dy_nm = Ly_um / (ny - 2)
+
+            # push into your scan parameters UI
+            gui.Update_dX_Scan(app_data=None, user_data=int(round(dx_nm*1e3)))
+            gui.Update_Lx_Scan(app_data=None, user_data=round(Lx_um))
+            gui.Update_dY_Scan(app_data=None, user_data=int(round(dy_nm*1e3)))
+            gui.Update_Ly_Scan(app_data=None, user_data=round(Ly_um))
+
+            print(
+                f"Filled span → dx={dx_nm:.3f}nm, dy={dy_nm:.3f}nm, "
+                f"Lx={Lx_um:.3f}µm, Ly={Ly_um:.3f}µm"
+            )
+
+        except Exception as e:
+            print(f"fill span failed: {e}")
 
     def handle_prepare_for_scan(self,arg):
         """Stop camera live view & retract flippers."""
