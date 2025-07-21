@@ -1,8 +1,10 @@
+import glob
 import sys
 import os
 import re
 import threading
 import time
+import pyperclip
 import traceback
 import subprocess
 import numpy as np
@@ -16,6 +18,7 @@ from Survey_Analysis.Scan_Image_Analysis import ScanImageAnalysis
 import HW_wrapper.HW_devices as hw_devices
 from HW_GUI.GUI_MFF_101 import GUI_MFF
 from Common import *
+from PrincetonInstruments.LightField.AddIns import CameraSettings
 
 class DualOutput:
     def __init__(self, original_stream):
@@ -153,6 +156,10 @@ class CommandDispatcher:
             "ntrack":            self.handle_ntrack,
             "gr":                self.handle_set_graph_size,
             "auto":              self.handle_auto,
+            "file":              self.handle_print_last_file,
+            "copy":              self.handle_copy_last_msg,
+            "exit":              self.handle_exit,
+            "quit":              self.handle_exit,
         }
 
     def get_parent(self):
@@ -238,15 +245,26 @@ class CommandDispatcher:
                         break
                     handler(arg)
                 else:
-                    # fallback: try eval
-                    try:
-                        res = eval(seg, {"__builtins__": {}})
-                        print(f"{seg} = {res}")
-                    except:
-                        print(f"Unknown command: {seg}")
+                    # not a known command → try to recall from history
+                    parent = self.get_parent()
+                    history = getattr(parent, "command_history", [])
+                    # look backwards for the first entry that contains seg, but isn’t exactly seg
+                    matches = [
+                        cmd for cmd in reversed(history)
+                        if seg in cmd and cmd != seg
+                    ]
+                    if matches:
+                        found = matches[0]
+                        dpg.set_value("cmd_input", found)
+                        dpg.focus_item("cmd_input")
+                        print(f"Recalled from history: {found}")
+                        return
+                    else:
+                        print(f"Didn't find '{seg}' in history.")
             except Exception:
                 traceback.print_exc()
         dpg.focus_item("cmd_input")
+        dpg.set_value("cmd_input", "")
 
     # --- Handlers (methods) ---
     def handle_auto(self, arg):
@@ -303,6 +321,7 @@ class CommandDispatcher:
                             thickness=2,parent="plot_draw_layer",tag=tag+"_circle")
             print(f"Marked at X={x:.4f}, Y={y:.4f}")
         except Exception as e:
+            traceback.print_exc()
             print(f"Error in mark: {e}")
 
     def handle_unmark(self, arg):
@@ -342,7 +361,7 @@ class CommandDispatcher:
             print(f"Copy window failed: {e}")
 
     def handle_set_graph_size(self, arg):
-        """Set OPX graph width and height: gr<width> or gr<width>,<height>; no arg resets to defaults."""
+        """Set OPX graph width and height: gr<width> or gr<width>,<height>; no arg resets to defaults. e.g. gr 1100"""
         tag = "plotImaga"
         # 1) Ensure the graph exists
         if not dpg.does_item_exist(tag):
@@ -464,7 +483,6 @@ class CommandDispatcher:
 
     def handle_copy_filename(self, arg):
         """Copy filename from last console message."""
-        import pyperclip
         msgs = getattr(sys.stdout, "messages", [])
         if not msgs:
             print("No messages to parse.")
@@ -822,6 +840,18 @@ class CommandDispatcher:
         except Exception as e:
             print(f"Error running 'plf': {e}")
 
+    def handle_print_last_file(self, arg=None):
+        """Print the last loaded CSV file path."""
+        p = self.get_parent()
+        try:
+            if not hasattr(p, "opx") or not hasattr(p.opx, "last_loaded_file"):
+                print("No file loaded/scanned yet.")
+                return
+            print(f"Last loaded/scan file: {p.opx.last_loaded_file}")
+            pyperclip.copy(p.opx.last_loaded_file)
+        except Exception as e:
+            print(f"Error in file command: {e}")
+
     def handle_load_csv(self, arg):
         """Load & plot most recent CSV from last scan dir."""
         p = self.get_parent()
@@ -906,14 +936,17 @@ class CommandDispatcher:
             else:
                 # regular fill+move
                 p.opx.fill_moveabs_from_query()
-                for ax in range(3):
+                for ax in range(2):
                     p.smaractGUI.move_absolute(None,None,ax)
-                x,y,z = [dpg.get_value(f"mcs_ch{ax}_ABS") for ax in range(3)]
+                z = p.opx.positioner.AxesPositions[2]*1e-6
+                dpg.set_value(f"mcs_ch2_ABS", z)
+                x,y = [dpg.get_value(f"mcs_ch{ax}_ABS") for ax in range(2)]
                 pts = getattr(p,"saved_query_points",[])
                 new_idx = pts[-1][0]+1 if pts else 1
                 pts.append((new_idx,x,y,z))
                 p.saved_query_points = pts
                 print(f"Stored point #{new_idx}: {(x,y,z)}")
+            self.handle_list_points(arg)
         except Exception as e:
             print(f"fq failed: {e}")
 
@@ -1202,63 +1235,23 @@ class CommandDispatcher:
         except Exception as e:
             print(f"genlist failed: {e}")
 
-    # def handle_acquire_spectrum(self, arg):
-    #     """Acquire HRS500 spectrum and rename with notes."""
-    #     p = self.get_parent()
-    #     import glob, os
-    #     # 1) Stop camera & flippers
-    #     try:
-    #         self.handle_toggle_sc(False)
-    #     except Exception:
-    #         pass
-    #     # 2) Acquire data
-    #     if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data"):
-    #         p.opx.spc.acquire_Data()
-    #     else:
-    #         print("Parent OPX or SPC not available.")
-    #         return
-    #     # 3) Locate CSV file
-    #     fp = getattr(p.hrs_500_gui.dev, "last_saved_csv", None)
-    #     if not fp or not os.path.isfile(fp):
-    #         save_dir = getattr(p.hrs_500_gui.dev, "save_directory", None)
-    #         if not save_dir:
-    #             print("No CSV found to rename.")
-    #             return
-    #         matches = glob.glob(os.path.join(save_dir, "*.csv"))
-    #         if not matches:
-    #             print("No CSV found to rename.")
-    #             return
-    #         fp = max(matches, key=os.path.getmtime)
-    #     # 4) Rename file with notes
-    #     notes = getattr(p.opx, "expNotes", "")
-    #     dirname, basename = os.path.split(fp)
-    #     base, ext = os.path.splitext(basename)
-    #     if notes:
-    #         new_name = f"{base}_{notes}{ext}"
-    #         new_fp = os.path.join(dirname, new_name)
-    #         try:
-    #             os.replace(fp, new_fp)
-    #             print(f"Renamed SPC file → {new_fp}")
-    #         except Exception as e:
-    #             print(f"Failed to rename SPC file: {e}")
     def handle_acquire_spectrum(self, arg):
-        """Acquire HRS500 spectrum and rename with notes.
-        Optionally: spc <seconds> to set integration time before acquisition."""
+        """Launch threaded spectrum acquisition process."""
+        threading.Thread(target=self._acquire_spectrum_worker, args=(arg,), daemon=True).start()
+
+    def _acquire_spectrum_worker(self, arg):
+        """Actual spectrum acquisition logic, run in a background thread."""
         p = self.get_parent()
-        import glob
-        # 0) If the user passed a time, try to set it
+        self.handle_mark(arg)
+        time.sleep(0.1)
+
+        # 0) Try to set exposure time
         secs_str = arg.strip()
         if secs_str:
-            # LightField CameraSettings constant for exposure time
-            from PrincetonInstruments.LightField.AddIns import CameraSettings
             try:
-                secs = float(secs_str)
-                # p.hrs_500_gui.dev is the LightFieldSpectrometer instance
-                p.hrs_500_gui.dev.set_value(
-                    CameraSettings.ShutterTimingExposureTime,
-                    secs
-                )
-                print(f"Integration time set to {secs} s")
+                secs = float(secs_str) * 1000
+                p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, secs)
+                print(f"Integration time set to {secs}s")
             except Exception as e:
                 print(f"Could not set integration time to '{secs_str}': {e}")
 
@@ -1268,14 +1261,18 @@ class CommandDispatcher:
         except Exception:
             pass
 
-        # 2) Acquire data
+        # 2) Acquire spectrum
         if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data"):
-            p.opx.spc.acquire_Data()
+            try:
+                p.hrs_500_gui.acquire_callback()
+            except Exception as e:
+                print(f"acquire_callback failed: {e}")
+                return
         else:
             print("Parent OPX or SPC not available.")
             return
 
-        # 3) Locate CSV file
+        # 3) Locate saved CSV
         fp = getattr(p.hrs_500_gui.dev, "last_saved_csv", None)
         if not fp or not os.path.isfile(fp):
             save_dir = getattr(p.hrs_500_gui.dev, "save_directory", None)
@@ -1288,7 +1285,7 @@ class CommandDispatcher:
                 return
             fp = max(matches, key=os.path.getmtime)
 
-        # 4) Rename file with notes
+        # 4) Rename with notes
         notes = getattr(p.opx, "expNotes", "")
         dirname, basename = os.path.split(fp)
         base, ext = os.path.splitext(basename)
@@ -1298,6 +1295,8 @@ class CommandDispatcher:
             try:
                 os.replace(fp, new_fp)
                 print(f"Renamed SPC file → {new_fp}")
+                pyperclip.copy(new_fp)
+                p.hrs_500_gui.dev.last_saved_csv = new_fp  # Update path
             except Exception as e:
                 print(f"Failed to rename SPC file: {e}")
 
@@ -1482,7 +1481,7 @@ class CommandDispatcher:
         """Stop camera live view & retract flippers."""
         self.handle_toggle_sc(reverse=False)
 
-    def handle_start_camera(selfself,arg):
+    def handle_start_camera(self,arg):
         """Start camera live view & extend flippers."""
         self.handle_toggle_sc(reverse=True)
 
@@ -1706,18 +1705,31 @@ class CommandDispatcher:
             print("int failed.")
 
     def handle_nextrun(self, arg):
-        """Enable/disable HRS_500 in system_info.xml."""
+        """Enable or disable HRS_500 in system_info.xml—will always find & toggle the full block."""
+        action = arg
+        xml_path = os.path.join("SystemConfig", "xml_configs", "system_info.xml")
         try:
-            path=os.path.join("SystemConfig","xml_configs","system_info.xml")
-            txt=open(path).read()
-            if arg.strip().lower() in ("hrs","hrs on"):
-                new=re.sub(r'<!--(<Device>.*?HRS_500.*?</Device>)-->',r'\1',txt,flags=re.DOTALL)
+            text = open(xml_path, "r").read()
+            if action in ("hrs", "hrs on"):
+                # Uncomment HRS_500 block
+                new_text = re.sub(
+                    r'<!--\s*(<Device>\s*<Instrument>HRS_500</Instrument>[\s\S]*?</Device>)\s*-->',
+                    r'\1', text, flags=re.DOTALL
+                )
+                open(xml_path, "w").write(new_text)
+                print("HRS_500 enabled for next run.")
+            elif action in ("!hrs", "hrs off", "hrs off"):
+                # Comment HRS_500 block
+                new_text = re.sub(
+                    r'(<Device>\s*<Instrument>HRS_500</Instrument>[\s\S]*?</Device>)',
+                    r'<!--\1-->', text, flags=re.DOTALL
+                )
+                open(xml_path, "w").write(new_text)
+                print("HRS_500 disabled for next run.")
             else:
-                new=re.sub(r'(<Device>.*?HRS_500.*?</Device>)',r'<!--\1-->',txt,flags=re.DOTALL)
-            open(path,"w").write(new)
-            print("nextrun applied.")
-        except:
-            print("nextrun failed.")
+                print(f"Unknown action for nextrun: '{action}'. Use 'nextrun hrs' or 'nextrun !hrs'.")
+        except Exception as e:
+            print(f"Failed to process 'nextrun': {e}")
 
     def handle_help(self, arg):
         """Show help for commands in a larger window with search."""
@@ -1907,7 +1919,31 @@ class CommandDispatcher:
             else:
                 print(f"N_tracking_search = {p.opx.N_tracking_search}")
         except:
+            traceback.print_exc()
             print("ntrack failed.")
+
+    def handle_copy_last_msg(self, arg):
+        """Copy the last console message to the clipboard."""
+        msgs = getattr(sys.stdout, "messages", [])
+        if not msgs:
+            print("No messages to copy.")
+            return
+        last = msgs[-1].rstrip("\n")
+        try:
+            pyperclip.copy(last)
+            print(f"Copied to clipboard: {last}")
+        except Exception as e:
+            print(f"Copy failed: {e}")
+
+    def handle_exit(self, arg):
+        """Exit the application immediately."""
+        print("Exiting application...")
+        # stop the DPG render loop
+        dpg.stop_dearpygui()
+        # terminate Python process
+        os._exit(0)
+
+
 
 # Wrapper function
 dispatcher = CommandDispatcher()

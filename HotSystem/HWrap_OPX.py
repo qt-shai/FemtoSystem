@@ -639,10 +639,14 @@ class GUI_OPX():
         print("Set gate_number to: " + str(sender.gate_number))
 
     def UpdateN_tracking_search(sender, app_data=None, user_data=None):
-        sender.N_tracking_search = (int(user_data))
+        sender.N_tracking_search = int(user_data)
         time.sleep(0.001)
-        dpg.set_value(item="inInt_N_tracking_search", value=sender.N_tracking_search)
-        print("Set N_tracking_search to: " + str(sender.N_tracking_search))
+        item_tag = "inInt_N_tracking_search"
+        if dpg.does_item_exist(item_tag):
+            dpg.set_value(item=item_tag, value=sender.N_tracking_search)
+        else:
+            print(f"[Warning] '{item_tag}' does not exist — possibly because an experiment is active.")
+        print("Set N_tracking_search to:", sender.N_tracking_search)
 
     def UpdateN_survey_g2_counts(sender, app_data, user_data):
         sender.survey_g2_counts = (int(user_data))
@@ -11557,6 +11561,7 @@ class GUI_OPX():
                 return self.create_scan_file_name(local=True)
         fileName = os.path.join(folder_path, f"{timeStamp}_{self.exp.name}_{self.expNotes}")
         self.timeStamp = timeStamp
+        self.last_loaded_file=fileName
         return fileName
 
     def move_single_step(self, ch, step):

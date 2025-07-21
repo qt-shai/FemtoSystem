@@ -1598,7 +1598,6 @@ class PyGuiOverlay(Layer):
         command = dpg.get_value("cmd_input").strip()
         # outout.run(command)
         run(command)
-        dpg.set_value("cmd_input", "")
 
     def send_console_input(self):
         """Sends the input text to the console."""

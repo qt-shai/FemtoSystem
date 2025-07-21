@@ -210,6 +210,7 @@ class LightFieldSpectrometer:
 
     def acquire_Data(self) -> None:
         """Requires Lightfield to save a csv file"""
+
         before = self.get_list_of_files()
         self.wait_until_ready()
         self._exp.Acquire()
