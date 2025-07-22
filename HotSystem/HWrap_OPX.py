@@ -11656,6 +11656,75 @@ class GUI_OPX():
         self.qm.set_io1_value(0)
         time.sleep(0.1)
 
+    def FindFocus(self):
+        """Scan channel2 (Z) to find the position of maximum signal and move there."""
+        # number of points to scan on each side
+        self.track_numberOfPoints = self.N_tracking_search*5
+        # fixed step size for Z in pm
+        self.trackStep = 50000
+        # start offset so scan is centered
+        initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
+
+        # prepare storage
+        ch = 2
+        self.track_X = []
+        self.coordinate = []
+
+        # 1) move to start of scan range
+        print(f"--- FindFocus: scanning channel {ch} ---")
+        self.positioner.MoveRelative(ch, -initialShift)
+        time.sleep(0.01)
+        while not self.positioner.ReadIsInPosition(ch):
+            time.sleep(0.01)
+
+        # record absolute start position
+        self.positioner.GetPosition()
+        self.absPos = self.positioner.AxesPositions[ch]
+
+        # 2) perform the scan
+        for i in range(self.track_numberOfPoints):
+            # wait for signal integration
+            time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001)
+            # fetch twice to ensure new data
+            self.GlobalFetchData()
+            time.sleep(0.01)
+            self.GlobalFetchData()
+
+            # grab current signal
+            with self.lock:
+                current_signal = self.counter_Signal[0]
+
+            # log position and signal
+            pos = self.absPos + i * self.trackStep
+            self.coordinate.append(pos)
+            self.track_X.append(current_signal)
+
+            # step to next
+            self.positioner.MoveRelative(ch, self.trackStep)
+            while not self.positioner.ReadIsInPosition(ch):
+                time.sleep(0.005)
+
+        # 3) report raw arrays
+        coords_um = ", ".join(f"{c * 1e-6:.2f}" for c in self.coordinate)
+        sig_vals = ", ".join(f"{v:.0f}" for v in self.track_X)
+        print(f"Positions (µm): {coords_um}")
+        print(f"Signals      : {sig_vals}")
+
+        # 4) find max and go there
+        idx_max = int(np.argmax(self.track_X))
+        maxPos = self.coordinate[idx_max]
+        print(f"Max signal at {maxPos * 1e-6:.2f}µm -> moving there")
+        self.positioner.MoveABSOLUTE(ch, maxPos)
+        time.sleep(0.01)
+
+        # 5) update reference signal
+        self.refSignal = self.track_X[idx_max]
+        print(f"New reference signal = {self.refSignal:.2f}")
+
+        # 6) return QM I/O to idle
+        self.qm.set_io1_value(0)
+        time.sleep(0.1)
+
     def FindMaxSignal_atto_positioner_and_scanner(self):
         """
         Find the peak intensity by optimizing offset voltages:

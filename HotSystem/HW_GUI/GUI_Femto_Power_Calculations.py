@@ -173,8 +173,8 @@ class FemtoPowerCalculator:
                     dpg.delete_item(child)
             dy = 2000  # nm
             num_points = len(angles)
-            Ly = (num_points - 1) * dy  # nm
-            dpg.add_text(f"# pnts:{num_points}, Ly:{Ly} nm, Pulses: x{pulse_count}",
+            Ly = (num_points - 1) * dy * 1e-3 # um
+            dpg.add_text(f"# pnts:{num_points}, Ly:{Ly} um, Pulses: x{pulse_count}",
                          color=(255, 255, 0), parent=self.future_output_group)
             for angle in angles:
                 P, E = self.calculate_laser_pulse(angle, Att_percent, mode)

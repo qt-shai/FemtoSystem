@@ -165,6 +165,13 @@ class CommandDispatcher:
             "exit":              self.handle_exit,
             "quit":              self.handle_exit,
             "fillspan":          self.handle_fill_span,
+            "enablepp":          self.handle_enablepp,
+            "pulsecount":        self.handle_pulsecount,
+            "focus":             self.handle_focus,
+            "standby":           self.handle_standby,
+            "standby?":          self.handle_standby_query,
+            "pharos?":           self.handle_standby_query,
+            "execute":           self.handle_execute,
         }
 
     def get_parent(self):
@@ -954,7 +961,6 @@ class CommandDispatcher:
             self.handle_list_points(arg)
         except Exception as e:
             print(f"fq failed: {e}")
-
 
     def handle_find_max_in_area(self, arg):
         """Find the maximum Z value inside the currently defined queried_area.
@@ -1988,7 +1994,130 @@ class CommandDispatcher:
         # terminate Python process
         os._exit(0)
 
+    def handle_enablepp(self, arg):
+        """Enable the pharos pulse picker (PP)."""
+        p = self.get_parent()
+        gui = getattr(p, "opx", p)
+        self.handle_toggle_sc(reverse=False)
+        time.sleep(3)
+        try:
+            gui.pharos.enablePp()
+            print("Pharos pulse picker enabled.")
+        except Exception as e:
+            print(f"enablepp failed: {e}")
 
+    def handle_pulsecount(self, arg):
+        """Set the number of pulses per trigger: pulsecount <num>."""
+        p = self.get_parent()
+        gui = getattr(p, "opx", p)
+        try:
+            count = int(arg)
+        except Exception:
+            print(f"Invalid pulse count: '{arg}'. Must be an integer.")
+            return
+
+        try:
+            gui.pharos.setAdvancedTargetPulseCount(count)
+            print(f"Pulse count set to {count}.")
+        except Exception as e:
+            print(f"pulsecount failed: {e}")
+
+    def handle_focus(self, arg):
+        """Run FindFocus (channel 2); if arg=='plot', also pop up a Signal vs Z graph."""
+        p = self.get_parent()
+        do_plot = arg.strip().lower() == "plot"
+
+        def worker():
+            try:
+                # 1) Kick off live counting
+                p.opx.btnStartCounterLive()
+                time.sleep(1)
+
+                # 2) Do the focus scan
+                p.opx.FindFocus()
+
+                # 3) Optionally plot
+                if do_plot:
+                    # Directly call the UI method
+                    self._focus_plot(p.opx.coordinate, p.opx.track_X)
+            except Exception as e:
+                traceback.print_exc()
+                print(f"focus failed: {e}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _focus_plot(self, coords, signals):
+        """Create/update a DPG window with Signal vs Z, marking the max point."""
+        # Remove old window if it exists
+        if dpg.does_item_exist("focus_window"):
+            dpg.delete_item("focus_window", children_only=False)
+
+        with dpg.window(label="Focus Plot", tag="focus_window", width=600, height=400):
+            plot = dpg.add_plot(label="Signal vs Z", height=350, width=580)
+
+            # X and Y axes
+            dpg.add_plot_axis(dpg.mvXAxis, label="Z (µm)", parent=plot)
+            dpg.add_plot_axis(dpg.mvYAxis, label="Signal", parent=plot, tag="focus_plot_y")
+
+            # Convert to µm
+            z_um = [c * 1e-6 for c in coords]
+
+            # Plot line
+            dpg.add_line_series(z_um, signals, label="Signal", parent="focus_plot_y")
+
+            # Highlight the max
+            idx_max = int(np.argmax(signals))
+            dpg.add_scatter_series(
+                [z_um[idx_max]],
+                [signals[idx_max]],
+                label="Max",
+                parent="focus_plot_y",
+            )
+
+    def handle_standby(self, arg):
+        """Put the Pharos laser into standby mode."""
+        p = self.get_parent()
+        gui = getattr(p, "opx", p)
+        try:
+            gui.pharos.goToStandby()
+            print("Pharos: entered standby mode.")
+        except Exception as e:
+            print(f"standby failed: {e}")
+
+    def handle_standby_query(self, arg):
+        """Print yes if Pharos is currently in standby mode."""
+        p = self.get_parent()
+        gui = getattr(p, "opx", p)
+        try:
+            # Call the API to get the current state name
+            resp = gui.pharos.getBasicActualStateName2()  # :contentReference[oaicite:0]{index=0}
+            # Extract the state string
+            if isinstance(resp, dict):
+                # The key is usually "ActualStateName2" or similar
+                state = next(iter(resp.values()))
+            else:
+                state = str(resp)
+            # Check for "standby"
+            if "standby" in state.lower():
+                print("yes pharos in standby mode")
+            else:
+                print(f"pharos state is {state}")
+        except Exception as e:
+            print(f"standby? failed: {e}")
+
+    def handle_execute(self, arg):
+        """Reload last-selected Pharos preset and turn the laser on."""
+        p = self.get_parent()
+        gui = getattr(p, "opx", p)
+        try:
+            # apply whatever preset index is currently selected
+            gui.pharos.applySelectedPreset()
+            print("Pharos: applied selected preset.")
+            # then turn the laser on
+            gui.pharos.turnOn()
+            print("Pharos: laser turned ON.")
+        except Exception as e:
+            print(f"execute failed: {e}")
 
 # Wrapper function
 dispatcher = CommandDispatcher()
