@@ -26,7 +26,6 @@ import matplotlib
 import numpy as np
 from collections import Counter
 import json
-from Outout_to_gui import toggle_sc
 
 from qm.jobs.base_job import QmBaseJob
 from qm.qua._expressions import QuaVariable, QuaVariableType
@@ -47,6 +46,7 @@ from qualang_tools.units import unit
 import SystemConfig as configs
 from Common import WindowNames
 from Common import load_window_positions
+from Common import toggle_sc
 
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
@@ -1445,10 +1445,29 @@ class GUI_OPX():
                         dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
                         dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
-                    dpg.set_frame_callback(dpg.get_frame_count() + 1, self.load_pos)
+                    # dpg.set_frame_callback(dpg.get_frame_count() + 1, self.load_pos)
+                    # Schedule the call to happen after 1 frame
+                    self.delayed_actions()
+                    # dpg.set_frame_callback(dpg.get_frame_count() + 1, self.delayed_actions)
+
             self.hide_legend()
         else:
             dpg.delete_item("Scan_Window")
+
+    def delayed_actions(self):
+        # ✅ Setup dummy zero scan data (5×5×5)
+        self.scan_data = np.zeros((5, 5, 5), dtype=float)
+        self.idx_scan = [2, 2, 2]  # Middle slice for each axis
+        self.Xv = np.linspace(0, 1, 5)
+        self.Yv = np.linspace(0, 1, 5)
+        self.Zv = np.linspace(0, 1, 5)
+        self.startLoc = [0, 0, 0]
+        self.endLoc = [1, 1, 1]
+
+        # Call plot function
+        self.Plot_Loaded_Scan()
+        self.load_pos()
+        self.hide_legend()
 
     def save_scan_parameters(self):
         data = {
@@ -1578,6 +1597,14 @@ class GUI_OPX():
                     moved_any = True
                 else:
                     print(f"Last loaded file does not exist: {self.last_loaded_file}")
+
+            try:
+                with open("last_scan_dir.txt", "w") as lf:
+                    lf.write(new_folder)
+                print(f"Updated last_scan_dir.txt → {new_folder}")
+            except Exception as e:
+                print(f"Failed to update last_scan_dir.txt: {e}")
+
         except Exception as e:
             print(f"Error moving files: {e}")
 
@@ -1893,30 +1920,6 @@ class GUI_OPX():
             if (item_width is None) or (item_height is None):
                 raise Exception("Window does not exist")
 
-            # if len(arrYZ) == 1 or show_only_xy:
-            #     pass
-            # else:
-            #     # XZ plot
-            #     dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
-            #                  equal_aspects=True, crosshairs=True,
-            #                  query=True, callback=self.queryXZ_callback)
-            #     dpg.add_plot_axis(dpg.mvXAxis,
-            #                       label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),
-            #                       parent="plotImagb")
-            #     dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagb", tag="plotImagb_Y")
-            #     dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]], bounds_max=[self.endLoc[0], self.endLoc[2]],
-            #                          label="Scan data", parent="plotImagb_Y")
-            #
-            #     # YZ plot
-            #     dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1],
-            #                  equal_aspects=True, crosshairs=True,
-            #                  query=True, callback=self.queryYZ_callback)
-            #     dpg.add_plot_axis(dpg.mvXAxis,
-            #                       label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),
-            #                       parent="plotImagc")
-            #     dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
-            #     dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
-            #                          label="Scan data", parent="plotImagc_Y")
             end_Plot_time = time.time()
             print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
 
@@ -9177,6 +9180,9 @@ class GUI_OPX():
 
     def btnStartCounterLive(self, b_startFetch=True):
         try:
+            if self.counter_is_live:
+                print('Counter is already live')
+                return
             self.exp = Experiment.COUNTER
             self.GUI_ParametersControl(isStart=self.bEnableSimulate)
             self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
@@ -10441,7 +10447,7 @@ class GUI_OPX():
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
         cam = self.HW.camera
         if cam.constantGrabbing:
-            toggle_sc(reverse=False,check_dx=False)
+            toggle_sc(reverse=False)
 
         if dpg.does_item_exist("btnOPX_Stop"):
             print("Stopping previous experiment before scanning...")

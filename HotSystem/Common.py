@@ -1,4 +1,5 @@
 import datetime
+import sys
 import traceback
 from datetime import datetime
 import socket
@@ -259,13 +260,37 @@ def is_remote_resolution() -> bool:
         print(f"[is_remote_resolution] Error detecting resolution: {e}")
         return False
 
+def toggle_sc(reverse=False):
+    try:
+        parent = getattr(sys.stdout, "parent", None)
+        cam = getattr(parent, "cam", None)
+        mff = getattr(parent, "mff_101_gui", [])
+        if cam:
+            if reverse and hasattr(cam, "StartLive"):
+                cam.StartLive()
+                print("Camera live view started.")
+                if not parent.opx.counter_is_live:
+                    parent.opx.btnStartCounterLive()
+            elif not reverse and hasattr(cam, "StopLive"):
+                cam.StopLive()
+                print("Camera live view stopped.")
+        for flipper in mff:
+            slider_tag = f"on_off_slider_{flipper.unique_id}"
+            pos = flipper.dev.get_position()
+            if (not reverse and pos == 1) or (reverse and pos == 2):
+                flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
+    except Exception as e:
+        print(f"Error in toggle_sc: {e}")
+
+
 def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
     """
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
-    Supports dynamic windows like KDC101 and Femto_Power_Calculations.
+    Also applies saved graph size for the 'plotImaga' plot.
     """
     try:
-        if is_remote_resolution():  # <- call your helper
+        # 1) Pick remote vs local
+        if is_remote_resolution():
             file_name = "win_pos_remote.txt"
             print(f"Remote resolution detected → Using {file_name}")
         else:
@@ -275,43 +300,62 @@ def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
             print(f"{file_name} not found.")
             return
 
+        # 2) Read file
         with open(file_name, "r") as file:
             lines = file.readlines()
 
         window_positions = {}
-        window_sizes = {}
+        window_sizes     = {}
 
+        # 3) Parse lines
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-
-            if "_Pos:" in line:
-                key, value = line.split("_Pos:")
-                window_name = key.strip()
-                x, y = [float(v.strip()) for v in value.split(",")]
-                window_positions[window_name] = (x, y)
-
+            if "Viewport_Size:" in line:
+                _, value = line.split("Viewport_Size:")
+                vp_w, vp_h = map(int, value.strip().split(","))
+                dpg.set_viewport_width(vp_w)
+                # dpg.set_viewport_height(vp_h)
+            elif "_Pos:" in line:
+                key, val = line.split("_Pos:")
+                name = key.strip()
+                x, y = [float(v) for v in val.split(",")]
+                window_positions[name] = (x, y)
             elif "_Size:" in line:
-                key, value = line.split("_Size:")
-                window_name = key.strip()
-                w, h = [float(v.strip()) for v in value.split(",")]
-                window_sizes[window_name] = (w, h)
-
-        for window_name, pos in window_positions.items():
-            if dpg.does_item_exist(window_name):
-                dpg.set_item_pos(window_name, pos)
-                print(f"Loaded position for {window_name}: {pos}")
+                key, val = line.split("_Size:")
+                name = key.strip()
+                w, h = [float(v) for v in val.split(",")]
+                window_sizes[name] = (w, h)
+        # 4) Apply positions
+        for name, pos in window_positions.items():
+            if dpg.does_item_exist(name):
+                dpg.set_item_pos(name, pos)
+                print(f"Loaded position for {name}: {pos}")
             else:
-                print(f"[load] {window_name} not found in current DPG context.")
+                print(f"[load] {name} not found for position.")
 
-        for window_name, size in window_sizes.items():
-            if dpg.does_item_exist(window_name):
-                dpg.set_item_width(window_name, size[0])
-                dpg.set_item_height(window_name, size[1])
-                print(f"Loaded size for {window_name}: {size}")
+        # 5) Apply sizes to windows
+        for name, size in window_sizes.items():
+            # Skip the plot itself here; we'll handle it explicitly below
+            if name == "plotImaga":
+                continue
+            if dpg.does_item_exist(name):
+                dpg.set_item_width(name,  size[0])
+                dpg.set_item_height(name, size[1])
+                print(f"Loaded size for {name}: {size}")
             else:
-                print(f"[load] {window_name} not found in current DPG context.")
+                print(f"[load] {name} not found for size.")
+
+        # 6) Now explicitly restore the plot size
+        graph_tag = "plotImaga"
+        if graph_tag in window_sizes and dpg.does_item_exist(graph_tag):
+            w, h = window_sizes[graph_tag]
+            dpg.set_item_width(graph_tag,  w)
+            dpg.set_item_height(graph_tag, h)
+            print(f"Loaded graph size for {graph_tag}: {w}×{h}")
+        else:
+            print(f"No saved size for graph '{graph_tag}', or tag not found.")
 
     except Exception as e:
         print(f"Error loading window positions and sizes: {e}")
@@ -390,11 +434,10 @@ def save_quti_window_screenshot(suffix: str = None):
 def show_msg_window(msg_text: str,height=110):
     window_tag = "msg_Win"
     drawlist_tag = "msg_drawlist"
-
     # Remove old window if it exists
     if dpg.does_item_exist(window_tag):
         dpg.delete_item(window_tag)
-
+    width = 1450
     # Create a new window in the center-ish
     with dpg.window(
         label="Message",
@@ -402,11 +445,11 @@ def show_msg_window(msg_text: str,height=110):
         no_title_bar=True,
         no_resize=False,
         pos=[0, 40],
-        width=1890,
+        width=width,
         height=height
     ):
         # A drawlist lets us use draw_text with size
-        dpg.add_drawlist(width=1900, height=100, tag="msg_drawlist")
+        dpg.add_drawlist(width=width, height=100, tag="msg_drawlist")
         dpg.draw_text(
             pos=(0, 0),
             text=msg_text,
@@ -418,7 +461,7 @@ def show_msg_window(msg_text: str,height=110):
         dpg.add_child_window(tag="msg_child", parent=window_tag)
         dpg.add_text(
             default_value=msg_text,
-            wrap=1800,  # wrap just inside the child width
+            wrap=width,  # wrap just inside the child width
             parent="msg_child",
             color=(255, 255, 0, 255),
         )

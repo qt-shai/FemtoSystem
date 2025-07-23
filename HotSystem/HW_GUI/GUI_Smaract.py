@@ -247,6 +247,10 @@ class GUI_smaract():
         ]
         file_name = f"win_pos_{profile_name}.txt"
 
+        # Save viewport size and position
+        vp_w = dpg.get_viewport_client_width()
+        vp_h = dpg.get_viewport_client_height()
+
         # Dynamically find and add all KDC windows
         all_windows = dpg.get_all_items()
         for item in all_windows:
@@ -273,12 +277,22 @@ class GUI_smaract():
                 window_positions[win_name] = (win_pos, win_size)
                 print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
 
+        # Also capture the size of the OPX graph
+        graph_tag = "plotImaga"
+        if dpg.does_item_exist(graph_tag):
+            # No meaningful 'position' here, so store as None
+            gsize = (dpg.get_item_width(graph_tag), dpg.get_item_height(graph_tag))
+            window_positions[graph_tag] = (None, gsize)
+            print(f"Graph '{graph_tag}' size: {gsize}")
+
         try:
             # Write window positions and sizes to file
-            with open(file_name, "w") as file:
-                for win_name, (position, size) in window_positions.items():
-                    file.write(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
-                    file.write(f"{win_name}_Size: {size[0]}, {size[1]}\n")
+            with open(file_name, "w") as f:
+                f.write(f"Viewport_Size: {vp_w}, {vp_h}\n")
+                for name, (pos, size) in window_positions.items():
+                    if pos is not None:
+                        f.write(f"{name}_Pos: {pos[0]}, {pos[1]}\n")
+                    f.write(f"{name}_Size: {size[0]}, {size[1]}\n")
 
             print(f"Window positions and sizes saved successfully to {file_name}")
         except Exception as e:

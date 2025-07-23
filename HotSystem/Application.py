@@ -1565,21 +1565,19 @@ class PyGuiOverlay(Layer):
     def create_console_gui(self):
         """Creates a console GUI window for displaying logs and user inputs."""
         with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Clear Console", callback=self.clear_console)
-                dpg.add_combo(items=[], tag="command_history", width=120, callback=self.fill_console_input)
-                dpg.add_button(label="Save Logs", callback=self.save_logs)
-
             # Console log display
-            with dpg.child_window(tag="console_output", autosize_x=True, height=180):
+            with dpg.child_window(tag="console_output", autosize_x=True, height=120):
                 dpg.add_text("Console initialized.", tag="console_log", wrap=1500)
-
             # Input field for sending commands or messages
             with dpg.group(horizontal=True):
-                dpg.add_input_text(label="", tag="console_input", width=300)
-                dpg.add_button(label="Send", callback=self.send_console_input)
-                dpg.add_input_text(label="Cmd", tag="cmd_input", hint="Enter command",
+                dpg.add_input_text(label="Cmd", tag="cmd_input", hint="Enter command", width=430,
                                    on_enter=True, callback=lambda s, a, u: self.handle_cmd_input())
+                dpg.add_input_text(label="", tag="console_input", width=120)
+                dpg.add_button(label="Snd", callback=self.send_console_input)
+                dpg.add_button(label="Clr", callback=self.clear_console)
+                dpg.add_combo(items=[], tag="command_history", width=50, callback=self.fill_console_input)
+                dpg.add_button(label="Sv", callback=self.save_logs)
+
 
     def clear_console(self):
         """Clears the console log."""

@@ -193,13 +193,19 @@ class FemtoPowerCalculator:
     def get_future_energies(self):
         """
         Return a list of (angle, E) for future pulse energies.
+        Accepts input like: "3:1:5,15%x100"
         """
         input_str = dpg.get_value(self.future_input_tag).strip()
 
         if "," in input_str:
-            range_part, att_part = input_str.split(",")
+            range_part, rest_part = input_str.split(",", 1)
             range_part = range_part.strip()
-            att_part = att_part.strip().replace("%", "")
+            # Support formats like '15%x100'
+            if "x" in rest_part:
+                att_part, _ = rest_part.split("x", 1)
+                att_part = att_part.strip().replace("%", "")
+            else:
+                att_part = rest_part.strip().replace("%", "")
             override_att = float(att_part)
         else:
             range_part = input_str

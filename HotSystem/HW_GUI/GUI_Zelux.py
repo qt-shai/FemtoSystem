@@ -41,6 +41,11 @@ class ZeluxGUI():
         print("Background image saved.")
 
     def StartLive(self):
+        # If the Stop button is already in place, we’re already live—do nothing.
+        if dpg.does_item_exist("btnStopLive"):
+            print("Already live; Stop button exists.")
+            return
+
         self.cam.constantGrabbing = True
         self.LiveTh = threading.Thread(target=self.cam.LiveTh)
         self.LiveTh.setDaemon(True)
@@ -217,7 +222,7 @@ class ZeluxGUI():
                         parent="image_drawlist"
                     )
 
-    def UpdateExposure(sender, app_data, user_data):
+    def UpdateExposure(sender, app_data=None, user_data=None):
         # a = dpg.get_value(sender)
         sender.cam.SetExposureTime(int(user_data * 1e3))
         time.sleep(0.001)
@@ -569,7 +574,7 @@ class ZeluxGUI():
         self.show_center_cross = app_data  # True or False
         self.UpdateImage()  # Re-draw with or without the cross
 
-    def on_off_slider_callback(self, sender, app_data):
+    def on_off_slider_callback(self, sender=None, app_data=None):
         # app_data is the new slider value (0 or 1)
         flipper_1_serial_number = "37008855"
         flipper_2_serial_number = "37008948"

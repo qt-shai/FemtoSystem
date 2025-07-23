@@ -155,12 +155,13 @@ class CommandDispatcher:
             "movey":             self.handle_moveY,
             "movez":             self.handle_moveZ,
             "lastdir":           self.handle_open_lastdir,
+            "dir":               self.handle_open_lastdir,
             "det":               self.handle_detect_and_draw,
             "fmax":              self.handle_fmax,
             "ntrack":            self.handle_ntrack,
             "gr":                self.handle_set_graph_size,
             "auto":              self.handle_auto,
-            "file":              self.handle_print_last_file,
+            "file":              self.handle_file,
             "copy":              self.handle_copy_last_msg,
             "exit":              self.handle_exit,
             "quit":              self.handle_exit,
@@ -171,7 +172,12 @@ class CommandDispatcher:
             "standby":           self.handle_standby,
             "standby?":          self.handle_standby_query,
             "pharos?":           self.handle_standby_query,
+            "enable":            self.handle_enable_pharos,
+            "enable?":           self.handle_enable_pharos_query,
+            "disable":           self.handle_disable_pharos,
             "execute":           self.handle_execute,
+            "spot":              self.handle_spot,
+            "spot1":             self.handle_spot1,
         }
 
     def get_parent(self):
@@ -494,24 +500,37 @@ class CommandDispatcher:
             print(f"clog failed: {e}")
 
     def handle_copy_filename(self, arg):
-        """Copy filename from last console message."""
+        """Copy the most-recently logged filepath (with a slash) to the clipboard."""
         msgs = getattr(sys.stdout, "messages", [])
         if not msgs:
             print("No messages to parse.")
             return
-        last = msgs[-1]
-        m = re.findall(r'(?:[A-Za-z]:[\\/]|[/\\]).+?\.\w+', last)
-        path = m[-1] if m else None
+
+        path = None
+        # 1) First pass: look for any path matching drive-letter or leading slash
+        path_regex = re.compile(r'(?:[A-Za-z]:[\\/]|[/\\]).+?\.\w+')
+        for message in reversed(msgs):
+            matches = path_regex.findall(message)
+            if matches:
+                path = matches[-1]
+                break
+
+        # 2) Fallback: look for tokens containing both a dot and a slash
         if not path:
-            for tok in last.split():
-                if '.' in tok:
-                    path = tok.strip('",;'); break
+            for message in reversed(msgs):
+                for tok in message.split():
+                    tok_stripped = tok.strip('"\',;')
+                    if '.' in tok_stripped and ('/' in tok_stripped or '\\' in tok_stripped):
+                        path = tok_stripped
+                        break
+                if path:
+                    break
+
         if path:
-            fn = os.path.basename(path)
-            pyperclip.copy(fn)
-            print(f"Filename copied: {fn}")
+            pyperclip.copy(path)
+            print(f"Filename copied: {path}")
         else:
-            print("No filepath found.")
+            print("No valid filepath found in recent messages.")
 
     def handle_set_subfolder(self, arg):
         """Set subfolder for scans."""
@@ -852,17 +871,53 @@ class CommandDispatcher:
         except Exception as e:
             print(f"Error running 'plf': {e}")
 
-    def handle_print_last_file(self, arg=None):
-        """Print the last loaded CSV file path."""
+    def handle_file(self, arg=None):
+        """With no arg: print & copy last_loaded_file.
+        With <path>: open that file if it exists."""
         p = self.get_parent()
-        try:
+
+        # 1) If no path given, fall back to last_loaded_file
+        file_arg = (arg or "").strip()
+        if not file_arg:
             if not hasattr(p, "opx") or not hasattr(p.opx, "last_loaded_file"):
                 print("No file loaded/scanned yet.")
                 return
-            print(f"Last loaded/scan file: {p.opx.last_loaded_file}")
-            pyperclip.copy(p.opx.last_loaded_file)
+            path = p.opx.last_loaded_file
+            print(f"Last loaded/scan file: {path}")
+            pyperclip.copy(path)
+            return
+
+        # 2) Otherwise treat arg as the file to open
+        path = os.path.expanduser(file_arg)
+        if not os.path.isabs(path):
+            # interpret relative to last_scan_dir if set, else cwd
+            try:
+                base_dir = open("last_scan_dir.txt").read().strip()
+            except Exception:
+                base_dir = os.getcwd()
+            path = os.path.join(base_dir, path)
+
+        path = os.path.normpath(path)
+
+        if not os.path.exists(path):
+            print(f"File not found: {path}")
+            return
+
+        try:
+            # Copy path to clipboard for convenience
+            pyperclip.copy(path)
+            print(f"Copied path: {path}")
+            # Open with default application / Explorer
+            if os.name == "nt":
+                os.startfile(path)
+            else:
+                # macOS / Linux fallback
+                import subprocess, shlex
+                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.Popen([opener, path])
+            print(f"Opened file: {path}")
         except Exception as e:
-            print(f"Error in file command: {e}")
+            print(f"Failed to open file: {e}")
 
     def handle_load_csv(self, arg):
         """Load & plot most recent CSV from last scan dir."""
@@ -905,9 +960,17 @@ class CommandDispatcher:
                 return
             # 6) Pick newest and plot
             csv_files.sort(key=os.path.getmtime, reverse=True)
-            fn = csv_files[0]
+            fn = None
+            for candidate in csv_files:
+                if not candidate.lower().endswith("_pulse_data.csv"):
+                    fn = candidate
+                    break
+            if fn is None:
+                print("No non‑pulse_data CSV files found.")
+                return
             print(f"Loading most recent CSV: {fn}")
             data = loadFromCSV(fn)
+            p.opx.idx_scan = [0, 0, 0]
             p.opx.Plot_data(data, True)
             p.opx.last_loaded_file = fn
             print(f"Loaded and plotted: {fn}")
@@ -1428,6 +1491,9 @@ class CommandDispatcher:
                 print(f"HWPInc set to {step}")
             else:
                 print("HWPInc input widget not found.")
+            p.opx.set_hwp_angle(start)
+            dpg.set_value(p.kdc_101_gui.position_input_tag,start)
+            self.handle_set_angle(start)
         except Exception:
             print("Invalid range format, expected start:step:end")
         # 7) If pulse_count was given, set anneal params
@@ -1467,6 +1533,7 @@ class CommandDispatcher:
         # 1) Existence check
         if hasattr(p, "opx") and hasattr(p.opx, "btnFemtoPulses"):
             try:
+                self.handle_enable_pharos()
                 # 2) Ensure dx=2000
                 if dpg.does_item_exist("inInt_dx_scan"):
                     p.opx.Update_dX_Scan("inInt_dx_scan", 2000)
@@ -1543,16 +1610,33 @@ class CommandDispatcher:
         print("Scan stopped.")
 
     def handle_set_angle(self, arg):
-        """Set HWP angle."""
-        p=self.get_parent()
+        """Set HWP angle and wait until the hardware reaches it."""
+        p = self.get_parent()
         try:
-            ang=float(arg)
+            ang = float(arg)
+            # send the move command
             p.opx.set_hwp_angle(ang)
+            # if you have a GUI element to refresh, do it once immediately
             if hasattr(p, "kdc_101_gui"):
                 p.kdc_101_gui.read_current_angle()
-            print(f"HWP angle command: moved to {ang:.2f}°")
-        except:
-            print("angle failed.")
+
+            # now poll the actual position until it’s within 0.01°
+            # assuming p.kdc_101.get_current_position() returns the live angle
+            current = p.opx.kdc_101.get_current_position()
+            while abs(current - ang) > 0.01:
+                time.sleep(0.2)
+                # update the GUI readout if available
+                if hasattr(p, "kdc_101_gui"):
+                    p.opx.kdc_101_gui.read_current_angle()
+                current = p.opx.kdc_101.get_current_position()
+
+            # one final GUI refresh
+            if hasattr(p, "kdc_101_gui"):
+                p.kdc_101_gui.read_current_angle()
+
+            print(f"HWP angle reached: {current:.2f}° (target {ang:.2f}°)")
+        except Exception as e:
+            print(f"angle failed: {e}")
 
     def handle_start_scan(self, arg):
         """Start OPX scan."""
@@ -1843,8 +1927,35 @@ class CommandDispatcher:
             print(f"No commands matching '{query}' found.")
 
     def handle_wait(self, arg):
-        """Delay subsequent commands (handled in run())."""
-        print(f"wait command scheduling.")
+        """Delay subsequent commands by <ms> then execute them."""
+        # arg: "<ms> cmd1;cmd2;cmd3"
+        parts = arg.strip().split(' ', 1)
+        ms_str = parts[0]
+        try:
+            ms = int(ms_str)
+        except ValueError:
+            print(f"Invalid syntax. Use: wait<ms> <cmd1>;... Got '{ms_str}'")
+            return
+
+        if len(parts) == 1 or not parts[1].strip():
+            print("No commands to run after wait.")
+            return
+
+        # split remaining text into individual commands
+        remaining = [c.strip() for c in parts[1].split(';') if c.strip()]
+
+        def _delayed_runner():
+            time.sleep(ms / 1000.0)
+            print(f"[wait] {ms} ms elapsed -> now running {remaining}")
+            for cmd in remaining:
+                try:
+                    # invoke your dispatcher’s run() on each command
+                    self.run(cmd)
+                except Exception as e:
+                    print(f"Error running '{cmd}': {e}")
+
+        threading.Thread(target=_delayed_runner, daemon=True).start()
+        print(f"Started background wait for {ms}ms... deferring {remaining}")
 
     def handle_ocr(self, arg):
         """Perform OCR and set XYZ fields."""
@@ -1906,15 +2017,44 @@ class CommandDispatcher:
             print(f"move{axis} failed.")
 
     def handle_open_lastdir(self, arg):
-        """Copy or open last_scan_dir."""
-        import pyperclip
+        """With no arg: act as lastdir (copy last_scan_dir.txt).
+        With a filepath: copy its folder and open it in Explorer."""
+        arg_clean = arg.strip()
+
+        # —— No argument: use last_scan_dir.txt
+        if not arg_clean:
+            try:
+                last = open("last_scan_dir.txt").read().strip()
+                folder = last.replace('/', '\\')
+                pyperclip.copy(folder)
+                print(f"Copied {folder}")
+                # Verify the folder really exists
+                if not os.path.isdir(folder):
+                    print(f"Directory does not exist: {folder}")
+                    return
+                # Open with explorer, passing args as a list so explorer sees it correctly
+                subprocess.Popen(["explorer", folder])
+            except Exception:
+                print("lastdir failed.")
+            return
+        # —— Argument given: treat it as a filepath
+        path = arg_clean
+        folder = os.path.dirname(path)
+        if not folder:
+            print(f"Could not determine directory for '{path}'.")
+            return
         try:
-            d=open("last_scan_dir.txt").read().strip()
-            pyperclip.copy(d); print(f"Copied {d}")
-            if arg.strip().lower() in ("open","1"):
-                subprocess.Popen(f'explorer "{d}"')
-        except:
-            print("lastdir failed.")
+            pyperclip.copy(folder)
+            # Convert forward slashes to Windows backslashes
+            folder = folder.replace('/', '\\')
+            # Verify the folder really exists
+            if not os.path.isdir(folder):
+                print(f"Directory does not exist: {folder}")
+                return
+            # Open with explorer, passing args as a list so explorer sees it correctly
+            subprocess.Popen(["explorer", folder])
+        except Exception as e:
+            print(f"dir failed: {e}")
 
     def handle_detect_and_draw(self, arg):
         """Detect pillars and draw them."""
@@ -2118,6 +2258,137 @@ class CommandDispatcher:
             print("Pharos: laser turned ON.")
         except Exception as e:
             print(f"execute failed: {e}")
+
+    def handle_enable_pharos_query(self, arg):
+        """Print Pharos output status."""
+        p = self.get_parent()
+        try:
+            # returns True if the laser output is enabled :contentReference[oaicite:0]{index=0}
+            enabled = p.opx.pharos.getBasicIsOutputEnabled()
+            # returns True if the output port shutter is open :contentReference[oaicite:1]{index=1}
+            open_ = p.opx.pharos.getBasicIsOutputOpen()
+            print(f"Pharos output enabled: {enabled}, output open: {open_}")
+        except Exception as e:
+            print(f"enable? failed: {e}")
+
+    def handle_enable_pharos(self, arg=None):
+        """Enable the Pharos laser output."""
+        p = self.get_parent()
+        try:
+            enabled = p.opx.pharos.getBasicIsOutputEnabled()  # :contentReference[oaicite:0]{index=0}
+            if enabled:
+                print("Pharos output enabled.")
+                return
+            p.opx.pharos.enableOutput()
+            print("Pharos output enabled.")
+        except Exception as e:
+            print(f"enable failed: {e}")
+
+    def handle_disable_pharos(self, arg):
+        """Disable the Pharos laser output."""
+        p = self.get_parent()
+        try:
+            p.opx.pharos.closeOutput()
+            print("Pharos output disabled.")
+        except Exception as e:
+            print(f"disable failed: {e}")
+
+    def handle_spot(self, arg, skip_restore=False):
+        """Verify counter is on, camera is live, first MFF is down, second is up."""
+        p = self.get_parent()
+
+        # 1) Capture original live states
+        initial_cam_live = getattr(p.cam.cam, "constantGrabbing", False)
+        initial_counter_live = getattr(p.opx, "counter_is_live", False)
+
+        # 1) Counter live
+        p.opx.btnStartCounterLive()
+
+        # 2) Camera live
+        getattr(p.cam, "constantGrabbing", False)
+        p.cam.StartLive()
+        previous_exp = p.cam.cam.camera.exposure_time_us
+        p.cam.cam.SetExposureTime(0)
+
+        # 3) MFF positions
+        mffs = getattr(p, "mff_101_gui", [])
+        if len(mffs) < 2:
+            print("Error: less than two MFF devices found.")
+            return
+        # Record original positions
+        orig_states = []
+        for fl in mffs[:2]:
+            try:
+                orig_states.append(fl.dev.get_position())
+            except:
+                orig_states.append(None)
+        # desired: first flipper DOWN (position=1), second flipper UP (position=2)
+        for idx, desired_pos in ((0, 1), (1, 2)):
+            fl = mffs[idx]
+            tag = f"on_off_slider_{fl.unique_id}"
+            try:
+                current = fl.dev.get_position()
+            except Exception as e:
+                print(f"Could not read MFF #{idx} position: {e}")
+                continue
+
+            if current == desired_pos:
+                state = "down" if desired_pos == 1 else "up"
+                # print(f"MFF #{idx + 1} already {state}.")
+            else:
+                # flip via the same callback your UI uses
+                # callback takes (tag, value), where value=1→down, 0→up
+                val = desired_pos - 1
+                fl.on_off_slider_callback(tag, val)
+                state = "down" if desired_pos == 1 else "up"
+                time.sleep(0.5)
+                # print(f"MFF #{idx + 1} moved {state}.")
+
+        # 4) Save spot image
+        fn = p.cam.SaveProcessedImage()
+        notes = getattr(p.opx, "expNotes", "")
+        base, ext = os.path.splitext(fn)
+        new = f"{base}_{notes}_Spot{ext}"
+        os.replace(fn, new)
+        print(f"Image saved as {new}")
+        pyperclip.copy(new)
+        if not skip_restore:
+            self.handle_file(new)
+
+        # 5) Schedule restore in 500ms
+        if not skip_restore:
+            def _restore():
+                # — restore exposure (in ms)
+                # print(f"Restoring exposure to {previous_exp}µs")
+                p.cam.UpdateExposure(user_data=previous_exp * 1e-3)
+                # restore camera live state if it was OFF
+                if not initial_cam_live:
+                    p.cam.StopLive()
+                # restore counter live state if it was OFF
+                if not initial_counter_live:
+                    p.opx.btnStop()
+                # — restore each flipper only if it's no longer in its original state
+                for idx, orig in enumerate(orig_states):
+                    if orig is None:
+                        continue
+                    fl = mffs[idx]
+                    tag = f"on_off_slider_{fl.unique_id}"
+                    try:
+                        current = fl.dev.get_position()
+                    except Exception as e:
+                        print(f"Could not read MFF #{idx + 1}: {e}")
+                        continue
+                    if current != orig:
+                        # callback expects 0 for down(1), 1 for up(2)
+                        val = orig - 1
+                        fl.on_off_slider_callback(tag, val)
+            threading.Timer(0.5, _restore).start()
+            print("Scheduled exposure & flipper restore in 500ms.")
+
+    def handle_spot1(self, arg):
+        """Same as spot, but do NOT restore after saving."""
+        # call handle_spot with skip_restore=True
+        self.handle_spot(arg, skip_restore=True)
 
 # Wrapper function
 dispatcher = CommandDispatcher()
