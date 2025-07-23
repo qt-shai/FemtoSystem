@@ -852,7 +852,7 @@ class CommandDispatcher:
             # 7) Draw each annotation, updating if existing
             for idx, (angle, E) in enumerate(future_data):
                 x_val = float(endLoc[0]) / 1e6
-                y_val = base_y + idx * 2
+                y_val = base_y + idx * 2 + 0.5
                 if not dpg.does_item_exist("plotImaga_Y"):
                     print("Error: Axis 'plotImaga_Y' does not exist.")
                     return

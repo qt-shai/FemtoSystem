@@ -346,8 +346,6 @@ def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
                 dpg.set_item_width(name,  w)
                 dpg.set_item_height(name, h)
                 print(f"Loaded size for {name}: {size}")
-                parent = getattr(sys.stdout, "parent", None)
-                parent.opx.graph_size_override = (w, h)
             else:
                 print(f"[load] {name} not found for size.")
 
@@ -357,10 +355,11 @@ def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
             w, h = window_sizes[graph_tag]
             dpg.set_item_width(graph_tag,  w)
             dpg.set_item_height(graph_tag, h)
+            parent = getattr(sys.stdout, "parent", None)
+            parent.opx.graph_size_override = (w, h)
             print(f"Loaded graph size for {graph_tag}: {w}×{h}")
         else:
             print(f"No saved size for graph '{graph_tag}', or tag not found.")
-
     except Exception as e:
         print(f"Error loading window positions and sizes: {e}")
 

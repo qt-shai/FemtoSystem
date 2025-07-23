@@ -1458,6 +1458,7 @@ class GUI_OPX():
         self.endLoc = [1, 1, 1]
 
         # Call plot function
+        load_window_positions()
         self.Plot_Loaded_Scan()
         load_window_positions()
         self.hide_legend()
@@ -10466,7 +10467,6 @@ class GUI_OPX():
             print(f"Scan step too small: dx = {dx_nm:.1f} nm, dy = {dy_nm:.1f} nm (must be ≥ 500 nm)")
             return
 
-
         for i in range(3):
             if self.b_Scan[i]:
                 axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
@@ -10558,13 +10558,13 @@ class GUI_OPX():
                 _, pulse_energy_nJ = parent.femto_gui.calculate_laser_pulse(HWP_deg=current_hwp, Att_percent=p_femto["femto_attenuator"], mode = mode)
 
                 x_val = self.V_scan[0][-1] / 1e6 + 1
-                y_val = self.V_scan[1][j] / 1e6
+                y_val = self.V_scan[1][j] / 1e6 + 0.5
 
                 text_tag = f"energy_text_{i}_{j}"  # Unique tag per scan coordinate
                 dpg.draw_text(
                     pos=(x_val, y_val),
                     text=f"{pulse_energy_nJ:.1f} nJ",
-                    size=1.2,
+                    size=1,
                     color=(255, 255, 255, 255),
                     parent="plot_draw_layer",
                     tag=text_tag
