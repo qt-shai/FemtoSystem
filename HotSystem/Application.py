@@ -1092,7 +1092,7 @@ class PyGuiOverlay(Layer):
                         self.step_tuning_axis = axis
 
                     factor = 2 ** self.step_tuning_counter
-                    print(f"{combo} → counter={self.step_tuning_counter} → factor={factor}")
+                    print(f"{combo} -> counter={self.step_tuning_counter} -> factor={factor}")
 
                     # Ctrl + . → increase coarse step
                     if combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD):

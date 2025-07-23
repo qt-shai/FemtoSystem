@@ -30,7 +30,7 @@ def copy_logged_points(short_code: str):
 
     if os.path.exists(src_file):
         shutil.copyfile(src_file, dst_file)
-        print(f"Copied {src_file} → {dst_file}")
+        print(f"Copied {src_file} -> {dst_file}")
     else:
         print(f"Source file not found: {src_file}")
 

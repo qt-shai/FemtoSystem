@@ -224,10 +224,7 @@ class GUI_OPX():
         # To update values of the parameters - update the XML or the corresponding place in the GUI
         self.map: Optional[Map] = None
         self.simulation = simulation
-        self.click_coord = None
-        self.clicked_position = None
-        self.map_item_x = 0
-        self.map_item_y = 0
+        self.graph_size_override = None  # (w, h) tuple
 
         self.move_mode = "marker"
         self.text_color = (0, 0, 0, 255)  # Set color to black
@@ -388,7 +385,7 @@ class GUI_OPX():
         self.pharos = PharosLaserAPI(host="192.168.101.58")
         self.Shoot_Femto_Pulses = False
 
-        dpg.set_frame_callback(1, self.load_pos)
+        dpg.set_frame_callback(1, load_window_positions)
 
         if simulation:
             print("OPX in simulation mode ***********************")
@@ -1263,9 +1260,6 @@ class GUI_OPX():
                                      default_value=self.AWG_interval,
                                      min_value=0, max_value=10000, step=4)
 
-                dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
-                dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
-
                 dpg.add_slider_int(label="Laser Type",
                                    tag="on_off_slider_OPX", width = 80,
                                    default_value=1, parent="chkbox_group",
@@ -1327,7 +1321,7 @@ class GUI_OPX():
 
             self.load_scan_parameters()
             self.GUI_ScanControls()
-            dpg.set_frame_callback(1, self.load_pos)
+            dpg.set_frame_callback(1, load_window_positions)
         else:
             dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=False)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
@@ -1445,7 +1439,6 @@ class GUI_OPX():
                         dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
                         dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
-                    # dpg.set_frame_callback(dpg.get_frame_count() + 1, self.load_pos)
                     # Schedule the call to happen after 1 frame
                     self.delayed_actions()
                     # dpg.set_frame_callback(dpg.get_frame_count() + 1, self.delayed_actions)
@@ -1466,7 +1459,7 @@ class GUI_OPX():
 
         # Call plot function
         self.Plot_Loaded_Scan()
-        self.load_pos()
+        load_window_positions()
         self.hide_legend()
 
     def save_scan_parameters(self):
@@ -1504,7 +1497,7 @@ class GUI_OPX():
                     base, ext = os.path.splitext(self.last_loaded_file)
                     for extra_ext in extensions:
                         files_to_move.append(base + extra_ext)
-                    print(f"Using last loaded file base: {base} → with extensions: {extensions}")
+                    print(f"Using last loaded file base: {base} -> with extensions: {extensions}")
 
                     # ✅ Add _pulse_data.csv, keep its unique name
                     base_with_notes = f"{base}_{self.expNotes}" if self.expNotes else base
@@ -1601,7 +1594,7 @@ class GUI_OPX():
             try:
                 with open("last_scan_dir.txt", "w") as lf:
                     lf.write(new_folder)
-                print(f"Updated last_scan_dir.txt → {new_folder}")
+                print(f"Updated last_scan_dir.txt -> {new_folder}")
             except Exception as e:
                 print(f"Failed to update last_scan_dir.txt: {e}")
 
@@ -1682,64 +1675,6 @@ class GUI_OPX():
         refP = self.get_device_position(self.positioner)
         p_new = int(self.Z_correction(refP, requested_p))
         dpg.set_value("mcs_ch2_ABS", p_new*1e-6)
-
-    def save_pos(self):
-        # Define the list of windows to check and save positions for
-        window_names = [
-            "pico_Win", "mcs_Win", "Zelux Window", "Wavemeter_Win", "HighlandT130_Win", "Matisse_Win",
-            "OPX Window", "Map_window", "Scan_Window", "LaserWin", "Arduino_Win", "SIM960_Win"
-        ]
-        # Dictionary to store window positions, sizes, and collapsed states
-        window_data = {}
-
-        # Iterate through the list of window names and collect their positions and sizes if they exist
-        for win_name in window_names:
-            if dpg.does_item_exist(win_name):
-                win_pos = dpg.get_item_pos(win_name)
-                win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
-                config = dpg.get_item_configuration(win_name)
-                collapsed = config.get("collapsed", False)
-                window_data[win_name] = (win_pos, win_size, collapsed)
-                print(f"Position of {win_name}: {win_pos}, Size: {win_size}, Collapsed: {collapsed}")
-
-        # Also save the main viewport position and size
-        viewport_pos = dpg.get_viewport_pos()
-        viewport_size = dpg.get_viewport_width(), dpg.get_viewport_height()
-        window_data["main_viewport"] = (viewport_pos, viewport_size, False)
-        print(f"Viewport Position: {viewport_pos}, Size: {viewport_size}")
-
-        try:
-            # Read existing map_config.txt content, if available
-            try:
-                with open("map_config.txt", "r") as file:
-                    lines = file.readlines()
-            except FileNotFoundError:
-                lines = []
-
-            # Remove any existing entries for the windows
-            new_content = [
-                line for line in lines if not any(win_name in line for win_name in window_data.keys())
-            ]
-
-            # Append the new window positions, sizes, and collapsed states
-            for win_name, (position, size, collapsed) in window_data.items():
-                new_content.append(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
-                new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
-                new_content.append(f"{win_name}_Collapsed: {collapsed}\n")
-
-            # Write back the updated content to the file
-            with open("map_config.txt", "w") as file:
-                file.writelines(new_content)
-
-            print("Window positions, sizes, and collapsed states saved successfully to map_config.txt.")
-        except Exception as e:
-            print(f"Error saving window data: {e}")
-
-    def load_pos(self):
-        try:
-            load_window_positions()
-        except Exception as e:
-            print(f"Error loading window data: {e}")
 
     def get_device_position(self, device):
         device.GetPosition()
@@ -1914,6 +1849,13 @@ class GUI_OPX():
                                    max_scale=np.max(arrXY),
                                    colormap=dpg.mvPlotColormap_Jet)
 
+            # ✅ Apply persistent graph size override if exists
+            if hasattr(self, "graph_size_override") and self.graph_size_override:
+                w, h = self.graph_size_override
+                dpg.set_item_width("plotImaga", w)
+                dpg.set_item_height("plotImaga", h)
+                print(f"Graph resized to override: {w}×{h}")
+
             # Update width based on conditions
             item_width = dpg.get_item_width("plotImaga")
             item_height = dpg.get_item_height("plotImaga")
@@ -2022,6 +1964,14 @@ class GUI_OPX():
             dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
 
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
+
+            # ✅ Apply persistent graph size override if exists
+            if hasattr(self, "graph_size_override") and self.graph_size_override:
+                w, h = self.graph_size_override
+                dpg.set_item_width("plotImaga", w)
+                dpg.set_item_height("plotImaga", h)
+                print(f"Graph resized to override: {w}×{h}")
+
         except Exception as e:
             print(f"Error during plotting: {e}")
         end_Plot_time = time.time()

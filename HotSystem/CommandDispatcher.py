@@ -178,6 +178,7 @@ class CommandDispatcher:
             "execute":           self.handle_execute,
             "spot":              self.handle_spot,
             "spot1":             self.handle_spot1,
+            "scanmv":            self.handle_scanmv,
         }
 
     def get_parent(self):
@@ -436,6 +437,7 @@ class CommandDispatcher:
         dpg.set_item_width(tag, w)
         dpg.set_item_height(tag, h)
         print(f"Graph size set to {w}×{h}")
+        self.get_parent().opx.graph_size_override = (w, h)  # ✅ Store override for future redraws
 
     def handle_screenshot_delayed(self, arg):
         """Schedule a delayed screenshot (cc) with optional suffix."""
@@ -2389,6 +2391,29 @@ class CommandDispatcher:
         """Same as spot, but do NOT restore after saving."""
         # call handle_spot with skip_restore=True
         self.handle_spot(arg, skip_restore=True)
+
+    def handle_scanmv(self, arg):
+        """Start a thread to monitor scan status and move files when done."""
+        t = threading.Thread(target=self._watch_scan_and_move, args=(arg,), daemon=True)
+        t.start()
+        print("Watching scan progress...")
+
+    def _watch_scan_and_move(self, arg):
+        """
+        Waits until scan is done (i.e., Stop button disappears),
+        then moves files using handle_move_files().
+        """
+        try:
+            import time
+            while dpg.does_item_exist("btnOPX_Stop"):
+                time.sleep(1)  # Check every second
+
+            print("Scan ended. Running handle_move_files...")
+            self.handle_move_files(arg)
+
+        except Exception as e:
+            print(f"[watch_scan_and_move] Error: {e}")
+
 
 # Wrapper function
 dispatcher = CommandDispatcher()

@@ -292,7 +292,7 @@ def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
         # 1) Pick remote vs local
         if is_remote_resolution():
             file_name = "win_pos_remote.txt"
-            print(f"Remote resolution detected → Using {file_name}")
+            print(f"Remote resolution detected -> Using {file_name}")
         else:
             print(f"Using {file_name}")
 
@@ -341,9 +341,13 @@ def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
             if name == "plotImaga":
                 continue
             if dpg.does_item_exist(name):
-                dpg.set_item_width(name,  size[0])
-                dpg.set_item_height(name, size[1])
+                w = int(size[0])
+                h = int(size[1])
+                dpg.set_item_width(name,  w)
+                dpg.set_item_height(name, h)
                 print(f"Loaded size for {name}: {size}")
+                parent = getattr(sys.stdout, "parent", None)
+                parent.opx.graph_size_override = (w, h)
             else:
                 print(f"[load] {name} not found for size.")
 
