@@ -20,7 +20,8 @@ def export_points(csv_file=None):
                 try:
                     x = round(float(row[0]) * 1e-6, 2)
                     y = round(float(row[1]) * 1e-6, 2)
-                    points.append((x, y))
+                    z = round(float(row[2]) * 1e-6, 3)
+                    points.append((x, y, z))
                 except ValueError:
                     continue  # Skip bad rows
 
@@ -30,8 +31,8 @@ def export_points(csv_file=None):
     txt_file = os.path.join(folder, f"{base_name}_points.txt")
 
     with open(txt_file, "w") as f:
-        for idx, (x, y) in enumerate(points, 1):
-            f.write(f"{idx},{x:.2f},{y:.2f}\n")
+        for idx, (x, y, z) in enumerate(points, 1):
+            f.write(f"{idx},{x:.2f},{y:.2f},{z:.2f}\n")
 
     print(f"✅ Saved {len(points)} scaled points to: {txt_file}")
     return txt_file

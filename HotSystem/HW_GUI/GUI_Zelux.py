@@ -24,6 +24,8 @@ class ZeluxGUI():
         self.positioner = self.HW.positioner
         self.manual_cross_pos = None
         self.rotation_count = 0
+        self.zel_shift_x = 0.0  # in microns
+        self.zel_shift_y = 0.0  # in microns
 
         try:
             self.background_image = np.load("zelux_background.npy")
@@ -221,6 +223,23 @@ class ZeluxGUI():
                         color=(255, 255, 255, 255),
                         parent="image_drawlist"
                     )
+            # ✅ Draw saved query points if any
+            if hasattr(self, "query_points") and self.query_points:
+                shift_x = getattr(self, "zel_shift_x", 0.0)-3.2
+                shift_y = getattr(self, "zel_shift_y", 0.0)+1.4
+
+                for index, x_um, y_um, z in self.query_points:
+                    offset_x = (x_um + shift_x - abs_x) / pixel_to_um_x
+                    offset_y = (y_um + shift_y - abs_y) / pixel_to_um_y
+                    x_px = center_x + offset_x + x_shift_px
+                    y_px = center_y - offset_y + y_shift_px
+
+                    dpg.draw_circle(center=(x_px, y_px), radius=6.0,
+                                    color=(255, 0, 0, 255), fill=(0, 0, 0, 255),
+                                    parent="image_drawlist")
+                    dpg.draw_text(pos=(x_px + 6, y_px - 6), text=f"{int(index)}",
+                                  size=14, color=(255, 255, 0, 255),
+                                  parent="image_drawlist")
 
     def UpdateExposure(sender, app_data=None, user_data=None):
         # a = dpg.get_value(sender)

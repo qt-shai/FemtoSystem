@@ -19,6 +19,7 @@ import HW_wrapper.HW_devices as hw_devices
 from HW_GUI.GUI_MFF_101 import GUI_MFF
 from Common import *
 from PrincetonInstruments.LightField.AddIns import CameraSettings
+from Utils import open_file_dialog
 
 class DualOutput:
     def __init__(self, original_stream):
@@ -105,6 +106,10 @@ class CommandDispatcher:
             "down":              self.handle_save_and_down,
             "round":             self.handle_round_position,
             "list":              self.handle_list_points,
+            "listzel":           self.handle_list_zelux,
+            "zellist":           self.handle_list_zelux,
+            "zelshiftx":         self.handle_zel_shift_x,
+            "zelshifty":         self.handle_zel_shift_y,
             "clear":             self.handle_clear,
             "shift":             self.handle_shift_point,
             "insert":            self.handle_insert_points,
@@ -1166,7 +1171,7 @@ class CommandDispatcher:
         except Exception as e:
             print(f"round failed: {e}")
 
-    def handle_list_points(self, arg):
+    def handle_list_points(self, arg=None):
         """List and draw stored query points."""
         p = self.get_parent()
         pts = getattr(p, "saved_query_points", [])
@@ -1202,11 +1207,11 @@ class CommandDispatcher:
                 # 5) Draw or update the annotation text
                 annot_tag = f"stored_point_annot_{index}"
                 if dpg.does_item_exist(annot_tag):
-                    dpg.configure_item(annot_tag, pos=(x, y), text=f"{index}")
+                    dpg.configure_item(annot_tag, pos=(x, y), text=f"{int(index)}")
                 else:
                     dpg.draw_text(
                         pos=(x, y),
-                        text=f"{index}",
+                        text=f"{int(index)}",
                         color=(255, 255, 0, 255),
                         size=1.2,
                         parent="plot_draw_layer",
@@ -1219,6 +1224,34 @@ class CommandDispatcher:
                 p.query_annots.extend([dot_tag, annot_tag])
         else:
             print("No points stored.")
+
+    def handle_list_zelux(self, arg=None):
+        """Display stored query points on the Zelux camera image."""
+        p = self.get_parent()
+        pts = getattr(p, "saved_query_points", [])
+        cam = getattr(p, "cam", None)
+        cam.query_points = pts
+        print(f"✅ Stored {len(pts)} points to Zelux camera for display.")
+
+    def handle_zel_shift_x(self, arg):
+        """Shift all query points in Zelux display along X by given microns."""
+        p = self.get_parent()
+        cam = getattr(p, "cam", None)
+        try:
+            cam.zel_shift_x = float(arg.strip())
+            print(f"Zelux X-shift set to {cam.zel_shift_x} µm")
+        except Exception as e:
+            print(f"Invalid shift X: {e}")
+
+    def handle_zel_shift_y(self, arg):
+        """Shift all query points in Zelux display along Y by given microns."""
+        p = self.get_parent()
+        cam = getattr(p, "cam", None)
+        try:
+            cam.zel_shift_y = float(arg.strip())
+            print(f"Zelux Y-shift set to {cam.zel_shift_y} µm")
+        except Exception as e:
+            print(f"Invalid shift Y: {e}")
 
     def handle_clear(self, arg):
         """Clear points or annotations."""
@@ -1288,25 +1321,41 @@ class CommandDispatcher:
             print(f"savelist failed: {e}")
 
     def handle_load_list(self, arg):
-        """Load points from file."""
+        """Load points from file. Accepts a filename path or falls back to default."""
         p = self.get_parent()
         try:
-            with open("saved_query_points.txt","r") as f:
-                p.saved_query_points=[tuple(map(float,line.strip().split(","))) for line in f]
-            print("Points loaded.")
+            file_path = arg.strip() if arg.strip() else "saved_query_points.txt"
+            with open(file_path, "r") as f:
+                p.saved_query_points = [tuple(map(float, line.strip().split(","))) for line in f]
+            print(f"Points loaded from {file_path}.")
+            self.handle_list_points()
         except Exception as e:
             print(f"loadlist failed: {e}")
 
     def handle_generate_list(self, arg):
-        """Generate point file from CSV and load if small."""
+        """Generate point file from CSV and load if small. 'genlist1' prompts for file."""
         p = self.get_parent()
         try:
-            csv_file = p.opx.last_loaded_file
+            # Determine source CSV
+            if arg.strip() == "1":
+                fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
+                if not fn:
+                    print("No file selected.")
+                    return
+                csv_file = fn
+                print(f"Selected file: {csv_file}")
+            else:
+                csv_file = getattr(p.opx, "last_loaded_file", None)
+                if not csv_file:
+                    print("No CSV file loaded.")
+                    return
+
             out = export_points(csv_file)
             size = sum(1 for _ in open(out))
             print(f"Generated {out} ({size} lines).")
-            if size<1000:
-                self.handle_load_list("")
+
+            if size < 1000:
+                self.handle_load_list(out)
         except Exception as e:
             print(f"genlist failed: {e}")
 
