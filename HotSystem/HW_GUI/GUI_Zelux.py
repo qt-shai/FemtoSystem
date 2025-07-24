@@ -225,14 +225,14 @@ class ZeluxGUI():
                     )
             # ✅ Draw saved query points if any
             if hasattr(self, "query_points") and self.query_points:
-                shift_x = getattr(self, "zel_shift_x", 0.0)-3.2
-                shift_y = getattr(self, "zel_shift_y", 0.0)+1.4
+                shift_x = getattr(self, "zel_shift_x", 0.0)+3.2
+                shift_y = getattr(self, "zel_shift_y", 0.0)-1.4
 
                 for index, x_um, y_um, z in self.query_points:
                     offset_x = (x_um + shift_x - abs_x) / pixel_to_um_x
                     offset_y = (y_um + shift_y - abs_y) / pixel_to_um_y
-                    x_px = center_x + offset_x + x_shift_px
-                    y_px = center_y - offset_y + y_shift_px
+                    x_px = center_x - offset_x + x_shift_px
+                    y_px = center_y + offset_y + y_shift_px
 
                     dpg.draw_circle(center=(x_px, y_px), radius=6.0,
                                     color=(255, 0, 0, 255), fill=(0, 0, 0, 255),
