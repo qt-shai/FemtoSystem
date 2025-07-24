@@ -1033,10 +1033,6 @@ class PyGuiOverlay(Layer):
     def keyboard_callback(self, sender, app_data):
         """Handles keyboard input and triggers movement for various devices."""
         try:
-            # ── if the user is actively typing into the command box, bail out immediately ──
-            if dpg.is_item_focused("cmd_input"):
-                return
-
             # 1) Unwrap the integer key code
             if isinstance(app_data, (list, tuple)) and app_data:
                 key_code = app_data[0]
@@ -1050,15 +1046,7 @@ class PyGuiOverlay(Layer):
                 return
             key_data_enum = KeyboardKeys(key_code)
 
-            # If it’s Enter, execute cmd_input and clear it
-            if key_code == KeyboardKeys.ENTER_KEY.value:
-                # Read, run, and clear
-                cmd = dpg.get_value("cmd_input") or ""
-                cmd = cmd.strip()
-                if cmd:
-                    self.handle_cmd_input()
-                dpg.set_value("cmd_input", "")
-                return
+            # print(key_data_enum)
 
             # Determine if coarse movement is enabled (for OPX and other devices)
             is_coarse = self.CURRENT_KEY == KeyboardKeys.CTRL_KEY
@@ -1071,56 +1059,6 @@ class PyGuiOverlay(Layer):
             if not hasattr(self, "step_tuning_key"):
                 self.step_tuning_key = None
                 self.step_tuning_counter = 0
-
-            # === Step size tuning for Smaract ===
-            if hasattr(self, 'last_moved_axis'):
-                axis = self.last_moved_axis
-                coarse_tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
-                fine_tag = f"{self.smaractGUI.prefix}_ch{axis}_Fset"
-
-                # Combo logic: only check when the key is a step key, not modifier
-                if key_data_enum in [KeyboardKeys.OEM_PERIOD, KeyboardKeys.OEM_COMMA]:
-                    combo = (self.modifier_key, key_data_enum)
-
-                    # Track repeated presses of same combo
-                    # Reset counter if combo or axis changes
-                    if combo == getattr(self, "step_tuning_key", None) and axis == getattr(self, "step_tuning_axis", None):
-                        self.step_tuning_counter += 1
-                    else:
-                        self.step_tuning_counter = 0
-                        self.step_tuning_key = combo
-                        self.step_tuning_axis = axis
-
-                    factor = 2 ** self.step_tuning_counter
-                    print(f"{combo} -> counter={self.step_tuning_counter} -> factor={factor}")
-
-                    # Ctrl + . → increase coarse step
-                    if combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD):
-                        val = dpg.get_value(coarse_tag) + factor
-                        dpg.set_value(coarse_tag, val)
-                        self.smaractGUI.ipt_large_step(coarse_tag, val)
-                        print(f"↑ Coarse step axis {axis} = {val:.1f} µm")
-
-                    # Ctrl + , → decrease coarse step
-                    elif combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_COMMA):
-                        val = max(1, dpg.get_value(coarse_tag) - factor)
-                        dpg.set_value(coarse_tag, val)
-                        self.smaractGUI.ipt_large_step(coarse_tag, val)
-                        print(f"↓ Coarse step axis {axis} = {val:.1f} µm")
-
-                    # Shift + . → increase fine step
-                    elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_PERIOD):
-                        val = dpg.get_value(fine_tag) + factor * 10
-                        dpg.set_value(fine_tag, val)
-                        self.smaractGUI.ipt_small_step(fine_tag, val)
-                        print(f"↑ Fine step axis {axis} = {val:.1f} nm")
-
-                    # Shift + , → decrease fine step
-                    elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_COMMA):
-                        val = max(10, dpg.get_value(fine_tag) - factor * 10)
-                        dpg.set_value(fine_tag, val)
-                        self.smaractGUI.ipt_small_step(fine_tag, val)
-                        print(f"↓ Fine step axis {axis} = {val:.1f} nm")
 
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
@@ -1142,6 +1080,9 @@ class PyGuiOverlay(Layer):
                             print(f"Failed to paste clipboard: {clip_ex}")
                     self.CURRENT_KEY = key_data_enum  # 8-7-2025
                     return
+
+            # Update the current key pressed
+            self.CURRENT_KEY = key_data_enum
 
             # === UP arrow: try prefix search, else fallback to simple back-one
             if key_data_enum == KeyboardKeys.UP_KEY:
@@ -1168,26 +1109,70 @@ class PyGuiOverlay(Layer):
                 else:
                     print("No history yet.")
                 return
-            if dpg.is_item_focused("inTxtScan_expText"):
+
+            # ── if the user is actively typing into the command box, bail out  ──
+            focused_inputs = (
+                "cmd_input",
+                "inTxtScan_expText",
+                "Femto_FutureInput",
+                "MoveSubfolderInput"
+            )
+            if any(dpg.does_item_exist(tag) and dpg.is_item_focused(tag) for tag in focused_inputs):
                 return
-            # === QUESTION MARK: search history for substring in cmd_input ===
-            if key_code == KeyboardKeys.OEM_2.value:  # ord('?') == 63
-                term = dpg.get_value("cmd_input") or ""
-                if not (hasattr(self, "command_history") and self.command_history):
-                    print("No history yet.")
-                else:
-                    term_l = term.lower()
-                    for idx, cmd in enumerate(self.command_history):
-                        if term_l in cmd.lower():
-                            self.history_index = idx
-                            dpg.set_value("cmd_input", cmd)
-                            print(f"History match [{idx}]: {cmd}")
-                            break
-                    else:
-                        print(f"No history entry contains '{term}'.")
-                return
+
+            # === Step size tuning for Smaract ===
+            if hasattr(self, 'last_moved_axis'):
+                    axis = self.last_moved_axis
+                    coarse_tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
+                    fine_tag = f"{self.smaractGUI.prefix}_ch{axis}_Fset"
+
+                    # Combo logic: only check when the key is a step key, not modifier
+                    if key_data_enum in [KeyboardKeys.OEM_PERIOD, KeyboardKeys.OEM_COMMA]:
+                        combo = (self.modifier_key, key_data_enum)
+
+                        # Track repeated presses of same combo
+                        # Reset counter if combo or axis changes
+                        if combo == getattr(self, "step_tuning_key", None) and axis == getattr(self, "step_tuning_axis",
+                                                                                               None):
+                            self.step_tuning_counter += 1
+                        else:
+                            self.step_tuning_counter = 0
+                            self.step_tuning_key = combo
+                            self.step_tuning_axis = axis
+
+                        factor = 2 ** self.step_tuning_counter
+                        print(f"{combo} -> counter={self.step_tuning_counter} -> factor={factor}")
+
+                        # Ctrl + . → increase coarse step
+                        if combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD):
+                            val = dpg.get_value(coarse_tag) + factor
+                            dpg.set_value(coarse_tag, val)
+                            self.smaractGUI.ipt_large_step(coarse_tag, val)
+                            print(f"↑ Coarse step axis {axis} = {val:.1f} µm")
+
+                        # Ctrl + , → decrease coarse step
+                        elif combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_COMMA):
+                            val = max(1, dpg.get_value(coarse_tag) - factor)
+                            dpg.set_value(coarse_tag, val)
+                            self.smaractGUI.ipt_large_step(coarse_tag, val)
+                            print(f"↓ Coarse step axis {axis} = {val:.1f} µm")
+
+                        # Shift + . → increase fine step
+                        elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_PERIOD):
+                            val = dpg.get_value(fine_tag) + factor * 10
+                            dpg.set_value(fine_tag, val)
+                            self.smaractGUI.ipt_small_step(fine_tag, val)
+                            print(f"↑ Fine step axis {axis} = {val:.1f} nm")
+
+                        # Shift + , → decrease fine step
+                        elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_COMMA):
+                            val = max(10, dpg.get_value(fine_tag) - factor * 10)
+                            dpg.set_value(fine_tag, val)
+                            self.smaractGUI.ipt_small_step(fine_tag, val)
+                            print(f"↓ Fine step axis {axis} = {val:.1f} nm")
+
             # ── BACKSPACE ──
-            if key_code == KeyboardKeys.BACK_KEY.value:
+            if key_data_enum == KeyboardKeys.BACK_KEY:
                 cur = dpg.get_value("cmd_input") or ""
                 # Shift+Backspace clears all
                 if getattr(self, "modifier_key", None) == KeyboardKeys.SHIFT_KEY:
@@ -1199,11 +1184,8 @@ class PyGuiOverlay(Layer):
                 return
 
             # ── Printable characters ──
-            if key_code in (KeyboardKeys.C_KEY.value, KeyboardKeys.SPACE_KEY.value):
+            if key_data_enum in (KeyboardKeys.C_KEY, KeyboardKeys.SPACE_KEY,KeyboardKeys.ENTER_KEY):
                 dpg.focus_item("cmd_input")
-
-            # Update the current key pressed
-            self.CURRENT_KEY = key_data_enum
         except Exception as ex:
             self.error = f"Unexpected error in keyboard_callback: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
             print(self.error)
@@ -1570,12 +1552,12 @@ class PyGuiOverlay(Layer):
                 dpg.add_text("Console initialized.", tag="console_log", wrap=1500)
             # Input field for sending commands or messages
             with dpg.group(horizontal=True):
-                dpg.add_input_text(label="Cmd", tag="cmd_input", hint="Enter command", width=430,
+                dpg.add_input_text(label="", tag="cmd_input", hint="Enter command", width=650,
                                    on_enter=True, callback=lambda s, a, u: self.handle_cmd_input())
-                dpg.add_input_text(label="", tag="console_input", width=120)
-                dpg.add_button(label="Snd", callback=self.send_console_input)
-                dpg.add_button(label="Clr", callback=self.clear_console)
-                dpg.add_combo(items=[], tag="command_history", width=50, callback=self.fill_console_input)
+                dpg.add_input_text(label="", tag="console_input", width=20)
+                dpg.add_button(label="S", callback=self.send_console_input)
+                dpg.add_button(label="C", callback=self.clear_console)
+                dpg.add_combo(items=[], tag="command_history", width=40, callback=self.fill_console_input)
                 dpg.add_button(label="Sv", callback=self.save_logs)
 
 

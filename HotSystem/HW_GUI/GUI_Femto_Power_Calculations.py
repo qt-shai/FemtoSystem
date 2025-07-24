@@ -19,7 +19,8 @@ class FemtoPowerCalculator:
         self.power_tag = f"{self.prefix}_LaserPower_{self.unique_id}"
         self.energy_tag = f"{self.prefix}_PulseEnergy_{self.unique_id}"
 
-        self.future_input_tag = f"{self.prefix}_FutureInput_{self.unique_id}"
+        # self.future_input_tag = f"{self.prefix}_FutureInput_{self.unique_id}"
+        self.future_input_tag = "Femto_FutureInput"
         self.future_output_group = f"{self.prefix}_FutureOutputGroup_{self.unique_id}"
 
     def DeleteMainWindow(self):
@@ -29,7 +30,7 @@ class FemtoPowerCalculator:
     def create_gui(self):
         default_future_value = self.load_future_input()
         with dpg.window(label="Femto Power Calculations", tag=self.window_tag, width=400, height=200):
-            dpg.add_combo(items=["Default", "50um pinhole"],
+            dpg.add_combo(items=["Default", "Compressor1"],
                           default_value="Default",
                           tag=self.combo_tag,
                           label="Mode")
@@ -91,8 +92,8 @@ class FemtoPowerCalculator:
 
     def calculate_laser_pulse(self, HWP_deg: float, Att_percent: float, mode: str, rep_rate: float = 50e3) -> tuple[float, float]:
         # Choose polynomial based on mode
-        if mode == "50um pinhole":
-            A3, A2, A1, A0 = -0.0055, 0.4814, 5.6756, -16.8214
+        if mode == "Compressor1":
+            A3, A2, A1, A0 = -0.1920, 17.8686, 34.3261, -97.1116
             P_att = A3 * Att_percent ** 3 + A2 * Att_percent ** 2 + A1 * Att_percent + A0
         else:
             A3, A2, A1, A0 = -0.106, 9.7757, 12.3629, -26.1961
@@ -132,12 +133,28 @@ class FemtoPowerCalculator:
             if input_str.startswith("!"):
                 print("Future calculation skipped (bang-prefix).")
                 return 0
+
+            # Parse mode from suffix
+            mode = dpg.get_value(self.combo_tag)  # fallback to GUI combo
+            if "mode1" in input_str or "mode 1" in input_str:
+                mode = "Compressor1"
+                dpg.set_value(self.combo_tag, mode)
+            elif "mode0" in input_str or "mode 0" in input_str:
+                mode = "Default"
+                dpg.set_value(self.combo_tag, mode)
+
             # ✅ Copy to clipboard with "future " prefix
             try:
                 pyperclip.copy(f"future {input_str}")
                 print(f"Copied to clipboard: future {input_str}")
             except Exception as copy_error:
                 print(f"Clipboard copy failed: {copy_error}")
+
+            # Clean input_str of any mode tokens
+            for token in ["mode1", "mode 1", "mode0", "mode 0"]:
+                input_str = input_str.replace(token, "")
+            input_str = input_str.strip()
+
             # ✅ Split by ',' to separate range and Att, then detect 'xN'
             if "," in input_str:
                 range_part, rest_part = input_str.split(",", 1)
@@ -165,7 +182,7 @@ class FemtoPowerCalculator:
                 Att_percent = override_att
             else:
                 Att_percent = float(self.pharos.getBasicTargetAttenuatorPercentage())
-            mode = dpg.get_value(self.combo_tag)
+
             # Clear previous output
             children = dpg.get_item_children(self.future_output_group, 1)
             if children:
@@ -196,6 +213,17 @@ class FemtoPowerCalculator:
         Accepts input like: "3:1:5,15%x100"
         """
         input_str = dpg.get_value(self.future_input_tag).strip()
+        # Parse mode override
+        mode = dpg.get_value(self.combo_tag)
+        if "mode1" in input_str or "mode 1" in input_str:
+            mode = "Compressor1"
+        elif "mode0" in input_str or "mode 0" in input_str:
+            mode = "Default"
+
+        # Remove mode from input_str
+        for token in ["mode1", "mode 1", "mode0", "mode 0"]:
+            input_str = input_str.replace(token, "")
+        input_str = input_str.strip()
 
         if "," in input_str:
             range_part, rest_part = input_str.split(",", 1)
@@ -222,8 +250,6 @@ class FemtoPowerCalculator:
             Att_percent = override_att
         else:
             Att_percent = float(self.pharos.getBasicTargetAttenuatorPercentage())
-
-        mode = dpg.get_value(self.combo_tag)
 
         data = []
         for angle in angles:

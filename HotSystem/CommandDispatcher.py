@@ -295,13 +295,13 @@ class CommandDispatcher:
         if which == "x":
             if dpg.does_item_exist(x_tag):
                 dpg.fit_axis_data(x_tag)
-                print("Auto‑fit X applied")
+                print("Auto-fit X applied")
             else:
                 print(f"Axis '{x_tag}' not found; skipping.")
         elif which == "y":
             if dpg.does_item_exist(y_tag):
                 dpg.fit_axis_data(y_tag)
-                print("Auto‑fit Y applied")
+                print("Auto-fit Y applied")
             else:
                 print(f"Axis '{y_tag}' not found; skipping.")
         elif which == "":
@@ -2009,12 +2009,9 @@ class CommandDispatcher:
     def _move_delta(self, axis, arg):
         p=self.get_parent()
         try:
-            d=float(arg)
-            cur=dpg.get_value(f"mcs_ch{axis}_ABS")
-            n=cur+d
-            dpg.set_value(f"mcs_ch{axis}_ABS",n)
-            p.smaractGUI.move_absolute(None,None,axis)
-            print(f"Axis {axis} moved by {d:.2f} to {n:.2f}")
+            amount=float(arg)*1e6
+            p.smaractGUI.dev.MoveRelative(axis, int(amount))
+            print(f"Axis {axis} moved by {amount*1e-6:.2f} um")
         except:
             print(f"move{axis} failed.")
 

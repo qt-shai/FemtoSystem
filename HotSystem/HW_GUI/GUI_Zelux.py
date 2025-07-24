@@ -257,7 +257,7 @@ class ZeluxGUI():
         pass
 
     def AddNewWindow(self, _width=800):
-
+        # self.cam.ratio = self.cam.image_height_pixels / self.cam.image_width_pixels
         _width = 1000
 
         with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar=False,
