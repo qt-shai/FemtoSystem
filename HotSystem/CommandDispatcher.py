@@ -1444,38 +1444,68 @@ class CommandDispatcher:
             print("Femto GUI or Pharos API not available.")
 
     def handle_future(self, arg):
-        """Parse future pulses input, update widgets, and calculate femto‐pulse steps."""
+        """Parse future pulses input, update widgets, and calculate femto-pulse steps."""
         p = self.get_parent()
         future_args = arg.strip()
+
         # 1) Syntax check
         if not future_args:
-            print("Syntax: future<start:step:end,percent>xN")
+            print("Syntax: future <start:step:end,percent>xN [mode1|mode0]")
             return
-        # 2) Bail out if user wants to cancel (leading '!')
+
+        # 2) Cancel with '!'
         if future_args.startswith("!"):
             return
-        # 3) Must have femto GUI input tag
-        tag = getattr(p.femto_gui, "future_input_tag", None)
-        if not (hasattr(p, "femto_gui") and tag):
-            print("Femto GUI or input tag not available.")
+
+        # 3) Ensure femto_gui and input tag exist
+        if not hasattr(p, "femto_gui"):
+            print("Femto GUI not available.")
             return
-        # 4) Write the raw input string into the future‐input widget
+
+        tag = getattr(p.femto_gui, "future_input_tag", None)
+        if not tag or not dpg.does_item_exist(tag):
+            print("Future input widget not found.")
+            return
+
+        # 4) Extract and clean mode override
+        mode = dpg.get_value(p.femto_gui.combo_tag) if dpg.does_item_exist(p.femto_gui.combo_tag) else "Default"
+        lower_arg = future_args.lower()
+        if "mode1" in lower_arg or "mode 1" in lower_arg:
+            mode = "Compressor1"
+        elif "mode0" in lower_arg or "mode 0" in lower_arg:
+            mode = "Default"
+
+        # Remove mode tokens from string
+        for token in ("mode1", "mode 1", "mode0", "mode 0"):
+            future_args = future_args.replace(token, "")
+        future_args = future_args.strip()
+
+        # 5) Write cleaned input to GUI
         dpg.set_value(tag, future_args)
-        # 5) Split off the attenuation part, if present
+
+        # 6) Parse input
         parts = future_args.split(",", 1)
         range_part = parts[0].strip()
         att_value = None
-        pulse_count = None
+        pulse_count = 1
+
         if len(parts) > 1:
             att_part = parts[1].strip()
-            # detect “xN” suffix (pulse count)
             if "x" in att_part:
-                att_str, x_part = att_part.split("x", 1)
-                att_value = float(att_str.rstrip("%"))
-                pulse_count = int(x_part)
+                try:
+                    att_str, x_part = att_part.split("x", 1)
+                    att_value = float(att_str.strip().rstrip("%"))
+                    pulse_count = int(x_part.strip())
+                except Exception:
+                    print("Invalid attenuation or pulse count format.")
+                    return
             else:
-                att_value = float(att_part.rstrip("%"))
-            # apply attenuator
+                try:
+                    att_value = float(att_part.strip().rstrip("%"))
+                except Exception:
+                    print("Invalid attenuation value.")
+                    return
+
             if dpg.does_item_exist("femto_attenuator"):
                 dpg.set_value("femto_attenuator", att_value)
                 print(f"Attenuator set to {att_value}%")
@@ -1485,7 +1515,8 @@ class CommandDispatcher:
                     print(f"Failed to set Pharos attenuator: {e}")
             else:
                 print("Attenuator input widget not found.")
-        # 6) Parse and apply HWP increment
+
+        # 7) Parse range and set angle
         try:
             start, step, end = [float(x) for x in range_part.split(":")]
             if dpg.does_item_exist("femto_increment_hwp"):
@@ -1493,12 +1524,18 @@ class CommandDispatcher:
                 print(f"HWPInc set to {step}")
             else:
                 print("HWPInc input widget not found.")
-            p.opx.set_hwp_angle(start)
-            dpg.set_value(p.kdc_101_gui.position_input_tag,start)
+
+            if hasattr(p.opx, "set_hwp_angle"):
+                p.opx.set_hwp_angle(start)
+            if dpg.does_item_exist(p.kdc_101_gui.position_input_tag):
+                dpg.set_value(p.kdc_101_gui.position_input_tag, start)
             self.handle_set_angle(start)
+
         except Exception:
-            print("Invalid range format, expected start:step:end")
-        # 7) If pulse_count was given, set anneal params
+            print("Invalid range format. Expected format: start:step:end")
+            return
+
+        # 8) Anneal pulse parameters
         if pulse_count is not None:
             if dpg.does_item_exist("femto_anneal_pulse_count"):
                 dpg.set_value("femto_anneal_pulse_count", pulse_count - 1)
@@ -1507,11 +1544,12 @@ class CommandDispatcher:
                 val = 0.01 if pulse_count > 1 else 0.0
                 dpg.set_value("femto_increment_hwp_anneal", val)
                 print(f"HWPAnn set to {val}")
-        # 8) Finally call the calculate_future logic
+
+        # 9) Call Femto GUI future calculation
         try:
             Ly = p.femto_gui.calculate_future(sender=None, app_data=None, user_data=None)
-            print(f"Future calculation done for input: {future_args}")
-            # 9) Update scan settings if Ly valid
+            print(f"Future calculation done for input: {arg.strip()}")
+
             if Ly and dpg.does_item_exist("inInt_Ly_scan") and Ly > 0:
                 dpg.set_value("inInt_Ly_scan", int(Ly))
                 p.opx.Update_Ly_Scan(user_data=int(Ly))
@@ -1519,7 +1557,7 @@ class CommandDispatcher:
                 p.opx.Update_dX_Scan("inInt_dx_scan", 2000)
                 p.opx.Update_dY_Scan("inInt_dy_scan", 2000)
             else:
-                print("inInt_Ly_scan not found or Ly = 0.")
+                print("Ly is 0 or inInt_Ly_scan not found.")
         except Exception as e:
             print(f"Error calculating future: {e}")
 
