@@ -594,7 +594,7 @@ class GUI_OPX():
         dpg.set_value(item="inInt_n_avg", value=sender.n_avg)
         print("Set n_avg to: " + str(sender.n_avg))
 
-    def UpdateCorrelationWidth(sender, app_data, user_data):
+    def UpdateCorrelationWidth(sender, app_data=None, user_data=None):
         sender.correlation_width = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_G2_correlation_width", value=sender.correlation_width)
@@ -1868,7 +1868,6 @@ class GUI_OPX():
 
             end_Plot_time = time.time()
             print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
-
         except Exception as e:
             print(f"An error occurred while plotting the scan: {e}")
 

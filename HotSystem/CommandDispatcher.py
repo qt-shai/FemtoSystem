@@ -169,6 +169,7 @@ class CommandDispatcher:
             "scpos":             self.handle_copy_scan_position,
             "exp":               self.handle_set_exposure,
             "disp":              self.handle_display_slices,
+            "dc":                lambda arg: self.handle_display_slices("clip"),
             "int":               self.handle_set_integration_time,
             "nextrun":           self.handle_nextrun,
             "help":              self.handle_help,
@@ -206,6 +207,7 @@ class CommandDispatcher:
             "spot":              self.handle_spot,
             "spot1":             self.handle_spot1,
             "scanmv":            self.handle_scanmv,
+            "g2":                self.handle_g2,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -351,6 +353,31 @@ class CommandDispatcher:
         else:
             print("Invalid syntax. Use: auto, auto x, or auto y.")
 
+    def handle_g2(self, arg):
+        """Start G2 scan or set correlation width (e.g. 'g2 1000')."""
+        p = self.get_parent()
+
+        if not hasattr(p, "opx") or not hasattr(p.opx, "btnStartG2"):
+            print("OPX or btnStartG2 not available.")
+            return
+
+        arg = str(arg).strip()
+
+        if arg.isdigit():
+            # Update correlation width via input field (triggers callback)
+            width = int(arg)
+            try:
+                p.opx.UpdateCorrelationWidth(user_data=width)
+                print(f"Correlation width set to {width}")
+            except Exception as e:
+                print(f"Failed to set correlation width: {e}")
+        else:
+            try:
+                p.opx.btnStartG2()
+                print("✅ Started G2 scan.")
+            except Exception as e:
+                print(f"❌ Failed to start G2 scan: {e}")
+
     def handle_mark(self, arg):
         """Draw cross+circle at OPX position."""
         try:
@@ -394,67 +421,130 @@ class CommandDispatcher:
             print(f"Error in unmark: {e}")
 
     def handle_add_slide(self, arg):
-        """Add PPT slide & paste clipboard image with metadata in Alt Text."""
+        """
+        Command: a [option]
+        --------------------
+        Adds a new slide to the currently opened PowerPoint presentation, pastes the GUI window as an image,
+        and embeds relevant metadata in the image's Alt Text (as a compact JSON string).
+
+        Usage:
+            a           → Full metadata: scan grid, position (µm), future command, filename.
+            a 1         → Minimal metadata: only position, future, and filename (no scan_data).
+            a 2 or a g2 → Add G2 graph data: X_vec, Y_vec, g2 result, iteration, total counts.
+            a 3         → Add stored query points: [(index, x, y, z), ...].
+            a 5 or a spc→ Add HRS500 spectrum data and associated CSV file path.
+
+        Metadata Fields:
+            x, y               : Stage position in microns (float)
+            future             : String from Femto_FutureInput (optional)
+            filename           : Path to last loaded scan CSV
+            Nx, Ny, Nz         : Scan dimensions (int)
+            startLoc           : Starting scan location [x, y, z]
+            dL_scan            : Step size per axis [dx, dy, dz]
+            scan_data          : Converted scan CSV as nested dict (excluded if option 1/2/3/5 used)
+            g2_graph           : Dict with X_vec, Y_vec, g2_value, iteration, total_counts (only with a 2 / g2)
+            query_points       : Stored points (list of tuples) (only with a 3)
+            spc_csv            : Path to last saved SPC spectrum (only with a 5 / spc)
+            spc_data           : Dict with x and y arrays of SPC spectrum (only with a 5 / spc)
+
+        Notes:
+            - Metadata is embedded in the Alt Text of the pasted image.
+            - Useful for later recovery using `disp clip`.
+            - All JSON is minified (compact separators) to reduce Alt Text size.
+
+        Example:
+            a       → Full metadata
+            a 1     → Just core info, no scan_data
+            a g2    → Include G2 result graph
+            a 3     → Include stored query points
+            a spc   → Include SPC spectrum (data + filename)
+        """
+
         try:
-            # 1) Prepare metadata
             p = self.get_parent()
-            scan_dict = self.convert_loaded_csv_to_scan_data(
-                scan_out=p.opx.scan_Out,
-                Nx=p.opx.N_scan[0],
-                Ny=p.opx.N_scan[1],
-                Nz=p.opx.N_scan[2],
-                startLoc=p.opx.startLoc,
-                dL_scan=p.opx.dL_scan,
-            )
-            # Position in µm
-            x, y = [pos * 1e-6 for pos in p.opx.positioner.AxesPositions[:2]]
+            meta = {}
 
-            # Future value
-            try:
-                future = dpg.get_value("Femto_FutureInput")
-            except Exception:
-                future = None
+            # Always include core metadata
+            meta["x"], meta["y"] = [pos * 1e-6 for pos in p.opx.positioner.AxesPositions[:2]]
+            meta["future"] = dpg.get_value("Femto_FutureInput") if dpg.does_item_exist("Femto_FutureInput") else None
+            meta["filename"] = getattr(p.opx, "last_loaded_file", None)
 
-            # Metadata dictionary
-            meta = {
-                "scan_data": scan_dict,
-                "x": x,
-                "y": y,
-                "future": future,
-                "filename": getattr(p.opx, "last_loaded_file", None)
-            }
+            arg = arg.strip().lower() if arg else ""
+            include_graph = arg in ("2", "g2")
+            include_query_list = arg == "3"
+            include_spc = arg in ("5", "spc")
 
-            # Copy image with metadata
+            # Add scan structure (but not raw scan_Out) unless user passed 1/2/3/5/spc
+            if arg not in ("1", "2", "g2", "3", "5", "spc"):
+                meta.update({
+                    "Nx": p.opx.N_scan[0],
+                    "Ny": p.opx.N_scan[1],
+                    "Nz": p.opx.N_scan[2],
+                    "startLoc": p.opx.startLoc,
+                    "dL_scan": p.opx.dL_scan,
+                })
+                meta["scan_data"] = self.convert_loaded_csv_to_scan_data(
+                    scan_out=p.opx.scan_Out,
+                    Nx=p.opx.N_scan[0],
+                    Ny=p.opx.N_scan[1],
+                    Nz=p.opx.N_scan[2],
+                    startLoc=p.opx.startLoc,
+                    dL_scan=p.opx.dL_scan,
+                )
+
+            # Include G2 graph
+            # Include G2 graph
+            if arg.strip() in ("2", "g2"):
+                meta["g2_graph"] = {
+                    "X_vec": p.opx.X_vec.tolist() if isinstance(p.opx.X_vec, np.ndarray) else list(p.opx.X_vec),
+                    "Y_vec": p.opx.Y_vec.tolist() if isinstance(p.opx.Y_vec, np.ndarray) else list(p.opx.Y_vec),
+                    "g2_value": float(p.opx.calculate_g2(p.opx.Y_vec)),
+                    "iteration": int(p.opx.iteration),
+                    "total_counts": int(p.opx.g2_totalCounts)
+                }
+
+            # Include query points
+            if include_query_list and hasattr(p, "saved_query_points"):
+                meta["query_points"] = p.saved_query_points
+
+            # Include SPC data and file
+            if include_spc:
+                spc_fp = getattr(p.hrs_500_gui.dev, "last_saved_csv", None)
+                spc_data = getattr(p.hrs_500_gui, "data", None)
+                if spc_fp:
+                    meta["spc_csv"] = spc_fp
+                if isinstance(spc_data, np.ndarray) and spc_data.shape[1] >= 2:
+                    meta["spc_data"] = {
+                        "x": spc_data[:, 0].tolist(),
+                        "y": spc_data[:, 1].tolist()
+                    }
+
+            # Copy annotated image to clipboard
             copy_quti_window_to_clipboard(metadata_dict=meta)
 
-            # Initialize COM
+            # Insert slide
             pythoncom.CoInitialize()
-
-            # Connect to PowerPoint
             ppt = win32com.client.Dispatch("PowerPoint.Application")
             if ppt.Presentations.Count == 0:
                 raise RuntimeError("No PowerPoint presentations are open!")
-
             pres = ppt.ActivePresentation
-            slide_count = pres.Slides.Count
-            new_slide = pres.Slides.Add(slide_count + 1, 12)  # 12 = ppLayoutBlank
+            new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)
             ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
 
-            # Ensure image is available in clipboard
+            # Paste image and embed Alt Text metadata
             img = ImageGrab.grabclipboard()
             if not isinstance(img, Image.Image):
                 print("❌ Clipboard does not contain an image.")
                 return
-
-            # Paste and embed metadata in Alt Text
             shapes = new_slide.Shapes.Paste()
             if shapes.Count > 0:
                 shape = shapes[0]
                 shape.AlternativeText = json.dumps(meta, separators=(",", ":"))
 
-            print(f"Added slide #{new_slide.SlideIndex} and pasted image with metadata.")
+            print(f"✅ Added slide #{new_slide.SlideIndex} with metadata.")
+
         except Exception as e:
-                print(f"Could not add slide: {e}")
+            print(f"❌ Could not add slide: {e}")
 
     def convert_loaded_csv_to_scan_data(self,scan_out, Nx, Ny, Nz, startLoc, dL_scan):
         """
@@ -1309,6 +1399,8 @@ class CommandDispatcher:
         """List and draw stored query points."""
         p = self.get_parent()
         pts = getattr(p, "saved_query_points", [])
+        # Determine whether to draw hollow/thin
+        hollow_mode = str(arg).strip() == "1"
         if pts:
             print("Stored points:")
             for index, x, y, z in pts:
@@ -1327,15 +1419,20 @@ class CommandDispatcher:
                 # 4) Draw or update the point dot
                 dot_tag = f"stored_point_dot_{index}"
                 if dpg.does_item_exist(dot_tag):
-                    dpg.configure_item(dot_tag, center=(x, y))
+                    dpg.configure_item(dot_tag,
+                                       center=(x, y),
+                                       fill=None if hollow_mode else (0, 0, 0, 255),
+                                       thickness=0.5 if hollow_mode else 1.0,
+                                       )
                 else:
                     dpg.draw_circle(
                         center=(x, y),
                         radius=0.15,
                         color=(255, 0, 0, 255),
-                        fill=(0, 0, 0, 255),
+                        fill= None if hollow_mode else (0, 0, 0, 255),
                         parent="plot_draw_layer",
-                        tag=dot_tag
+                        tag=dot_tag,
+                        thickness=0.5 if hollow_mode else 1.0,
                     )
 
                 # 5) Draw or update the annotation text
@@ -2044,9 +2141,17 @@ class CommandDispatcher:
             print("exp failed.")
 
     def handle_display_slices(self, arg):
-        """Run Z-slices viewer. Use 'disp clip' to read scan_data from clipboard image's Alt Text (PowerPoint)."""
+        """
+            Run Z-slices viewer.
+
+            - Use 'disp clip' to read scan_data or G2 graph from clipboard image's Alt Text (PowerPoint).
+             - If scan_data → display Z-slices
+             - If g2_graph → plot G2 correlation
+             - If spc_data → plot spectrum
+        """
         try:
             fn = None
+            p=self.get_parent()
             if arg.strip() == "clip":
                 # 1. Grab image from clipboard
                 img = ImageGrab.grabclipboard()
@@ -2082,11 +2187,56 @@ class CommandDispatcher:
                     print(f"Future command: {future}")
                     print(f"Filename: {filename}")
                     fn = meta_data.get("scan_data")
+                    if fn:
+                        disp.display_all_z_slices(data=fn)
+                    elif "g2_graph" in meta_data:
+                        graph = meta_data["g2_graph"]
+                        X = graph.get("X_vec", [])
+                        Y = graph.get("Y_vec", [])
+                        g2_val = graph.get("g2_value", None)
+                        iteration = graph.get("iteration", "?")
+                        total_counts = graph.get("total_counts", "?")
+                        # Plot the G2 graph
+                        dpg.set_item_label("graphXY",
+                                           f"G2, Iteration = {iteration}, Total Counts = {total_counts}, g2 = {g2_val:.3f}")
+                        dpg.set_value("series_counts", [X, Y])
+                        dpg.set_value("series_counts_ref", [[], []])
+                        dpg.set_value("series_counts_ref2", [[], []])
+                        dpg.set_value("series_res_calcualted", [[], []])
+                        dpg.set_item_label("series_counts", "G2 val")
+                        dpg.set_item_label("series_counts_ref", "_")
+                        dpg.set_item_label("series_counts_ref2", "_")
+                        dpg.set_item_label("series_res_calcualted", "_")
+                        dpg.set_item_label("y_axis", "events")
+                        dpg.set_item_label("x_axis", "dt [nsec]")
+                        dpg.fit_axis_data("x_axis")
+                        dpg.fit_axis_data("y_axis")
+                        dpg.bind_item_theme("series_counts", "LineYellowTheme")
+                        dpg.bind_item_theme("series_counts_ref", "LineMagentaTheme")
+                        dpg.bind_item_theme("series_counts_ref2", "LineCyanTheme")
+                        dpg.bind_item_theme("series_res_calcualted", "LineRedTheme")
+                        print("G2 graph plotted from Alt Text.")
+                    elif "spc_data" in meta_data:
+                        spc = meta_data["spc_data"]
+                        X = spc.get("X", [])
+                        Y = spc.get("Y", [])
+                        label = spc.get("label", "Spectrum")
+                        tag = p.hrs_500_gui.series_tag
+                        if dpg.does_item_exist(tag):
+                            dpg.set_value(tag, [X, Y])
+                        else:
+                            dpg.add_line_series(X, Y, label=label,
+                                                parent=f"y_axis_{p.hrs_500_gui.prefix}",
+                                                tag=tag)
+                        dpg.set_item_label(f"graphXY_{p.hrs_500_gui.prefix}", label)
+                        dpg.fit_axis_data(f"x_axi_{p.hrs_500_gui.prefix}")
+                        dpg.fit_axis_data(f"y_axis_{p.hrs_500_gui.prefix}")
+                        print("✅ Spectrum plotted from Alt Text.")
+                    else:
+                        print("No scan_data, g2_graph, or spc_data found in metadata.")
                 except Exception as e:
                     print(f"Failed to parse Alt Text metadata: {e}")
                     return
-                # 3. Launch display
-                disp.display_all_z_slices(data=fn)
             else:
                 # Load from file
                 fn = self.get_parent().opx.last_loaded_file
@@ -2095,7 +2245,6 @@ class CommandDispatcher:
                     return
                 subprocess.Popen(["python", "Utils/display_all_z_slices_with_slider.py", fn])
                 print("Displaying slices from file.")
-
         except Exception as e:
             print(f"disp failed: {e}")
 
