@@ -1,5 +1,7 @@
 import datetime
+import json
 import sys
+import tempfile
 import traceback
 from datetime import datetime
 import socket
@@ -21,6 +23,7 @@ from datetime import datetime
 import ctypes
 import win32process
 from screeninfo import get_monitors
+from PIL import ImageGrab, PngImagePlugin
 
 def get_primary_resolution():
     for m in get_monitors():
@@ -472,7 +475,7 @@ def show_msg_window(msg_text: str,height=110):
 
     print(f"Displayed message in {window_tag}: {msg_text}")
 
-def copy_quti_window_to_clipboard():
+def copy_quti_window_to_clipboard(metadata_dict: dict = None):
     window_title = "QuTi SW"
     hwnd = win32gui.FindWindow(None, None)
 
@@ -486,30 +489,37 @@ def copy_quti_window_to_clipboard():
         print("Window 'QuTi SW' not found.")
         return
 
-    # Bring the window to front
-    win32gui.ShowWindow(hwnd, 5)  # SW_SHOW
+    win32gui.ShowWindow(hwnd, 5)
     win32gui.SetForegroundWindow(hwnd)
     win32gui.BringWindowToTop(hwnd)
 
-    # Get window rectangle
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-
-    # Take screenshot of the window area
     screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
 
-    # Convert to DIB format for clipboard
+    png_info = PngImagePlugin.PngInfo()
+    if metadata_dict:
+        try:
+            metadata_json = json.dumps(metadata_dict)
+            png_info.add_text("Description", metadata_json)
+        except Exception as e:
+            print(f"Failed to encode metadata: {e}")
+
+    # Save to temp file with metadata
+    tmp_path = os.path.join(tempfile.gettempdir(), "quti_clip_with_meta.png")
+    screenshot.save(tmp_path, "PNG", pnginfo=png_info)
+
+    # Copy screenshot to clipboard as BMP (no metadata, just visual)
     output = io.BytesIO()
     screenshot.convert("RGB").save(output, "BMP")
-    data = output.getvalue()[14:]  # Skip BMP header
+    bmp_data = output.getvalue()[14:]
     output.close()
 
-    # Copy to clipboard
     win32clipboard.OpenClipboard()
     win32clipboard.EmptyClipboard()
-    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
     win32clipboard.CloseClipboard()
 
-    print("Copied 'QuTi SW' window to clipboard.")
+    print(f"Copied 'QuTi SW' to clipboard (visual only); metadata saved in temp: {tmp_path}")
 
 def wait_for_item_and_set(tag: str, value: str, max_retries=50, delay=0.1):
     import threading, time

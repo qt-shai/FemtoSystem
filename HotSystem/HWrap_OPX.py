@@ -226,14 +226,9 @@ class GUI_OPX():
         self.simulation = simulation
         self.graph_size_override = None  # (w, h) tuple
 
-        self.move_mode = "marker"
         self.text_color = (0, 0, 0, 255)  # Set color to black
-        self.active_marker_index = -1
-        self.active_area_marker_index = -1
+        self.N_scan = [0, 0, 0]
 
-        self.area_markers = []
-        self.Map_aspect_ratio = None
-        self.markers = []
         self.z_correction_threshold = 10000
         self.expected_pos = None
         self.smaract_ttl_duration = 0.001  # ms, updated from XML (loaded using 'self.update_from_xml()')
@@ -1401,7 +1396,10 @@ class GUI_OPX():
                                 dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
                                                  callback=self.Update_bZcorrection,
                                                  default_value=self.b_Zcorrection)
-                                dpg.add_text(default_value="Use Z", tag="text_Zcorrection", indent=-1)
+                                dpg.add_text(default_value="Z", tag="text_Zcorrection", indent=-1)
+                                dpg.add_input_int(label="Limit", tag="inInt_limit", indent=-1, width=item_width*.8,
+                                                  callback=self.Update_dZ_Scan,
+                                                  default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
 
                             dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
                                          tag="text_expectedScanTime",
@@ -1782,14 +1780,19 @@ class GUI_OPX():
             arrXY = np.flipud(self.scan_data[self.idx_scan[Axis.Z.value], :, :])
 
             if self.limit:
-                arrXY = np.where(arrXY > self.dL_scan[2], self.dL_scan[2], arrXY)
+                limit = dpg.get_value("inInt_limit")
+                arrXY = np.where(arrXY > limit, limit, arrXY)
 
-            # Normalize the arrays
-            result_arrayXY = (arrXY * 255 / arrXY.max())
+            def safe_normalize(arr):
+                max_val = np.nanmax(arr)
+                return (arr * 255 / max_val) if max_val > 0 else np.zeros_like(arr)
+
+            result_arrayXY = safe_normalize(arrXY)
+            result_arrayXZ = safe_normalize(arrXZ)
+            result_arrayYZ = safe_normalize(arrYZ)
+
             result_arrayXY_ = []
-            result_arrayXZ = (arrXZ * 255 / arrXZ.max())
             result_arrayXZ_ = []
-            result_arrayYZ = (arrYZ * 255 / arrYZ.max())
             result_arrayYZ_ = []
 
             # Convert intensity values to RGB
@@ -1985,7 +1988,8 @@ class GUI_OPX():
     def UpdateGuiDuringScan(self, Array2D, use_fast_rgb: bool = False):
         # If self.limit is true, cap the values in Array2D at dz (nm) value
         if self.limit:
-            Array2D = np.where(Array2D > self.dL_scan[2], self.dL_scan[2], Array2D)
+            limit = dpg.get_value("inInt_limit")
+            Array2D = np.where(Array2D > limit, limit, Array2D)
 
         val = Array2D.reshape(-1)
         idx = np.where(val != 0)[0]
@@ -10356,6 +10360,7 @@ class GUI_OPX():
         #self.prepare_scan_data()
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
+        self.last_loaded_file = fn
         filename_only = os.path.basename(fn)
         show_msg_window(f"{filename_only}")
         # total experiment time
@@ -11306,21 +11311,36 @@ class GUI_OPX():
 
         return self.scan_intensities
 
-    def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
-        # Create object to be saved in excel
+    def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos, Scan_array = None):
+        """
+            Prepare self.scan_Out from raw Scan_array loaded from CSV or just scanned.
+        """
         self.scan_Out = []
-        # probably unit issue
-        x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
-        y_vec = np.linspace(start_pos[1], start_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
-        z_vec = np.linspace(start_pos[2], start_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
-        for i in range(np.size(self.scan_intensities, 2)):
-            for j in range(np.size(self.scan_intensities, 1)):
-                for k in range(np.size(self.scan_intensities, 0)):
-                    x = x_vec[k]
-                    y = y_vec[j]
-                    z = z_vec[i]
-                    I = self.scan_intensities[k, j, i]
-                    self.scan_Out.append([x, y, z, I, x, y, z])
+
+        if Scan_array is not None:
+            x_vec = np.unique(Scan_array[:, 0])
+            y_vec = np.unique(Scan_array[:, 1])
+            z_vec = np.unique(Scan_array[:, 2])
+
+            Nx = len(x_vec)
+            Ny = len(y_vec)
+            Nz = len(z_vec)
+
+            for i in range(len(Scan_array)):
+                x, y, z, I = Scan_array[i, 0], Scan_array[i, 1], Scan_array[i, 2], Scan_array[i, 3]
+                self.scan_Out.append([x, y, z, I, x, y, z])
+        else:
+            x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
+            y_vec = np.linspace(start_pos[1], start_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
+            z_vec = np.linspace(start_pos[2], start_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
+            for i in range(np.size(self.scan_intensities, 2)):
+                for j in range(np.size(self.scan_intensities, 1)):
+                    for k in range(np.size(self.scan_intensities, 0)):
+                        x = x_vec[k]
+                        y = y_vec[j]
+                        z = z_vec[i]
+                        I = self.scan_intensities[k, j, i]
+                        self.scan_Out.append([x, y, z, I, x, y, z])
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
@@ -11404,19 +11424,55 @@ class GUI_OPX():
 
         return x_fixed, y_fixed, z_fixed, allPoints_fixed, pattern_length
 
-    def btnLoadScan(self):
-        # Open the dialog with a filter for .csv files and all file types
-        fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
-        if fn:  # Check if a file is selected
-            # Save the directory to file for future sessions
+    def btnLoadScan(self, sender=None, app_data=None, user_data=None):
+        if isinstance(app_data, str) and app_data.endswith(".csv"):
+            fn = app_data  # Loaded from external call with path
+        else:
+            fn = open_file_dialog(
+                filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")]
+            )
+
+        if fn:
             last_dir = os.path.dirname(fn)
             with open("last_scan_dir.txt", "w") as f:
                 f.write(last_dir)
 
             data = loadFromCSV(fn)
+            Scan_array = np.array(data, dtype=np.float64)
+
+            # Get sorted unique vectors
+            x_unique = np.unique(Scan_array[:, 0])
+            y_unique = np.unique(Scan_array[:, 1])
+            z_unique = np.unique(Scan_array[:, 2])
+
+            dx = x_unique[1] - x_unique[0] if len(x_unique) > 1 else 1
+            dy = y_unique[1] - y_unique[0] if len(y_unique) > 1 else 1
+            dz = z_unique[1] - z_unique[0] if len(z_unique) > 1 else 1
+
+            Nx = int(round((x_unique[-1] - x_unique[0]) / dx)) + 1
+            Ny = int(round((y_unique[-1] - y_unique[0]) / dy)) + 1
+            Nz = int(round((z_unique[-1] - z_unique[0]) / dz)) + 1
+
+            x_min, x_max = x_unique[0], x_unique[-1]
+            y_min, y_max = y_unique[0], y_unique[-1]
+            z_min, z_max = z_unique[0], z_unique[-1]
+
+            # 🔍 Print details for debugging
+            print(f"X range: {x_min:.3f} to {x_max:.3f}, step = {dx}, Nx = {Nx}")
+            print(f"Y range: {y_min:.3f} to {y_max:.3f}, step = {dy}, Ny = {Ny}")
+            print(f"Z range: {z_min:.3f} to {z_max:.3f}, step = {dz}, Nz = {Nz}")
+            print(f"Total points in scan array: {Scan_array.shape[0]}")
+            print(f"Expected points: {Nx * Ny * Nz}")
+
+            self.N_scan = [Nx, Ny, Nz]
+            self.dL_scan = [dx * 1e-3, dy * 1e-3, dz * 1e-3]  # [mm]
+
+            start_pos = [x_min, y_min, z_min]
+            self.prepare_scan_data(x_max, x_min, start_pos, Scan_array)
+
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)
-            self.last_loaded_file = fn  # ✅ Store it!
+            self.last_loaded_file = fn
             print(f"Loaded: {fn}")
         else:
             print("No file selected.")
@@ -11951,16 +12007,16 @@ class GUI_OPX():
 
                 # Write headers if not appending or file doesn't exist
                 if not to_append or not file_exists:
-                    print("Writing headers...")
+                    # print("Writing headers...")
                     writer.writerow(data.keys())
 
                 # Write data rows
-                print("Preparing to write rows...")
+                # print("Preparing to write rows...")
                 zipped_rows = list(zip(*data.values()))
                 print(f"Number of rows to write: {len(zipped_rows)}")
 
                 writer.writerows(zipped_rows)
-                print("Rows written successfully.")
+                # print("Rows written successfully.")
 
             print(f"Data successfully saved to {file_name}.")
 

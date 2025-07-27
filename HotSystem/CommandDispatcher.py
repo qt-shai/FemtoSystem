@@ -1,7 +1,10 @@
+import atexit
 import glob
+import json
 import sys
 import os
 import re
+import tempfile
 import threading
 import time
 import pyperclip
@@ -20,6 +23,24 @@ from HW_GUI.GUI_MFF_101 import GUI_MFF
 from Common import *
 from PrincetonInstruments.LightField.AddIns import CameraSettings
 from Utils import open_file_dialog
+import Utils.display_all_z_slices_with_slider as disp
+from PIL import ImageGrab, Image
+import io
+import win32com.client
+import pythoncom
+import json
+import tempfile
+import os
+import subprocess
+import win32com.client
+import pythoncom
+import json
+import time
+from PIL import ImageGrab
+import io, json, os
+from pptx import Presentation
+from pptx.util import Inches
+from PIL import ImageGrab
 
 class DualOutput:
     def __init__(self, original_stream):
@@ -130,6 +151,7 @@ class CommandDispatcher:
             "stop":              self.handle_stop_scan,
             "angle":             self.handle_set_angle,
             "start":             self.handle_start_scan,
+            "stt":               self.handle_start_scan,
             "startscan":         self.handle_start_scan,
             "dx":                self.handle_set_dx,
             "dy":                self.handle_set_dy,
@@ -185,6 +207,8 @@ class CommandDispatcher:
             "spot1":             self.handle_spot1,
             "scanmv":            self.handle_scanmv,
         }
+        # Register exit hook
+        atexit.register(self.savehistory_on_exit)
 
     def get_parent(self):
         return getattr(sys.stdout, "parent", None)
@@ -290,6 +314,13 @@ class CommandDispatcher:
         dpg.focus_item("cmd_input")
         dpg.set_value("cmd_input", "")
 
+    def savehistory_on_exit(self):
+        try:
+            self.handle_save_history()
+            print("Command history saved on exit.")
+        except Exception as e:
+            print(f"Failed to save history on exit: {e}")
+
     # --- Handlers (methods) ---
     def handle_auto(self, arg):
         """Apply auto‑fit to OPX graph axes: 'auto', 'auto x', 'auto y'."""
@@ -363,24 +394,120 @@ class CommandDispatcher:
             print(f"Error in unmark: {e}")
 
     def handle_add_slide(self, arg):
-        """Add PPT slide & paste clipboard image."""
+        """Add PPT slide & paste clipboard image with metadata in Alt Text."""
         try:
-            # 1) copy the QuTi SW window into the clipboard
-            copy_quti_window_to_clipboard()
+            # 1) Prepare metadata
+            p = self.get_parent()
+            scan_dict = self.convert_loaded_csv_to_scan_data(
+                scan_out=p.opx.scan_Out,
+                Nx=p.opx.N_scan[0],
+                Ny=p.opx.N_scan[1],
+                Nz=p.opx.N_scan[2],
+                startLoc=p.opx.startLoc,
+                dL_scan=p.opx.dL_scan,
+            )
+            # Position in µm
+            x, y = [pos * 1e-6 for pos in p.opx.positioner.AxesPositions[:2]]
 
-            # 2) run the slide‑adding script
-            script = os.path.join("Utils", "add_slide_paste_clipboard.py")
-            subprocess.run([sys.executable, script], check=True)
+            # Future value
+            try:
+                future = dpg.get_value("Femto_FutureInput")
+            except Exception:
+                future = None
 
-            print("Added slide & pasted clipboard image to PowerPoint.")
+            # Metadata dictionary
+            meta = {
+                "scan_data": scan_dict,
+                "x": x,
+                "y": y,
+                "future": future,
+                "filename": getattr(p.opx, "last_loaded_file", None)
+            }
+
+            # Copy image with metadata
+            copy_quti_window_to_clipboard(metadata_dict=meta)
+
+            # Initialize COM
+            pythoncom.CoInitialize()
+
+            # Connect to PowerPoint
+            ppt = win32com.client.Dispatch("PowerPoint.Application")
+            if ppt.Presentations.Count == 0:
+                raise RuntimeError("No PowerPoint presentations are open!")
+
+            pres = ppt.ActivePresentation
+            slide_count = pres.Slides.Count
+            new_slide = pres.Slides.Add(slide_count + 1, 12)  # 12 = ppLayoutBlank
+            ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
+
+            # Ensure image is available in clipboard
+            img = ImageGrab.grabclipboard()
+            if not isinstance(img, Image.Image):
+                print("❌ Clipboard does not contain an image.")
+                return
+
+            # Paste and embed metadata in Alt Text
+            shapes = new_slide.Shapes.Paste()
+            if shapes.Count > 0:
+                shape = shapes[0]
+                shape.AlternativeText = json.dumps(meta, separators=(",", ":"))
+
+            print(f"Added slide #{new_slide.SlideIndex} and pasted image with metadata.")
         except Exception as e:
-            print(f"Could not add slide: {e}")
+                print(f"Could not add slide: {e}")
+
+    def convert_loaded_csv_to_scan_data(self,scan_out, Nx, Ny, Nz, startLoc, dL_scan):
+        """
+        Reconstructs scan_data dictionary (x, y, z, I) from scan_Out and dimensions.
+        Returns a JSON-serializable dict ready for clipboard embedding.
+        """
+
+        # Flattened arrays
+        scan_out = np.array(scan_out)
+        I = scan_out[:, 3]
+
+        # Ensure numeric types
+        startLoc = list(map(float, startLoc))
+        dL_scan = list(map(float, dL_scan))
+
+        # Generate axes using start location and spacing
+        x = np.linspace(startLoc[0], startLoc[0] + dL_scan[0] * (Nx - 1) / 1e3, Nx)
+        y = np.linspace(startLoc[1], startLoc[1] + dL_scan[1] * (Ny - 1) / 1e3, Ny)
+        z = np.linspace(startLoc[2], startLoc[2] + dL_scan[2] * (Nz - 1) / 1e3, Nz)
+
+        print(f"Nx = {Nx}, Ny = {Ny}, Nz = {Nz}, I size = {len(I)}")
+        expected_size = Nx * Ny * Nz
+        if len(I) < expected_size:
+            print("⚠️ Not enough data to reshape — adjust dimensions")
+            return
+
+        # Reshape intensity to match grid
+        I_reshaped = I[:Nx * Ny * Nz].reshape((Nz, Ny, Nx))
+
+        return {
+            "x": x.tolist(),
+            "y": y.tolist(),
+            "z": z.tolist(),
+            "I": I_reshaped.tolist()
+        }
 
     def handle_copy_window(self, arg):
         """Copy QuTi SW window to clipboard."""
         try:
-            copy_quti_window_to_clipboard()
-            print("Window copied to clipboard.")
+            p = self.get_parent()
+
+            scan_dict = self.convert_loaded_csv_to_scan_data(
+                scan_out=p.opx.scan_Out,
+                Nx=p.opx.N_scan[0],
+                Ny=p.opx.N_scan[1],
+                Nz=p.opx.N_scan[2],
+                startLoc=p.opx.startLoc,
+                dL_scan=p.opx.dL_scan,
+            )
+            meta = {"scan_data": json.dumps(scan_dict, separators=(",", ":"))}
+
+            copy_quti_window_to_clipboard(metadata_dict=meta)
+            print("Window copied to clipboard with scan_data.")
         except Exception as e:
             print(f"Copy window failed: {e}")
 
@@ -811,6 +938,14 @@ class CommandDispatcher:
                 print("Reloaded HW_GUI.GUI_HRS500 and recreated Spectrometer GUI.")
                 return
 
+            # === Display Z-Slices Viewer ===
+            if name in ("disp", "display_slices", "zslider", "zslice"):
+                import Utils.display_all_z_slices_with_slider as disp_mod
+                importlib.reload(disp_mod)
+                p.display_all_z_slices = disp_mod.display_all_z_slices
+                print("Reloaded display_all_z_slices from display_all_z_slices_with_slider.py.")
+                return
+
             # === Generic fallback reload ===
             if module_name in sys.modules:
                 importlib.reload(sys.modules[module_name])
@@ -976,10 +1111,9 @@ class CommandDispatcher:
                 print("No non‑pulse_data CSV files found.")
                 return
             print(f"Loading most recent CSV: {fn}")
-            data = loadFromCSV(fn)
-            p.opx.idx_scan = [0, 0, 0]
-            p.opx.Plot_data(data, True)
-            p.opx.last_loaded_file = fn
+
+            p.opx.btnLoadScan(app_data=fn)
+
             print(f"Loaded and plotted: {fn}")
 
         except Exception as e:
@@ -1823,7 +1957,7 @@ class CommandDispatcher:
         except:
             print("lz failed.")
 
-    def handle_save_history(self, arg):
+    def handle_save_history(self, arg=None):
         """Save command history to file."""
         p=self.get_parent()
         try:
@@ -1910,13 +2044,60 @@ class CommandDispatcher:
             print("exp failed.")
 
     def handle_display_slices(self, arg):
-        """Run Z-slices viewer."""
+        """Run Z-slices viewer. Use 'disp clip' to read scan_data from clipboard image's Alt Text (PowerPoint)."""
         try:
-            fn=self.get_parent().opx.last_loaded_file
-            subprocess.Popen(["python","Utils/display_all_z_slices_with_slider.py",fn])
-            print("Displaying slices.")
-        except:
-            print("disp failed.")
+            fn = None
+            if arg.strip() == "clip":
+                # 1. Grab image from clipboard
+                img = ImageGrab.grabclipboard()
+                if not isinstance(img, Image.Image):
+                    print("No image found in clipboard.")
+                    return
+                # 2. Access PowerPoint and look for shape with that image
+                pythoncom.CoInitialize()
+                ppt = win32com.client.Dispatch("PowerPoint.Application")
+                if ppt.Presentations.Count == 0:
+                    print("No PowerPoint presentations open.")
+                    return
+                pres = ppt.ActivePresentation
+                slide = ppt.ActiveWindow.View.Slide
+                # Try to find the most recently added shape with alt text
+                alt_text = None
+                for shape in slide.Shapes:
+                    if shape.Type == 13:  # msoPicture
+                        if shape.AlternativeText.strip():
+                            alt_text = shape.AlternativeText.strip()
+                            break
+                if not alt_text:
+                    print("No metadata found in Alt Text of pasted image.")
+                    return
+                try:
+                    meta_data = json.loads(alt_text)
+                    # Extract and print x, y, and future from Alt Text
+                    x = meta_data.get("x")
+                    y = meta_data.get("y")
+                    future = meta_data.get("future")
+                    filename = meta_data.get("filename")
+                    print(f"Position: x = {x}, y = {y}")
+                    print(f"Future command: {future}")
+                    print(f"Filename: {filename}")
+                    fn = meta_data.get("scan_data")
+                except Exception as e:
+                    print(f"Failed to parse Alt Text metadata: {e}")
+                    return
+                # 3. Launch display
+                disp.display_all_z_slices(data=fn)
+            else:
+                # Load from file
+                fn = self.get_parent().opx.last_loaded_file
+                if not fn or not os.path.isfile(fn):
+                    print("No last loaded file found.")
+                    return
+                subprocess.Popen(["python", "Utils/display_all_z_slices_with_slider.py", fn])
+                print("Displaying slices from file.")
+
+        except Exception as e:
+            print(f"disp failed: {e}")
 
     def handle_set_integration_time(self, arg):
         """Set integration time and append note."""
@@ -1924,7 +2105,7 @@ class CommandDispatcher:
         try:
             ms=int(arg)
             p.opx.UpdateCounterIntegrationTime(user_data=ms)
-            self.handle_note(f"!Int {ms} ms")
+            self.handle_update_note(f"!Int {ms} ms")
         except:
             print("int failed.")
 
