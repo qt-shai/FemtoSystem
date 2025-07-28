@@ -42,6 +42,10 @@ from pptx import Presentation
 from pptx.util import Inches
 from PIL import ImageGrab
 
+# Textbox: Alt + n X
+# Font color: Alt + H F C
+# Paste as pic: Alt + H V U
+
 class DualOutput:
     def __init__(self, original_stream):
         """
@@ -206,6 +210,7 @@ class CommandDispatcher:
             "execute":           self.handle_execute,
             "spot":              self.handle_spot,
             "spot1":             self.handle_spot1,
+            "ll":                self.handle_lens_toggle,
             "scanmv":            self.handle_scanmv,
             "g2":                self.handle_g2,
         }
@@ -719,7 +724,15 @@ class CommandDispatcher:
     def handle_clog(self, arg):
         """Run clog.py."""
         try:
-            subprocess.run([sys.executable,"clog.py",arg.strip().lower()])
+            # subprocess.run([sys.executable,"clog.py",arg.strip().lower()])
+            result = subprocess.run(
+                [sys.executable, "clog.py", arg.strip().lower()],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            if result.stdout:
+                print(result.stdout)
         except Exception as e:
             print(f"clog failed: {e}")
 
@@ -2805,6 +2818,34 @@ class CommandDispatcher:
         """Same as spot, but do NOT restore after saving."""
         # call handle_spot with skip_restore=True
         self.handle_spot(arg, skip_restore=True)
+
+    def handle_lens_toggle(self, arg):
+        """
+        Toggle the second MFF (MFF #2) between UP and DOWN.
+        """
+        try:
+            p = self.get_parent()
+            mffs = getattr(p, "mff_101_gui", [])
+            if len(mffs) < 2:
+                print("Error: less than two MFF devices found.")
+                return
+
+            fl = mffs[1]  # Second MFF
+            tag = f"on_off_slider_{fl.unique_id}"
+            current = fl.dev.get_position()
+            if current not in (1, 2):
+                print(f"Invalid position: {current}")
+                return
+
+            new_pos = 2 if current == 1 else 1  # Toggle
+            val = new_pos - 1  # 0 for down(1), 1 for up(2)
+            fl.on_off_slider_callback(tag, val)
+
+            state = "up" if new_pos == 2 else "down"
+            print(f"MFF #2 toggled {state}.")
+
+        except Exception as e:
+            print(f"Lens toggle failed: {e}")
 
     def handle_scanmv(self, arg):
         """Start a thread to monitor scan status and move files when done."""

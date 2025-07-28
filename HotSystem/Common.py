@@ -157,10 +157,16 @@ class KeyboardKeys(Enum): # Mapping keys to custom values
     Y_KEY = 89
     Z_KEY = 90
 
+    # ─── OEM keys and punctuation ───
     OEM_COMMA = 188  # ,
-    OEM_PERIOD = 190  #
+    OEM_PERIOD = 190  # .
     OEM_1 = 186  # ; :
-    OEM_2 = 191  # / or ? key
+    OEM_2 = 191  # / ?
+    OEM_3 = 192  # ` ~
+    OEM_4 = 219  # [ {
+    OEM_5 = 220  # \ |
+    OEM_6 = 221  # ] }
+    OEM_7 = 222  # ' "
 
     # ─── Printable digits ───
     KEY_0 = 48

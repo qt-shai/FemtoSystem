@@ -6,6 +6,7 @@ import os
 # python clog.py e
 # python clog.py o
 # python clog.py p
+# python clog.py !e
 
 def copy_logged_points(short_code: str):
     base_dir = os.getcwd()  # Change to a specific directory if needed
@@ -17,16 +18,19 @@ def copy_logged_points(short_code: str):
         "m": "logged_points_mdm.txt",
     }
 
-    short_code = short_code.lower()
+    short_code = short_code.lower().strip()
+    is_reverse = short_code.startswith("!")
 
-    # Determine source file
-    if short_code in mapping:
-        src_filename = mapping[short_code]
+    if is_reverse:
+        code = short_code[1:]
+        src_file = os.path.join(base_dir, "logged_points.txt")
+        dst_filename = mapping.get(code, f"logged_points_{code}.txt")
+        dst_file = os.path.join(base_dir, dst_filename)
     else:
-        src_filename = f"logged_points_{short_code}.txt"
-
-    src_file = os.path.join(base_dir, src_filename)
-    dst_file = os.path.join(base_dir, "logged_points.txt")
+        code = short_code
+        src_filename = mapping.get(code, f"logged_points_{code}.txt")
+        src_file = os.path.join(base_dir, src_filename)
+        dst_file = os.path.join(base_dir, "logged_points.txt")
 
     if os.path.exists(src_file):
         shutil.copyfile(src_file, dst_file)

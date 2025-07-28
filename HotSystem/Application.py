@@ -1062,24 +1062,109 @@ class PyGuiOverlay(Layer):
 
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
-                self.handle_smaract_controls(key_data_enum, is_coarse)
-                # self.CURRENT_KEY = key_data_enum
-                if key_data_enum in [KeyboardKeys.UP_KEY, KeyboardKeys.DOWN_KEY, KeyboardKeys.LEFT_KEY,KeyboardKeys.RIGHT_KEY,
-                                     KeyboardKeys.PAGEUP_KEY, KeyboardKeys.PAGEDOWN_KEY]:
+                was_moved = self.handle_smaract_controls(key_data_enum, is_coarse)
+                if was_moved:
                     return
-                else:
-                    # === Ctrl + V: paste clipboard to cmd_input ===
-                    if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.V_KEY:
-                        try:
-                            import pyperclip
-                            paste_text = pyperclip.paste()
-                            dpg.set_value("cmd_input", paste_text)
-                            dpg.focus_item("cmd_input")
-                            print(f"Pasted to cmd_input: {paste_text}")
-                        except Exception as clip_ex:
-                            print(f"Failed to paste clipboard: {clip_ex}")
-                    self.CURRENT_KEY = key_data_enum  # 8-7-2025
+                # === Ctrl + ] / [: increase / decrease exposure ===
+                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.OEM_6:
+                    exposure = dpg.get_value("slideExposure")
+                    new_exposure = exposure + 2
+                    self.cam.cam.SetExposureTime(int(new_exposure*1e3))
+                    time.sleep(0.001)
+                    actual = self.cam.cam.camera.exposure_time_us / 1e3
+                    dpg.set_value("slideExposure", actual)
                     return
+                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.OEM_4:
+                    exposure = dpg.get_value("slideExposure")
+                    new_exposure = exposure - 2
+                    self.cam.cam.SetExposureTime(int(new_exposure*1e3))
+                    time.sleep(0.001)
+                    actual = self.cam.cam.camera.exposure_time_us / 1e3
+                    dpg.set_value("slideExposure", actual)
+                    return
+                # === Ctrl + L toggle lens ===
+                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.L_KEY:
+                    mffs = getattr(self, "mff_101_gui", [])
+                    fl = mffs[1]  # Second MFF
+                    tag = f"on_off_slider_{fl.unique_id}"
+                    current = fl.dev.get_position()
+                    new_pos = 2 if current == 1 else 1  # Toggle
+                    val = new_pos - 1  # 0 for down(1), 1 for up(2)
+                    fl.on_off_slider_callback(tag, val)
+                # === Ctrl + V: paste clipboard to cmd_input ===
+                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.V_KEY:
+                    try:
+                        import pyperclip
+                        paste_text = pyperclip.paste()
+                        dpg.set_value("cmd_input", paste_text)
+                        dpg.focus_item("cmd_input")
+                        print(f"Pasted to cmd_input: {paste_text}")
+                    except Exception as clip_ex:
+                        print(f"Failed to paste clipboard: {clip_ex}")
+                    self.CURRENT_KEY = key_data_enum
+                    return
+                # === Step size tuning for Smaract ===
+                elif hasattr(self, 'last_moved_axis'):
+                    axis = self.last_moved_axis
+                    coarse_tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
+                    fine_tag = f"{self.smaractGUI.prefix}_ch{axis}_Fset"
+                    # Combo logic: only check when the key is a step key, not modifier
+                    if key_data_enum in [KeyboardKeys.OEM_PERIOD, KeyboardKeys.OEM_COMMA]:
+                        combo = (self.modifier_key, key_data_enum)
+                        # Track repeated presses of same combo
+                        # Reset counter if combo or axis changes
+                        if (combo == getattr(self, "step_tuning_key", None) and
+                                axis == getattr(self,"step_tuning_axis",None)):
+                            self.step_tuning_counter += 1
+                        else:
+                            self.step_tuning_counter = 0
+                            self.step_tuning_key = combo
+                            self.step_tuning_axis = axis
+                        factor = 2 ** self.step_tuning_counter
+                        print(f"{combo} -> counter={self.step_tuning_counter} -> factor={factor}")
+                        # Ctrl + . → increase coarse step
+                        if combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD):
+                            val = dpg.get_value(coarse_tag) + factor
+                            dpg.set_value(coarse_tag, val)
+                            self.smaractGUI.ipt_large_step(coarse_tag, val)
+                            print(f"Coarse step axis {axis} = {val:.1f} µm")
+                        # Ctrl + , → decrease coarse step
+                        elif combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_COMMA):
+                            val = max(1, dpg.get_value(coarse_tag) - factor)
+                            dpg.set_value(coarse_tag, val)
+                            self.smaractGUI.ipt_large_step(coarse_tag, val)
+                            print(f"Coarse step axis {axis} = {val:.1f} µm")
+                        # Shift + . → increase fine step
+                        elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_PERIOD):
+                            val = dpg.get_value(fine_tag) + factor * 10
+                            dpg.set_value(fine_tag, val)
+                            self.smaractGUI.ipt_small_step(fine_tag, val)
+                            print(f"Fine step axis {axis} = {val:.1f} nm")
+                        # Shift + , → decrease fine step
+                        elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_COMMA):
+                            val = max(10, dpg.get_value(fine_tag) - factor * 10)
+                            dpg.set_value(fine_tag, val)
+                            self.smaractGUI.ipt_small_step(fine_tag, val)
+                            print(f"Fine step axis {axis} = {val:.1f} nm")
+                        self.CURRENT_KEY = key_data_enum
+                        return
+                    elif key_data_enum in [KeyboardKeys.OEM_2, KeyboardKeys.M_KEY]:
+                        if key_data_enum == KeyboardKeys.OEM_2:
+                            if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:
+                                dpg.set_value(coarse_tag, 20)
+                                self.smaractGUI.ipt_large_step(coarse_tag, 20)
+                            else:
+                                dpg.set_value(fine_tag, 100)
+                                self.smaractGUI.ipt_small_step(coarse_tag, 100)
+                        else:
+                            if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:
+                                dpg.set_value(coarse_tag, 1)
+                                self.smaractGUI.ipt_large_step(coarse_tag, 1)
+                            else:
+                                dpg.set_value(fine_tag, 20)
+                                self.smaractGUI.ipt_small_step(coarse_tag, 20)
+                        self.CURRENT_KEY = key_data_enum
+                        return
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
@@ -1120,57 +1205,6 @@ class PyGuiOverlay(Layer):
             if any(dpg.does_item_exist(tag) and dpg.is_item_focused(tag) for tag in focused_inputs):
                 return
 
-            # === Step size tuning for Smaract ===
-            if hasattr(self, 'last_moved_axis'):
-                    axis = self.last_moved_axis
-                    coarse_tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
-                    fine_tag = f"{self.smaractGUI.prefix}_ch{axis}_Fset"
-
-                    # Combo logic: only check when the key is a step key, not modifier
-                    if key_data_enum in [KeyboardKeys.OEM_PERIOD, KeyboardKeys.OEM_COMMA]:
-                        combo = (self.modifier_key, key_data_enum)
-
-                        # Track repeated presses of same combo
-                        # Reset counter if combo or axis changes
-                        if combo == getattr(self, "step_tuning_key", None) and axis == getattr(self, "step_tuning_axis",
-                                                                                               None):
-                            self.step_tuning_counter += 1
-                        else:
-                            self.step_tuning_counter = 0
-                            self.step_tuning_key = combo
-                            self.step_tuning_axis = axis
-
-                        factor = 2 ** self.step_tuning_counter
-                        print(f"{combo} -> counter={self.step_tuning_counter} -> factor={factor}")
-
-                        # Ctrl + . → increase coarse step
-                        if combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD):
-                            val = dpg.get_value(coarse_tag) + factor
-                            dpg.set_value(coarse_tag, val)
-                            self.smaractGUI.ipt_large_step(coarse_tag, val)
-                            print(f"↑ Coarse step axis {axis} = {val:.1f} µm")
-
-                        # Ctrl + , → decrease coarse step
-                        elif combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_COMMA):
-                            val = max(1, dpg.get_value(coarse_tag) - factor)
-                            dpg.set_value(coarse_tag, val)
-                            self.smaractGUI.ipt_large_step(coarse_tag, val)
-                            print(f"↓ Coarse step axis {axis} = {val:.1f} µm")
-
-                        # Shift + . → increase fine step
-                        elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_PERIOD):
-                            val = dpg.get_value(fine_tag) + factor * 10
-                            dpg.set_value(fine_tag, val)
-                            self.smaractGUI.ipt_small_step(fine_tag, val)
-                            print(f"↑ Fine step axis {axis} = {val:.1f} nm")
-
-                        # Shift + , → decrease fine step
-                        elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_COMMA):
-                            val = max(10, dpg.get_value(fine_tag) - factor * 10)
-                            dpg.set_value(fine_tag, val)
-                            self.smaractGUI.ipt_small_step(fine_tag, val)
-                            print(f"↓ Fine step axis {axis} = {val:.1f} nm")
-
             # ── BACKSPACE ──
             if key_data_enum == KeyboardKeys.BACK_KEY:
                 cur = dpg.get_value("cmd_input") or ""
@@ -1191,46 +1225,60 @@ class PyGuiOverlay(Layer):
             print(self.error)
 
     def handle_smaract_controls(self, key_data_enum, is_coarse):
-        """Handles keyboard input for Smaract device controls."""
-        try:#and self.smaractGUI.dev.KeyboardEnabled:
+        """Handles keyboard input for Smaract device controls. Returns True if movement occurred."""
+        was_moved = False
+        try:
             if self.smaractGUI:
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
                     self.smaract_log_points()
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.LEFT_KEY:
                     self.last_moved_axis = 0
                     self.smaract_keyboard_movement(0, 1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.RIGHT_KEY:
                     self.last_moved_axis = 0
                     self.smaract_keyboard_movement(0, -1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.UP_KEY:
                     self.last_moved_axis = 1
                     self.smaract_keyboard_movement(1, -1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.DOWN_KEY:
                     self.last_moved_axis = 1
                     self.smaract_keyboard_movement(1, 1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.PAGEUP_KEY:
                     self.last_moved_axis = 2
                     self.smaract_keyboard_movement(2, -1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.PAGEDOWN_KEY:
                     self.last_moved_axis = 2
                     self.smaract_keyboard_movement(2, 1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.INSERT_KEY:
                     self.last_moved_axis = 0
                     self.smaract_keyboard_move_uv(0, 1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.DEL_KEY:
                     self.last_moved_axis = 0
                     self.smaract_keyboard_move_uv(0, -1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.HOME_KEY:
                     self.last_moved_axis = 1
                     self.smaract_keyboard_move_uv(1, -1, is_coarse)
+                    was_moved = True
                 elif key_data_enum == KeyboardKeys.END_KEY:
                     self.last_moved_axis = 2
                     self.smaract_keyboard_move_uv(1, 1, is_coarse)
+                    was_moved = True
 
         except Exception as ex:
             self.error = f"Error in handle_smaract_controls: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
             print(self.error)
+
+        return was_moved
 
     def smaract_log_points(self):
         try:
