@@ -1096,9 +1096,13 @@ class PyGuiOverlay(Layer):
                     try:
                         import pyperclip
                         paste_text = pyperclip.paste()
-                        dpg.set_value("cmd_input", paste_text)
-                        dpg.focus_item("cmd_input")
-                        print(f"Pasted to cmd_input: {paste_text}")
+                        # ✅ Check if clipboard contains only text (not an image, file path, etc.)
+                        if isinstance(paste_text, str) and paste_text.strip():
+                            dpg.set_value("cmd_input", paste_text)
+                            dpg.focus_item("cmd_input")
+                            print(f"Pasted to cmd_input: {paste_text}")
+                        else:
+                            print("Clipboard does not contain valid text.")
                     except Exception as clip_ex:
                         print(f"Failed to paste clipboard: {clip_ex}")
                     self.CURRENT_KEY = key_data_enum

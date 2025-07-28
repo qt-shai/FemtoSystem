@@ -108,6 +108,7 @@ class CommandDispatcher:
             "unmark":            self.handle_unmark,
             "mv":                self.handle_move_files,
             "clog":              self.handle_clog,
+            "clogq":             self.handle_clogq,
             "fn":                self.handle_copy_filename,
             "sc":                self.handle_prepare_for_scan,
             "l":                 self.handle_start_camera,
@@ -213,6 +214,7 @@ class CommandDispatcher:
             "ll":                self.handle_lens_toggle,
             "scanmv":            self.handle_scanmv,
             "g2":                self.handle_g2,
+            "restore":           self.handle_restore,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -724,7 +726,6 @@ class CommandDispatcher:
     def handle_clog(self, arg):
         """Run clog.py."""
         try:
-            # subprocess.run([sys.executable,"clog.py",arg.strip().lower()])
             result = subprocess.run(
                 [sys.executable, "clog.py", arg.strip().lower()],
                 stdout=subprocess.PIPE,
@@ -735,6 +736,21 @@ class CommandDispatcher:
                 print(result.stdout)
         except Exception as e:
             print(f"clog failed: {e}")
+
+    def handle_clogq(self, arg):
+        """Run clog.py with 'q' prefix."""
+        try:
+            full_arg = f"q{arg.strip()}"
+            result = subprocess.run(
+                [sys.executable, "clog.py", full_arg],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            if result.stdout:
+                print(result.stdout)
+        except Exception as e:
+            print(f"clogq failed: {e}")
 
     def handle_copy_filename(self, arg):
         """Copy the most-recently logged filepath (with a slash) to the clipboard."""
@@ -2868,6 +2884,40 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"[watch_scan_and_move] Error: {e}")
+
+    def handle_restore(self, arg):
+        """Restore SmarAct absolute positions from <initial_scan_Location> in OPX_params.xml."""
+        try:
+            import xml.etree.ElementTree as ET
+
+            xml_path = "OPX_params.xml"  # adjust if needed
+            if not os.path.isfile(xml_path):
+                print(f"File not found: {xml_path}")
+                return
+
+            tree = ET.parse(xml_path)
+            root = tree.getroot()
+            loc = root.find("initial_scan_Location")
+            if loc is None:
+                print("initial_scan_Location not found in XML.")
+                return
+
+            items = loc.findall("item")
+            if len(items) != 3:
+                print(f"Expected 3 items in initial_scan_Location, found {len(items)}.")
+                return
+
+            values = [int(item.text)*1e-6 for item in items]
+            print(f"Restoring SmarAct absolute positions to: {values}")
+
+            for axis, val in enumerate(values):
+                tag = f"mcs_ch{axis}_ABS"
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, float(val))
+                else:
+                    print(f"Tag not found: {tag}")
+        except Exception as e:
+            print(f"Failed to restore positions: {e}")
 
 
 # Wrapper function
