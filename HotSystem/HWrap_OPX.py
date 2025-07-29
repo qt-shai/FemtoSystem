@@ -1398,7 +1398,6 @@ class GUI_OPX():
                                                  default_value=self.b_Zcorrection)
                                 dpg.add_text(default_value="Z", tag="text_Zcorrection", indent=-1)
                                 dpg.add_input_int(label="Limit", tag="inInt_limit", indent=-1, width=item_width*.8,
-                                                  callback=self.Update_dZ_Scan,
                                                   default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
 
                             dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
@@ -11424,57 +11423,91 @@ class GUI_OPX():
         return x_fixed, y_fixed, z_fixed, allPoints_fixed, pattern_length
 
     def btnLoadScan(self, sender=None, app_data=None, user_data=None):
+        fn = None
+
+        # 1) If a valid CSV filepath is passed
         if isinstance(app_data, str) and app_data.endswith(".csv"):
-            fn = app_data  # Loaded from external call with path
+            fn = app_data
+
+        # 2) If app_data is "last", try loading from last_scan_dir.txt
+        elif app_data == "last":
+            try:
+                with open("last_scan_dir.txt", "r") as f:
+                    last_scan_dir = f.read().strip()
+                if not last_scan_dir or not os.path.isdir(last_scan_dir):
+                    print(f"Invalid last scan dir: {last_scan_dir}")
+                    return
+                csv_files = [
+                    os.path.join(last_scan_dir, f)
+                    for f in os.listdir(last_scan_dir)
+                    if f.lower().endswith(".csv") and not f.lower().endswith("_pulse_data.csv")
+                ]
+                if not csv_files:
+                    print("No valid CSVs in last scan dir.")
+                    return
+                csv_files.sort(key=os.path.getmtime, reverse=True)
+                fn = csv_files[0]
+                print(f"Loaded from last dir: {fn}")
+            except Exception as e:
+                print(f"Failed loading from last dir: {e}")
+                return
+
+        # 3) Open dialog from last_scan_dir
+        elif app_data == "open_from_last":
+            try:
+                initial_dir = "."
+                if os.path.exists("last_scan_dir.txt"):
+                    with open("last_scan_dir.txt", "r") as f:
+                        last_dir = f.read().strip()
+                        if os.path.isdir(last_dir):
+                            initial_dir = last_dir
+                fn = open_file_dialog(
+                    filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+                    initial_folder=initial_dir
+                )
+            except Exception as e:
+                print(f"Failed to open dialog from last dir: {e}")
+                return
+
+        # 3) Else open dialog
         else:
-            fn = open_file_dialog(
-                filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")]
-            )
+            fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
 
-        if fn:
-            last_dir = os.path.dirname(fn)
-            with open("last_scan_dir.txt", "w") as f:
-                f.write(last_dir)
-
-            data = loadFromCSV(fn)
-            Scan_array = np.array(data, dtype=np.float64)
-
-            # Get sorted unique vectors
-            x_unique = np.unique(Scan_array[:, 0])
-            y_unique = np.unique(Scan_array[:, 1])
-            z_unique = np.unique(Scan_array[:, 2])
-
-            dx = x_unique[1] - x_unique[0] if len(x_unique) > 1 else 1
-            dy = y_unique[1] - y_unique[0] if len(y_unique) > 1 else 1
-            dz = z_unique[1] - z_unique[0] if len(z_unique) > 1 else 1
-
-            Nx = int(round((x_unique[-1] - x_unique[0]) / dx)) + 1
-            Ny = int(round((y_unique[-1] - y_unique[0]) / dy)) + 1
-            Nz = int(round((z_unique[-1] - z_unique[0]) / dz)) + 1
-
-            x_min, x_max = x_unique[0], x_unique[-1]
-            y_min, y_max = y_unique[0], y_unique[-1]
-            z_min, z_max = z_unique[0], z_unique[-1]
-
-            # 🔍 Print details for debugging
-            print(f"X range: {x_min:.3f} to {x_max:.3f}, step = {dx}, Nx = {Nx}")
-            print(f"Y range: {y_min:.3f} to {y_max:.3f}, step = {dy}, Ny = {Ny}")
-            print(f"Z range: {z_min:.3f} to {z_max:.3f}, step = {dz}, Nz = {Nz}")
-            print(f"Total points in scan array: {Scan_array.shape[0]}")
-            print(f"Expected points: {Nx * Ny * Nz}")
-
-            self.N_scan = [Nx, Ny, Nz]
-            self.dL_scan = [dx * 1e-3, dy * 1e-3, dz * 1e-3]  # [mm]
-
-            start_pos = [x_min, y_min, z_min]
-            self.prepare_scan_data(x_max, x_min, start_pos, Scan_array)
-
-            self.idx_scan = [0, 0, 0]
-            self.Plot_data(data, True)
-            self.last_loaded_file = fn
-            print(f"Loaded: {fn}")
-        else:
+        if not fn:
             print("No file selected.")
+            return
+
+        # Save directory
+        last_dir = os.path.dirname(fn)
+        with open("last_scan_dir.txt", "w") as f:
+            f.write(last_dir)
+
+        # Load and plot
+        data = loadFromCSV(fn)
+        Scan_array = np.array(data, dtype=np.float64)
+
+        x_unique = np.unique(Scan_array[:, 0])
+        y_unique = np.unique(Scan_array[:, 1])
+        z_unique = np.unique(Scan_array[:, 2])
+
+        dx = x_unique[1] - x_unique[0] if len(x_unique) > 1 else 1
+        dy = y_unique[1] - y_unique[0] if len(y_unique) > 1 else 1
+        dz = z_unique[1] - z_unique[0] if len(z_unique) > 1 else 1
+
+        Nx = int(round((x_unique[-1] - x_unique[0]) / dx)) + 1
+        Ny = int(round((y_unique[-1] - y_unique[0]) / dy)) + 1
+        Nz = int(round((z_unique[-1] - z_unique[0]) / dz)) + 1
+
+        self.N_scan = [Nx, Ny, Nz]
+        self.dL_scan = [dx * 1e-3, dy * 1e-3, dz * 1e-3]
+
+        start_pos = [x_unique[0], y_unique[0], z_unique[0]]
+        self.prepare_scan_data(x_unique[-1], x_unique[0], start_pos, Scan_array)
+
+        self.idx_scan = [0, 0, 0]
+        self.Plot_data(data, True)
+        self.last_loaded_file = fn
+        print(f"Loaded: {fn}")
 
     def save_scan_data(self, Nx, Ny, Nz, fileName=None, to_append: bool = False):
         if fileName == None:

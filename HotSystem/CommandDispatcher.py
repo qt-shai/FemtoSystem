@@ -1189,51 +1189,23 @@ class CommandDispatcher:
                 print("Parent has no opx.")
                 return
             # 2) Parse optional dz offset
-            dz_val = None
-            try:
-                dz_val = int(arg)
-            except ValueError:
-                dz_val = None
-            if dz_val is not None:
-                print(f"Setting dz to {dz_val} and enabling limit.")
+            limit_val = None
+            stripped = arg.strip()
+
+            # If "1", load from last scan dir (no dialog)
+            if stripped == "1":
+                p.opx.btnLoadScan(app_data="open_from_last")
+                return
+
+            if stripped.isdigit():
+                limit_val = int(stripped)
+
+            if limit_val is not None:
+                print(f"Setting limit to {limit_val} and enabling limit.")
                 p.opx.toggle_limit(app_data=None, user_data=True)
-                p.opx.Update_dZ_Scan(app_data=None, user_data=dz_val)
-            # 3) Read last_scan_dir
-            try:
-                with open("last_scan_dir.txt", "r") as f:
-                    last_scan_dir = f.read().strip()
-                    print(f"Loaded last scan dir: {last_scan_dir}")
-            except FileNotFoundError:
-                print("No last_scan_dir.txt found.")
-                return
-            # 4) Validate directory
-            if not last_scan_dir or not os.path.isdir(last_scan_dir):
-                print(f"Invalid last scan dir: {last_scan_dir}")
-                return
-            # 5) Find all CSV files
-            csv_files = [
-                os.path.join(last_scan_dir, fn)
-                for fn in os.listdir(last_scan_dir)
-                if fn.lower().endswith(".csv")
-            ]
-            if not csv_files:
-                print("No CSV files found in last scan directory.")
-                return
-            # 6) Pick newest and plot
-            csv_files.sort(key=os.path.getmtime, reverse=True)
-            fn = None
-            for candidate in csv_files:
-                if not candidate.lower().endswith("_pulse_data.csv"):
-                    fn = candidate
-                    break
-            if fn is None:
-                print("No non‑pulse_data CSV files found.")
-                return
-            print(f"Loading most recent CSV: {fn}")
+                dpg.set_value("inInt_limit", limit_val)
 
-            p.opx.btnLoadScan(app_data=fn)
-
-            print(f"Loaded and plotted: {fn}")
+            p.opx.btnLoadScan(app_data="last")
 
         except Exception as e:
             print(f"Error in ld command: {e}")
@@ -2272,7 +2244,8 @@ class CommandDispatcher:
                 if not fn or not os.path.isfile(fn):
                     print("No last loaded file found.")
                     return
-                subprocess.Popen(["python", "Utils/display_all_z_slices_with_slider.py", fn])
+                subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", fn])
+                # subprocess.Popen(["python", "Utils/display_all_z_slices_with_slider.py", fn])
                 print("Displaying slices from file.")
         except Exception as e:
             print(f"disp failed: {e}")

@@ -49,7 +49,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     expected = Nx * Ny * Nz
 
     if len(I) != expected:
-        print(f"⚠️ Intensity data length mismatch: {len(I)} vs expected {expected}.")
+        # print(f"Intensity data length mismatch: {len(I)} vs expected {expected}.")
         if len(I) < expected:
             I = np.pad(I, (0, expected - len(I)), 'constant')
         else:
