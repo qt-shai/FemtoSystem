@@ -26,6 +26,8 @@ class ZeluxGUI():
         self.rotation_count = 0
         self.zel_shift_x = 0.0  # in microns
         self.zel_shift_y = 0.0  # in microns
+        self.ax_alpha = 253.7 # degrees
+        self.show_axis = False
 
         try:
             self.background_image = np.load("zelux_background.npy")
@@ -169,6 +171,20 @@ class ZeluxGUI():
             dpg.draw_text((10, _width * self.cam.ratio - 20), coord_text,
                           size=16, color=(0, 255, 0, 255), parent="image_drawlist")
 
+        # Draw angled axis if enabled
+        if self.show_axis:
+            # compute center
+            cx = _width / 2
+            cy = (_width * self.cam.ratio) / 2
+            alpha = np.deg2rad(self.ax_alpha)  # hard‑coded angle of 30°
+            L = max(_width, _width * self.cam.ratio)  # length to span the image
+            x1, y1 = cx - L * np.cos(alpha), cy - L * np.sin(alpha)
+            x2, y2 = cx + L * np.cos(alpha), cy + L * np.sin(alpha)
+            dpg.draw_line((x1, y1), (x2, y2),
+                          color=(255, 255, 0, 255),
+                          thickness=1,
+                          parent="image_drawlist")
+
         # Draw coordinate grid if enabled
         if self.show_coords_grid:
             step_px = 100
@@ -240,6 +256,14 @@ class ZeluxGUI():
                     dpg.draw_text(pos=(x_px + 6, y_px - 6), text=f"{int(index)}",
                                   size=14, color=(255, 255, 0, 255),
                                   parent="image_drawlist")
+
+    def toggle_show_axis(self, sender=None, app_data=None, user_data=None):
+        """
+        Callback for the 'Ax' checkbox.
+        Toggles whether the angled axis line is shown, then redraws the image.
+        """
+        self.show_axis = app_data  # True when checked, False when unchecked
+        self.UpdateImage()
 
     def UpdateExposure(sender, app_data=None, user_data=None):
         # a = dpg.get_value(sender)
@@ -322,6 +346,7 @@ class ZeluxGUI():
                         dpg.add_checkbox(label="SubBG", tag="chkSubtractBG",
                                          callback=lambda s, a, u: setattr(self, 'subtract_background', a))
                         dpg.add_checkbox(label="KpSt", tag="keepSt", default_value=False)
+                        dpg.add_checkbox(label="Ax", tag="Axis", callback=self.toggle_show_axis, default_value=self.show_axis)
                         # dpg.add_button(label="Rotate 90°", tag="btnRotate", callback=self.rotate_image)
                     with dpg.group(tag="controls_row2", horizontal=True):
                         dpg.add_button(label="Sv", tag="btnSaveProcessedImage", callback=self.SaveProcessedImage)

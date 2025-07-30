@@ -415,6 +415,7 @@ class PyGuiOverlay(Layer):
                Initialize the application based on the detected system configuration.
         """
         super().__init__()
+        self.femto_gui = None
         self.step_tuning_axis = None
         self.modifier_key = None
         self.step_tuning_counter = None
@@ -959,23 +960,26 @@ class PyGuiOverlay(Layer):
 
         # If this is a Femto system, create the Femto Power Calculator GUI
         if self.system_config.system_type == SystemType.FEMTO:
-            self.femto_gui = FemtoPowerCalculator(self.kdc_101_gui)
-            self.femto_gui.create_gui()
-            input_str = dpg.get_value(self.femto_gui.future_input_tag)
+            try:
+                self.femto_gui = FemtoPowerCalculator(self.kdc_101_gui)
+                self.femto_gui.create_gui()
+                input_str = dpg.get_value(self.femto_gui.future_input_tag)
 
-            def try_run_future():
-                parent = getattr(sys.stdout, "parent", None)
-                if parent:
-                    # outout.run(f"future{input_str}")
-                    run(f"future{input_str}")
-                    print(f"[DPG frame callback] Ran future: {input_str}")
-                    load_window_positions()
-                else:
-                    # Retry on next frame
-                    dpg.set_frame_callback(dpg.get_frame_count() + 1, try_run_future)
-                    print("[DPG frame callback] Parent not ready — retrying next frame…")
+                def try_run_future():
+                    parent = getattr(sys.stdout, "parent", None)
+                    if parent:
+                        # outout.run(f"future{input_str}")
+                        run(f"future{input_str}")
+                        print(f"[DPG frame callback] Ran future: {input_str}")
+                        load_window_positions()
+                    else:
+                        # Retry on next frame
+                        dpg.set_frame_callback(dpg.get_frame_count() + 1, try_run_future)
+                        print("[DPG frame callback] Parent not ready — retrying next frame…")
 
-            dpg.set_frame_callback(dpg.get_frame_count() + 1, try_run_future)
+                dpg.set_frame_callback(dpg.get_frame_count() + 1, try_run_future)
+            except Exception as e:
+                print(f"Error initializing Femto GUI / scheduling future callback: {e}")
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle
@@ -1105,6 +1109,33 @@ class PyGuiOverlay(Layer):
                             print("Clipboard does not contain valid text.")
                     except Exception as clip_ex:
                         print(f"Failed to paste clipboard: {clip_ex}")
+                    self.CURRENT_KEY = key_data_enum
+                    return
+                # === Ctrl + 1: set coarse step X,Y,Z = 1 µm ===
+                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.KEY_1:
+                    for axis in (0, 1, 2):
+                        tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
+                        dpg.set_value(tag, 1)
+                        self.smaractGUI.ipt_large_step(tag, 1)
+                        print("Coarse step axes X,Y,Z set to 1 µm")
+                    self.CURRENT_KEY = key_data_enum
+                    return
+                # === Ctrl + 2: set coarse step X,Y = 20 µm ===
+                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.KEY_2:
+                    for axis in (0, 1):
+                        tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
+                        dpg.set_value(tag, 20)
+                        self.smaractGUI.ipt_large_step(tag, 20)
+                        print("Coarse step axes X,Y,Z set to 20 µm")
+                    self.CURRENT_KEY = key_data_enum
+                    return
+                # === Ctrl + 3: set coarse step X,Y,Z = 30 µm ===
+                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.KEY_3:
+                    for axis in (0, 1, 2):
+                        tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
+                        dpg.set_value(tag, 30)
+                        self.smaractGUI.ipt_large_step(tag, 30)
+                        print("Coarse step axes X,Y,Z set to 30 µm")
                     self.CURRENT_KEY = key_data_enum
                     return
                 # === Step size tuning for Smaract ===

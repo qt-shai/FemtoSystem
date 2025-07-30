@@ -188,7 +188,7 @@ class HW_devices:
                     self.moku = Moku(mokugo_ip=InstrumentsAddress.moku_ip.value)
 
                 elif instrument == Instruments.KEYSIGHT_AWG:
-                    self.keysight_awg_device = Keysight33500B(address=f'TCPIP::{device.ip_address.replace(":","::")}::SOCKET',
+                    self.keysight_awg_device = Keysight33500B(address=device.ip_address,
                                                               simulation=device.simulation)
                     self.keysight_awg_device.connect()
 

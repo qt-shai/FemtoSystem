@@ -101,6 +101,7 @@ class CommandDispatcher:
         self.handlers = {
             # simple commands
             "a":                 self.handle_add_slide,
+            "ax":                self.handle_toggle_ax,
             "c":                 self.handle_copy_window,
             "cc":                self.handle_screenshot_delayed,
             "hl":                self.handle_hide_legend,
@@ -167,6 +168,7 @@ class CommandDispatcher:
             "lz":                self.handle_set_Lz,
             "savehistory":       self.handle_save_history,
             "loadhistory":       self.handle_load_history,
+            "delhistory":        self.handle_del_history,
             "sv":                self.handle_save_processed_image,
             "show windows":      self.handle_list_windows,
             "show":              self.handle_show_window,
@@ -303,7 +305,6 @@ class CommandDispatcher:
                     handler(arg)
                 else:
                     # not a known command → try to recall from history
-                    parent = self.get_parent()
                     history = getattr(parent, "command_history", [])
                     # look backwards for the first entry that contains seg, but isn’t exactly seg
                     matches = [
@@ -317,7 +318,27 @@ class CommandDispatcher:
                         print(f"Recalled from history: {found}")
                         return
                     else:
-                        print(f"Didn't find '{seg}' in history.")
+                        # not a known command → try Python first, then shell
+                        try:
+                            # prepare a namespace for exec/eval
+                            ns = {"parent": parent}
+                            # if it's an assignment or other statement, use exec
+                            if "=" in seg:
+                                exec(seg, ns)
+                            else:
+                                result = eval(seg, {"parent": parent})
+                                if result is not None:
+                                    print(result)
+                            continue
+                        except Exception as e:
+                            print(f"Failed to execute '{seg}': {e}")
+
+                        # fallback: execute as shell command
+                        try:
+                            print(f"Didn't find '{seg}' in history. Executing shell command: {seg}")
+                            subprocess.run(seg, shell=True)
+                        except Exception as e:
+                            print(f"Failed to execute '{seg}': {e}")
             except Exception:
                 traceback.print_exc()
         dpg.focus_item("cmd_input")
@@ -541,17 +562,17 @@ class CommandDispatcher:
             # Paste image and embed Alt Text metadata
             img = ImageGrab.grabclipboard()
             if not isinstance(img, Image.Image):
-                print("❌ Clipboard does not contain an image.")
+                print("Clipboard does not contain an image.")
                 return
             shapes = new_slide.Shapes.Paste()
             if shapes.Count > 0:
                 shape = shapes[0]
                 shape.AlternativeText = json.dumps(meta, separators=(",", ":"))
 
-            print(f"✅ Added slide #{new_slide.SlideIndex} with metadata.")
+            print(f"Added slide #{new_slide.SlideIndex} with metadata.")
 
         except Exception as e:
-            print(f"❌ Could not add slide: {e}")
+            print(f"Could not add slide: {e}")
 
     def convert_loaded_csv_to_scan_data(self,scan_out, Nx, Ny, Nz, startLoc, dL_scan):
         """
@@ -1057,6 +1078,56 @@ class CommandDispatcher:
                 print("Reloaded HW_GUI.GUI_HRS500 and recreated Spectrometer GUI.")
                 return
 
+            # === reload Keysight AWG GUI ===
+            if name in ("keysight", "awg", "keysight_awg"):
+                import HW_GUI.GUI_keysight_AWG as gui_awg
+                importlib.reload(gui_awg)
+
+                # grab old GUI if it exists
+                old = getattr(p, "keysight_gui", None)
+                if old:
+                    try:
+                        pos = dpg.get_item_pos(old.window_tag)
+                        size = dpg.get_item_rect_size(old.window_tag)
+                        device = old.dev
+                        simulation = old.simulation
+                        # old.DeleteMainWindow()
+                        # explicitly delete the old DearPyGui window
+                        dpg.delete_item(old.window_tag)
+                    except Exception as e:
+                        print(f"Old Keysight GUI removal failed: {e}")
+                else:
+                    # fallback defaults if first load
+                    pos = [20, 20]
+                    size = [1800, 270]
+                    device = hw_devices.HW_devices().keysight_awg_device
+                    simulation = False
+
+                # recreate
+                p.keysight_gui = gui_awg.GUIKeysight33500B(
+                    device=device,
+                    simulation=simulation
+                )
+
+                # rebuild the “bring window” button
+                if dpg.does_item_exist("keysight_button"):
+                    dpg.delete_item("keysight_button")
+                p.create_bring_window_button(
+                    p.keysight_gui.window_tag,
+                    button_label="KEYSIGHT_AWG",
+                    tag="keysight_button",
+                    parent="focus_group"
+                )
+                p.active_instrument_list.append(p.keysight_gui.window_tag)
+
+                # restore position & size
+                dpg.set_item_pos(p.keysight_gui.window_tag, pos)
+                dpg.set_item_width(p.keysight_gui.window_tag, size[0])
+                dpg.set_item_height(p.keysight_gui.window_tag, size[1])
+
+                print("Reloaded GUI_keysight_AWG and recreated GUIKeysight33500B.")
+                return
+
             # === Display Z-Slices Viewer ===
             if name in ("disp", "display_slices", "zslider", "zslice"):
                 import Utils.display_all_z_slices_with_slider as disp_mod
@@ -1256,6 +1327,15 @@ class CommandDispatcher:
             self.handle_list_points(arg)
         except Exception as e:
             print(f"fq failed: {e}")
+
+    def handle_toggle_ax(self, arg):
+        """
+        Toggle the angled axis overlay in the Zelux GUI.
+        Usage: ax
+        """
+        p = self.get_parent()
+        current = getattr(p.cam, "show_axis", False)
+        p.cam.toggle_show_axis(app_data=not current)
 
     def handle_find_max_in_area(self, arg):
         """Find the maximum Z value inside the currently defined queried_area.
@@ -2075,6 +2155,14 @@ class CommandDispatcher:
             print("History loaded.")
         except:
             print("loadhistory failed.")
+
+    def handle_del_history(self,arg):
+        """ Clears command history """
+        p = self.get_parent()
+        p.command_history=[]
+        p.history_index=0
+        print("Command history cleared.")
+        return
 
     def handle_save_processed_image(self, arg):
         """Save processed image from Zelux."""

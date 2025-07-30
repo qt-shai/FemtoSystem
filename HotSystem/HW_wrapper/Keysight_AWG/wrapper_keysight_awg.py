@@ -27,6 +27,15 @@ class Keysight33500B(SerialDevice):
         Sends *IDN? command to check device identity and ensure the connection is valid.
         """
         super().connect()
+        # ensure the socket connection uses our timeout and CRLF framing
+        if hasattr(self, "_connection") and self._connection:
+            # apply the wrapper’s timeout
+            self._connection.timeout = self.timeout
+            # apply write/read terminators if supported
+            if hasattr(self._connection, "write_termination"):
+                self._connection.write_termination = self.write_terminator
+            if hasattr(self._connection, "read_termination"):
+                self._connection.read_termination = self.read_terminator
         # # Verify connection with *IDN? query
         # identity = self.query("*IDN?")
         # print(f"Connected to Keysight {identity}")
@@ -212,7 +221,7 @@ class Keysight33500B(SerialDevice):
         """
         return self._send_command(command, get_response=True)
 
-    def get_current_voltage(self, channel: int) -> float:
+    def get_current_voltage(self, channel: int):
         """
         Get the current DC offset voltage for a specified channel.
 
@@ -224,7 +233,7 @@ class Keysight33500B(SerialDevice):
 
         # Query the device for the current voltage
         voltage = self.query(f"source{channel}:VOLT:OFFS?")
-        return float(voltage)
+        return voltage
 
     def disconnect(self):
         """
