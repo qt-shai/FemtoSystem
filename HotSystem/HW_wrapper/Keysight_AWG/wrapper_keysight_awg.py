@@ -234,7 +234,7 @@ class Keysight33500B(SerialDevice):
 
         # Query the device for the current voltage
         voltage = self.query(f"source{channel}:VOLT:OFFS?")
-        return voltage
+        return float(voltage)
 
     def disconnect(self):
         """

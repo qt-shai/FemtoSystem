@@ -219,6 +219,7 @@ class CommandDispatcher:
             "g2":                self.handle_g2,
             "restore":           self.handle_restore,
             "koff":              self.handle_keysight_offset,
+            "kabs":              self.handle_kabs,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -3024,7 +3025,10 @@ class CommandDispatcher:
     def handle_keysight_offset(self, arg):
         """
         Set the Keysight AWG offset.
-        Usage:  koff <voltage_in_volts>
+        Usage:
+          koff <voltage_in_volts>          # absolute
+          koff <shift><u|um>               # shift in microns
+        Calibration: 0.128 V → 15 µm
         """
         parent = self.get_parent()
         gui = getattr(parent, "keysight_gui", None)
@@ -3039,18 +3043,68 @@ class CommandDispatcher:
         except ValueError:
             ch = 1
 
-        try:
-            offset = float(arg)
-        except ValueError:
-            print("Invalid offset. Usage: koff <number>")
-            return
+        # parse arg: absolute volts or microns shift
+        m = re.match(r'^\s*([+-]?[0-9]*\.?[0-9]+)\s*(?:u|um)\s*$', arg, re.IGNORECASE)
+        if m:
+            microns = float(m.group(1))
+            volts_per_um = 0.128 / 15.0
+            delta_v = microns * volts_per_um
+            curr_off = float(gui.dev.get_current_voltage(ch))
+            new_off = curr_off + delta_v
+            print(f"Shifting offset by {microns} µm -> d{delta_v:.4f} V (new offset {new_off:.4f} V)")
+        else:
+            try:
+                new_off = float(arg)
+                print(f"Setting absolute offset to {new_off:.4f} V")
+            except ValueError:
+                print("Invalid offset. Usage: koff <voltage> or koff <microns>u")
+                return
 
+        # apply and refresh display
         try:
-            gui.dev.set_offset(offset, channel=ch)
-            print(f"AWG CH{ch} offset set to {offset}V.")
+            gui.dev.set_offset(new_off, channel=ch)
             gui.btn_get_current_parameters()
         except Exception as e:
             print(f"Failed to set offset on CH{ch}: {e}")
+
+    def handle_kabs(self, arg):
+        """
+        Set absolute AWG offset based on a micron position.
+        Usage: kabs <microns>[u|um]
+        0 or 0um → baseline offset of –0.987 V.
+        Calibration: 0.128 V → 15 µm.
+        """
+        # 1) parse argument as microns (unit optional)
+        m = re.match(r'^\s*([+-]?\d*\.?\d+)(?:\s*(?:u|um))?\s*$', arg, re.IGNORECASE)
+        if not m:
+            print("Invalid usage: kabs <microns>[u|um]")
+            return
+        microns = float(m.group(1))
+
+        # 2) compute new offset: baseline + microns * (V/µm)
+        baseline = -0.987
+        volts_per_um = 0.128 / 15.0
+        new_off = baseline + microns * volts_per_um
+
+        # 3) locate the AWG GUI & channel
+        parent = self.get_parent()
+        gui = getattr(parent, "keysight_gui", None)
+        if not gui:
+            print("No Keysight AWG GUI is active.")
+            return
+        sel = dpg.get_value(f"ChannelSelect_{gui.unique_id}")
+        try:
+            ch = int(sel)
+        except ValueError:
+            ch = 1
+
+        # 4) apply and refresh display
+        try:
+            gui.dev.set_offset(new_off, channel=ch)
+            gui.btn_get_current_parameters()
+            print(f"kabs: CH{ch} offset -> {new_off:.4f} V (for {microns:.2f} µm)")
+        except Exception as e:
+            print(f"Failed to set kabs offset on CH{ch}: {e}")
 
 
 # Wrapper function

@@ -1138,19 +1138,19 @@ class PyGuiOverlay(Layer):
                     was_moved = True
                 elif key_data_enum == KeyboardKeys.LEFT_KEY:
                     self.last_moved_axis = 0
-                    self.smaract_keyboard_movement(0, 1, is_coarse)
+                    self.smaract_keyboard_movement(0, -1, is_coarse)
                     was_moved = True
                 elif key_data_enum == KeyboardKeys.RIGHT_KEY:
                     self.last_moved_axis = 0
-                    self.smaract_keyboard_movement(0, -1, is_coarse)
+                    self.smaract_keyboard_movement(0, 1, is_coarse)
                     was_moved = True
                 elif key_data_enum == KeyboardKeys.UP_KEY:
                     self.last_moved_axis = 1
-                    self.smaract_keyboard_movement(1, -1, is_coarse)
+                    self.smaract_keyboard_movement(1, 1, is_coarse)
                     was_moved = True
                 elif key_data_enum == KeyboardKeys.DOWN_KEY:
                     self.last_moved_axis = 1
-                    self.smaract_keyboard_movement(1, 1, is_coarse)
+                    self.smaract_keyboard_movement(1, -1, is_coarse)
                     was_moved = True
                 elif key_data_enum == KeyboardKeys.PAGEUP_KEY:
                     self.last_moved_axis = 2
