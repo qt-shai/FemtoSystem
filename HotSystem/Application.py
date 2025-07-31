@@ -1064,142 +1064,10 @@ class PyGuiOverlay(Layer):
                 self.step_tuning_key = None
                 self.step_tuning_counter = 0
 
-            # Handle Smaract controls
-            if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
-                was_moved = self.handle_smaract_controls(key_data_enum, is_coarse)
-                if was_moved:
-                    return
-                # === Ctrl + ] / [: increase / decrease exposure ===
-                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.OEM_6:
-                    exposure = dpg.get_value("slideExposure")
-                    new_exposure = exposure + 2
-                    self.cam.cam.SetExposureTime(int(new_exposure*1e3))
-                    time.sleep(0.001)
-                    actual = self.cam.cam.camera.exposure_time_us / 1e3
-                    dpg.set_value("slideExposure", actual)
-                    return
-                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.OEM_4:
-                    exposure = dpg.get_value("slideExposure")
-                    new_exposure = exposure - 2
-                    self.cam.cam.SetExposureTime(int(new_exposure*1e3))
-                    time.sleep(0.001)
-                    actual = self.cam.cam.camera.exposure_time_us / 1e3
-                    dpg.set_value("slideExposure", actual)
-                    return
-                # === Ctrl + L toggle lens ===
-                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.L_KEY:
-                    mffs = getattr(self, "mff_101_gui", [])
-                    fl = mffs[1]  # Second MFF
-                    tag = f"on_off_slider_{fl.unique_id}"
-                    current = fl.dev.get_position()
-                    new_pos = 2 if current == 1 else 1  # Toggle
-                    val = new_pos - 1  # 0 for down(1), 1 for up(2)
-                    fl.on_off_slider_callback(tag, val)
-                # === Ctrl + V: paste clipboard to cmd_input ===
-                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.V_KEY:
-                    try:
-                        import pyperclip
-                        paste_text = pyperclip.paste()
-                        # ✅ Check if clipboard contains only text (not an image, file path, etc.)
-                        if isinstance(paste_text, str) and paste_text.strip():
-                            dpg.set_value("cmd_input", paste_text)
-                            dpg.focus_item("cmd_input")
-                            print(f"Pasted to cmd_input: {paste_text}")
-                        else:
-                            print("Clipboard does not contain valid text.")
-                    except Exception as clip_ex:
-                        print(f"Failed to paste clipboard: {clip_ex}")
-                    self.CURRENT_KEY = key_data_enum
-                    return
-                # === Ctrl + 1: set coarse step X,Y,Z = 1 µm ===
-                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.KEY_1:
-                    for axis in (0, 1, 2):
-                        tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
-                        dpg.set_value(tag, 1)
-                        self.smaractGUI.ipt_large_step(tag, 1)
-                        print("Coarse step axes X,Y,Z set to 1 µm")
-                    self.CURRENT_KEY = key_data_enum
-                    return
-                # === Ctrl + 2: set coarse step X,Y = 20 µm ===
-                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.KEY_2:
-                    for axis in (0, 1):
-                        tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
-                        dpg.set_value(tag, 20)
-                        self.smaractGUI.ipt_large_step(tag, 20)
-                        print("Coarse step axes X,Y,Z set to 20 µm")
-                    self.CURRENT_KEY = key_data_enum
-                    return
-                # === Ctrl + 3: set coarse step X,Y,Z = 30 µm ===
-                elif self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.KEY_3:
-                    for axis in (0, 1, 2):
-                        tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
-                        dpg.set_value(tag, 30)
-                        self.smaractGUI.ipt_large_step(tag, 30)
-                        print("Coarse step axes X,Y,Z set to 30 µm")
-                    self.CURRENT_KEY = key_data_enum
-                    return
-                # === Step size tuning for Smaract ===
-                elif hasattr(self, 'last_moved_axis'):
-                    axis = self.last_moved_axis
-                    coarse_tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
-                    fine_tag = f"{self.smaractGUI.prefix}_ch{axis}_Fset"
-                    # Combo logic: only check when the key is a step key, not modifier
-                    if key_data_enum in [KeyboardKeys.OEM_PERIOD, KeyboardKeys.OEM_COMMA]:
-                        combo = (self.modifier_key, key_data_enum)
-                        # Track repeated presses of same combo
-                        # Reset counter if combo or axis changes
-                        if (combo == getattr(self, "step_tuning_key", None) and
-                                axis == getattr(self,"step_tuning_axis",None)):
-                            self.step_tuning_counter += 1
-                        else:
-                            self.step_tuning_counter = 0
-                            self.step_tuning_key = combo
-                            self.step_tuning_axis = axis
-                        factor = 2 ** self.step_tuning_counter
-                        print(f"{combo} -> counter={self.step_tuning_counter} -> factor={factor}")
-                        # Ctrl + . → increase coarse step
-                        if combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD):
-                            val = dpg.get_value(coarse_tag) + factor
-                            dpg.set_value(coarse_tag, val)
-                            self.smaractGUI.ipt_large_step(coarse_tag, val)
-                            print(f"Coarse step axis {axis} = {val:.1f} µm")
-                        # Ctrl + , → decrease coarse step
-                        elif combo == (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_COMMA):
-                            val = max(1, dpg.get_value(coarse_tag) - factor)
-                            dpg.set_value(coarse_tag, val)
-                            self.smaractGUI.ipt_large_step(coarse_tag, val)
-                            print(f"Coarse step axis {axis} = {val:.1f} µm")
-                        # Shift + . → increase fine step
-                        elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_PERIOD):
-                            val = dpg.get_value(fine_tag) + factor * 10
-                            dpg.set_value(fine_tag, val)
-                            self.smaractGUI.ipt_small_step(fine_tag, val)
-                            print(f"Fine step axis {axis} = {val:.1f} nm")
-                        # Shift + , → decrease fine step
-                        elif combo == (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_COMMA):
-                            val = max(10, dpg.get_value(fine_tag) - factor * 10)
-                            dpg.set_value(fine_tag, val)
-                            self.smaractGUI.ipt_small_step(fine_tag, val)
-                            print(f"Fine step axis {axis} = {val:.1f} nm")
-                        self.CURRENT_KEY = key_data_enum
-                        return
-                    elif key_data_enum in [KeyboardKeys.OEM_2, KeyboardKeys.M_KEY]:
-                        if key_data_enum == KeyboardKeys.OEM_2:
-                            if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:
-                                dpg.set_value(coarse_tag, 20)
-                                self.smaractGUI.ipt_large_step(coarse_tag, 20)
-                            else:
-                                dpg.set_value(fine_tag, 100)
-                                self.smaractGUI.ipt_small_step(coarse_tag, 100)
-                        else:
-                            if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:
-                                dpg.set_value(coarse_tag, 1)
-                                self.smaractGUI.ipt_large_step(coarse_tag, 1)
-                            else:
-                                dpg.set_value(fine_tag, 20)
-                                self.smaractGUI.ipt_small_step(coarse_tag, 20)
-                        self.CURRENT_KEY = key_data_enum
-                        return
+            # Handle Smaract controls and general ctrl shift commands
+            if self.handle_ctrl_shift_commands(key_data_enum, is_coarse):
+                self.CURRENT_KEY = key_data_enum
+                return
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
@@ -1315,6 +1183,229 @@ class PyGuiOverlay(Layer):
 
         return was_moved
 
+    def handle_ctrl_shift_commands(self, key_data_enum, is_coarse):
+        """
+        Handle all Ctrl+ and Shift+ keyboard shortcuts.
+        Returns True if a command was executed.
+        """
+        # Only proceed if Ctrl or Shift was the initiating key
+        if self.CURRENT_KEY not in (KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY):
+            return False
+
+        # 1) Smaract controls get first crack
+        if self.handle_smaract_controls(key_data_enum, is_coarse):
+            return True
+
+        # 2) Ctrl-only commands
+        if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:
+            ctrl_actions = {
+                KeyboardKeys.OEM_6: self._increase_exposure,
+                KeyboardKeys.OEM_4: self._decrease_exposure,
+                KeyboardKeys.L_KEY: self._toggle_lens,
+                KeyboardKeys.V_KEY: self._paste_clipboard,
+                KeyboardKeys.KEY_1: lambda: self._set_coarse_steps(1, axes=(0, 1, 2)),
+                KeyboardKeys.KEY_2: lambda: self._set_coarse_steps(20, axes=(0, 1)),
+                KeyboardKeys.KEY_3: lambda: self._set_coarse_steps(30, axes=(0, 1, 2)),
+                KeyboardKeys.KEY_0: self._save_and_zero_exposure,
+                KeyboardKeys.OEM_PLUS: self._increase_koff,  # Ctrl+=
+                KeyboardKeys.OEM_MINUS: self._decrease_koff,  # Ctrl+-
+            }
+            action = ctrl_actions.get(key_data_enum)
+            if action:
+                action()
+                self.CURRENT_KEY = key_data_enum
+                return True
+
+        # 2b) Shift+0 → restore
+        if self.CURRENT_KEY == KeyboardKeys.SHIFT_KEY and key_data_enum == KeyboardKeys.KEY_0:
+            self._restore_exposure()
+            self.CURRENT_KEY = key_data_enum
+            return True
+
+        # 3) Step-size tuning for last moved axis (Ctrl or Shift + ., , or 2, M)
+        if hasattr(self, "last_moved_axis") and key_data_enum in (
+                KeyboardKeys.OEM_PERIOD,
+                KeyboardKeys.OEM_COMMA,
+                KeyboardKeys.OEM_2,
+                KeyboardKeys.M_KEY
+        ):
+            self._handle_step_tuning(key_data_enum)
+            self.CURRENT_KEY = key_data_enum
+            return True
+
+        return False
+
+    # ——— Helpers for the above shortcuts ———
+    def _increase_koff(self):
+        """
+        Ctrl+= : bump the AWG DC offset up by 0.1 V on the selected channel.
+        """
+        gui = getattr(self, "keysight_gui", None)
+        if not gui:
+            print("No Keysight AWG GUI is active.")
+            return
+
+        # read channel radio
+        try:
+            ch = gui.dev.channel
+        except:
+            ch = 1
+
+        step = 0.002
+        curr = float(gui.dev.get_current_voltage(ch))
+        new_off = curr + step
+
+        gui.dev.set_offset(new_off, channel=ch)
+        # update the Offset_<id> input if you have one
+        dpg.set_value(f"Offset_{gui.unique_id}", new_off)
+
+    def _decrease_koff(self):
+        """
+        Ctrl+- : bump the AWG DC offset down by 0.1 V on the selected channel.
+        """
+        gui = getattr(self, "keysight_gui", None)
+        if not gui:
+            print("No Keysight AWG GUI is active.")
+            return
+
+        try:
+            ch = gui.dev.channel
+        except:
+            ch = 1
+
+        step = 0.002
+        curr = float(gui.dev.get_current_voltage(ch))
+        new_off = curr - step
+
+        gui.dev.set_offset(new_off, channel=ch)
+        dpg.set_value(f"Offset_{gui.unique_id}", new_off)
+
+    def _save_and_zero_exposure(self):
+        # stash current exposure
+        self._saved_exposure = dpg.get_value("slideExposure")
+        # zero it out
+        self.cam.cam.SetExposureTime(0)
+        time.sleep(0.001)
+        dpg.set_value("slideExposure", 0)
+        print(f"Exposure saved ({self._saved_exposure} ms) and set to 0.")
+
+    def _restore_exposure(self):
+        saved = getattr(self, "_saved_exposure", None)
+        if saved is None:
+            print("No saved exposure to restore.")
+            return
+        # restore
+        self.cam.cam.SetExposureTime(int(saved * 1e3))
+        time.sleep(0.001)
+        actual = self.cam.cam.camera.exposure_time_us / 1e3
+        dpg.set_value("slideExposure", actual)
+        print(f"Exposure restored to {actual} ms.")
+
+    def _increase_exposure(self):
+        exp = dpg.get_value("slideExposure") + 2
+        self.cam.cam.SetExposureTime(int(exp * 1e3))
+        time.sleep(0.001)
+        dpg.set_value("slideExposure", self.cam.cam.camera.exposure_time_us / 1e3)
+
+    def _decrease_exposure(self):
+        exp = dpg.get_value("slideExposure") - 2
+        self.cam.cam.SetExposureTime(int(exp * 1e3))
+        time.sleep(0.001)
+        dpg.set_value("slideExposure", self.cam.cam.camera.exposure_time_us / 1e3)
+
+    def _toggle_lens(self):
+        mffs = getattr(self, "mff_101_gui", [])
+        fl = mffs[1]  # second MFF
+        tag = f"on_off_slider_{fl.unique_id}"
+        pos = fl.dev.get_position()
+        fl.on_off_slider_callback(tag, 1 - (pos - 1))
+        if pos == 1:
+            self._saved_exposure = dpg.get_value("slideExposure")
+            self.cam.cam.SetExposureTime(0)
+            dpg.set_value("slideExposure", 0)
+        else:
+            if hasattr(self, "_saved_exposure"):
+                saved = self._saved_exposure
+            else:
+                saved = 4
+            self.cam.cam.SetExposureTime(int(saved * 1e3))
+            actual = self.cam.cam.camera.exposure_time_us / 1e3
+            dpg.set_value("slideExposure", actual)
+            del self._saved_exposure
+
+    def _paste_clipboard(self):
+        try:
+            import pyperclip
+            txt = pyperclip.paste()
+            if isinstance(txt, str) and txt.strip():
+                dpg.set_value("cmd_input", txt)
+                dpg.focus_item("cmd_input")
+                print(f"Pasted: {txt}")
+            else:
+                print("Clipboard has no valid text.")
+        except Exception as e:
+            print(f"Paste failed: {e}")
+
+    def _set_coarse_steps(self, value, axes=(0, 1, 2)):
+        for ax in axes:
+            tag = f"{self.smaractGUI.prefix}_ch{ax}_Cset"
+            dpg.set_value(tag, value)
+            self.smaractGUI.ipt_large_step(tag, value)
+        print(f"Coarse steps set to {value} µm on axes {axes}")
+
+    def _handle_step_tuning(self, key_data_enum):
+        """
+        Handle Ctrl/Shift + period/comma and 2/M shortcuts for coarse/fine step tuning.
+        """
+        axis = self.last_moved_axis
+        coarse_tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
+        fine_tag = f"{self.smaractGUI.prefix}_ch{axis}_Fset"
+
+        combo = (self.CURRENT_KEY, key_data_enum)
+        # reset or increment tuning counter
+        if combo == getattr(self, "step_tuning_key", None) and axis == getattr(self, "step_tuning_axis", None):
+            self.step_tuning_counter += 1
+        else:
+            self.step_tuning_counter = 0
+            self.step_tuning_key = combo
+            self.step_tuning_axis = axis
+
+        factor = 2 ** self.step_tuning_counter
+
+        # map combos to (tag, setter, delta, unit)
+        tuning_map = {
+            (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD): (
+            coarse_tag, self.smaractGUI.ipt_large_step, 'delta', factor, "Coarse"),
+            (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_COMMA): (
+            coarse_tag, self.smaractGUI.ipt_large_step, 'delta', -factor, "Coarse"),
+            (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_PERIOD): (
+            fine_tag, self.smaractGUI.ipt_small_step, 'delta', factor * 10, "Fine"),
+            (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_COMMA): (
+            fine_tag, self.smaractGUI.ipt_small_step, 'delta', -factor * 10, "Fine"),
+            (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_2): (
+            coarse_tag, self.smaractGUI.ipt_large_step, 'abs', 20, "Coarse"),
+            (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_2): (
+            fine_tag, self.smaractGUI.ipt_small_step, 'abs', 100, "Fine"),
+            (KeyboardKeys.CTRL_KEY, KeyboardKeys.M_KEY): (
+            coarse_tag, self.smaractGUI.ipt_large_step, 'abs', 1, "Coarse"),
+            (KeyboardKeys.SHIFT_KEY, KeyboardKeys.M_KEY): (
+            fine_tag, self.smaractGUI.ipt_small_step, 'abs', 20, "Fine"),
+        }
+
+        tag, setter, mode, value, label = tuning_map.get(combo, (None, None, None, None, None))
+        if not tag:
+            return
+
+        current = dpg.get_value(tag)
+        if mode == 'delta':
+            new_val = max(1, current + value)
+        else:  # 'abs'
+            new_val = value
+
+        dpg.set_value(tag, new_val)
+        setter(tag, new_val)
+        print(f"{label} step axis {axis} = {new_val:.1f}")
+
     def smaract_log_points(self):
         try:
             # if self.io.keys_down[glfw.KEY_SPACE]:
@@ -1325,6 +1416,7 @@ class PyGuiOverlay(Layer):
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
             # raise
+
     def smaract_del_points(self):
         try:
             self.smaractGUI.btnDelPoint()
@@ -1346,69 +1438,11 @@ class PyGuiOverlay(Layer):
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
             # raise
 
-    def opx_keyboard_map_movement(self, ax, direction=1, is_coarse = 1):
-        """
-        Move the active marker in response to keyboard input, controlling movement along specified axis (ax) and direction.
-
-        :param ax: Axis to move (0 for horizontal, 1 for vertical)
-        :param direction: Direction of movement (-1 for left/up, 1 for right/down)
-        :param is_coarse: 1 for fine movement, 10 for coarse movement
-        """
-        try:
-            print("HEY")
-            # Determine the movement direction and axis
-            if ax == 0:  # Horizontal movement
-                if direction == -1:
-                    move_direction = "left" if is_coarse == 0 else "left left"
-                elif direction == 1:
-                    move_direction = "right" if is_coarse == 0 else "right right"
-                else:
-                    print("Illegal direction value for horizontal movement.")
-                    return 1
-            elif ax == 1:  # Vertical movement
-                if direction == -1:
-                    move_direction = "up" if is_coarse == 0 else "up up"
-                elif direction == 1:
-                    move_direction = "down" if is_coarse == 0 else "down down"
-                else:
-                    print("Illegal direction value for vertical movement.")
-                    return 1
-            else:
-                print("Illegal axis value.")
-                return 1
-
-            # Move the active marker or area marker based on the calculated direction
-            print(move_direction)
-            self.opx.map.move_active_marker(move_direction)
-
-        except Exception as ex:
-            self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
-            # Handle the exception appropriately
-            print(self.error)
-
     def smaract_keyboard_move_uv(self,ax,direction, is_coarse):
         try:
             self.smaractGUI.move_uv(sender=self, app_data=None, user_data=(ax,direction,is_coarse))
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
-
-    def pico_keyboard_move_uv(self,ax,direction, is_coarse):
-        try:
-            self.picomotorGUI.move_uv(sender=self, app_data=None, user_data=(ax,direction,is_coarse))
-        except Exception as ex:
-            self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
-
-    def pico_keyboard_movement(self,ax,dir = 1,Coarse_or_Fine = 1):
-        try:
-            print("pico movement")
-            if Coarse_or_Fine==0:
-                self.picomotorGUI.dev.MoveRelative(ax+1,dir*self.picomotorGUI.dev.AxesKeyBoardSmallStep[ax])
-            else:
-                print("Large step")
-                self.picomotorGUI.dev.MoveRelative(ax+1,dir*self.picomotorGUI.dev.AxesKeyBoardLargeStep[ax])
-        except Exception as ex:
-            self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
-            # raise
 
     def char_callback(self,event):
         print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
@@ -1416,16 +1450,20 @@ class PyGuiOverlay(Layer):
 
         if 0 < event.char < 0x10000:
             io.add_input_character(event.char)
+
     def resize_callback(self,event):
         print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         self.io.display_size = event.width, event.height
+
     def mouse_callback(self,event):
         # print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         pass
+
     def scroll_callback(self,event):
         print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         self.io.mouse_wheel_horizontal = event.x_offset
         self.io.mouse_wheel = event.y_offset
+
     def OnWindowClose(self,event): # should get windowclos event
         print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         self.smaractGUI.dev.Disconnect()
@@ -1550,7 +1588,6 @@ class PyGuiOverlay(Layer):
                     dpg.set_item_pos(window, (new_x, new_y))
                     time.sleep(0.1)
 
-
     def check_sequence_type(self):
         """
         Functions that checks the sequence type and uploads a corresponding image.
@@ -1602,7 +1639,6 @@ class PyGuiOverlay(Layer):
         except Exception as e:
             print("Exception occurred:", e)
 
-
     def setup_main_exp_buttons(self):
         with dpg.window(label="Main Buttons Group", tag="Main_Window",
                           autosize=True, no_move=False, collapsed=True):
@@ -1626,7 +1662,6 @@ class PyGuiOverlay(Layer):
         dpg.set_primary_window("Viewport_Window", True)
         # dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
 
-
     def create_console_gui(self):
         """Creates a console GUI window for displaying logs and user inputs."""
         with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
@@ -1642,7 +1677,6 @@ class PyGuiOverlay(Layer):
                 dpg.add_button(label="C", callback=self.clear_console)
                 dpg.add_combo(items=[], tag="command_history", width=40, callback=self.fill_console_input)
                 dpg.add_button(label="Sv", callback=self.save_logs)
-
 
     def clear_console(self):
         """Clears the console log."""
@@ -1683,7 +1717,6 @@ class PyGuiOverlay(Layer):
 
             self.update_command_history(input_text)
             dpg.set_value("console_input", "")  # Clear the input field
-
 
     def update_command_history(self, command):
         """Updates the command history combo box."""

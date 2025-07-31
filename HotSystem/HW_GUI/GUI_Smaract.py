@@ -311,12 +311,12 @@ class GUI_smaract():
     def ipt_large_step(self,app_data,user_data):
         ch=int(app_data[6])        
         self.dev.AxesKeyBoardLargeStep[ch]=int(user_data*self.dev.StepsIn1mm/1e3)
-        print(self.dev.AxesKeyBoardLargeStep[ch])
+        # print(self.dev.AxesKeyBoardLargeStep[ch])
 
     def ipt_small_step(self,app_data,user_data):
         ch=int(app_data[6])
         self.dev.AxesKeyBoardSmallStep[ch]=int(user_data*self.dev.StepsIn1mm/1e6)
-        print(self.dev.AxesKeyBoardSmallStep[ch])
+        # print(self.dev.AxesKeyBoardSmallStep[ch])
 
     def btnLogPoint(self):
 

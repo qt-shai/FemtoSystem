@@ -167,6 +167,8 @@ class KeyboardKeys(Enum): # Mapping keys to custom values
     OEM_5 = 220  # \ |
     OEM_6 = 221  # ] }
     OEM_7 = 222  # ' "
+    OEM_PLUS = 187  # = +
+    OEM_MINUS = 189  # - _
 
     # ─── Printable digits ───
     KEY_0 = 48
@@ -292,18 +294,19 @@ def toggle_sc(reverse=False):
         print(f"Error in toggle_sc: {e}")
 
 
-def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
+def load_window_positions(file_name: str = None) -> None:
     """
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
     Also applies saved graph size for the 'plotImaga' plot.
     """
     try:
-        # 1) Pick remote vs local
-        if is_remote_resolution():
-            file_name = "win_pos_remote.txt"
-            print(f"Remote resolution detected -> Using {file_name}")
-        else:
-            print(f"Using {file_name}")
+        if not file_name:
+            if is_remote_resolution():
+                file_name = "win_pos_remote.txt"
+                print(f"Remote resolution detected -> Using {file_name}")
+            else:
+                file_name = "win_pos_local.txt"
+                print(f"Using {file_name}")
 
         if not os.path.exists(file_name):
             print(f"{file_name} not found.")

@@ -70,7 +70,7 @@ class GUIKeysight33500B:
             )
 
     def create_waveform_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=250):
             dpg.add_text("Waveform Controls")
             dpg.add_combo(["SINE", "SQUARE", "TRIANGLE", "RAMP", "NOISE"], default_value="SINE",
                           tag=f"WaveformType_{self.unique_id}", width=100)
@@ -80,7 +80,7 @@ class GUIKeysight33500B:
             with dpg.group(horizontal=False):
                 dpg.add_button(label="Get  Params",callback = self.btn_get_current_parameters)
                 dpg.add_input_text(tag=f"CurrentParams_{self.unique_id}",multiline = True, readonly = True,
-                                   width = 200, height = 140)
+                                   width = 250, height = 210)
 
     def create_frequency_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_frequency_{self.unique_id}", width=200):
@@ -89,16 +89,6 @@ class GUIKeysight33500B:
                                 format='%.1f', width=100, callback=self.validate_frequency_input)
             dpg.add_button(label="Set Frequency", callback=self.btn_set_frequency)
             dpg.bind_item_theme(dpg.last_item(), theme)
-
-            # ─── Channel selector ───
-            dpg.add_text("Channel:")
-            dpg.add_radio_button(
-                items=["1", "2"],
-                default_value="1",
-                tag=f"ChannelSelect_{self.unique_id}",
-                horizontal=True,
-                callback=self.cb_select_channel,
-            )
 
     def cb_select_channel(self, sender, app_data):
         """
@@ -124,10 +114,19 @@ class GUIKeysight33500B:
     def create_offset_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_offset_{self.unique_id}", width=200):
             dpg.add_text("Offset (V)")
-            dpg.add_input_float(default_value=0.0, tag=f"Offset_{self.unique_id}",
+            dpg.add_input_float(default_value=0.0, tag=f"Offset_{self.unique_id}",step=0.01,
                                 format='%.4f', width=100, callback=self.validate_offset_input)
             dpg.add_button(label="Set Offset", callback=self.btn_set_offset)
             dpg.bind_item_theme(dpg.last_item(), theme)
+            # ─── Channel selector ───
+            dpg.add_text("Channel:")
+            dpg.add_radio_button(
+                items=["1", "2"],
+                default_value="1",
+                tag=f"ChannelSelect_{self.unique_id}",
+                horizontal=True,
+                callback=self.cb_select_channel,
+            )
 
     def create_duty_cycle_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_duty_cycle_{self.unique_id}", width=200):
