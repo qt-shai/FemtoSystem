@@ -193,6 +193,7 @@ class CommandDispatcher:
             "dir":               self.handle_open_lastdir,
             "det":               self.handle_detect_and_draw,
             "fmax":              self.handle_fmax,
+            "kfmax":             self.handle_kfmax,
             "ntrack":            self.handle_ntrack,
             "gr":                self.handle_set_graph_size,
             "auto":              self.handle_auto,

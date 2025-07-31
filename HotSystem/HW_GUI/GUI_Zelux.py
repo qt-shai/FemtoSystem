@@ -83,10 +83,25 @@ class ZeluxGUI():
         dpg.set_item_width("image_id", _width)
         dpg.set_item_height("image_id", _height)
 
-        dpg.delete_item("image_drawlist")
-        dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width * self.cam.ratio, parent=self.window_tag)
-        dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width * self.cam.ratio), uv_min=(0, 0),
-                       uv_max=(1, 1), parent="image_drawlist")
+        # dpg.delete_item("image_drawlist")
+        # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width * self.cam.ratio, parent=self.window_tag)
+        # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width * self.cam.ratio), uv_min=(0, 0),
+        #                uv_max=(1, 1), parent="image_drawlist")
+
+        # rebuild drawlist
+        disp_h = _width * self.cam.ratio
+        if dpg.does_item_exist("image_drawlist"):
+            dpg.delete_item("image_drawlist")
+        dpg.add_drawlist(tag="image_drawlist", width=_width, height=disp_h, parent=self.window_tag)
+        # flip image in X and Y by swapping UV coordinates
+        dpg.draw_image(
+            texture_tag="image_id",
+            pmin=(0, 0),
+            pmax=(_width, disp_h),
+            uv_min=(1, 1),  # bottom-right corner of texture
+            uv_max=(0, 0),  # top-left corner of texture
+            parent="image_drawlist"
+        )
 
         # dpg.set_value("image_id", self.cam.lateset_image_buffer)
         height = self.cam.camera.image_height_pixels
@@ -143,7 +158,15 @@ class ZeluxGUI():
         if dpg.does_item_exist("image_drawlist"):
             dpg.delete_item("image_drawlist")
         dpg.add_drawlist(tag="image_drawlist", width=_width, height=disp_h, parent=self.window_tag)
-        dpg.draw_image("image_id", (0, 0), (_width, disp_h), parent="image_drawlist")
+        # dpg.draw_image("image_id", (0, 0), (_width, disp_h), parent="image_drawlist")
+        dpg.draw_image(
+            texture_tag="image_id",
+            pmin=(0, 0),
+            pmax=(_width, disp_h),
+            uv_min=(1, 1),  # bottom-right corner of texture
+            uv_max=(0, 0),  # top-left corner of texture
+            parent="image_drawlist"
+        )
 
         # Draw cross if enabled
         if self.show_center_cross or self.show_coords_grid:

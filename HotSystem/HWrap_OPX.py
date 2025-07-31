@@ -11778,6 +11778,7 @@ class GUI_OPX():
         ch = self.awg.channel
 
         # 2) Build sweep parameters
+        self.track_numberOfPoints = self.N_tracking_search
         num_points = self.track_numberOfPoints  # e.g. 21
         step_size = 0.1  # volts per step (tweak as needed)
         center_off = self.awg.get_current_voltage(ch)
