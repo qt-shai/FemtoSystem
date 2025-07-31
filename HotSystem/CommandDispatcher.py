@@ -217,6 +217,7 @@ class CommandDispatcher:
             "scanmv":            self.handle_scanmv,
             "g2":                self.handle_g2,
             "restore":           self.handle_restore,
+            "koff":              self.handle_keysight_offset,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -2607,6 +2608,45 @@ class CommandDispatcher:
                 print(f"fmax updated point #{idx}: {pos}")
         threading.Thread(target=worker,daemon=True).start()
 
+    def handle_kfmax(self, arg):
+        """
+        Sweep the Keysight AWG offset to find the maximum signal,
+        then optionally save that point under an index.
+        Usage: kfmax [<point_index>]
+        """
+        p = self.get_parent()
+        idx = int(arg) if arg.isdigit() else None
+
+        def worker():
+            # start live counter so GlobalFetchData will update
+            p.opx.btnStartCounterLive()
+            time.sleep(1)
+
+            # call your AWG‐offset sweep routine
+            # (make sure this method is defined on p.opx)
+            p.opx.Find_max_signal_by_keysight_offset()
+
+            # read back the AWG’s current (best) offset
+            ch = p.keysight_gui.dev.channel
+            best_off = p.keysight_gui.dev.get_current_voltage(ch)
+
+            # if an index was provided, save (idx, x, y, z…, offset)
+            if idx is not None:
+                # convert axes positions (in whatever units) → microns
+                pos = [v * 1e-6 for v in p.opx.positioner.AxesPositions]
+                pts = getattr(p, "saved_query_points", [])
+                for j, pt in enumerate(pts):
+                    if pt[0] == idx:
+                        pts[j] = (idx, *pos, best_off)
+                        break
+                else:
+                    pts.append((idx, *pos, best_off))
+                p.saved_query_points = pts
+
+                print(f"kfmax updated point #{idx}: pos={pos}, offset={best_off}V")
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def handle_ntrack(self, arg):
         """Get or set N_tracking_search."""
         p=self.get_parent()
@@ -2979,6 +3019,37 @@ class CommandDispatcher:
                     print(f"Tag not found: {tag}")
         except Exception as e:
             print(f"Failed to restore positions: {e}")
+
+    def handle_keysight_offset(self, arg):
+        """
+        Set the Keysight AWG offset.
+        Usage:  koff <voltage_in_volts>
+        """
+        parent = self.get_parent()
+        gui = getattr(parent, "keysight_gui", None)
+        if not gui:
+            print("No Keysight AWG GUI is active.")
+            return
+
+        # read channel from your radio buttons
+        sel = dpg.get_value(f"ChannelSelect_{gui.unique_id}")
+        try:
+            ch = int(sel)
+        except ValueError:
+            ch = 1
+
+        try:
+            offset = float(arg)
+        except ValueError:
+            print("Invalid offset. Usage: koff <number>")
+            return
+
+        try:
+            gui.dev.set_offset(offset, channel=ch)
+            print(f"AWG CH{ch} offset set to {offset}V.")
+            gui.btn_get_current_parameters()
+        except Exception as e:
+            print(f"Failed to set offset on CH{ch}: {e}")
 
 
 # Wrapper function

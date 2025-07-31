@@ -11769,6 +11769,52 @@ class GUI_OPX():
         self.qm.set_io1_value(0)
         time.sleep(0.1)
 
+    def Find_max_signal_by_keysight_offset(self):
+        """
+        Sweep the Keysight AWG DC‐offset around its current value
+        and find the offset that produces the maximum measured signal.
+        """
+        # 1) Determine channel
+        ch = self.awg.channel
+
+        # 2) Build sweep parameters
+        num_points = self.track_numberOfPoints  # e.g. 21
+        step_size = 0.1  # volts per step (tweak as needed)
+        center_off = self.awg.get_current_voltage(ch)
+        half_span = step_size * (num_points // 2)
+        offsets = [center_off - half_span + i * step_size
+                   for i in range(num_points)]
+
+        # 3) Sweep and record
+        signals = []
+        for off in offsets:
+            # set offset and wait for AWG + measurement to settle
+            self.awg.set_offset(off, channel=ch)
+            time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.01)
+
+            # fetch your signal (using your existing fetch routine)
+            self.GlobalFetchData()
+            time.sleep(0.01)
+            self.GlobalFetchData()
+            current_signal = self.counter_Signal[0]
+
+            signals.append(current_signal)
+            print(f"Offset {off:.3f}V → Signal {current_signal:.0f}")
+
+        # 4) Find the best offset
+        best_idx = signals.index(max(signals))
+        best_off = offsets[best_idx]
+        best_sig = signals[best_idx]
+        print(f"Max signal {best_sig:.0f} at offset {best_off:.3f} V")
+
+        # 5) Move AWG back to best offset
+        self.awg.set_offset(best_off, channel=ch)
+        time.sleep(0.01)
+
+        # 6) Update your reference value if you use one
+        self.refSignal = best_sig
+        print(f"Reference signal updated to {self.refSignal:.0f}")
+
     def FindMaxSignal_atto_positioner_and_scanner(self):
         """
         Find the peak intensity by optimizing offset voltages:

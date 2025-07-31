@@ -18,6 +18,7 @@ class GUIKeysight33500B:
         self.simulation = simulation
         self.unique_id = self._get_unique_id_from_device()
         self.instrument = instrument
+
         red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
         self.window_tag = "Keysight33500B_Win"
@@ -95,8 +96,22 @@ class GUIKeysight33500B:
                 items=["1", "2"],
                 default_value="1",
                 tag=f"ChannelSelect_{self.unique_id}",
-                horizontal=True
+                horizontal=True,
+                callback=self.cb_select_channel,
             )
+
+    def cb_select_channel(self, sender, app_data):
+        """
+        Radio‐button callback: app_data is the string "1" or "2".
+        We store it on self.dev so later commands default to that channel.
+        """
+        try:
+            ch = int(app_data)
+        except ValueError:
+            ch = 1
+        # tack on a new attribute to your wrapper instance
+        self.dev.channel = ch
+        print(f"Selected AWG channel {ch}")
 
     def create_amplitude_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_amplitude_{self.unique_id}", width=200):

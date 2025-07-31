@@ -20,6 +20,7 @@ class Keysight33500B(SerialDevice):
         """
         super().__init__(address, baudrate, timeout, simulation)
         self.frequency = None
+        self.channel = 1
 
     def connect(self):
         """
@@ -31,7 +32,7 @@ class Keysight33500B(SerialDevice):
         if hasattr(self, "_connection") and self._connection:
             # apply the wrapper’s timeout
             self._connection.timeout = self.timeout
-            # apply to write/read terminators if supported
+            # apply the write/read terminators if supported
             if hasattr(self._connection, "write_termination"):
                 self._connection.write_termination = self.write_terminator
             if hasattr(self._connection, "read_termination"):
