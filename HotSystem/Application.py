@@ -969,7 +969,7 @@ class PyGuiOverlay(Layer):
                     parent = getattr(sys.stdout, "parent", None)
                     if parent:
                         # outout.run(f"future{input_str}")
-                        run(f"future{input_str}")
+                        run(f"future {input_str}")
                         print(f"[DPG frame callback] Ran future: {input_str}")
                         load_window_positions()
                     else:
