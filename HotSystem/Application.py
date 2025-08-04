@@ -39,6 +39,7 @@ from HWrap_OPX import GUI_OPX, Experiment
 from SystemConfig import SystemType, SystemConfig, load_system_config, run_system_config_gui, Instruments
 from Utils.Common import calculate_z_series
 from Common import WindowNames
+from Common import load_window_positions
 from Window import Window_singleton
 from Outout_to_gui import DualOutput
 import threading
@@ -53,6 +54,7 @@ import numpy as np
 
 import Outout_to_gui as outout
 from Common import wait_for_item_and_set
+import traceback
 
 class Layer:
     def __init__(self, name="Layer"):
@@ -451,7 +453,9 @@ class PyGuiOverlay(Layer):
         self.window_positions = {}
         self.messages = []
         self.command_history = []
-        self.MAX_HISTORY = 10  # Store last 5 commands
+        self.history_index = -1
+        self.MAX_HISTORY = 100  # Store last 100 commands
+        self.saved_query_points = []
 
     def on_render(self):
         jobs = dpg.get_callback_queue() # retrieves and clears queue
@@ -617,17 +621,9 @@ class PyGuiOverlay(Layer):
             print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
             print(f"app_data: {app_data}")
     def Callback_key_press(self,sender,app_data):
-        # print(f"sender: {sender}")
-
         ignore=True
         if not ignore:
             print(f"Callback_key_press: {app_data}") ####KKK
-
-        # if app_data == 17: # todo: map keys (17 == LCTRL):
-            # print("hellow from Left CTRL!!")
-        # if True:
-        #     print("callback from "+self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
-        #     print(f"app_data: {app_data}")
         self.keyboard_callback(sender,app_data)
     def Callback_key_release(self,sender,app_data):
         # Map the key data to the KeyboardKeys enum
@@ -665,7 +661,7 @@ class PyGuiOverlay(Layer):
 
         fontScale = self.Monitor_width/3840 #3840 from reference screen resolution
         pos = [int(0.0*self.Monitor_width),int(0.0*self.Monitor_height)]     # position relative to actual screen size
-        size = [int(1.0*self.Monitor_width),int(0.97*self.Monitor_height)]   # new window width,height
+        size = [int(1.0*self.Monitor_width),int(1*self.Monitor_height)]   # new window width,height
 
         with dpg.font_registry():
             default_font = dpg.add_font("C:\\Windows\\Fonts\\Calibri.ttf", int(30*fontScale)+1)
@@ -686,7 +682,7 @@ class PyGuiOverlay(Layer):
             dpg.add_mouse_release_handler(callback=self.Callback_mouse_release)
             dpg.add_mouse_wheel_handler(callback=self.Callback_mouse_wheel)
             dpg.add_key_down_handler(callback=self.Callback_key_down)
-            dpg.add_key_press_handler(callback=self.Callback_key_press)
+            dpg.add_key_press_handler(callback=self.Callback_key_press,tag="my_key_press_handler")
             dpg.add_key_release_handler(callback=self.Callback_key_release)
 
         if IsDemo:
@@ -694,8 +690,6 @@ class PyGuiOverlay(Layer):
 
         dpg.create_viewport(title='QuTi SW', width=size[0], height=size[1],
                             x_pos = int(pos[0]), y_pos = int(pos[1]), always_on_top = False,
-                            # min_width=100, max_width=1200,
-                            # min_height=100, max_height=900,
                             resizable=True,
                             vsync=True, decorated=True, clear_color=True,
                             disable_close=False)
@@ -729,7 +723,7 @@ class PyGuiOverlay(Layer):
         sys.stdout.parent = self
         sys.stderr = DualOutput(sys.__stderr__)
 
-        dpg.set_frame_callback(100, lambda: dpg.focus_item("cmd_input"))
+        # dpg.set_frame_callback(100, lambda: dpg.focus_item("cmd_input"))
 
     def setup_instruments(self) -> None:
         """
@@ -904,11 +898,6 @@ class PyGuiOverlay(Layer):
                     self.active_instrument_list.append(self.kdc_101_gui.window_tag)
 
                 elif instrument == Instruments.MFF_101:
-                    # if self.mff_101_gui is None:
-                    #     self.mff_101_gui = GUI_MFF(serial_number = device.serial_number, device = hw_devices.HW_devices().mff_101_list)
-                    # else:
-                    #     self.mff_101_gui.add_new_button(serial_number=device.serial_number)
-                    # self.mff_101_gui = GUI_MFF(serial_number=device.serial_number,device=hw_devices.HW_devices().mff_101_list)
                     flipper_list = hw_devices.HW_devices().mff_101_list
                     matching_device = next(
                         (flipper for flipper in flipper_list if str(flipper.serial_no) == device.serial_number),
@@ -962,12 +951,27 @@ class PyGuiOverlay(Layer):
                     print(f"Unknown instrument {instrument} ")
 
             except Exception as e:
+                traceback.print_exc()
                 print(f"Failed loading device {device} of instrument type {instrument} with error {e}")
 
         # If this is a Femto system, create the Femto Power Calculator GUI
         if self.system_config.system_type == SystemType.FEMTO:
             self.femto_gui = FemtoPowerCalculator(self.kdc_101_gui)
             self.femto_gui.create_gui()
+            input_str = dpg.get_value(self.femto_gui.future_input_tag)
+
+            def try_run_future():
+                parent = getattr(sys.stdout, "parent", None)
+                if parent:
+                    outout.run(f"future{input_str}")
+                    print(f"[DPG frame callback] Ran future: {input_str}")
+                    load_window_positions()
+                else:
+                    # Retry on next frame
+                    dpg.set_frame_callback(dpg.get_frame_count() + 1, try_run_future)
+                    print("[DPG frame callback] Parent not ready — retrying next frame…")
+
+            dpg.set_frame_callback(dpg.get_frame_count() + 1, try_run_future)
 
     def update_in_render_cycle(self):
         # add thing to update every rendering cycle
@@ -1022,18 +1026,38 @@ class PyGuiOverlay(Layer):
 
         return False
 
-    def keyboard_callback(self, event, key_data):
+    def keyboard_callback(self, sender, app_data):
         """Handles keyboard input and triggers movement for various devices."""
         try:
+            # ── if the user is actively typing into the command box, bail out immediately ──
+            if dpg.is_item_focused("cmd_input"):
+                return
+
+            # 1) Unwrap the integer key code
+            if isinstance(app_data, (list, tuple)) and app_data:
+                key_code = app_data[0]
+            elif isinstance(app_data, dict) and "key" in app_data:
+                key_code = app_data["key"]
+            else:
+                key_code = app_data
+
+            # 2) Only handle keys we know about
+            if key_code not in KeyboardKeys._value2member_map_:
+                return
+            key_data_enum = KeyboardKeys(key_code)
+
+            # If it’s Enter, execute cmd_input and clear it
+            if key_code == KeyboardKeys.ENTER_KEY.value:
+                # Read, run, and clear
+                cmd = dpg.get_value("cmd_input") or ""
+                cmd = cmd.strip()
+                if cmd:
+                    self.handle_cmd_input()
+                dpg.set_value("cmd_input", "")
+                return
 
             # Determine if coarse movement is enabled (for OPX and other devices)
             is_coarse = self.CURRENT_KEY == KeyboardKeys.CTRL_KEY
-
-            # Map the key data to the KeyboardKeys enum
-            if key_data in KeyboardKeys._value2member_map_:
-                key_data_enum = KeyboardKeys(key_data)
-            else:
-                return
 
             # Update modifier key if it's a modifier
             if key_data_enum in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
@@ -1096,25 +1120,94 @@ class PyGuiOverlay(Layer):
 
             # Handle Smaract controls
             if self.CURRENT_KEY in [KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY]:
-                # Focus on cmd_input if Ctrl+D is pressed
-                if key_data_enum == KeyboardKeys.D_KEY:
-                    dpg.focus_item("cmd_input")
-                    return
                 self.handle_smaract_controls(key_data_enum, is_coarse)
+                # self.CURRENT_KEY = key_data_enum
+                if key_data_enum in [KeyboardKeys.UP_KEY, KeyboardKeys.DOWN_KEY, KeyboardKeys.LEFT_KEY,KeyboardKeys.RIGHT_KEY,
+                                     KeyboardKeys.PAGEUP_KEY, KeyboardKeys.PAGEDOWN_KEY]:
+                    return
+                else:
+                    # === Ctrl + V: paste clipboard to cmd_input ===
+                    if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY and key_data_enum == KeyboardKeys.V_KEY:
+                        try:
+                            import pyperclip
+                            paste_text = pyperclip.paste()
+                            dpg.set_value("cmd_input", paste_text)
+                            dpg.focus_item("cmd_input")
+                            print(f"Pasted to cmd_input: {paste_text}")
+                        except Exception as clip_ex:
+                            print(f"Failed to paste clipboard: {clip_ex}")
+                    self.CURRENT_KEY = key_data_enum  # 8-7-2025
+                    return
+
+            # === UP arrow: try prefix search, else fallback to simple back-one
+            if key_data_enum == KeyboardKeys.UP_KEY:
+                if not (hasattr(self, "command_history") and self.command_history):
+                    print("No history yet.")
+                    return
+                if self.history_index > 0:
+                    self.history_index -= 1
+                val = self.command_history[self.history_index]
+                dpg.set_value("cmd_input", val)
+                return
+
+            # === DOWN arrow: go forward in history
+            if key_data_enum == KeyboardKeys.DOWN_KEY:
+                if hasattr(self, "command_history") and self.command_history:
+                    if self.history_index < len(self.command_history) - 1:
+                        self.history_index += 1
+                        val = self.command_history[self.history_index]
+                        dpg.set_value("cmd_input", val)
+                    else:
+                        # Past end → clear input
+                        self.history_index = len(self.command_history)
+                        dpg.set_value("cmd_input", "")
+                else:
+                    print("No history yet.")
+                return
+            if dpg.is_item_focused("inTxtScan_expText"):
+                return
+            # === QUESTION MARK: search history for substring in cmd_input ===
+            if key_code == KeyboardKeys.OEM_2.value:  # ord('?') == 63
+                term = dpg.get_value("cmd_input") or ""
+                if not (hasattr(self, "command_history") and self.command_history):
+                    print("No history yet.")
+                else:
+                    term_l = term.lower()
+                    for idx, cmd in enumerate(self.command_history):
+                        if term_l in cmd.lower():
+                            self.history_index = idx
+                            dpg.set_value("cmd_input", cmd)
+                            print(f"History match [{idx}]: {cmd}")
+                            break
+                    else:
+                        print(f"No history entry contains '{term}'.")
+                return
+            # ── BACKSPACE ──
+            if key_code == KeyboardKeys.BACK_KEY.value:
+                cur = dpg.get_value("cmd_input") or ""
+                # Shift+Backspace clears all
+                if getattr(self, "modifier_key", None) == KeyboardKeys.SHIFT_KEY:
+                    dpg.set_value("cmd_input", "")
+                    self.modifier_key=None
+                else:
+                    dpg.set_value("cmd_input", cur[:-1])
+                dpg.focus_item("cmd_input")
+                return
+
+            # ── Printable characters ──
+            if key_code in (KeyboardKeys.C_KEY.value, KeyboardKeys.SPACE_KEY.value):
+                dpg.focus_item("cmd_input")
 
             # Update the current key pressed
             self.CURRENT_KEY = key_data_enum
-
         except Exception as ex:
             self.error = f"Unexpected error in keyboard_callback: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
             print(self.error)
 
-
-
     def handle_smaract_controls(self, key_data_enum, is_coarse):
         """Handles keyboard input for Smaract device controls."""
-        try:
-            if self.smaractGUI and self.smaractGUI.dev.KeyboardEnabled:
+        try:#and self.smaractGUI.dev.KeyboardEnabled:
+            if self.smaractGUI:
                 if key_data_enum == KeyboardKeys.SPACE_KEY:
                     print('Logging point')
                     self.smaract_log_points()
@@ -1443,7 +1536,7 @@ class PyGuiOverlay(Layer):
 
     def setup_main_exp_buttons(self):
         with dpg.window(label="Main Buttons Group", tag="Main_Window",
-                          autosize=True, no_move=True, collapsed=True):
+                          autosize=True, no_move=False, collapsed=True):
             with dpg.group(label="Main Buttons Group", horizontal=True):
                 dpg.add_text("Bring Instrument to front:")
                 with dpg.group(tag = "focus_group",horizontal=True):
@@ -1470,18 +1563,26 @@ class PyGuiOverlay(Layer):
         with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Clear Console", callback=self.clear_console)
-                dpg.add_combo(items=[], tag="command_history", width=120, callback=self.fill_input)
+                dpg.add_combo(items=[], tag="command_history", width=120, callback=self.fill_console_input)
                 dpg.add_button(label="Save Logs", callback=self.save_logs)
 
             # Console log display
-            with dpg.child_window(tag="console_output", autosize_x=True, height=200):
-                dpg.add_text("Console initialized.", tag="console_log", wrap=800)
+            with dpg.child_window(tag="console_output", autosize_x=True, height=180):
+                dpg.add_text("Console initialized.", tag="console_log", wrap=1500)
+            # with dpg.child_window(tag="console_output", autosize_x=True, height=180):
+            #     dpg.add_input_text(
+            #         tag="console_log",
+            #         multiline=True,
+            #         no_spaces=True,  # no wrapping → horizontal scroll
+            #         width=-1,  # fill the child window
+            #         height=-1,
+            #     )
 
             # Input field for sending commands or messages
             with dpg.group(horizontal=True):
                 dpg.add_input_text(label="", tag="console_input", width=300)
                 dpg.add_button(label="Send", callback=self.send_console_input)
-                dpg.add_input_text(label="Cmd", tag="cmd_input", hint="Enter command (e.g. c, sv, mv, sub ELSC, clog e)",
+                dpg.add_input_text(label="Cmd", tag="cmd_input", hint="Enter command",
                                    on_enter=True, callback=lambda s, a, u: self.handle_cmd_input())
 
     def clear_console(self):
@@ -1530,16 +1631,16 @@ class PyGuiOverlay(Layer):
         if command in self.command_history:
             self.command_history.remove(command)  # Remove duplicate before re-adding
 
-        self.command_history.insert(0, command)  # Insert at the top
+        self.command_history.append(command)  # Insert at the top
         if len(self.command_history) > self.MAX_HISTORY:
             self.command_history.pop()  # Remove the oldest entry
 
         # Update the combo box
         dpg.configure_item("command_history", items=self.command_history)
 
-    def fill_input(self, sender, app_data):
+    def fill_console_input(self, sender, app_data):
         """Fills the input field with the selected command."""
-        dpg.set_value("console_input", app_data)
+        dpg.set_value("cmd_input", app_data)
 
     def on_detach(self):
         sys.stdout = sys.__stdout__

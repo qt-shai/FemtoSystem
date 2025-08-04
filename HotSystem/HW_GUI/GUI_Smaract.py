@@ -19,6 +19,7 @@ from Common import load_window_positions
 
 class GUI_smaract():
     def __init__(self, simulation: bool = False, serial_number:str = "") -> None:
+        self.last_z_value = None
         self.HW = hw_devices.HW_devices()
         self.dev = self.HW.positioner
         self.selectedDevice = serial_number
@@ -105,11 +106,11 @@ class GUI_smaract():
                             dpg.add_input_float(label="", default_value=0, tag=f"{self.prefix}_ch" + str(ch) + "_ABS", indent=-1,
                                                 format='%.4f', step=1, step_fast=10) #
                     dpg.add_button(label="Set XYZ", callback=self.fill_current_position_to_moveabs)
-                    dpg.add_button(label="Paste XY", callback=self.paste_clipboard_to_moveabs)
                 with dpg.group(horizontal=False, width=child_width*.8):
                     dpg.add_text("   GO")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_button(label="GO", callback=self.move_absolute, user_data=ch)
+                    dpg.add_button(label="Pst", callback=self.paste_clipboard_to_moveabs)
                 with dpg.group(horizontal=False, width=child_width*0.8):
                     dpg.add_text(" Ref.")
                     for ch in range(self.dev.no_of_channels):
@@ -126,12 +127,10 @@ class GUI_smaract():
                     dpg.add_text("Status")
                     for ch in range(self.dev.no_of_channels):
                         dpg.add_combo(items=["idle",""], tag="mcs_Status" + str(ch))
-            with dpg.group(horizontal=True):
-                dpg.add_combo(label="Devices", items=self.dev.Available_Devices_List, tag=f"{self.prefix}_device_selector",
-                              callback=self.cmb_device_selector, width=300)
-                dpg.add_button(label="Refresh", callback=self.btn_get_av_device_list)
-                dpg.add_text(" Disable keyboard")
-                dpg.add_checkbox(tag="mcs_Disable_Keyboard", callback=self.cbx_disable_keyboard)
+                with dpg.group(horizontal=False):
+                    dpg.add_combo(label="Devices", items=self.dev.Available_Devices_List, tag=f"{self.prefix}_device_selector",
+                                  callback=self.cmb_device_selector, width=300)
+                    dpg.add_button(label="Refresh", callback=self.btn_get_av_device_list)
             with dpg.group(horizontal=False, tag="table_group"):
                 with dpg.group(horizontal=True, tag="table_group2"):
                     dpg.add_button(label="Load logged from file", callback=self.load_logged_points_from_file)
@@ -192,7 +191,9 @@ class GUI_smaract():
             dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
             dpg.set_value(f"{self.prefix}_ch2_ABS", z_value)
 
-            # print(f"Set MoveAbsX = {x_value:.2f} µm, MoveAbsY = {y_value:.2f} µm, MoveAbsZ = {z_value:.2f} µm")
+            # ✅ Store Z value
+            self.last_z_value = z_value
+            
             # Format and copy to clipboard
             clipboard_str = f"Site ({x_value:.1f}, {y_value:.1f}, {z_value:.1f})"
             pyperclip.copy(clipboard_str)
@@ -203,22 +204,35 @@ class GUI_smaract():
 
     def paste_clipboard_to_moveabs(self):
         try:
-            # Read clipboard text
-            clipboard_text = pyperclip.paste()
+            clipboard_text = pyperclip.paste().strip()
             print(f"Clipboard text: {clipboard_text}")
 
-            # Parse X and Y
-            x_str = clipboard_text.split('X=')[1].split(',')[0]
-            y_str = clipboard_text.split('Y=')[1].split(']')[0]
+            if clipboard_text.lower().startswith("site"):
+                # New “Site (x, y, z)” format
+                start = clipboard_text.find("(")
+                end = clipboard_text.find(")", start)
+                coords = clipboard_text[start + 1:end].split(",")
+                x_value, y_value, z_value = [float(c.strip()) for c in coords]
 
-            x_value = float(x_str.strip())
-            y_value = float(y_str.strip())
+                dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
+                dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
+                dpg.set_value(f"{self.prefix}_ch2_ABS", z_value)
 
-            # Set values to MoveABS input fields
-            dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
-            dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
+                print(f"Set MoveAbsX={x_value}, MoveAbsY={y_value}, MoveAbsZ={z_value}")
 
-            print(f"Set MoveAbsX = {x_value}, MoveAbsY = {y_value}")
+            else:
+                # Legacy "X=..., Y=...[...]" format
+                x_str = clipboard_text.split('X=')[1].split(',')[0]
+                y_str = clipboard_text.split('Y=')[1].split(']')[0]
+                x_value = float(x_str.strip())
+                y_value = float(y_str.strip())
+
+                # only set X and Y
+                dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
+                dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
+
+                print(f"Set MoveAbsX={x_value}, MoveAbsY={y_value} (Z unchanged)")
+
         except Exception as e:
             print(f"Failed to parse clipboard: {e}")
 
@@ -229,7 +243,7 @@ class GUI_smaract():
         window_names = [
             "pico_Win", "mcs_Win", "Zelux Window", "graph_window", "Main_Window",
             "OPX Window", "Map_window", "Scan_Window", "LaserWin", "CLD1011LP_Win",
-            "experiments_window", "graph_window", "console_window"
+            "experiments_window", "graph_window", "console_window", "hrs500_Win"
         ]
         file_name = f"win_pos_{profile_name}.txt"
 
@@ -266,7 +280,7 @@ class GUI_smaract():
                     file.write(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
                     file.write(f"{win_name}_Size: {size[0]}, {size[1]}\n")
 
-            print("Window positions and sizes saved successfully to win_pos_local.txt.")
+            print(f"Window positions and sizes saved successfully to {file_name}")
         except Exception as e:
             print(f"Error saving window positions and sizes: {e}")
 
@@ -278,12 +292,6 @@ class GUI_smaract():
             load_window_positions(file_name)
         except Exception as e:
             print(f"Error loading window positions and sizes: {e}")
-
-    def cbx_disable_keyboard(self, app_data, user_data):
-        if user_data:
-            self.dev.KeyboardEnabled = False
-        else:
-            self.dev.KeyboardEnabled = True
 
     def ipt_large_step(self,app_data,user_data):
         ch=int(app_data[6])        

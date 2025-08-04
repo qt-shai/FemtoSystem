@@ -206,7 +206,7 @@ class ZeluxGUI():
                 step_y = 61
                 block_height = N * step_y
                 Y_center = (_width * self.cam.ratio) / 2  + 55
-                base_y = Y_center - block_height / 2
+                base_y = Y_center - block_height / 2-30
                 for idx, (angle, E) in enumerate(self.all_future_data):
                     text = f"HWP={angle:.1f}°, E={E:.1f} nJ"
                     dpg.draw_text(
@@ -264,7 +264,6 @@ class ZeluxGUI():
     def DeleteMainWindow(self):
         dpg.delete_item(item=self.window_tag)
         pass
-
 
     def GUI_controls(self, isConnected=False, _width=800):
         dpg.delete_item("groupZeluxControls", children_only=False)
@@ -440,6 +439,7 @@ class ZeluxGUI():
         cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
         print(f"Image saved with overlays to: {filename}")
         copy_image_to_clipboard(filename)
+        return filename
 
     def rotate_image(self, sender, app_data, user_data=None):
         """Rotate the live image by 90° clockwise."""

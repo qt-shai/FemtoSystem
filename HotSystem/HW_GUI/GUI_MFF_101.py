@@ -55,23 +55,24 @@ class GUI_MFF(GUIMotor):
 
     def on_off_slider_callback(self, sender, app_data):
         # app_data is the new slider value (0 or 1)
-        if app_data == 1:
-            self.move_flipper()
-            self.toggle_state = self.dev.get_position()
-            if self.toggle_state == 2:
-                dpg.configure_item(sender, format="Up")
-            else:
-                dpg.configure_item(sender, format="Down")
-            dpg.bind_item_theme(sender, self.get_toggle_theme())
-        else:
-            self.move_flipper()
+        def try_update_toggle():
+            try:
+                self.move_flipper()
+                self.toggle_state = self.dev.get_position()
+                dpg.configure_item(sender, format="Up" if self.toggle_state == 2 else "Down")
+                dpg.bind_item_theme(sender, self.get_toggle_theme())
+                return True
+            except Exception as e:
+                print(f"First attempt failed: {e}")
+                return False
 
-            self.toggle_state = self.dev.get_position()
-            if self.toggle_state == 2:
-                dpg.configure_item(sender, format="Up")
-            else:
-                dpg.configure_item(sender, format="Down")
-            dpg.bind_item_theme(sender, self.get_toggle_theme())
+        success = try_update_toggle()
+        if not success:
+            time.sleep(0.3)
+            try:
+                try_update_toggle()
+            except Exception as e:
+                print(f"Retry failed: {e}")
 
         dpg.set_value(f"on_off_slider_{self.unique_id}", app_data)
 

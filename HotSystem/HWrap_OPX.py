@@ -66,6 +66,7 @@ import copy
 import JobTesting_OPX
 
 from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
+from Common import show_msg_window
 
 matplotlib.use('qtagg')
 
@@ -127,6 +128,7 @@ class GUI_OPX():
         # TODO: Move measure_type definition to be read from config
         # measure_type = MeasurementType.ANALOG
         # self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
+        self.last_loaded_file = None
         self.stop_survey: bool = False
         self.survey_stop_flag = False
         self.survey_g2_threshold: float = 0.4
@@ -187,6 +189,7 @@ class GUI_OPX():
         self.laser = self.HW.cobolt
         self.matisse = self.HW.matisse_device
         self.my_qua_jobs = []
+        self.spc= self.HW.hrs_500
 
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
             self.ScanTrigger = 101  # IO2
@@ -413,6 +416,7 @@ class GUI_OPX():
     def DeleteMainWindow(self):
         if dpg.does_item_exist(self.window_tag):
             dpg.delete_item(self.window_tag)
+
     def close_qm_jobs(self, fn="qua_jobs.txt"):
         with open(fn, 'r') as f:
             loaded_jobs = f.readlines()
@@ -433,7 +437,7 @@ class GUI_OPX():
                 if self.dL_scan[i] > 0:
                     N[i] = self.L_scan[i] / self.dL_scan[i]
         self.estimatedScanTime = round(np.prod(N) * (self.singleStepTime_scan + self.total_integration_time / 1e3) / 60,
-                                       1)
+                                       1)*2
 
     # Callbacks
     def time_in_multiples_cycle_time(self, val, cycleTime: int = 4, min: int = 16, max: int = 50000000):
@@ -444,7 +448,7 @@ class GUI_OPX():
             val = max
         return int(val)
 
-    def UpdateCounterIntegrationTime(sender, app_data, user_data):
+    def UpdateCounterIntegrationTime(sender, app_data=None, user_data=5):
         sender.total_integration_time = user_data
         time.sleep(0.001)
         dpg.set_value(item="inDbl_total_integration_time", value=sender.total_integration_time)
@@ -915,7 +919,7 @@ class GUI_OPX():
     def GUI_ParametersControl(self, isStart):
         child_width = int(2900 * self.window_scale_factor)
         child_height = int(80 * self.window_scale_factor)
-        item_width = int(270 * self.window_scale_factor)
+        item_width = int(150 * self.window_scale_factor)
         dpg.delete_item("Params_Controls")
         dpg.delete_item("Buttons_Controls")
 
@@ -1306,7 +1310,6 @@ class GUI_OPX():
                            callback=self.btnStartAWG_FP_SCAN,
                            indent=-1, width=_width)
 
-            # dpg.add_checkbox(label="Radio Button1", source="bool_value")
             dpg.bind_item_theme(item="Params_Controls", theme="NewTheme")
             dpg.bind_item_theme(item="btnOPX_StartCounter", theme="btnYellowTheme")
             dpg.bind_item_theme(item="btnOPX_StartODMR", theme="btnRedTheme")
@@ -1322,11 +1325,12 @@ class GUI_OPX():
             self.GUI_ScanControls()
             dpg.set_frame_callback(1, self.load_pos)
         else:
-            dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=True)
+            dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=False)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
             dpg.bind_item_theme(item="btnOPX_Stop", theme="btnRedTheme")
             dpg.add_button(label="Find Max Intensity", parent="Params_Controls", tag="btnOPX_StartFindMaxIntensity",
                            callback=self.MoveToPeakIntensity, indent=-1)
+            dpg.add_text(parent="Params_Controls",default_value = f"Int.time:\n{self.total_integration_time:.1f} ms",tag = "text_total_integration_time_display",indent = 10)
 
     def GUI_ScanControls(self):
         self.Calc_estimatedScanTime()
@@ -1336,7 +1340,7 @@ class GUI_OPX():
         win_pos = [int(self.viewport_width * 0.05) * 0, int(self.viewport_height * 0.5)]
         scan_time_in_seconds = self.estimatedScanTime * 60
 
-        item_width = int(200 * self.window_scale_factor)
+        item_width = int(190 * self.window_scale_factor)
 
         # ✅ Prevent duplicate creation
         if dpg.does_item_exist("Scan_Window"):
@@ -1344,12 +1348,10 @@ class GUI_OPX():
             return
 
         if self.bScanChkbox:
-            suffix = ""
-            suffix_file = "folder_suffix.txt"
-            if os.path.exists(suffix_file):
-                with open(suffix_file, "r") as f:
-                    suffix = f.read().strip()
-
+            last_dir = ""
+            if os.path.exists("last_scan_dir.txt"):
+                with open("last_scan_dir.txt", "r") as f:
+                    last_dir = f.read().strip().replace("\\", "/").split("/")[-1]
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
                 with dpg.group(horizontal=True):
@@ -1364,10 +1366,10 @@ class GUI_OPX():
                                 dpg.add_input_int(label="", tag="inInt_dx_scan", indent=-1, width=item_width,
                                                   callback=self.Update_dX_Scan,
                                                   default_value=self.dL_scan[0], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Lx [nm]", tag="text_Lx_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Lx_scan", indent=-1, width=item_width,
+                                dpg.add_text(default_value="Lx [um]", tag="text_Lx_scan", indent=-1)
+                                dpg.add_input_float(label="", tag="inInt_Lx_scan", indent=-1, width=item_width,
                                                   callback=self.Update_Lx_Scan,
-                                                  default_value=self.L_scan[0], min_value=0, max_value=500000, step=1)
+                                                  default_value=self.L_scan[0]/1000, min_value=0, max_value=500000, step=1)
 
                             with dpg.group(tag="Y_Scan_Range", horizontal=True):
                                 dpg.add_checkbox(label="", tag="chkbox_bY_Scan", indent=-1,
@@ -1377,10 +1379,10 @@ class GUI_OPX():
                                 dpg.add_input_int(label="", tag="inInt_dy_scan", indent=-1, width=item_width,
                                                   callback=self.Update_dY_Scan,
                                                   default_value=self.dL_scan[1], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Ly [nm]", tag="text_Ly_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Ly_scan", indent=-1, width=item_width,
+                                dpg.add_text(default_value="Ly [um]", tag="text_Ly_scan", indent=-1)
+                                dpg.add_input_float(label="", tag="inInt_Ly_scan", indent=-1, width=item_width,
                                                   callback=self.Update_Ly_Scan,
-                                                  default_value=self.L_scan[1], min_value=0, max_value=500000, step=1)
+                                                  default_value=self.L_scan[1]/1000, min_value=0, max_value=500000, step=1)
 
                             with dpg.group(tag="Z_Scan_Range", horizontal=True):
                                 dpg.add_checkbox(label="", tag="chkbox_bZ_Scan", indent=-1,
@@ -1390,14 +1392,18 @@ class GUI_OPX():
                                 dpg.add_input_int(label="", tag="inInt_dz_scan", indent=-1, width=item_width,
                                                   callback=self.Update_dZ_Scan,
                                                   default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Lz [nm]", tag="text_Lz_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_Lz_scan", indent=-1, width=item_width,
+                                dpg.add_text(default_value="Lz [um]", tag="text_Lz_scan", indent=-1)
+                                dpg.add_input_float(label="", tag="inInt_Lz_scan", indent=-1, width=item_width,
                                                   callback=self.Update_Lz_Scan,
-                                                  default_value=self.L_scan[2], min_value=0, max_value=500000, step=1)
+                                                  default_value=self.L_scan[2]/1000, min_value=0, max_value=500000, step=1)
 
                             with dpg.group(horizontal=True):
-                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=450,
+                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=300,
                                                    callback=self.saveExperimentsNotes, default_value=self.expNotes)
+                                dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
+                                                 callback=self.Update_bZcorrection,
+                                                 default_value=self.b_Zcorrection)
+                                dpg.add_text(default_value="Use Z", tag="text_Zcorrection", indent=-1)
 
                             dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
                                          tag="text_expectedScanTime",
@@ -1405,10 +1411,6 @@ class GUI_OPX():
 
                             with dpg.group(horizontal=True):
                                 dpg.add_text(label="Message: ", tag="Scan_Message")
-                                dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
-                                                 callback=self.Update_bZcorrection,
-                                                 default_value=self.b_Zcorrection)
-                                dpg.add_text(default_value="Use Z Correction", tag="text_Zcorrection", indent=-1)
 
                     with dpg.group(tag="start_Scan_btngroup", horizontal=False):
                         dpg.add_button(label="Start Scan", tag="btnOPX_StartScan", callback=self.btnStartScan,
@@ -1421,29 +1423,26 @@ class GUI_OPX():
                                        indent=1, width=130)
                         dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
                         dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
-                        with dpg.group(horizontal=True):
-                            dpg.add_input_text(label="", tag="MoveSubfolderInput", width=100, default_value=suffix)
-                            dpg.add_button(label="Mv", callback=self.move_last_saved_files)
+                        dpg.add_input_text(label="", tag="MoveSubfolderInput", width=130, default_value=last_dir)
+                        dpg.add_button(label="Mv File", callback=self.move_last_saved_files)
                     _width = 150
                     with dpg.group(horizontal=False):
                         dpg.add_input_float(label="AnnTH", tag="femto_anneal_threshold", default_value=800, width=_width)
                         dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=10,width=_width,callback=lambda s, a, u: self.pharos.setBasicTargetAttenuatorPercentage(dpg.get_value(s)))
                         dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
-                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=0, width=_width)
-                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0, width=_width)
-                        dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=10000, width=_width)
+                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=1, width=_width)
+                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0.01, width=_width)
+                        dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=100, width=_width)
                     _width = 100
-
                     with dpg.group(horizontal=False):
                         dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
                                          default_value=self.limit)
-                        dpg.add_button(label="fill Z", callback=self.fill_z)
-                        dpg.add_button(label="fill Max", callback=self.set_moveabs_to_max_intensity)
+                        dpg.add_button(label="Fill Z", callback=self.fill_z)
+                        dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
                         dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
-
-                    dpg.set_frame_callback(1, self.load_pos)
-                    self.load_pos()
+                    dpg.set_frame_callback(dpg.get_frame_count() + 1, self.load_pos)
+            self.hide_legend()
         else:
             dpg.delete_item("Scan_Window")
 
@@ -1474,66 +1473,107 @@ class GUI_OPX():
 
     def move_last_saved_files(self, sender=None, app_data=None, user_data=None):
         try:
-            if not (hasattr(self, 'timeStamp') and self.timeStamp):
-                print("No timestamp found. Save data first.")
-                return
+            files_to_move = []
+            extensions = [".jpg", ".xml", ".png", ".csv"]
 
-            if self.survey:
-                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/{self.exp.name}"
+            if not hasattr(self, 'timeStamp') or not self.timeStamp:
+                if hasattr(self, 'last_loaded_file') and self.last_loaded_file:
+                    base, ext = os.path.splitext(self.last_loaded_file)
+                    for extra_ext in extensions:
+                        files_to_move.append(base + extra_ext)
+                    print(f"Using last loaded file base: {base} → with extensions: {extensions}")
+
+                    # ✅ Add _pulse_data.csv, keep its unique name
+                    base_with_notes = f"{base}_{self.expNotes}" if self.expNotes else base
+                    pulse_data_file = base_with_notes + "_pulse_data.csv"
+                    files_to_move.append(pulse_data_file)
+
+                else:
+                    print("No loaded file to move.")
+                    return
             else:
-                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/{self.exp.name}/{self.HW.config.system_type}"
+                if self.survey:
+                    folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/scan"
+                else:
+                    folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}"
 
-            base_file = os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_{self.expNotes}")
+                base_file = os.path.join(folder_path, f"{self.timeStamp}_SCAN_{self.expNotes}")
+                for ext in extensions:
+                    files_to_move.append(base_file + ext)
+
+                # ✅ Add _pulse_data.csv, keep suffix
+                pulse_data_file = base_file + "_pulse_data.csv"
+                files_to_move.append(pulse_data_file)
+
             subfolder = dpg.get_value("MoveSubfolderInput")
             if not subfolder:
                 print("Subfolder name is empty.")
                 return
 
+            if self.survey:
+                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/Survey{self.HW.config.system_type}/scan"
+            else:
+                folder_path = f"Q:/QT-Quantum_Optic_Lab/expData/scan/{self.HW.config.system_type}"
+
             new_folder = os.path.join(folder_path, subfolder)
             if not os.path.exists(new_folder):
                 os.makedirs(new_folder)
 
-            extensions = [".jpg", ".xml", ".png", ".csv"]
             moved_any = False
 
-            for ext in extensions:
-                src = base_file + ext
+            for src in files_to_move:
                 dst = os.path.join(new_folder, os.path.basename(src))
                 if os.path.exists(src):
                     shutil.move(src, dst)
                     print(f"Moved {src} → {dst}")
                     moved_any = True
-                else:
-                    # Try fallback: expNotes='' or expNotes='_'
-                    fallback_files = [
-                        os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}__" + ext),
-                        os.path.join(folder_path, f"{self.timeStamp}_{self.exp.name}_" + ext)
-                    ]
-                    fallback_found = False
-                    for fallback_src in fallback_files:
-                        if os.path.exists(fallback_src):
-                            shutil.move(fallback_src, dst)
-                            print(f"Moved {fallback_src} → {dst} (fallback used)")
-                            moved_any = True
-                            fallback_found = True
-                            break
-                    if not fallback_found:
-                        print(f"{src} does not exist (and no fallback found)")
+                elif hasattr(self, 'timeStamp'):
+                    # print(f"{src} does not exist.")
+                    folder = os.path.dirname(src)
+                    base_pattern = f"{self.timeStamp}_SCAN_"
+                    found = False
+                    for f in os.listdir(folder):
+                        if f.startswith(base_pattern) and os.path.splitext(f)[1] == os.path.splitext(src)[1]:
+                            old_src = os.path.join(folder, f)
 
-            # If no files moved, try from C:/temp/TempScanData
+                            # ✅ Special: do NOT rename if this is a _pulse_data.csv
+                            if f.endswith("_pulse_data.csv"):
+                                new_name = f  # Keep as is
+                            else:
+                                new_name = f"{self.timeStamp}_SCAN_{self.expNotes}{os.path.splitext(f)[1]}"
+
+                            dst = os.path.join(new_folder, new_name)
+                            shutil.copy(old_src, dst)
+                            print(f"Copied {old_src} -> {dst} with new notes.")
+                            moved_any = True
+                            found = True
+                    # if not found:
+                    #     print(f"No alternative files found for {src}")
             if not moved_any:
                 temp_folder = "C:/temp/TempScanData"
                 if not os.path.exists(temp_folder):
                     print(f"Temp folder does not exist. Creating: {temp_folder}")
                     os.makedirs(temp_folder)
-
                 for filename in os.listdir(temp_folder):
-                    if filename.startswith(self.timeStamp):
+                    if hasattr(self, 'timeStamp') and self.timeStamp and filename.startswith(self.timeStamp):
                         src = os.path.join(temp_folder, filename)
                         dst = os.path.join(new_folder, filename)
                         shutil.move(src, dst)
-                        print(f"Moved {src} → {dst}")
+                        print(f"Moved {src} -> {dst}")
+                        moved_any = True
 
+            # ✅ Fallback: Move last_loaded_file if nothing was moved
+            if not moved_any and hasattr(self, 'last_loaded_file') and self.last_loaded_file:
+                if os.path.exists(self.last_loaded_file):
+                    base_name = os.path.basename(self.last_loaded_file)
+                    name, ext = os.path.splitext(base_name)
+                    new_name = f"{name}_{self.expNotes}{ext}" if self.expNotes else base_name
+                    dst = os.path.join(new_folder, new_name)
+                    shutil.copy(self.last_loaded_file, dst)
+                    print(f"Copied last loaded file to {dst} with updated name.")
+                    moved_any = True
+                else:
+                    print(f"Last loaded file does not exist: {self.last_loaded_file}")
         except Exception as e:
             print(f"Error moving files: {e}")
 
@@ -1596,15 +1636,10 @@ class GUI_OPX():
             if self.queried_area is None:
                 print("No queried area available.")
                 return
-
-            # a = [x_min, x_max, y_min, y_max]
             x_pos = self.queried_area[0]
             y_pos = self.queried_area[2]
-
             dpg.set_value("mcs_ch0_ABS", x_pos)
             dpg.set_value("mcs_ch1_ABS", y_pos)
-
-            print(f"Set MoveAbsX = {x_pos:.6f} m, MoveAbsY = {y_pos:.6f} m (From Query Top-Left)")
         except Exception as e:
             print(f"Failed to fill MoveABS from queried area: {e}")
 
@@ -1682,7 +1717,7 @@ class GUI_OPX():
             position[channel] = int(device.AxesPositions[channel] / device.StepsIn1mm * 1e3 * 1e6)  # [pm]
         return position
 
-    def toggle_limit(self, app_data, user_data):
+    def toggle_limit(self, app_data=None, user_data=True):
         self.limit = user_data
         time.sleep(0.001)
         dpg.set_value(item="checkbox_limit", value=self.limit)
@@ -1768,7 +1803,7 @@ class GUI_OPX():
         try:
             start_Plot_time = time.time()
 
-            plot_size = [int(self.viewport_width * 0.3), int(self.viewport_height * 0.4)]
+            plot_size = [int(self.viewport_width * 0.2), int(self.viewport_height * 0.4)]
 
             # Check if scan_data and idx_scan are available
             if self.scan_data is None or self.idx_scan is None:
@@ -2087,7 +2122,7 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_dX_Scan(sender, app_data, user_data):
+    def Update_dX_Scan(sender, app_data=None, user_data=None):
         sender.dL_scan[0] = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_dx_scan", value=sender.dL_scan[0])
@@ -2098,18 +2133,18 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_Lx_Scan(sender, app_data, user_data):
-        sender.L_scan[0] = (int(user_data))
+    def Update_Lx_Scan(sender, app_data=None, user_data=None):
+        sender.L_scan[0] = (int(user_data*1000))
         time.sleep(0.001)
-        dpg.set_value(item="inInt_Lx_scan", value=sender.L_scan[0])
-        print("Set Lx_scan to: " + str(sender.L_scan[0]))
+        dpg.set_value(item="inInt_Lx_scan", value=user_data)
+        print("Set Lx_scan to: " + str(sender.L_scan[0]) + "nm")
         sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_dY_Scan(sender, app_data, user_data):
+    def Update_dY_Scan(sender, app_data=None, user_data=None):
         sender.dL_scan[1] = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_dy_scan", value=sender.dL_scan[1])
@@ -2120,18 +2155,18 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_Ly_Scan(sender, app_data, user_data):
-        sender.L_scan[1] = (int(user_data))
+    def Update_Ly_Scan(sender, app_data=None, user_data=None):
+        sender.L_scan[1] = (int(user_data*1000))
         time.sleep(0.001)
-        dpg.set_value(item="inInt_Ly_scan", value=sender.L_scan[1])
-        print("Set Ly_scan to: " + str(sender.L_scan[1]))
+        dpg.set_value(item="inInt_Ly_scan", value=user_data)
+        print("Set Ly_scan to: " + str(sender.L_scan[1]) + "nm")
         sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_dZ_Scan(sender, app_data, user_data):
+    def Update_dZ_Scan(sender, app_data=None, user_data=True):
         sender.dL_scan[2] = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_dz_scan", value=sender.dL_scan[2])
@@ -2142,18 +2177,18 @@ class GUI_OPX():
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_Lz_Scan(sender, app_data, user_data):
-        sender.L_scan[2] = (int(user_data))
+    def Update_Lz_Scan(sender, app_data=None, user_data=None):
+        sender.L_scan[2] = (int(user_data*1000))
         time.sleep(0.001)
-        dpg.set_value(item="inInt_Lz_scan", value=sender.L_scan[2])
-        print("Set Lz_scan to: " + str(sender.L_scan[2]))
+        dpg.set_value(item="inInt_Lz_scan", value=user_data)
+        print("Set Lz_scan to: " + str(sender.L_scan[2]) + "nm")
         sender.save_scan_parameters()
 
         sender.Calc_estimatedScanTime()
         dpg.set_value(item="text_expectedScanTime",
                       value=f"~scan time: {sender.format_time(sender.estimatedScanTime * 60)}")
 
-    def Update_bZcorrection(sender, app_data, user_data):
+    def Update_bZcorrection(sender, app_data=None, user_data=None):
         sender.b_Zcorrection = user_data
         time.sleep(0.001)
         dpg.set_value(item="chkbox_Zcorrection", value=sender.b_Zcorrection)
@@ -9242,14 +9277,17 @@ class GUI_OPX():
         return [item for item in lst for _ in range(k)]
 
     def btnStartCounterLive(self, b_startFetch=True):
-        self.exp = Experiment.COUNTER
-        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
-        # TODO: Boaz - Check for edge cases in number of measurements per array
-        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-                         num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
+        try:
+            self.exp = Experiment.COUNTER
+            self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+            # TODO: Boaz - Check for edge cases in number of measurements per array
+            self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                             num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
 
-        if b_startFetch and not self.bEnableSimulate:
-            self.StartFetch(_target=self.FetchData)
+            if b_startFetch and not self.bEnableSimulate:
+                self.StartFetch(_target=self.FetchData)
+        except Exception as e:
+            print(f"Failed to start counter live: {e}")
 
     def btnStartG2Survey(self) -> None:
         """
@@ -10120,8 +10158,6 @@ class GUI_OPX():
                                 check_srs_stability=check_srs_stability)
 
     def StartScan(self):
-        if self.positioner:
-            self.positioner.KeyboardEnabled = False  # TODO: Update the check box in the gui!!
         if self.HW.atto_scanner:
 
             # Move and read functions for mixed axes control
@@ -10197,8 +10233,6 @@ class GUI_OPX():
             self.HW.atto_positioner.start_updates()
         else:
             self.StartScan3D()
-        if self.positioner:
-            self.positioner.KeyboardEnabled = True  # TODO: Update the check box in the gui!!
 
     def fetch_peak_intensity(self, integration_time):
         self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
@@ -10469,17 +10503,40 @@ class GUI_OPX():
         #self.prepare_scan_data()
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
-
+        filename_only = os.path.basename(fn)
+        show_msg_window(f"{filename_only}")
         # total experiment time
         end_time = time.time()
-        print(f"end_time: {end_time}")
+        # print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
-        print(f"Elapsed time: {elapsed_time} seconds")
+        print(f"Elapsed time: {elapsed_time:.0f} seconds")
 
         if not (self.stopScan):
             self.btnStop()
 
+        return self.scan_data
+
+    def set_hwp_angle(self, new_hwp_angle: float):
+        """
+        Move the half-wave plate (HWP) to exactly new_hwp_angle degrees.
+        Blocks until the motion is within 0.01°.
+        """
+        try:
+            print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
+            # Kick off the motion
+            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
+            time.sleep(0.2)
+
+            # Poll until within 0.01°
+            current_hwp = self.kdc_101.get_current_position()
+            while abs(current_hwp - new_hwp_angle) > 0.01:
+                time.sleep(0.2)
+                current_hwp = self.kdc_101.get_current_position()
+
+            return current_hwp
+        except Exception as e:
+            print(f"Error in set_hwp_angle: {e}")
 
     def scan3d_femto_pulses(self):  # currently flurascence scan
         if len(self.positioner.LoggedPoints) == 3:
@@ -10488,7 +10545,7 @@ class GUI_OPX():
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
         cam = self.HW.camera
         if cam.constantGrabbing:
-            toggle_sc(reverse=False)
+            toggle_sc(reverse=False,check_dx=False)
 
         if dpg.does_item_exist("btnOPX_Stop"):
             print("Stopping previous experiment before scanning...")
@@ -10539,8 +10596,8 @@ class GUI_OPX():
             for tag in item_tags:
                 p_femto[tag] = dpg.get_value(tag)
                 print(f"{tag}: {p_femto[tag]}")
-            current_hwp_angle = self.kdc_101.get_current_position()
-            print(f"!!!!!!!!!! Current HWP position is {current_hwp_angle:.2f}")
+            initial_hwp_angle = self.kdc_101.get_current_position()
+            print(f"!!!!!!!!!! Current HWP position is {initial_hwp_angle:.2f}")
             # Store original attenuator value
             original_attenuator_value = self.pharos.getBasicTargetAttenuatorPercentage()
             print(f"!!!!!!!!!! Original attenuator value is {original_attenuator_value:.2f}")
@@ -10625,16 +10682,10 @@ class GUI_OPX():
 
                 if self.Shoot_Femto_Pulses:
                     if p_femto["femto_increment_att"] == 0:
-                        new_hwp_angle = current_hwp_angle + p_femto["femto_increment_hwp"] * j
+                        new_hwp_angle = initial_hwp_angle + p_femto["femto_increment_hwp"] * j
                         if abs(new_hwp_angle - current_hwp) > 0.01:
-                            print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
-                            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
-                            time.sleep(0.2)
-                            # Wait until HWP reaches the new angle
-                            current_hwp = self.kdc_101.get_current_position()
-                            while abs(current_hwp - new_hwp_angle) > 0.01:
-                                time.sleep(0.2)
-                                current_hwp = self.kdc_101.get_current_position()
+                            # print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
+                            current_hwp=self.set_hwp_angle(new_hwp_angle)
                         self.all_y_scan.append(self.V_scan[1][j])
                         self.all_hwp_angles.append(current_hwp)
                     else:
@@ -10707,13 +10758,7 @@ class GUI_OPX():
                                               f"Anneal HWP angle < 0: {hwp_anneal_angle:.2f}° — Aborting anneal")
                                 return
                             print(f"!!!!! set HWP to {hwp_anneal_angle:.2f} deg !!!!!")
-                            self.kdc_101.MoveABSOLUTE(hwp_anneal_angle)
-                            time.sleep(0.2)
-                            # Wait until HWP reaches the new angle
-                            current_hwp = self.kdc_101.get_current_position()
-                            while abs(current_hwp - hwp_anneal_angle) > 0.01:
-                                time.sleep(0.2)
-                                current_hwp = self.kdc_101.get_current_position()
+                            current_hwp=self.set_hwp_angle(hwp_anneal_angle)
 
                             print(f"Anneal Pulses!")
 
@@ -10789,13 +10834,7 @@ class GUI_OPX():
 
                             new_hwp_angle = current_hwp + p_femto["femto_increment_hwp_anneal"]
                             print(f"!!!!! set HWP to {new_hwp_angle:.2f} deg !!!!!")
-                            self.kdc_101.MoveABSOLUTE(new_hwp_angle)
-                            time.sleep(0.2)
-                            # Wait until HWP reaches the new angle
-                            current_hwp = self.kdc_101.get_current_position()
-                            while abs(current_hwp - new_hwp_angle) > 0.01:
-                                time.sleep(0.2)
-                                current_hwp = self.kdc_101.get_current_position()
+                            current_hwp=self.set_hwp_angle(new_hwp_angle)
 
                     # self.positioner.generatePulse(channel=0) # should trigger measurement by smaract trigger
                     if not self.stopScan:
@@ -10848,14 +10887,8 @@ class GUI_OPX():
         if self.Shoot_Femto_Pulses:
             if p_femto["femto_increment_att"] == 0:
                 name_addition = "hwp"
-                print(f"Restoring HWP to {current_hwp_angle:.2f} deg")
-                self.kdc_101.MoveABSOLUTE(current_hwp_angle)
-                time.sleep(0.2)
-                # Wait until reached
-                current_hwp = float(str(self.kdc_101.get_current_position()))
-                while abs(current_hwp - current_hwp_angle) > 0.01:
-                    time.sleep(0.2)
-                    current_hwp = float(str(self.kdc_101.get_current_position()))
+                print(f"Restoring HWP to {initial_hwp_angle:.2f} deg")
+                current_hwp=self.set_hwp_angle(initial_hwp_angle)
             else:
                 name_addition = "att"
                 print(f"Restoring attenuator to {original_attenuator_value:.2f}%")
@@ -10884,21 +10917,46 @@ class GUI_OPX():
 
         # total experiment time
         end_time = time.time()
-        print(f"end_time: {end_time}")
+        # print(f"end_time: {end_time}")
         elapsed_time = end_time - start_time
         print(f"number of points ={self.N_scan[0] * self.N_scan[1] * self.N_scan[2]}")
-        print(f"Elapsed time: {elapsed_time} seconds")
+        print(f"Elapsed time: {elapsed_time:.0f} seconds")
 
+        # Always save _pulse_data with header
+        file_prefix = self.create_scan_file_name(local=False)
+        pulse_data_filename = file_prefix + "_pulse_data.csv"
+
+        # Build header parts
+        hwp_start = initial_hwp_angle
+        hwp_step = p_femto["femto_increment_hwp"]
+        hwp_end = hwp_start + hwp_step * self.N_scan[1]
+        att_percent = p_femto["femto_attenuator"]
+
+        dx_um = self.dL_scan[0]  # um
+        dy_um = self.dL_scan[1]  # um
+        Lx_um = self.L_scan[0] # um
+        Ly_um = self.L_scan[1] # um
+        hwp_ann = p_femto["femto_increment_hwp_anneal"]
+        n_pulses_ann = p_femto["femto_anneal_pulse_count"]
+
+        header_line = f"{hwp_start:.1f}:{hwp_step:.1f}:{hwp_end:.1f},{att_percent:.1f}%, dx={dx_um:.0f} dy={dy_um:.0f} Lx={Lx_um:.0f} Ly={Ly_um:.0f} HWPAnn={hwp_ann:.3f} nPlsAnn={n_pulses_ann}"
+
+        # If there are anneal results, write them; else just header
         if self.anneal_results:
-            file_prefix = self.create_scan_file_name(local=False)
-            self.save_to_cvs(file_prefix + "_anneal.csv", {
+            data_to_save = {
                 "Time (s)": [row[0] for row in self.anneal_results],
                 "Count (kCounts/s)": [row[1] for row in self.anneal_results],
                 "X (abs)": [row[2] for row in self.anneal_results],
                 "Y (abs)": [row[3] for row in self.anneal_results],
                 "HWP (deg)": [row[4] for row in self.anneal_results],
-            })
-            print(f"Anneal results saved to: {file_prefix}_anneal.csv")
+            }
+            self.save_to_cvs(pulse_data_filename, data_to_save, header=header_line)
+            print(f"Pulse data with anneal saved to: {pulse_data_filename}")
+        else:
+            # Just write header line
+            with open(pulse_data_filename, 'w') as f:
+                f.write(header_line + "\n")
+            print(f"Pulse header saved to: {pulse_data_filename}")
 
         self.Shoot_Femto_Pulses = False
         if not (self.stopScan):
@@ -11387,9 +11445,9 @@ class GUI_OPX():
         self.writeParametersToXML(fn + ".xml")
         self.to_xml()
         end_time = time.time()
-        print(f"end_time: {end_time}")
+        # print(f"end_time: {end_time}")
         print(f"number of points = {Nx * Ny * Nz}")
-        print(f"Elapsed time: {end_time - start_time} seconds")
+        print(f"Elapsed time: {end_time - start_time:.0f} seconds")
 
         if not self.stopScan:
             self.btnStop()
@@ -11411,49 +11469,6 @@ class GUI_OPX():
                     z = z_vec[i]
                     I = self.scan_intensities[k, j, i]
                     self.scan_Out.append([x, y, z, I, x, y, z])
-
-    # def prepare_scan_data(self):
-    #     """
-    #     Prepare scan data with actual positions (X_vec, Y_vec, Z_vec), intensities,
-    #     and expected positions derived from V_scan. If actual positions are None,
-    #     they default to expected positions.
-    #     """
-    #     # Create an object to be saved in Excel
-    #     self.scan_Out = []
-    #
-    #     # Get dimensions
-    #     Nx, Ny, Nz = len(self.V_scan[0]), len(self.V_scan[1]), len(self.V_scan[2])
-    #
-    #     # self.scan_intensities = np.array(self.scan_intensities).flatten().reshape(Nx, Ny, Nz)
-    #     intensities_data = np.array(self.scan_counts_aggregated).flatten().reshape(Nx, -1, Nz)
-    #     Ny = intensities_data.shape[1]
-    #     # Loop over Z, Y, and X scan coordinates
-    #     for i in range(Nz):  # Z dimension
-    #         for j in range(Ny):  # Y dimension
-    #             for k in range(Nx):  # X dimension
-    #                 # Expected positions derived from V_scan
-    #                 x_expected = self.V_scan[0][k]
-    #                 y_expected = self.V_scan[1][j]
-    #                 z_expected = self.V_scan[2][i]
-    #
-    #                 # Actual positions
-    #                 x_actual = (self.X_vec[k] if self.X_vec is not None and k < len(self.X_vec) else x_expected)
-    #                 y_actual = (self.Y_vec[j] if self.Y_vec is not None and j < len(self.Y_vec) else y_expected)
-    #                 z_actual = (self.Z_vec[i] if self.Z_vec is not None and i < len(self.Z_vec) else z_expected)
-    #
-    #                 # Intensity at the current position
-    #                 intensities = (
-    #                     intensities_data[k, j, i]
-    #                     if intensities_data is not None
-    #                        and k < intensities_data.shape[0]
-    #                        and j < intensities_data.shape[1]
-    #                        and i < intensities_data.shape[2]
-    #                     else 0
-    #                 )
-    #
-    #                 # Append data for this point
-    #                 self.scan_Out.append(
-    #                     [x_actual, y_actual, z_actual, intensities, x_expected, y_expected, z_expected])
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
@@ -11548,6 +11563,10 @@ class GUI_OPX():
             data = loadFromCSV(fn)
             self.idx_scan = [0, 0, 0]
             self.Plot_data(data, True)
+            self.last_loaded_file = fn  # ✅ Store it!
+            print(f"Loaded: {fn}")
+        else:
+            print("No file selected.")
 
     def save_scan_data(self, Nx, Ny, Nz, fileName=None, to_append: bool = False):
         if fileName == None:
@@ -11593,7 +11612,11 @@ class GUI_OPX():
             self.scan_data = self.Scan_matrix
             self.idx_scan = [Nz - 1, 0, 0]
 
-            self.startLoc = [Scan_array[1, 4] / 1e6, Scan_array[1, 5] / 1e6, Scan_array[1, 6] / 1e6]
+            if Scan_array.shape[0] > 1:
+                self.startLoc = [Scan_array[1, 4] / 1e6,Scan_array[1, 5] / 1e6,Scan_array[1, 6] / 1e6]
+            else:
+                self.startLoc = [Scan_array[0, 4] / 1e6,Scan_array[0, 5] / 1e6,Scan_array[0, 6] / 1e6]
+
             if Nz == 0:
                 self.endLoc = [self.startLoc[0] + self.dL_scan[0] * (Nx - 1) / 1e3,
                                self.startLoc[1] + self.dL_scan[1] * (Ny - 1) / 1e3, 0]
@@ -11659,7 +11682,7 @@ class GUI_OPX():
 
     def FindMaxSignal(self):
         self.track_numberOfPoints = self.N_tracking_search  # number of point to scan for each axis
-        self.trackStep = 75000  # [pm], step size
+        self.trackStep = 50000  # [pm], step size
         initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
         # self.numberOfRefPoints = 1000
 
@@ -11667,6 +11690,7 @@ class GUI_OPX():
         self.coordinate = []
 
         for ch in range(3):
+            print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ch{ch} !!!!!!!!!!!!!!!!!!!!")
             self.track_X = []
             self.coordinate = []
 
@@ -11679,25 +11703,25 @@ class GUI_OPX():
             time.sleep(0.001)
             while not (self.positioner.ReadIsInPosition(ch)):
                 time.sleep(0.001)
-            print(f"is in position = {self.positioner.ReadIsInPosition(ch)}")
+            # print(f"is in position = {self.positioner.ReadIsInPosition(ch)}")
             self.positioner.GetPosition()
             self.absPosunits = self.positioner.AxesPosUnits[ch]
             self.absPos = self.positioner.AxesPositions[ch]
 
             self.GlobalFetchData()
             lastRef = self.tracking_ref
-            last_iteration = self.iteration
+            # last_iteration = self.iteration
 
             for i in range(self.track_numberOfPoints):
                 # grab/fetch new data from stream
                 time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001)  # [sec]
                 self.GlobalFetchData()
-                while (last_iteration == self.iteration):  # wait for new data
-                    time.sleep(0.01)  # according to OS priorities
-                    self.GlobalFetchData()
+                # while (last_iteration == self.iteration):  # wait for new data
+                time.sleep(0.01)  # according to OS priorities
+                self.GlobalFetchData()
                 self.lock.acquire()
                 lastRef = self.tracking_ref
-                last_iteration = self.iteration
+                # last_iteration = self.iteration
                 self.lock.release()
 
                 # Log data                
@@ -11887,8 +11911,8 @@ class GUI_OPX():
     def MoveToPeakIntensity(self):
         print('Start looking for peak intensity')
         if self.bEnableSignalIntensityCorrection or self.survey:
-            print(f"self.HW.atto_scanner is {self.HW.atto_scanner}")
-            print(f"self.HW.atto_positioner is {self.HW.atto_positioner}")
+            # print(f"self.HW.atto_scanner is {self.HW.atto_scanner}")
+            # print(f"self.HW.atto_positioner is {self.HW.atto_positioner}")
             if self.HW.atto_scanner or self.HW.atto_positioner:
                 print("Working in Atto system")
                 self.MAxSignalTh = threading.Thread(target=self.tracking_function)
@@ -11979,16 +12003,15 @@ class GUI_OPX():
         return str(now.year) + "_" + str(now.month) + "_" + str(now.day) + "_" + str(now.hour) + "_" + str(
             now.minute) + "_" + str(now.second)
 
-    def saveExperimentsNotes(self, appdata, sender):
+    def saveExperimentsNotes(self, appdata=None, note=None):
         # dpg.set_value("text item", f"Mouse Button ID: {app_data}")
-        self.expNotes = sender
-        self.HW.camera.imageNotes = sender
+        self.expNotes = note
+        self.HW.camera.imageNotes = note
         # if self.added_comments is not None:
-        self.added_comments = sender
+        self.added_comments = note
 
-    def save_to_cvs(self, file_name, data, to_append: bool = False):
+    def save_to_cvs(self, file_name, data, to_append: bool = False, header: str = None):
         print("Starting to save data to CSV.")
-
 
         # Ensure data is a dictionary
         if not isinstance(data, dict) or not all(isinstance(v, list) for v in data.values()):
@@ -12009,6 +12032,11 @@ class GUI_OPX():
             # Open the file in append or write mode
             with open(file_name, mode='a' if to_append else 'w', newline='') as file:
                 writer = csv.writer(file)
+
+                # If writing a fresh file and header is provided → write header line first
+                if not to_append and not file_exists and header:
+                    print("Writing custom header line...")
+                    file.write(header + "\n")
 
                 # Write headers if not appending or file doesn't exist
                 if not to_append or not file_exists:

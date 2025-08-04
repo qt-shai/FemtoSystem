@@ -55,6 +55,7 @@ class LightFieldSpectrometer:
             and :py:meth:`is_connected` returns ``False``.
             """
 
+        self.last_saved_csv = None
         self.visible = visible
         self.file_path = file_path
         self._auto = None
@@ -217,12 +218,18 @@ class LightFieldSpectrometer:
         self.wait_until_ready()
         after = self.get_list_of_files()
         new_file = self.find_new_file(before, after)
-        #new_file = "C:\\Users\\ice\\Work Folders\\Documents\\29 2025 March 26 17_42_01.csv"
+        if new_file:
+            self.last_saved_csv = new_file[0]
+            print(f"New data file: {self.last_saved_csv}")
+        else:
+            self.last_saved_csv = None
+            print("No new file found!")
         try:
-            spe_file_data = loadFromCSV(new_file[0])
+            spe_file_data = loadFromCSV(self.last_saved_csv) if self.last_saved_csv else None
         except Exception as e:
-            print(e)
-        #spe_file_data = sl.load_from_files(new_file)
+            print(f"Error loading CSV '{self.last_saved_csv}': {e}")
+            spe_file_data = None
+
         return spe_file_data  # NumPy array (frames, roiY, roiX)
 
     def _get_save_directory(self) -> str:

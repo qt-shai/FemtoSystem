@@ -45,7 +45,7 @@ class GUI_KDC101(GUIMotor):
                     dpg.add_input_float(default_value=float(str(self.dev.get_current_position())),
                                         callback=self.update_position,
                                         tag=self.position_input_tag,
-                                        format='%.6f',
+                                        format='%.2f',
                                         step = self.step,
                                         indent=10,
                                         on_enter=True,
@@ -53,11 +53,18 @@ class GUI_KDC101(GUIMotor):
                                         min_value = 0,
                                         width=75,
                                         parent = self.controls_tag)
-            with dpg.group(horizontal=False, pos = [10,120]):
+            with dpg.group(horizontal=False):#, pos = [10,120]):
                 dpg.add_text("Current Position:", color=(0, 255, 0), indent=10)
                 dpg.add_text(default_value="---", tag=self.position_display_tag, indent=10)
                 dpg.add_button(label="Read Current Angle", callback=self.read_current_angle)
 
+    def DeleteMainWindow(self):
+        """
+        Deletes the main Dear PyGui window and does any needed cleanup.
+        """
+        if dpg.does_item_exist(self.window_tag):
+            dpg.delete_item(self.window_tag)
+        print(f"Deleted KDC_101 GUI window: {self.window_tag}")
 
     def read_current_angle(self):
         try:

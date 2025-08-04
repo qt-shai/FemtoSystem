@@ -1,10 +1,11 @@
 import datetime
+import traceback
 from datetime import datetime
 import socket
 import threading
 from enum import Enum
 import os
-
+import time
 import dearpygui.dearpygui as dpg
 from matplotlib import pyplot as plt
 
@@ -18,7 +19,16 @@ import win32con
 from datetime import datetime
 import ctypes
 import win32process
+from screeninfo import get_monitors
 
+def get_primary_resolution():
+    for m in get_monitors():
+        if m.is_primary:
+            return (m.width, m.height)
+    return (0, 0)
+    # USAGE
+    # w, h = get_primary_resolution()
+    # print(f"Primary screen resolution: {w} x {h}")
 
 # add bubble sort
 class Common_Counter_Singletone:
@@ -144,7 +154,21 @@ class KeyboardKeys(Enum): # Mapping keys to custom values
     Z_KEY = 90
 
     OEM_COMMA = 188  # ,
-    OEM_PERIOD = 190  # .
+    OEM_PERIOD = 190  #
+    OEM_1 = 186  # ; :
+    OEM_2 = 191  # / or ? key
+
+    # ─── Printable digits ───
+    KEY_0 = 48
+    KEY_1 = 49
+    KEY_2 = 50
+    KEY_3 = 51
+    KEY_4 = 52
+    KEY_5 = 53
+    KEY_6 = 54
+    KEY_7 = 55
+    KEY_8 = 56
+    KEY_9 = 57
 
 from PIL import Image, ImageEnhance
 
@@ -214,12 +238,39 @@ class WindowNames(Enum):
     MOKUGO = "Moku_Win"
     CONSOL = "console_window"
 
+def is_remote_resolution() -> bool:
+    """
+    Detect if the system is running on the 'remote' resolution.
+    This matches the check used in load_window_positions().
+    """
+    try:
+        w, h = get_primary_resolution()
+        print(f"[is_remote_resolution] Primary resolution: {w} x {h}")
+
+        # Adjust to your real remote screen dimensions
+        if w == 3840 and h == 1600:
+            print("[is_remote_resolution] Remote resolution detected -> True")
+            return True
+        else:
+            print("[is_remote_resolution] Local resolution -> False")
+            return False
+
+    except Exception as e:
+        print(f"[is_remote_resolution] Error detecting resolution: {e}")
+        return False
+
 def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
     """
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
     Supports dynamic windows like KDC101 and Femto_Power_Calculations.
     """
     try:
+        if is_remote_resolution():  # <- call your helper
+            file_name = "win_pos_remote.txt"
+            print(f"Remote resolution detected → Using {file_name}")
+        else:
+            print(f"Using {file_name}")
+
         if not os.path.exists(file_name):
             print(f"{file_name} not found.")
             return
@@ -280,6 +331,100 @@ def copy_image_to_clipboard(image_path):
     win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
     win32clipboard.CloseClipboard()
     print("Image copied to clipboard.")
+
+def save_quti_window_screenshot(suffix: str = None):
+    window_title = "QuTi SW"
+    hwnd = win32gui.FindWindow(None, None)
+
+    def enum_handler(h, _):
+        if window_title.lower() in win32gui.GetWindowText(h).lower():
+            nonlocal hwnd
+            hwnd = h
+    win32gui.EnumWindows(enum_handler, None)
+
+    if hwnd == 0:
+        print("Window 'QuTi SW' not found.")
+        return
+
+    # Bring to front
+    win32gui.ShowWindow(hwnd, 5)  # SW_SHOW
+    win32gui.SetForegroundWindow(hwnd)
+    win32gui.BringWindowToTop(hwnd)
+
+    # Get window rect
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+
+    # Screenshot
+    screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
+
+    # Get save directory from last_scan_dir.txt
+    try:
+        with open("last_scan_dir.txt", "r") as f:
+            save_dir = f.read().strip()
+    except Exception as e:
+        print(f"Error reading last_scan_dir.txt: {e}")
+        return
+
+    if not os.path.isdir(save_dir):
+        print(f"Directory does not exist: {save_dir}")
+        return
+
+    # Build filename
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    # sanitize suffix for filesystem
+    if suffix:
+        safe = "".join(c for c in suffix if c.isalnum() or c in (" ", "_", "-")).rstrip()
+        fname = f"QUTI_{timestamp}_{safe}.png"
+    else:
+        fname = f"QUTI_{timestamp}.png"
+
+    save_path = os.path.join(save_dir, fname)
+
+    # Save it
+    try:
+        screenshot.save(save_path)
+        print(f"Saved QUTI window screenshot: {save_path}")
+    except Exception as e:
+        print(f"Failed to save screenshot: {e}")
+
+def show_msg_window(msg_text: str,height=110):
+    window_tag = "msg_Win"
+    drawlist_tag = "msg_drawlist"
+
+    # Remove old window if it exists
+    if dpg.does_item_exist(window_tag):
+        dpg.delete_item(window_tag)
+
+    # Create a new window in the center-ish
+    with dpg.window(
+        label="Message",
+        tag=window_tag,
+        no_title_bar=True,
+        no_resize=False,
+        pos=[0, 40],
+        width=1890,
+        height=height
+    ):
+        # A drawlist lets us use draw_text with size
+        dpg.add_drawlist(width=1900, height=100, tag="msg_drawlist")
+        dpg.draw_text(
+            pos=(0, 0),
+            text=msg_text,
+            color=(255, 255, 0, 255),
+            size=100,
+            parent=drawlist_tag
+        )
+        # child_window for scrolling
+        dpg.add_child_window(tag="msg_child", parent=window_tag)
+        dpg.add_text(
+            default_value=msg_text,
+            wrap=1800,  # wrap just inside the child width
+            parent="msg_child",
+            color=(255, 255, 0, 255),
+        )
+        dpg.add_button(label="Close", callback=lambda: dpg.delete_item(window_tag))
+
+    print(f"Displayed message in {window_tag}: {msg_text}")
 
 def copy_quti_window_to_clipboard():
     window_title = "QuTi SW"
