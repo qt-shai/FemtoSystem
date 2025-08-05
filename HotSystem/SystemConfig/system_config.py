@@ -52,7 +52,8 @@ class InstrumentsAddress(Enum):
     MCS2_00018624 = "192.168.101.59"
     MCS2_00017055 = "192.168.101.60"
     MATTISE = "COM3"
-    KEYSIGHT_AWG_33522B = "TCPIP::K-33522B-03690.local::5025::SOCKET"
+    # KEYSIGHT_AWG_33522B = "TCPIP::K-33522B-03690.local::5025::SOCKET"
+    KEYSIGHT_AWG_33522B = "TCPIP0::K-33522B-03690.local::5025::SOCKET"
     KEYSIGHT_AWG_33600A = "TCPIP::A-33600-00000.local::5025::SOCKET"
     Rhode_Schwarz_hot_system = '192.168.101.57'  # todo replace with search for device IP and address and some CNFG files
     Rhode_Schwarz_atto = "192.168.101.50"

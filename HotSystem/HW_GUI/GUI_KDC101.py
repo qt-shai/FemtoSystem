@@ -32,14 +32,7 @@ class GUI_KDC101(GUIMotor):
         with dpg.window(label=f"{self.prefix} motor", no_title_bar=False,
                         height=150, width=400, pos=[0, 0],
                         collapsed=False, tag=self.window_tag):
-            with dpg.group(horizontal=False, tag=f"group 1_{self.unique_id}", width=Child_Width):
-                dpg.add_button(label="Home", callback=self.home_button, pos=[150,30])
-                dpg.add_button(label="Disable", tag=self.enable_button_tag, callback=self.enable_button, pos=[20,30])
-                dpg.add_button(label="Stop", tag=self.stop_button_tag, callback=self.stop_button, pos=[280, 30])
-                dpg.add_button(label="Jog up", tag=self.jog_up_tag, callback=self.jog_up_button, pos=[280, 80])
-                dpg.add_button(label="Jog Down", tag=self.jog_down_tag, callback=self.jog_down_button, pos=[280, 110])
-            with dpg.group(horizontal=False, tag=f"column 2_{self.unique_id}", width=2*Child_Width, pos = [10,60], height = 120):
-                #dpg.add_text(tag = "blabla_tag", default_value= self.dev.blabla.get(), color=(255, 255, 0))
+            with dpg.group(horizontal=False, tag=f"column 2_{self.unique_id}", width=2*Child_Width, height = 120):
                 with dpg.group(tag=self.controls_tag, parent = f"column 2_{self.unique_id}"):
                     dpg.add_text("Input Position:", color=(0, 255, 0), indent = 10)
                     dpg.add_input_float(default_value=float(str(self.dev.get_current_position())),
@@ -57,6 +50,12 @@ class GUI_KDC101(GUIMotor):
                 dpg.add_text("Current Position:", color=(0, 255, 0), indent=10)
                 dpg.add_text(default_value="---", tag=self.position_display_tag, indent=10)
                 dpg.add_button(label="Read Current Angle", callback=self.read_current_angle)
+            with dpg.group(horizontal=True, tag=f"group 1_{self.unique_id}", width=Child_Width):
+                dpg.add_button(label="Home", callback=self.home_button)
+                dpg.add_button(label="Disable", tag=self.enable_button_tag, callback=self.enable_button)
+                dpg.add_button(label="Stop", tag=self.stop_button_tag, callback=self.stop_button)
+                dpg.add_button(label="Jog up", tag=self.jog_up_tag, callback=self.jog_up_button)
+                dpg.add_button(label="Jog Down", tag=self.jog_down_tag, callback=self.jog_down_button)
 
     def DeleteMainWindow(self):
         """

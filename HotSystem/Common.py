@@ -1,4 +1,7 @@
 import datetime
+import json
+import sys
+import tempfile
 import traceback
 from datetime import datetime
 import socket
@@ -20,6 +23,7 @@ from datetime import datetime
 import ctypes
 import win32process
 from screeninfo import get_monitors
+from PIL import ImageGrab, PngImagePlugin
 
 def get_primary_resolution():
     for m in get_monitors():
@@ -153,10 +157,18 @@ class KeyboardKeys(Enum): # Mapping keys to custom values
     Y_KEY = 89
     Z_KEY = 90
 
+    # ─── OEM keys and punctuation ───
     OEM_COMMA = 188  # ,
-    OEM_PERIOD = 190  #
+    OEM_PERIOD = 190  # .
     OEM_1 = 186  # ; :
-    OEM_2 = 191  # / or ? key
+    OEM_2 = 191  # / ?
+    OEM_3 = 192  # ` ~
+    OEM_4 = 219  # [ {
+    OEM_5 = 220  # \ |
+    OEM_6 = 221  # ] }
+    OEM_7 = 222  # ' "
+    OEM_PLUS = 187  # = +
+    OEM_MINUS = 189  # - _
 
     # ─── Printable digits ───
     KEY_0 = 48
@@ -259,62 +271,136 @@ def is_remote_resolution() -> bool:
         print(f"[is_remote_resolution] Error detecting resolution: {e}")
         return False
 
-def load_window_positions(file_name: str = "win_pos_local.txt") -> None:
+def toggle_sc(reverse=False):
+    try:
+        parent = getattr(sys.stdout, "parent", None)
+        cam = getattr(parent, "cam", None)
+        mff = getattr(parent, "mff_101_gui", [])
+        if cam:
+            if reverse and hasattr(cam, "StartLive"):
+                cam.StartLive()
+                print("Camera live view started.")
+                if not parent.opx.counter_is_live:
+                    parent.opx.btnStartCounterLive()
+            elif not reverse and hasattr(cam, "StopLive"):
+                cam.StopLive()
+                print("Camera live view stopped.")
+        for flipper in mff:
+            slider_tag = f"on_off_slider_{flipper.unique_id}"
+            pos = flipper.dev.get_position()
+            if (not reverse and pos == 1) or (reverse and pos == 2):
+                flipper.on_off_slider_callback(slider_tag, 1 if not reverse else 0)
+    except Exception as e:
+        print(f"Error in toggle_sc: {e}")
+
+def load_window_positions(file_name: str = None) -> None:
     """
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
-    Supports dynamic windows like KDC101 and Femto_Power_Calculations.
+    Also applies saved graph size for the 'plotImaga' plot.
     """
     try:
-        if is_remote_resolution():  # <- call your helper
-            file_name = "win_pos_remote.txt"
-            print(f"Remote resolution detected → Using {file_name}")
-        else:
-            print(f"Using {file_name}")
+        # 1) Determine which file to use
+        if not file_name:
+            if is_remote_resolution():
+                file_name = "win_pos_remote.txt"
+                print(f"Remote resolution detected -> Using {file_name}")
+            else:
+                file_name = "win_pos_local.txt"
+                print(f"Using {file_name}")
 
         if not os.path.exists(file_name):
             print(f"{file_name} not found.")
             return
 
-        with open(file_name, "r") as file:
-            lines = file.readlines()
+        # 2) Read all lines
+        with open(file_name, "r") as f:
+            lines = f.readlines()
 
         window_positions = {}
         window_sizes = {}
 
+        # 3) Parse
         for line in lines:
             line = line.strip()
             if not line:
                 continue
 
-            if "_Pos:" in line:
-                key, value = line.split("_Pos:")
-                window_name = key.strip()
-                x, y = [float(v.strip()) for v in value.split(",")]
-                window_positions[window_name] = (x, y)
+            if line.startswith("Viewport_Size:"):
+                _, val = line.split("Viewport_Size:")
+                vp_w, vp_h = map(int, val.split(","))
+                dpg.set_viewport_width(vp_w)
+                dpg.set_viewport_height(vp_h)
+                print(f"Restored viewport size: {vp_w}×{vp_h}")
+
+            elif "_Pos:" in line:
+                name, val = line.split("_Pos:")
+                name = name.strip()
+                x, y = map(float, val.split(","))
+                window_positions[name] = (x, y)
 
             elif "_Size:" in line:
-                key, value = line.split("_Size:")
-                window_name = key.strip()
-                w, h = [float(v.strip()) for v in value.split(",")]
-                window_sizes[window_name] = (w, h)
+                name, val = line.split("_Size:")
+                name = name.strip()
+                w, h = map(float, val.split(","))
+                window_sizes[name] = (int(w), int(h))
 
-        for window_name, pos in window_positions.items():
-            if dpg.does_item_exist(window_name):
-                dpg.set_item_pos(window_name, pos)
-                print(f"Loaded position for {window_name}: {pos}")
+        # 4) Apply positions (with prefix‐fallback for Keysight windows)
+        for key, pos in window_positions.items():
+            applied = False
+            # exact match?
+            if dpg.does_item_exist(key):
+                dpg.set_item_pos(key, pos)
+                applied = True
+            # prefix‐match for any Keysight33500B_Win* alias
+            elif key.startswith("Keysight33500B_Win"):
+                for item in dpg.get_all_items():
+                    alias = dpg.get_item_alias(item) or str(item)
+                    if alias.startswith("Keysight33500B_Win"):
+                        dpg.set_item_pos(alias, pos)
+                        applied = True
+            if applied:
+                print(f"Loaded position for '{key}' → {pos}")
             else:
-                print(f"[load] {window_name} not found in current DPG context.")
+                print(f"[load] position target not found: '{key}'")
 
-        for window_name, size in window_sizes.items():
-            if dpg.does_item_exist(window_name):
-                dpg.set_item_width(window_name, size[0])
-                dpg.set_item_height(window_name, size[1])
-                print(f"Loaded size for {window_name}: {size}")
+        # 5) Apply sizes (skip the plot here; restore it below)
+        for key, (w, h) in window_sizes.items():
+            if key == "plotImaga":
+                continue
+
+            applied = False
+            if dpg.does_item_exist(key):
+                dpg.set_item_width(key,  w)
+                dpg.set_item_height(key, h)
+                applied = True
+            elif key.startswith("Keysight33500B_Win"):
+                for item in dpg.get_all_items():
+                    alias = dpg.get_item_alias(item) or str(item)
+                    if alias.startswith("Keysight33500B_Win"):
+                        dpg.set_item_width(alias,  w)
+                        dpg.set_item_height(alias, h)
+                        applied = True
+            if applied:
+                print(f"Loaded size for '{key}' → {w}×{h}")
             else:
-                print(f"[load] {window_name} not found in current DPG context.")
+                print(f"[load] size target not found: '{key}'")
+
+        # 6) Finally restore the plot itself
+        graph_tag = "plotImaga"
+        if graph_tag in window_sizes and dpg.does_item_exist(graph_tag):
+            w, h = window_sizes[graph_tag]
+            dpg.set_item_width(graph_tag,  w)
+            dpg.set_item_height(graph_tag, h)
+            # if you store it on your OPX object:
+            p=getattr(sys.stdout, "parent", None)
+            p.opx.graph_size_override = (w, h)
+            print(f"Loaded graph size for '{graph_tag}': {w}×{h}")
+        else:
+            print(f"No saved size for graph '{graph_tag}', or it wasn't found.")
 
     except Exception as e:
         print(f"Error loading window positions and sizes: {e}")
+
 
 def copy_image_to_clipboard(image_path):
     image = Image.open(image_path)
@@ -390,11 +476,10 @@ def save_quti_window_screenshot(suffix: str = None):
 def show_msg_window(msg_text: str,height=110):
     window_tag = "msg_Win"
     drawlist_tag = "msg_drawlist"
-
     # Remove old window if it exists
     if dpg.does_item_exist(window_tag):
         dpg.delete_item(window_tag)
-
+    width = 1450
     # Create a new window in the center-ish
     with dpg.window(
         label="Message",
@@ -402,11 +487,11 @@ def show_msg_window(msg_text: str,height=110):
         no_title_bar=True,
         no_resize=False,
         pos=[0, 40],
-        width=1890,
+        width=width,
         height=height
     ):
         # A drawlist lets us use draw_text with size
-        dpg.add_drawlist(width=1900, height=100, tag="msg_drawlist")
+        dpg.add_drawlist(width=width, height=100, tag="msg_drawlist")
         dpg.draw_text(
             pos=(0, 0),
             text=msg_text,
@@ -418,7 +503,7 @@ def show_msg_window(msg_text: str,height=110):
         dpg.add_child_window(tag="msg_child", parent=window_tag)
         dpg.add_text(
             default_value=msg_text,
-            wrap=1800,  # wrap just inside the child width
+            wrap=width,  # wrap just inside the child width
             parent="msg_child",
             color=(255, 255, 0, 255),
         )
@@ -426,7 +511,7 @@ def show_msg_window(msg_text: str,height=110):
 
     print(f"Displayed message in {window_tag}: {msg_text}")
 
-def copy_quti_window_to_clipboard():
+def copy_quti_window_to_clipboard(metadata_dict: dict = None):
     window_title = "QuTi SW"
     hwnd = win32gui.FindWindow(None, None)
 
@@ -440,30 +525,37 @@ def copy_quti_window_to_clipboard():
         print("Window 'QuTi SW' not found.")
         return
 
-    # Bring the window to front
-    win32gui.ShowWindow(hwnd, 5)  # SW_SHOW
+    win32gui.ShowWindow(hwnd, 5)
     win32gui.SetForegroundWindow(hwnd)
     win32gui.BringWindowToTop(hwnd)
 
-    # Get window rectangle
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-
-    # Take screenshot of the window area
     screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
 
-    # Convert to DIB format for clipboard
+    png_info = PngImagePlugin.PngInfo()
+    if metadata_dict:
+        try:
+            metadata_json = json.dumps(metadata_dict)
+            png_info.add_text("Description", metadata_json)
+        except Exception as e:
+            print(f"Failed to encode metadata: {e}")
+
+    # Save to temp file with metadata
+    tmp_path = os.path.join(tempfile.gettempdir(), "quti_clip_with_meta.png")
+    screenshot.save(tmp_path, "PNG", pnginfo=png_info)
+
+    # Copy screenshot to clipboard as BMP (no metadata, just visual)
     output = io.BytesIO()
     screenshot.convert("RGB").save(output, "BMP")
-    data = output.getvalue()[14:]  # Skip BMP header
+    bmp_data = output.getvalue()[14:]
     output.close()
 
-    # Copy to clipboard
     win32clipboard.OpenClipboard()
     win32clipboard.EmptyClipboard()
-    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
     win32clipboard.CloseClipboard()
 
-    print("Copied 'QuTi SW' window to clipboard.")
+    print(f"Copied 'QuTi SW' to clipboard (visual only); metadata saved in temp: {tmp_path}")
 
 def wait_for_item_and_set(tag: str, value: str, max_retries=50, delay=0.1):
     import threading, time

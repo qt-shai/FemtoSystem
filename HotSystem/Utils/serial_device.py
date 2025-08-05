@@ -206,7 +206,7 @@ class SerialDevice:
             # Check for termination character
             if not response.endswith(self.read_terminator.strip()):
                 response = response.rstrip()  # Strip trailing characters if termination character is missing
-                print("Warning: Response does not end with termination character.")
+                # print("Warning: Response does not end with termination character.")
             if verbose:
                 print(f"Received: {response}")
             return response

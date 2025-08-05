@@ -178,7 +178,7 @@ class GUI_HRS500():
 
                 try:
                     os.rename(filepath, new_fp)
-                    print(f"Renamed file → {new_fp} | Time elapsed: {elapsed:.2f}s")
+                    print(f"Renamed file -> {new_fp} | Time elapsed: {elapsed:.2f}s")
                     # Update your device’s last_saved_csv to the new name too:
                     self.dev.last_saved_csv = new_fp
                 except Exception as e:

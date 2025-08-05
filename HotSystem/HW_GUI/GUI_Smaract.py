@@ -237,52 +237,62 @@ class GUI_smaract():
             print(f"Failed to parse clipboard: {e}")
 
     def save_pos(self, profile_name="local"):
-        # Define the list of windows to check and save positions for
-        # self.smaractGUI.save_pos("remote")
-        # self.smaractGUI.load_pos("remote")
+        # Core static windows
         window_names = [
             "pico_Win", "mcs_Win", "Zelux Window", "graph_window", "Main_Window",
             "OPX Window", "Map_window", "Scan_Window", "LaserWin", "CLD1011LP_Win",
-            "experiments_window", "graph_window", "console_window", "hrs500_Win"
+            "experiments_window", "console_window", "hrs500_Win",
         ]
         file_name = f"win_pos_{profile_name}.txt"
 
-        # Dynamically find and add all KDC windows
-        all_windows = dpg.get_all_items()
-        for item in all_windows:
+        # Save viewport size
+        vp_w = dpg.get_viewport_client_width()
+        vp_h = dpg.get_viewport_client_height()
+
+        # Gather all windows once
+        all_items = dpg.get_all_items()
+        # Any alias starting with one of these prefixes will be recorded
+        dynamic_prefixes = [
+            "KDC101_Win_",
+            "Femto_Window_",
+            "Keysight33500B_Win"
+        ]
+
+        for item in all_items:
             if dpg.get_item_type(item) == "mvAppItemType::mvWindowAppItem":
                 tag = dpg.get_item_alias(item) or str(item)
-                if tag.startswith("KDC101_Win_"):
-                    window_names.append(tag)
+                for prefix in dynamic_prefixes:
+                    if tag.startswith(prefix):
+                        window_names.append(tag)
+                        break
 
-        # ✅ Add the Femto_Power_Calculations window if it exists
-        for item in all_windows:
-            if dpg.get_item_type(item) == "mvAppItemType::mvWindowAppItem":
-                tag = dpg.get_item_alias(item) or str(item)
-                if tag.startswith("Femto_Window_"):
-                    window_names.append(tag)
-
-        # Dictionary to store window positions and dimensions
+        # Collect positions & sizes
         window_positions = {}
+        for win in window_names:
+            if dpg.does_item_exist(win):
+                pos = dpg.get_item_pos(win)
+                size = (dpg.get_item_width(win), dpg.get_item_height(win))
+                window_positions[win] = (pos, size)
+                print(f"{win}: pos={pos}, size={size}")
 
-        # Iterate through the list of window names and collect their positions and sizes if they exist
-        for win_name in window_names:
-            if dpg.does_item_exist(win_name):
-                win_pos = dpg.get_item_pos(win_name)
-                win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
-                window_positions[win_name] = (win_pos, win_size)
-                print(f"Position of {win_name}: {win_pos}, Size: {win_size}")
+        # Also capture OPX graph size
+        graph_tag = "plotImaga"
+        if dpg.does_item_exist(graph_tag):
+            gsize = (dpg.get_item_width(graph_tag), dpg.get_item_height(graph_tag))
+            window_positions[graph_tag] = (None, gsize)
+            print(f"{graph_tag} size={gsize}")
 
+        # Write them out
         try:
-            # Write window positions and sizes to file
-            with open(file_name, "w") as file:
-                for win_name, (position, size) in window_positions.items():
-                    file.write(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
-                    file.write(f"{win_name}_Size: {size[0]}, {size[1]}\n")
-
-            print(f"Window positions and sizes saved successfully to {file_name}")
+            with open(file_name, "w") as f:
+                f.write(f"Viewport_Size: {vp_w}, {vp_h}\n")
+                for name, (pos, size) in window_positions.items():
+                    if pos is not None:
+                        f.write(f"{name}_Pos: {pos[0]}, {pos[1]}\n")
+                    f.write(f"{name}_Size: {size[0]}, {size[1]}\n")
+            print(f"Saved positions → {file_name}")
         except Exception as e:
-            print(f"Error saving window positions and sizes: {e}")
+            print(f"Error saving window positions: {e}")
 
     def load_pos(self, profile_name="local"):
         if str(profile_name) == "530":
@@ -296,12 +306,12 @@ class GUI_smaract():
     def ipt_large_step(self,app_data,user_data):
         ch=int(app_data[6])        
         self.dev.AxesKeyBoardLargeStep[ch]=int(user_data*self.dev.StepsIn1mm/1e3)
-        print(self.dev.AxesKeyBoardLargeStep[ch])
+        # print(self.dev.AxesKeyBoardLargeStep[ch])
 
     def ipt_small_step(self,app_data,user_data):
         ch=int(app_data[6])
         self.dev.AxesKeyBoardSmallStep[ch]=int(user_data*self.dev.StepsIn1mm/1e6)
-        print(self.dev.AxesKeyBoardSmallStep[ch])
+        # print(self.dev.AxesKeyBoardSmallStep[ch])
 
     def btnLogPoint(self):
 

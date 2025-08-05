@@ -57,6 +57,7 @@ packages = [
     "pywin32",
     "cv2",
     "opencv-python"
+    "pyperclip"
 ]
 
 b_install = True

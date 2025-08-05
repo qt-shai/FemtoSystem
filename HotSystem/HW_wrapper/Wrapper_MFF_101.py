@@ -69,9 +69,9 @@ class FilterFlipperController:
     def set_position(self, position: int):
         try:
             pos_val = UInt32(position)
-            print(f"Moving to position: {pos_val}")
+            # print(f"Moving to position: {pos_val}")
             self.device.SetPosition(pos_val, self.op_timeout)
-            print("Position set.")
+            # print("Position set.")
         except Exception as e:
             print("Error setting position:", e)
 
@@ -87,16 +87,16 @@ class FilterFlipperController:
     def toggle(self):
         try:
             # self.connect()
-            self.get_device_info()
-            print(f"Device serial Number: {self.serial_no}")
+            # self.get_device_info()
+            # print(f"Device serial Number: {self.serial_no}")
 
             # Retrieve the current position.
             current_position = self.device.Position  # Assumes device.Position returns an integer or comparable value.
-            print(f"Current position: {current_position}")
+            # print(f"Current position: {current_position}")
 
             # Toggle: if current position is 2, then set to 0; otherwise, set to 2.
             new_position = 1 if current_position == 2 else 2
-            print(f"Toggling position to: {new_position}")
+            # print(f"Toggling position to: {new_position}")
 
             self.set_position(new_position)
             return new_position

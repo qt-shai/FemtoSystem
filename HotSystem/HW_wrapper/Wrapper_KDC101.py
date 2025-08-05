@@ -216,12 +216,12 @@ class MotorStage(Motor):
         try:
             if direction.lower() == "forward":
                 self.device.MoveJog(MotorDirection.Forward, 0)
-                print(
-                    f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Jogging forward...")
+                # print(
+                #     f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Jogging forward...")
             elif direction.lower() == "backward":
                 self.device.MoveJog(MotorDirection.Backward, 0)
-                print(
-                    f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Jogging backwards...")
+                # print(
+                #     f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Jogging backwards...")
             else:
                 raise ValueError(f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
                                  f"Invalid direction. Use 'forward' or 'backward'.")
@@ -294,12 +294,12 @@ class MotorStage(Motor):
         try:
             if direction.lower() == "forward":
                 self.device.MoveContinuous(MotorDirection.Forward)
-                print(
-                    f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Jogging forward...")
+                # print(
+                #     f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Jogging forward...")
             elif direction.lower() == "backward":
                 self.device.MoveContinuous(MotorDirection.Backward)
-                print(
-                    f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Jogging backwards...")
+                # print(
+                #     f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Jogging backwards...")
             else:
                 raise ValueError(f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] "
                                  f"Invalid direction. Use 'forward' or 'backward'.")

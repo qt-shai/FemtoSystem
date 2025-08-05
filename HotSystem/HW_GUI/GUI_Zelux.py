@@ -24,6 +24,10 @@ class ZeluxGUI():
         self.positioner = self.HW.positioner
         self.manual_cross_pos = None
         self.rotation_count = 0
+        self.zel_shift_x = 0.0  # in microns
+        self.zel_shift_y = 0.0  # in microns
+        self.ax_alpha = 253.7 # degrees
+        self.show_axis = False
 
         try:
             self.background_image = np.load("zelux_background.npy")
@@ -41,6 +45,11 @@ class ZeluxGUI():
         print("Background image saved.")
 
     def StartLive(self):
+        # If the Stop button is already in place, we’re already live—do nothing.
+        if dpg.does_item_exist("btnStopLive"):
+            print("Already live; Stop button exists.")
+            return
+
         self.cam.constantGrabbing = True
         self.LiveTh = threading.Thread(target=self.cam.LiveTh)
         self.LiveTh.setDaemon(True)
@@ -74,10 +83,25 @@ class ZeluxGUI():
         dpg.set_item_width("image_id", _width)
         dpg.set_item_height("image_id", _height)
 
-        dpg.delete_item("image_drawlist")
-        dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width * self.cam.ratio, parent=self.window_tag)
-        dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width * self.cam.ratio), uv_min=(0, 0),
-                       uv_max=(1, 1), parent="image_drawlist")
+        # dpg.delete_item("image_drawlist")
+        # dpg.add_drawlist(tag="image_drawlist", width=_width, height=_width * self.cam.ratio, parent=self.window_tag)
+        # dpg.draw_image(texture_tag="image_id", pmin=(0, 0), pmax=(_width, _width * self.cam.ratio), uv_min=(0, 0),
+        #                uv_max=(1, 1), parent="image_drawlist")
+
+        # rebuild drawlist
+        disp_h = _width * self.cam.ratio
+        if dpg.does_item_exist("image_drawlist"):
+            dpg.delete_item("image_drawlist")
+        dpg.add_drawlist(tag="image_drawlist", width=_width, height=disp_h, parent=self.window_tag)
+        # flip image in X and Y by swapping UV coordinates
+        dpg.draw_image(
+            texture_tag="image_id",
+            pmin=(0, 0),
+            pmax=(_width, disp_h),
+            uv_min=(1, 1),  # bottom-right corner of texture
+            uv_max=(0, 0),  # top-left corner of texture
+            parent="image_drawlist"
+        )
 
         # dpg.set_value("image_id", self.cam.lateset_image_buffer)
         height = self.cam.camera.image_height_pixels
@@ -134,7 +158,15 @@ class ZeluxGUI():
         if dpg.does_item_exist("image_drawlist"):
             dpg.delete_item("image_drawlist")
         dpg.add_drawlist(tag="image_drawlist", width=_width, height=disp_h, parent=self.window_tag)
-        dpg.draw_image("image_id", (0, 0), (_width, disp_h), parent="image_drawlist")
+        # dpg.draw_image("image_id", (0, 0), (_width, disp_h), parent="image_drawlist")
+        dpg.draw_image(
+            texture_tag="image_id",
+            pmin=(0, 0),
+            pmax=(_width, disp_h),
+            uv_min=(1, 1),  # bottom-right corner of texture
+            uv_max=(0, 0),  # top-left corner of texture
+            parent="image_drawlist"
+        )
 
         # Draw cross if enabled
         if self.show_center_cross or self.show_coords_grid:
@@ -161,6 +193,20 @@ class ZeluxGUI():
             # Draw coordinate text at bottom-left
             dpg.draw_text((10, _width * self.cam.ratio - 20), coord_text,
                           size=16, color=(0, 255, 0, 255), parent="image_drawlist")
+
+        # Draw angled axis if enabled
+        if self.show_axis:
+            # compute center
+            cx = _width / 2
+            cy = (_width * self.cam.ratio) / 2
+            alpha = np.deg2rad(self.ax_alpha)  # hard‑coded angle of 30°
+            L = max(_width, _width * self.cam.ratio)  # length to span the image
+            x1, y1 = cx - L * np.cos(alpha), cy - L * np.sin(alpha)
+            x2, y2 = cx + L * np.cos(alpha), cy + L * np.sin(alpha)
+            dpg.draw_line((x1, y1), (x2, y2),
+                          color=(255, 255, 0, 255),
+                          thickness=1,
+                          parent="image_drawlist")
 
         # Draw coordinate grid if enabled
         if self.show_coords_grid:
@@ -216,8 +262,33 @@ class ZeluxGUI():
                         color=(255, 255, 255, 255),
                         parent="image_drawlist"
                     )
+            # ✅ Draw saved query points if any
+            if hasattr(self, "query_points") and self.query_points:
+                shift_x = getattr(self, "zel_shift_x", 0.0)+3.2
+                shift_y = getattr(self, "zel_shift_y", 0.0)-1.4
 
-    def UpdateExposure(sender, app_data, user_data):
+                for index, x_um, y_um, z in self.query_points:
+                    offset_x = (x_um + shift_x - abs_x) / pixel_to_um_x
+                    offset_y = (y_um + shift_y - abs_y) / pixel_to_um_y
+                    x_px = center_x - offset_x + x_shift_px
+                    y_px = center_y + offset_y + y_shift_px
+
+                    dpg.draw_circle(center=(x_px, y_px), radius=6.0,
+                                    color=(255, 0, 0, 255), fill=(0, 0, 0, 255),
+                                    parent="image_drawlist")
+                    dpg.draw_text(pos=(x_px + 6, y_px - 6), text=f"{int(index)}",
+                                  size=14, color=(255, 255, 0, 255),
+                                  parent="image_drawlist")
+
+    def toggle_show_axis(self, sender=None, app_data=None, user_data=None):
+        """
+        Callback for the 'Ax' checkbox.
+        Toggles whether the angled axis line is shown, then redraws the image.
+        """
+        self.show_axis = app_data  # True when checked, False when unchecked
+        self.UpdateImage()
+
+    def UpdateExposure(sender, app_data=None, user_data=None):
         # a = dpg.get_value(sender)
         sender.cam.SetExposureTime(int(user_data * 1e3))
         time.sleep(0.001)
@@ -252,7 +323,7 @@ class ZeluxGUI():
         pass
 
     def AddNewWindow(self, _width=800):
-
+        # self.cam.ratio = self.cam.image_height_pixels / self.cam.image_width_pixels
         _width = 1000
 
         with dpg.window(label=self.window_tag, tag=self.window_tag, no_title_bar=False,
@@ -298,6 +369,7 @@ class ZeluxGUI():
                         dpg.add_checkbox(label="SubBG", tag="chkSubtractBG",
                                          callback=lambda s, a, u: setattr(self, 'subtract_background', a))
                         dpg.add_checkbox(label="KpSt", tag="keepSt", default_value=False)
+                        dpg.add_checkbox(label="Ax", tag="Axis", callback=self.toggle_show_axis, default_value=self.show_axis)
                         # dpg.add_button(label="Rotate 90°", tag="btnRotate", callback=self.rotate_image)
                     with dpg.group(tag="controls_row2", horizontal=True):
                         dpg.add_button(label="Sv", tag="btnSaveProcessedImage", callback=self.SaveProcessedImage)
@@ -568,32 +640,6 @@ class ZeluxGUI():
     def toggle_center_cross(self, sender, app_data, user_data=None):
         self.show_center_cross = app_data  # True or False
         self.UpdateImage()  # Re-draw with or without the cross
-
-    def on_off_slider_callback(self, sender, app_data):
-        # app_data is the new slider value (0 or 1)
-        flipper_1_serial_number = "37008855"
-        flipper_2_serial_number = "37008948"
-        if sender == "on_off_slider":
-            self.flipper_serial_number = flipper_1_serial_number
-        elif sender == "on_off_slider_2":
-            self.flipper_serial_number = flipper_2_serial_number
-        if app_data == 1:
-            self.Move_flipper(self.flipper_serial_number)
-            flipper_position = self.flipper.get_position()
-            if flipper_position == 2:
-                dpg.configure_item(sender, format="Up")
-            else:
-                dpg.configure_item(sender, format="Down")
-            dpg.bind_item_theme(sender, "OnTheme")
-        else:
-            self.Move_flipper(self.flipper_serial_number)
-
-            flipper_position = self.flipper.get_position()
-            if flipper_position == 2:
-                dpg.configure_item(sender, format="Up")
-            else:
-                dpg.configure_item(sender, format="Down")
-            dpg.bind_item_theme(sender, "OffTheme")
 
     def Move_flipper(self, serial_number):
         try:

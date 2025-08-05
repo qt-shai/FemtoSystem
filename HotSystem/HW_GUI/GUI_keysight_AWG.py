@@ -2,6 +2,9 @@ import dearpygui.dearpygui as dpg
 from HW_wrapper import Keysight33500B
 from Common import DpgThemes
 from SystemConfig import Instruments, load_instrument_images
+import os
+import json
+import traceback
 
 class GUIKeysight33500B:
     def __init__(self, device: Keysight33500B, instrument: Instruments = Instruments.KEYSIGHT_AWG, simulation: bool = False) -> None:
@@ -18,21 +21,28 @@ class GUIKeysight33500B:
         self.simulation = simulation
         self.unique_id = self._get_unique_id_from_device()
         self.instrument = instrument
-        red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
-        self.window_tag = f"Keysight33500BWin_{self.unique_id}"
+        # 1) where to store settings
+        self._settings_file = os.path.join(os.getcwd(), "awg_settings.json")
+        # 2) load last channel (defaults to 1)
+        self._saved_channel = self._load_saved_channel()
+        # 3) make sure the device wrapper knows about it
+        self.dev.channel = self._saved_channel
+
+        self.red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
+
+        self.window_tag = f"Keysight33500B_Win_{self.unique_id}"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
                         no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
             with dpg.group(horizontal=True):
                 self.create_instrument_image()
-                self.create_waveform_controls(red_button_theme)
-                self.create_frequency_controls(red_button_theme)
-                self.create_amplitude_controls(red_button_theme)
-                self.create_offset_controls(red_button_theme)
-                self.create_duty_cycle_controls(red_button_theme)
-                self.create_phase_controls(red_button_theme)
-                self.create_output_controls(red_button_theme)
-                self.create_trigger_controls(red_button_theme)
+                self.create_waveform_controls(self.red_button_theme)
+                self.create_offset_controls(self.red_button_theme)
+                self.create_frequency_controls(self.red_button_theme)
+                self.create_amplitude_controls(self.red_button_theme)
+                self.create_duty_cycle_controls(self.red_button_theme)
+                self.create_phase_controls(self.red_button_theme)
+                self.create_trigger_controls(self.red_button_theme)
 
         # Store column tags for easy access and interchangeability
         self.column_tags = [
@@ -48,6 +58,31 @@ class GUIKeysight33500B:
 
         if not simulation:
             self.connect()
+
+        # Finally, populate everything from the AWG
+        # dpg.set_frame_callback(1, self.btn_get_current_parameters)
+        self.btn_get_current_parameters()
+
+    def _load_saved_channel(self) -> int:
+        """Read saved channel from JSON, default to 1 if anything goes wrong."""
+        try:
+            with open(self._settings_file, "r") as f:
+                data = json.load(f)
+            print(f"JSON contents: {data!r}")
+            return int(data.get("last_channel", 1))
+        except Exception:
+            return 1
+
+    def _save_channel(self, ch: int):
+        data = {}
+        if os.path.exists(self._settings_file):
+            try:
+                data = json.load(open(self._settings_file, "r"))
+            except Exception:
+                data = {}
+        data["last_channel"] = ch
+        with open(self._settings_file, "w") as f:
+            json.dump(data, f, indent=2)
 
     def _get_unique_id_from_device(self) -> str:
         """
@@ -69,12 +104,17 @@ class GUIKeysight33500B:
             )
 
     def create_waveform_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=250):
             dpg.add_text("Waveform Controls")
             dpg.add_combo(["SINE", "SQUARE", "TRIANGLE", "RAMP", "NOISE"], default_value="SINE",
                           tag=f"WaveformType_{self.unique_id}", width=100)
             dpg.add_button(label="Set Waveform", callback=self.btn_set_waveform)
             dpg.bind_item_theme(dpg.last_item(), theme)
+             # ─── New “Get Current Parameters” row ───
+            with dpg.group(horizontal=False):
+                dpg.add_button(label="Get  Params",callback = self.btn_get_current_parameters)
+                dpg.add_input_text(tag=f"CurrentParams_{self.unique_id}",multiline = True, readonly = True,
+                                   width = 250, height = 210)
 
     def create_frequency_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_frequency_{self.unique_id}", width=200):
@@ -83,6 +123,20 @@ class GUIKeysight33500B:
                                 format='%.1f', width=100, callback=self.validate_frequency_input)
             dpg.add_button(label="Set Frequency", callback=self.btn_set_frequency)
             dpg.bind_item_theme(dpg.last_item(), theme)
+
+    def cb_select_channel(self, sender, app_data):
+        """
+        Radio‐button callback: app_data is the string "1" or "2".
+        We store it on self.dev so later commands default to that channel.
+        """
+        try:
+            ch = int(app_data)
+        except ValueError:
+            ch = 1
+        # tack on a new attribute to your wrapper instance
+        self.dev.channel = ch
+        self._save_channel(ch)
+        print(f"Selected AWG channel {ch} (saved)")
 
     def create_amplitude_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_amplitude_{self.unique_id}", width=200):
@@ -95,10 +149,22 @@ class GUIKeysight33500B:
     def create_offset_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_offset_{self.unique_id}", width=200):
             dpg.add_text("Offset (V)")
-            dpg.add_input_float(default_value=0.0, tag=f"Offset_{self.unique_id}",
-                                format='%.2f', width=100, callback=self.validate_offset_input)
+            dpg.add_input_float(default_value=0.0, tag=f"Offset_{self.unique_id}",step=0.01,
+                                format='%.4f', width=100, callback=self.validate_offset_input)
             dpg.add_button(label="Set Offset", callback=self.btn_set_offset)
             dpg.bind_item_theme(dpg.last_item(), theme)
+
+            self.create_output_controls(self.red_button_theme)
+
+            # ─── Channel selector ───
+            dpg.add_text("Channel:")
+            dpg.add_radio_button(
+                items=["1", "2"],
+                default_value=str(self._saved_channel),
+                tag=f"ChannelSelect_{self.unique_id}",
+                horizontal=True,
+                callback=self.cb_select_channel,
+            )
 
     def create_duty_cycle_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_duty_cycle_{self.unique_id}", width=200):
@@ -210,15 +276,76 @@ class GUIKeysight33500B:
         waveform_type = dpg.get_value(f"WaveformType_{self.unique_id}")
         self.dev.set_waveform_type(waveform_type)
 
+    def btn_get_current_parameters(self, sender=None, app_data=None):
+        """
+        Pull back each parameter safely—using wrapper methods
+        where possible—and populate the readonly text box.
+        """
+        ch = int(dpg.get_value(f"ChannelSelect_{self.unique_id}"))
+        out = {}
+
+        # 1) Waveform type
+        try:
+            wf = self.dev.query(f"source{ch}:func?").strip()
+            out['Waveform'] = wf
+            dpg.set_value(f"WaveformType_{self.unique_id}", wf)
+        except Exception as e:
+            out['Waveform'] = f"<err: {e}>"
+
+        # 2) Frequency (use stored value)
+        try:
+            freq = f"{self.dev.get_frequency()} Hz"
+            out['Frequency'] = freq
+        except Exception as e:
+            out['Frequency'] = f"<err: {e}>"
+
+        # 3) Amplitude
+        try:
+            amp = self.dev.query(f"source{ch}:volt?").strip()
+            out['Amplitude'] = f"{float(amp)} Vpp"
+            dpg.set_value(f"Amplitude_{self.unique_id}", float(amp))
+        except Exception as e:
+            traceback.print_exc()
+            out['Amplitude'] = f"<err: {e}>"
+
+        # 4) Offset (use wrapper helper)
+        try:
+            offs = self.dev.get_current_voltage(ch)
+            out['Offset'] = f"{float(offs)} V"
+            dpg.set_value(f"Offset_{self.unique_id}", float(offs))
+        except Exception as e:
+            traceback.print_exc()
+            out['Offset'] = f"<err: {e}>"
+
+        # 6) Phase
+        try:
+            phase = self.dev.query(f"source{ch}:phase?").strip()
+            out['Phase'] = f"{float(phase)}°"
+        except Exception as e:
+            out['Phase'] = f"<err: {e}>"
+
+        # 7) Output state
+        try:
+            st = self.dev.query(f"output{ch}:stat?").strip()
+            out['Output'] = "ON" if st.upper() in ("1", "ON") else "OFF"
+            dpg.set_value(f"OutputState_{self.unique_id}", "ON" if st.upper() in ("1", "ON") else "OFF")
+        except Exception as e:
+            out['Output'] = f"<err: {e}>"
+
+        text = "\n".join(f"{k}: {v}" for k, v in out.items())
+        dpg.set_value(f"CurrentParams_{self.unique_id}", text)
+
     def btn_set_frequency(self):
         """
         Set the frequency of the waveform using the value from the input field.
         Ensure that the value is within the valid range of 20 Hz to 20 MHz.
         """
+        ch = int(dpg.get_value(f"ChannelSelect_{self.unique_id}"))
+
         frequency = dpg.get_value(f"Frequency_{self.unique_id}")
         try:
             # Set the frequency via the Keysight 33500B device wrapper
-            self.dev.set_frequency(frequency)
+            self.dev.set_frequency(frequency, channel=ch)
             print(f"Frequency set to {frequency} Hz")
         except ValueError as e:
             print(f"Error in keysight GUI: {e}")
@@ -227,25 +354,28 @@ class GUIKeysight33500B:
         """
         Set the amplitude of the waveform.
         """
+        ch = int(dpg.get_value(f"ChannelSelect_{self.unique_id}"))
         amplitude = dpg.get_value(f"Amplitude_{self.unique_id}")
-        self.dev.set_amplitude(amplitude)
+        self.dev.set_amplitude(amplitude,channel=ch)
 
     def btn_set_output_state(self):
         """
         Set the output state (ON/OFF).
         """
+        ch = int(dpg.get_value(f"ChannelSelect_{self.unique_id}"))
         output_state = dpg.get_value(f"OutputState_{self.unique_id}")
-        self.dev.set_output_state(output_state == "ON")
+        self.dev.set_output_state(output_state == "ON",channel=ch)
 
     def btn_set_offset(self):
         """
         Set the DC offset of the waveform using the value from the input field.
         Ensure that the value is within the range of -5V to 5V.
         """
+        ch = int(dpg.get_value(f"ChannelSelect_{self.unique_id}"))
         offset = dpg.get_value(f"Offset_{self.unique_id}")
         try:
             # Set the offset via the Keysight 33500B device wrapper
-            self.dev.set_offset(offset)
+            self.dev.set_offset(offset,channel=ch)
             print(f"Offset set to {offset} V")
         except ValueError as e:
             print(f"Error in keysight set offset: {e}")
@@ -255,10 +385,11 @@ class GUIKeysight33500B:
         Set the duty cycle for the waveform using the value from the input field.
         Ensure that the value is within the range of 0% to 100%.
         """
+        ch = int(dpg.get_value(f"ChannelSelect_{self.unique_id}"))
         duty_cycle = dpg.get_value(f"DutyCycle_{self.unique_id}")
         try:
             # Set the duty cycle via the Keysight 33500B device wrapper
-            self.dev.set_duty_cycle(duty_cycle)
+            self.dev.set_duty_cycle(duty_cycle,channel=ch)
             print(f"Duty cycle set to {duty_cycle}%")
         except ValueError as e:
             print(f"Error: {e}")

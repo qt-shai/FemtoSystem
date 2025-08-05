@@ -26,7 +26,6 @@ import matplotlib
 import numpy as np
 from collections import Counter
 import json
-from Outout_to_gui import toggle_sc
 
 from qm.jobs.base_job import QmBaseJob
 from qm.qua._expressions import QuaVariable, QuaVariableType
@@ -47,6 +46,7 @@ from qualang_tools.units import unit
 import SystemConfig as configs
 from Common import WindowNames
 from Common import load_window_positions
+from Common import toggle_sc
 
 from HW_GUI.GUI_map import Map
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
@@ -128,6 +128,7 @@ class GUI_OPX():
         # TODO: Move measure_type definition to be read from config
         # measure_type = MeasurementType.ANALOG
         # self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
+        self.counter_is_live = False
         self.last_loaded_file = None
         self.stop_survey: bool = False
         self.survey_stop_flag = False
@@ -224,19 +225,11 @@ class GUI_OPX():
         # To update values of the parameters - update the XML or the corresponding place in the GUI
         self.map: Optional[Map] = None
         self.simulation = simulation
-        self.click_coord = None
-        self.clicked_position = None
-        self.map_item_x = 0
-        self.map_item_y = 0
+        self.graph_size_override = None  # (w, h) tuple
 
-        self.move_mode = "marker"
         self.text_color = (0, 0, 0, 255)  # Set color to black
-        self.active_marker_index = -1
-        self.active_area_marker_index = -1
+        self.N_scan = [0, 0, 0]
 
-        self.area_markers = []
-        self.Map_aspect_ratio = None
-        self.markers = []
         self.z_correction_threshold = 10000
         self.expected_pos = None
         self.smaract_ttl_duration = 0.001  # ms, updated from XML (loaded using 'self.update_from_xml()')
@@ -274,7 +267,7 @@ class GUI_OPX():
         self.tTrackingSignaIntegrationTime = 50  # [msec]
         self.tGetTrackingSignalEveryTime = float(3)  # [sec]
         self.TrackingThreshold = 0.95  # track signal threshold
-        self.N_tracking_search = 5  # max number of point to scan on each axis
+        self.N_tracking_search = 20  # max number of point to scan on each axis
 
         # Qua config object
         self.quaCFG = configs.QuaConfigSelector.get_qua_config(self.HW.config.system_type)
@@ -388,7 +381,7 @@ class GUI_OPX():
         self.pharos = PharosLaserAPI(host="192.168.101.58")
         self.Shoot_Femto_Pulses = False
 
-        dpg.set_frame_callback(1, self.load_pos)
+        dpg.set_frame_callback(1, load_window_positions)
 
         if simulation:
             print("OPX in simulation mode ***********************")
@@ -602,7 +595,7 @@ class GUI_OPX():
         dpg.set_value(item="inInt_n_avg", value=sender.n_avg)
         print("Set n_avg to: " + str(sender.n_avg))
 
-    def UpdateCorrelationWidth(sender, app_data, user_data):
+    def UpdateCorrelationWidth(sender, app_data=None, user_data=None):
         sender.correlation_width = (int(user_data))
         time.sleep(0.001)
         dpg.set_value(item="inInt_G2_correlation_width", value=sender.correlation_width)
@@ -638,11 +631,15 @@ class GUI_OPX():
         dpg.set_value(item="ind_gate_number", value=sender.gate_number)
         print("Set gate_number to: " + str(sender.gate_number))
 
-    def UpdateN_tracking_search(sender, app_data, user_data):
-        sender.N_tracking_search = (int(user_data))
+    def UpdateN_tracking_search(sender, app_data=None, user_data=None):
+        sender.N_tracking_search = int(user_data)
         time.sleep(0.001)
-        dpg.set_value(item="inInt_N_tracking_search", value=sender.N_tracking_search)
-        print("Set N_tracking_search to: " + str(sender.N_tracking_search))
+        item_tag = "inInt_N_tracking_search"
+        if dpg.does_item_exist(item_tag):
+            dpg.set_value(item=item_tag, value=sender.N_tracking_search)
+        else:
+            print(f"[Warning] '{item_tag}' does not exist — possibly because an experiment is active.")
+        print("Set N_tracking_search to:", sender.N_tracking_search)
 
     def UpdateN_survey_g2_counts(sender, app_data, user_data):
         sender.survey_g2_counts = (int(user_data))
@@ -1259,9 +1256,6 @@ class GUI_OPX():
                                      default_value=self.AWG_interval,
                                      min_value=0, max_value=10000, step=4)
 
-                dpg.add_button(label="SavePos", parent="chkbox_group", callback=self.save_pos)
-                dpg.add_button(label="LoadPos", parent="chkbox_group", callback=self.load_pos)
-
                 dpg.add_slider_int(label="Laser Type",
                                    tag="on_off_slider_OPX", width = 80,
                                    default_value=1, parent="chkbox_group",
@@ -1323,7 +1317,7 @@ class GUI_OPX():
 
             self.load_scan_parameters()
             self.GUI_ScanControls()
-            dpg.set_frame_callback(1, self.load_pos)
+            dpg.set_frame_callback(1, load_window_positions)
         else:
             dpg.add_group(tag="Params_Controls", parent="experiments_window", horizontal=False)
             dpg.add_button(label="Stop", parent="Params_Controls", tag="btnOPX_Stop", callback=self.btnStop, indent=-1,width=-1)
@@ -1403,7 +1397,9 @@ class GUI_OPX():
                                 dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
                                                  callback=self.Update_bZcorrection,
                                                  default_value=self.b_Zcorrection)
-                                dpg.add_text(default_value="Use Z", tag="text_Zcorrection", indent=-1)
+                                dpg.add_text(default_value="Z", tag="text_Zcorrection", indent=-1)
+                                dpg.add_input_int(label="Limit", tag="inInt_limit", indent=-1, width=item_width*.8,
+                                                  default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
 
                             dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
                                          tag="text_expectedScanTime",
@@ -1441,10 +1437,29 @@ class GUI_OPX():
                         dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
                         dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
-                    dpg.set_frame_callback(dpg.get_frame_count() + 1, self.load_pos)
+                    # Schedule the call to happen after 1 frame
+                    self.delayed_actions()
+                    # dpg.set_frame_callback(dpg.get_frame_count() + 1, self.delayed_actions)
+
             self.hide_legend()
         else:
             dpg.delete_item("Scan_Window")
+
+    def delayed_actions(self):
+        # ✅ Setup dummy zero scan data (5×5×5)
+        self.scan_data = np.zeros((5, 5, 5), dtype=float)
+        self.idx_scan = [2, 2, 2]  # Middle slice for each axis
+        self.Xv = np.linspace(0, 1, 5)
+        self.Yv = np.linspace(0, 1, 5)
+        self.Zv = np.linspace(0, 1, 5)
+        self.startLoc = [0, 0, 0]
+        self.endLoc = [1, 1, 1]
+
+        # Call plot function
+        load_window_positions()
+        self.Plot_Loaded_Scan()
+        load_window_positions()
+        self.hide_legend()
 
     def save_scan_parameters(self):
         data = {
@@ -1481,7 +1496,7 @@ class GUI_OPX():
                     base, ext = os.path.splitext(self.last_loaded_file)
                     for extra_ext in extensions:
                         files_to_move.append(base + extra_ext)
-                    print(f"Using last loaded file base: {base} → with extensions: {extensions}")
+                    print(f"Using last loaded file base: {base} -> with extensions: {extensions}")
 
                     # ✅ Add _pulse_data.csv, keep its unique name
                     base_with_notes = f"{base}_{self.expNotes}" if self.expNotes else base
@@ -1574,6 +1589,14 @@ class GUI_OPX():
                     moved_any = True
                 else:
                     print(f"Last loaded file does not exist: {self.last_loaded_file}")
+
+            try:
+                with open("last_scan_dir.txt", "w") as lf:
+                    lf.write(new_folder)
+                print(f"Updated last_scan_dir.txt -> {new_folder}")
+            except Exception as e:
+                print(f"Failed to update last_scan_dir.txt: {e}")
+
         except Exception as e:
             print(f"Error moving files: {e}")
 
@@ -1651,64 +1674,6 @@ class GUI_OPX():
         refP = self.get_device_position(self.positioner)
         p_new = int(self.Z_correction(refP, requested_p))
         dpg.set_value("mcs_ch2_ABS", p_new*1e-6)
-
-    def save_pos(self):
-        # Define the list of windows to check and save positions for
-        window_names = [
-            "pico_Win", "mcs_Win", "Zelux Window", "Wavemeter_Win", "HighlandT130_Win", "Matisse_Win",
-            "OPX Window", "Map_window", "Scan_Window", "LaserWin", "Arduino_Win", "SIM960_Win"
-        ]
-        # Dictionary to store window positions, sizes, and collapsed states
-        window_data = {}
-
-        # Iterate through the list of window names and collect their positions and sizes if they exist
-        for win_name in window_names:
-            if dpg.does_item_exist(win_name):
-                win_pos = dpg.get_item_pos(win_name)
-                win_size = dpg.get_item_width(win_name), dpg.get_item_height(win_name)
-                config = dpg.get_item_configuration(win_name)
-                collapsed = config.get("collapsed", False)
-                window_data[win_name] = (win_pos, win_size, collapsed)
-                print(f"Position of {win_name}: {win_pos}, Size: {win_size}, Collapsed: {collapsed}")
-
-        # Also save the main viewport position and size
-        viewport_pos = dpg.get_viewport_pos()
-        viewport_size = dpg.get_viewport_width(), dpg.get_viewport_height()
-        window_data["main_viewport"] = (viewport_pos, viewport_size, False)
-        print(f"Viewport Position: {viewport_pos}, Size: {viewport_size}")
-
-        try:
-            # Read existing map_config.txt content, if available
-            try:
-                with open("map_config.txt", "r") as file:
-                    lines = file.readlines()
-            except FileNotFoundError:
-                lines = []
-
-            # Remove any existing entries for the windows
-            new_content = [
-                line for line in lines if not any(win_name in line for win_name in window_data.keys())
-            ]
-
-            # Append the new window positions, sizes, and collapsed states
-            for win_name, (position, size, collapsed) in window_data.items():
-                new_content.append(f"{win_name}_Pos: {position[0]}, {position[1]}\n")
-                new_content.append(f"{win_name}_Size: {size[0]}, {size[1]}\n")
-                new_content.append(f"{win_name}_Collapsed: {collapsed}\n")
-
-            # Write back the updated content to the file
-            with open("map_config.txt", "w") as file:
-                file.writelines(new_content)
-
-            print("Window positions, sizes, and collapsed states saved successfully to map_config.txt.")
-        except Exception as e:
-            print(f"Error saving window data: {e}")
-
-    def load_pos(self):
-        try:
-            load_window_positions()
-        except Exception as e:
-            print(f"Error loading window data: {e}")
 
     def get_device_position(self, device):
         device.GetPosition()
@@ -1815,14 +1780,19 @@ class GUI_OPX():
             arrXY = np.flipud(self.scan_data[self.idx_scan[Axis.Z.value], :, :])
 
             if self.limit:
-                arrXY = np.where(arrXY > self.dL_scan[2], self.dL_scan[2], arrXY)
+                limit = dpg.get_value("inInt_limit")
+                arrXY = np.where(arrXY > limit, limit, arrXY)
 
-            # Normalize the arrays
-            result_arrayXY = (arrXY * 255 / arrXY.max())
+            def safe_normalize(arr):
+                max_val = np.nanmax(arr)
+                return (arr * 255 / max_val) if max_val > 0 else np.zeros_like(arr)
+
+            result_arrayXY = safe_normalize(arrXY)
+            result_arrayXZ = safe_normalize(arrXZ)
+            result_arrayYZ = safe_normalize(arrYZ)
+
             result_arrayXY_ = []
-            result_arrayXZ = (arrXZ * 255 / arrXZ.max())
             result_arrayXZ_ = []
-            result_arrayYZ = (arrYZ * 255 / arrYZ.max())
             result_arrayYZ_ = []
 
             # Convert intensity values to RGB
@@ -1863,7 +1833,7 @@ class GUI_OPX():
                          equal_aspects=True, crosshairs=True,
                          query=True, callback=self.queryXY_callback)
             dpg.add_plot_axis(dpg.mvXAxis, label="x axis, z=" + "{0:.2f}".format(self.Zv[self.idx_scan[Axis.Z.value]]),
-                              parent="plotImaga")
+                              parent="plotImaga",tag="plotImaga_X")
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis", parent="plotImaga", tag="plotImaga_Y")
 
             if self.system_name == SystemType.FEMTO.value:
@@ -1883,39 +1853,21 @@ class GUI_OPX():
                                    max_scale=np.max(arrXY),
                                    colormap=dpg.mvPlotColormap_Jet)
 
+            # ✅ Apply persistent graph size override if exists
+            if hasattr(self, "graph_size_override") and self.graph_size_override:
+                w, h = self.graph_size_override
+                dpg.set_item_width("plotImaga", w)
+                dpg.set_item_height("plotImaga", h)
+                print(f"Graph resized to override: {w}×{h}")
+
             # Update width based on conditions
             item_width = dpg.get_item_width("plotImaga")
             item_height = dpg.get_item_height("plotImaga")
             if (item_width is None) or (item_height is None):
                 raise Exception("Window does not exist")
 
-            if len(arrYZ) == 1 or show_only_xy:
-                pass
-            else:
-                # XZ plot
-                dpg.add_plot(parent="scan_group", tag="plotImagb", width=plot_size[0], height=plot_size[1],
-                             equal_aspects=True, crosshairs=True,
-                             query=True, callback=self.queryXZ_callback)
-                dpg.add_plot_axis(dpg.mvXAxis,
-                                  label="x (um), y=" + "{0:.2f}".format(self.Yv[self.idx_scan[Axis.Y.value]]),
-                                  parent="plotImagb")
-                dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagb", tag="plotImagb_Y")
-                dpg.add_image_series(f"textureXZ_tag", bounds_min=[self.startLoc[0], self.startLoc[2]], bounds_max=[self.endLoc[0], self.endLoc[2]],
-                                     label="Scan data", parent="plotImagb_Y")
-
-                # YZ plot
-                dpg.add_plot(parent="scan_group", tag="plotImagc", width=plot_size[0], height=plot_size[1],
-                             equal_aspects=True, crosshairs=True,
-                             query=True, callback=self.queryYZ_callback)
-                dpg.add_plot_axis(dpg.mvXAxis,
-                                  label="y (um), x=" + "{0:.2f}".format(self.Xv[self.idx_scan[Axis.X.value]]),
-                                  parent="plotImagc")
-                dpg.add_plot_axis(dpg.mvYAxis, label="z (um)", parent="plotImagc", tag="plotImagc_Y")
-                dpg.add_image_series(f"textureYZ_tag", bounds_min=[self.startLoc[1], self.startLoc[2]], bounds_max=[self.endLoc[1], self.endLoc[2]],
-                                     label="Scan data", parent="plotImagc_Y")
             end_Plot_time = time.time()
             print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
-
         except Exception as e:
             print(f"An error occurred while plotting the scan: {e}")
 
@@ -2006,7 +1958,7 @@ class GUI_OPX():
             dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
                          equal_aspects=True, crosshairs=True,query=True, callback=self.queryXY_callback)
             z_label = f"x axis [um]{f' @ Z={current_z:.1f} µm' if current_z is not None else ''}"
-            dpg.add_plot_axis(dpg.mvXAxis, label=z_label, parent="plotImaga")
+            dpg.add_plot_axis(dpg.mvXAxis, label=z_label, parent="plotImaga",tag="plotImaga_X")
 
             dpg.add_plot_axis(dpg.mvYAxis, label="y axis [um]", parent="plotImaga", tag="plotImaga_Y")
             dpg.add_image_series(f"texture_tag", bounds_min=[startLoc[0], startLoc[1]], bounds_max=[endLoc[0], endLoc[1]], label="Scan data", parent="plotImaga_Y")
@@ -2015,6 +1967,14 @@ class GUI_OPX():
             dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
 
             dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=np.min(array_2d), max_scale=np.max(array_2d), colormap=dpg.mvPlotColormap_Jet)
+
+            # ✅ Apply persistent graph size override if exists
+            if hasattr(self, "graph_size_override") and self.graph_size_override:
+                w, h = self.graph_size_override
+                dpg.set_item_width("plotImaga", w)
+                dpg.set_item_height("plotImaga", h)
+                print(f"Graph resized to override: {w}×{h}")
+
         except Exception as e:
             print(f"Error during plotting: {e}")
         end_Plot_time = time.time()
@@ -2027,7 +1987,8 @@ class GUI_OPX():
     def UpdateGuiDuringScan(self, Array2D, use_fast_rgb: bool = False):
         # If self.limit is true, cap the values in Array2D at dz (nm) value
         if self.limit:
-            Array2D = np.where(Array2D > self.dL_scan[2], self.dL_scan[2], Array2D)
+            limit = dpg.get_value("inInt_limit")
+            Array2D = np.where(Array2D > limit, limit, Array2D)
 
         val = Array2D.reshape(-1)
         idx = np.where(val != 0)[0]
@@ -8649,8 +8610,6 @@ class GUI_OPX():
                 counts_ref_st.save("counts_Ref") # fix
         self.qm, self.job = self.QUA_execute()
 
-
-
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         try:
             # todo: use this function as general update graph for all experiments
@@ -9278,14 +9237,16 @@ class GUI_OPX():
 
     def btnStartCounterLive(self, b_startFetch=True):
         try:
+            if self.counter_is_live:
+                print('Counter is already live')
+                return
             self.exp = Experiment.COUNTER
             self.GUI_ParametersControl(isStart=self.bEnableSimulate)
-            # TODO: Boaz - Check for edge cases in number of measurements per array
             self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
                              num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
-
             if b_startFetch and not self.bEnableSimulate:
                 self.StartFetch(_target=self.FetchData)
+            self.counter_is_live = True
         except Exception as e:
             print(f"Failed to start counter live: {e}")
 
@@ -9952,7 +9913,7 @@ class GUI_OPX():
             self.Shoot_Femto_Pulses = False
 
             if self.exp == Experiment.COUNTER or self.exp == Experiment.SCAN or self.exp == Experiment.G2:
-                pass
+                self.counter_is_live=False
             else:
                 if hasattr(self.mwModule, 'RFstate'):
                     self.mwModule.Get_RF_state()
@@ -10078,7 +10039,7 @@ class GUI_OPX():
         self.ScanTh = threading.Thread(target=self.scan3d_femto_pulses)
         self.ScanTh.start()
 
-    def btnStartScan(self):
+    def btnStartScan(self, add_scan=False):
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
 
@@ -10343,11 +10304,9 @@ class GUI_OPX():
         # GUI - convert Start Scan to Stop scan
         dpg.disable_item("btnOPX_StartScan")
 
-        isDebug = True
-
         self.scan_reset_data()
         self.scan_reset_positioner()
-        self.scan_get_current_pos(_isDebug=isDebug)
+        self.scan_get_current_pos(_isDebug=True)
         self.initial_scan_Location = list(self.positioner.AxesPositions)
 
         # Loop over three axes and populate scan coordinates
@@ -10503,6 +10462,7 @@ class GUI_OPX():
         #self.prepare_scan_data()
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
+        self.last_loaded_file = fn + ".csv"
         filename_only = os.path.basename(fn)
         show_msg_window(f"{filename_only}")
         # total experiment time
@@ -10545,7 +10505,7 @@ class GUI_OPX():
                     f.write(f"{point[0]},{point[1]},{point[2]}\n")
         cam = self.HW.camera
         if cam.constantGrabbing:
-            toggle_sc(reverse=False,check_dx=False)
+            toggle_sc(reverse=False)
 
         if dpg.does_item_exist("btnOPX_Stop"):
             print("Stopping previous experiment before scanning...")
@@ -10613,7 +10573,6 @@ class GUI_OPX():
         if dx_nm < 500 or dy_nm < 500:
             print(f"Scan step too small: dx = {dx_nm:.1f} nm, dy = {dy_nm:.1f} nm (must be ≥ 500 nm)")
             return
-
 
         for i in range(3):
             if self.b_Scan[i]:
@@ -10706,13 +10665,13 @@ class GUI_OPX():
                 _, pulse_energy_nJ = parent.femto_gui.calculate_laser_pulse(HWP_deg=current_hwp, Att_percent=p_femto["femto_attenuator"], mode = mode)
 
                 x_val = self.V_scan[0][-1] / 1e6 + 1
-                y_val = self.V_scan[1][j] / 1e6
+                y_val = self.V_scan[1][j] / 1e6 + 0.5
 
                 text_tag = f"energy_text_{i}_{j}"  # Unique tag per scan coordinate
                 dpg.draw_text(
                     pos=(x_val, y_val),
                     text=f"{pulse_energy_nJ:.1f} nJ",
-                    size=1.2,
+                    size=1,
                     color=(255, 255, 255, 255),
                     parent="plot_draw_layer",
                     tag=text_tag
@@ -11454,27 +11413,43 @@ class GUI_OPX():
 
         return self.scan_intensities
 
-    def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos):
-        # Create object to be saved in excel
+    def prepare_scan_data(self, max_position_x_scan, min_position_x_scan, start_pos, Scan_array = None):
+        """
+            Prepare self.scan_Out from raw Scan_array loaded from CSV or just scanned.
+        """
         self.scan_Out = []
-        # probably unit issue
-        x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
-        y_vec = np.linspace(start_pos[1], start_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
-        z_vec = np.linspace(start_pos[2], start_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
-        for i in range(np.size(self.scan_intensities, 2)):
-            for j in range(np.size(self.scan_intensities, 1)):
-                for k in range(np.size(self.scan_intensities, 0)):
-                    x = x_vec[k]
-                    y = y_vec[j]
-                    z = z_vec[i]
-                    I = self.scan_intensities[k, j, i]
-                    self.scan_Out.append([x, y, z, I, x, y, z])
+
+        if Scan_array is not None:
+            x_vec = np.unique(Scan_array[:, 0])
+            y_vec = np.unique(Scan_array[:, 1])
+            z_vec = np.unique(Scan_array[:, 2])
+
+            Nx = len(x_vec)
+            Ny = len(y_vec)
+            Nz = len(z_vec)
+
+            for i in range(len(Scan_array)):
+                x, y, z, I = Scan_array[i, 0], Scan_array[i, 1], Scan_array[i, 2], Scan_array[i, 3]
+                self.scan_Out.append([x, y, z, I, x, y, z])
+        else:
+            x_vec = np.linspace(min_position_x_scan, max_position_x_scan, np.size(self.scan_intensities, 0), endpoint=False)
+            y_vec = np.linspace(start_pos[1], start_pos[1] + self.L_scan[1] * 1e3, np.size(self.scan_intensities, 1), endpoint=False)
+            z_vec = np.linspace(start_pos[2], start_pos[2] + self.L_scan[2] * 1e3, np.size(self.scan_intensities, 2), endpoint=False)
+            for i in range(np.size(self.scan_intensities, 2)):
+                for j in range(np.size(self.scan_intensities, 1)):
+                    for k in range(np.size(self.scan_intensities, 0)):
+                        x = x_vec[k]
+                        y = y_vec[j]
+                        z = z_vec[i]
+                        I = self.scan_intensities[k, j, i]
+                        self.scan_Out.append([x, y, z, I, x, y, z])
 
     def btnUpdateImages(self):
         self.Plot_Loaded_Scan(use_fast_rgb=True)
 
     def Plot_data(self, data, bLoad=False):
         np_array = np.array(data) #numpy array of the csv data
+        self.scan_Out=np_array # new
         # Nx = int(np_array[1,10])
         # Ny = int(np_array[1,11])
         # Nz = int(np_array[1,12])
@@ -11551,22 +11526,92 @@ class GUI_OPX():
 
         return x_fixed, y_fixed, z_fixed, allPoints_fixed, pattern_length
 
-    def btnLoadScan(self):
-        # Open the dialog with a filter for .csv files and all file types
-        fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
-        if fn:  # Check if a file is selected
-            # Save the directory to file for future sessions
-            last_dir = os.path.dirname(fn)
-            with open("last_scan_dir.txt", "w") as f:
-                f.write(last_dir)
+    def btnLoadScan(self, sender=None, app_data=None, user_data=None):
+        fn = None
 
-            data = loadFromCSV(fn)
-            self.idx_scan = [0, 0, 0]
-            self.Plot_data(data, True)
-            self.last_loaded_file = fn  # ✅ Store it!
-            print(f"Loaded: {fn}")
+        # 1) If a valid CSV filepath is passed
+        if isinstance(app_data, str) and app_data.endswith(".csv"):
+            fn = app_data
+
+        # 2) If app_data is "last", try loading from last_scan_dir.txt
+        elif app_data == "last":
+            try:
+                with open("last_scan_dir.txt", "r") as f:
+                    last_scan_dir = f.read().strip()
+                if not last_scan_dir or not os.path.isdir(last_scan_dir):
+                    print(f"Invalid last scan dir: {last_scan_dir}")
+                    return
+                csv_files = [
+                    os.path.join(last_scan_dir, f)
+                    for f in os.listdir(last_scan_dir)
+                    if f.lower().endswith(".csv") and not f.lower().endswith("_pulse_data.csv")
+                ]
+                if not csv_files:
+                    print("No valid CSVs in last scan dir.")
+                    return
+                csv_files.sort(key=os.path.getmtime, reverse=True)
+                fn = csv_files[0]
+                print(f"Loaded from last dir: {fn}")
+            except Exception as e:
+                print(f"Failed loading from last dir: {e}")
+                return
+
+        # 3) Open dialog from last_scan_dir
+        elif app_data == "open_from_last":
+            try:
+                initial_dir = "."
+                if os.path.exists("last_scan_dir.txt"):
+                    with open("last_scan_dir.txt", "r") as f:
+                        last_dir = f.read().strip()
+                        if os.path.isdir(last_dir):
+                            initial_dir = last_dir
+                fn = open_file_dialog(
+                    filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+                    initial_folder=initial_dir
+                )
+            except Exception as e:
+                print(f"Failed to open dialog from last dir: {e}")
+                return
+
+        # 3) Else open dialog
         else:
+            fn = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
+
+        if not fn:
             print("No file selected.")
+            return
+
+        # Save directory
+        last_dir = os.path.dirname(fn)
+        with open("last_scan_dir.txt", "w") as f:
+            f.write(last_dir)
+
+        # Load and plot
+        data = loadFromCSV(fn)
+        Scan_array = np.array(data, dtype=np.float64)
+
+        x_unique = np.unique(Scan_array[:, 0])
+        y_unique = np.unique(Scan_array[:, 1])
+        z_unique = np.unique(Scan_array[:, 2])
+
+        dx = x_unique[1] - x_unique[0] if len(x_unique) > 1 else 1
+        dy = y_unique[1] - y_unique[0] if len(y_unique) > 1 else 1
+        dz = z_unique[1] - z_unique[0] if len(z_unique) > 1 else 1
+
+        Nx = int(round((x_unique[-1] - x_unique[0]) / dx)) + 1
+        Ny = int(round((y_unique[-1] - y_unique[0]) / dy)) + 1
+        Nz = int(round((z_unique[-1] - z_unique[0]) / dz)) + 1
+
+        self.N_scan = [Nx, Ny, Nz]
+        self.dL_scan = [dx * 1e-3, dy * 1e-3, dz * 1e-3]
+
+        start_pos = [x_unique[0], y_unique[0], z_unique[0]]
+        self.prepare_scan_data(x_unique[-1], x_unique[0], start_pos, Scan_array)
+
+        self.idx_scan = [0, 0, 0]
+        self.Plot_data(data, True)
+        self.last_loaded_file = fn
+        print(f"Loaded: {fn}")
 
     def save_scan_data(self, Nx, Ny, Nz, fileName=None, to_append: bool = False):
         if fileName == None:
@@ -11664,6 +11709,7 @@ class GUI_OPX():
                 return self.create_scan_file_name(local=True)
         fileName = os.path.join(folder_path, f"{timeStamp}_{self.exp.name}_{self.expNotes}")
         self.timeStamp = timeStamp
+        self.last_loaded_file=fileName
         return fileName
 
     def move_single_step(self, ch, step):
@@ -11682,7 +11728,7 @@ class GUI_OPX():
 
     def FindMaxSignal(self):
         self.track_numberOfPoints = self.N_tracking_search  # number of point to scan for each axis
-        self.trackStep = 50000  # [pm], step size
+        self.trackStep = 30000  # [pm], step size
         initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
         # self.numberOfRefPoints = 1000
 
@@ -11690,27 +11736,23 @@ class GUI_OPX():
         self.coordinate = []
 
         for ch in range(3):
-            print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ch{ch} !!!!!!!!!!!!!!!!!!!!")
+            print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ch{ch} !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             self.track_X = []
             self.coordinate = []
 
             if (ch == 2):
-                self.trackStep = 2 * 75000  # [pm]
+                self.trackStep = 50000  # [pm]
                 initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
 
             # goto start location
             self.positioner.MoveRelative(ch, -1 * initialShift)
-            time.sleep(0.001)
+            time.sleep(0.01)
             while not (self.positioner.ReadIsInPosition(ch)):
-                time.sleep(0.001)
+                time.sleep(0.01)
             # print(f"is in position = {self.positioner.ReadIsInPosition(ch)}")
             self.positioner.GetPosition()
             self.absPosunits = self.positioner.AxesPosUnits[ch]
             self.absPos = self.positioner.AxesPositions[ch]
-
-            self.GlobalFetchData()
-            lastRef = self.tracking_ref
-            # last_iteration = self.iteration
 
             for i in range(self.track_numberOfPoints):
                 # grab/fetch new data from stream
@@ -11720,13 +11762,12 @@ class GUI_OPX():
                 time.sleep(0.01)  # according to OS priorities
                 self.GlobalFetchData()
                 self.lock.acquire()
-                lastRef = self.tracking_ref
-                # last_iteration = self.iteration
+                current_signal = self.counter_Signal[0]
                 self.lock.release()
 
                 # Log data                
                 self.coordinate.append(i * self.trackStep + self.absPos)  # Log axis position
-                self.track_X.append(lastRef)  # Loa signal to array
+                self.track_X.append(current_signal)  # Loa signal to array
 
                 # move to next location (relative move)
                 self.positioner.MoveRelative(ch, self.trackStep)
@@ -11734,41 +11775,150 @@ class GUI_OPX():
                 while not (res):
                     res = self.positioner.ReadIsInPosition(ch)  # print(f"i = {i}, ch = {ch}, is in position = {res}")
 
-            print(f"x(ch={ch}): ", end="")
-            for i in range(len(self.coordinate)):
-                print(f", {self.coordinate[i]: .3f}", end="")
-            print("")
-            print(f"y(ch={ch}): ", end="")
-            for i in range(len(self.track_X)):
-                print(f", {self.track_X[i]: .3f}", end="")
-            print("")
-
-            # optional: fit to parabula
-            # if False:
-            #     coefficients = np.polyfit(self.coordinate, self.track_X, 2)
-            #     a, b, c = coefficients
-            #     maxPos_parabula = int(-b / (2 * a))
-            #     print(f"ch = {ch}: a = {a}, b = {b}, c = {c}, maxPos_parabula={maxPos_parabula}")
+            print(f"ch={ch}:")
+            coords_str = ", ".join(f"{c*1e-6: .2f}" for c in self.coordinate)
+            print(f"{coords_str}")
+            intensity_vals = ", ".join(f"{v: .0f}" for v in self.track_X)
+            print(f"{intensity_vals}")
 
             # find max signal
             maxPos = self.coordinate[self.track_X.index(max(self.track_X))]
-            print(f"maxPos={maxPos}")
+            print(f"maxPos={maxPos*1e-6:.1f}")
 
             # move to max signal position
             self.positioner.MoveABSOLUTE(ch, maxPos)
+            time.sleep(0.01)
+
+            print("Is it good?")
 
         # update new ref signal
         self.refSignal = max(self.track_X)
         print(f"new ref Signal = {self.refSignal}")
 
-        # get new val for comparison
-        time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001 + 0.1)  # [sec]
-        self.GlobalFetchData()
-        print(f"self.tracking_ref = {self.tracking_ref}")
+        # # get new val for comparison
+        # time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001 + 0.1)  # [sec]
+        # self.GlobalFetchData()
+        # print(f"self.tracking_ref = {self.tracking_ref}")
 
         # shift back tp experiment sequence
         self.qm.set_io1_value(0)
         time.sleep(0.1)
+
+    def FindFocus(self):
+        """Scan channel2 (Z) to find the position of maximum signal and move there."""
+        # number of points to scan on each side
+        self.track_numberOfPoints = self.N_tracking_search*5
+        # fixed step size for Z in pm
+        self.trackStep = 50000
+        # start offset so scan is centered
+        initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
+
+        # prepare storage
+        ch = 2
+        self.track_X = []
+        self.coordinate = []
+
+        # 1) move to start of scan range
+        print(f"--- FindFocus: scanning channel {ch} ---")
+        self.positioner.MoveRelative(ch, -initialShift)
+        time.sleep(0.01)
+        while not self.positioner.ReadIsInPosition(ch):
+            time.sleep(0.01)
+
+        # record absolute start position
+        self.positioner.GetPosition()
+        self.absPos = self.positioner.AxesPositions[ch]
+
+        # 2) perform the scan
+        for i in range(self.track_numberOfPoints):
+            # wait for signal integration
+            time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.001)
+            # fetch twice to ensure new data
+            self.GlobalFetchData()
+            time.sleep(0.01)
+            self.GlobalFetchData()
+
+            # grab current signal
+            with self.lock:
+                current_signal = self.counter_Signal[0]
+
+            # log position and signal
+            pos = self.absPos + i * self.trackStep
+            self.coordinate.append(pos)
+            self.track_X.append(current_signal)
+
+            # step to next
+            self.positioner.MoveRelative(ch, self.trackStep)
+            while not self.positioner.ReadIsInPosition(ch):
+                time.sleep(0.005)
+
+        # 3) report raw arrays
+        coords_um = ", ".join(f"{c * 1e-6:.2f}" for c in self.coordinate)
+        sig_vals = ", ".join(f"{v:.0f}" for v in self.track_X)
+        print(f"Positions (µm): {coords_um}")
+        print(f"Signals      : {sig_vals}")
+
+        # 4) find max and go there
+        idx_max = int(np.argmax(self.track_X))
+        maxPos = self.coordinate[idx_max]
+        print(f"Max signal at {maxPos * 1e-6:.2f}µm -> moving there")
+        self.positioner.MoveABSOLUTE(ch, maxPos)
+        time.sleep(0.01)
+
+        # 5) update reference signal
+        self.refSignal = self.track_X[idx_max]
+        print(f"New reference signal = {self.refSignal:.2f}")
+
+        # 6) return QM I/O to idle
+        self.qm.set_io1_value(0)
+        time.sleep(0.1)
+
+    def Find_max_signal_by_keysight_offset(self):
+        """
+        Sweep the Keysight AWG DC‐offset around its current value
+        and find the offset that produces the maximum measured signal.
+        """
+        # 1) Determine channel
+        ch = self.awg.channel
+
+        # 2) Build sweep parameters
+        self.track_numberOfPoints = self.N_tracking_search
+        num_points = self.track_numberOfPoints  # e.g. 21
+        step_size = 0.1  # volts per step (tweak as needed)
+        center_off = self.awg.get_current_voltage(ch)
+        half_span = step_size * (num_points // 2)
+        offsets = [center_off - half_span + i * step_size
+                   for i in range(num_points)]
+
+        # 3) Sweep and record
+        signals = []
+        for off in offsets:
+            # set offset and wait for AWG + measurement to settle
+            self.awg.set_offset(off, channel=ch)
+            time.sleep(self.tTrackingSignaIntegrationTime * 1e-3 + 0.01)
+
+            # fetch your signal (using your existing fetch routine)
+            self.GlobalFetchData()
+            time.sleep(0.01)
+            self.GlobalFetchData()
+            current_signal = self.counter_Signal[0]
+
+            signals.append(current_signal)
+            print(f"Offset {off:.3f}V → Signal {current_signal:.0f}")
+
+        # 4) Find the best offset
+        best_idx = signals.index(max(signals))
+        best_off = offsets[best_idx]
+        best_sig = signals[best_idx]
+        print(f"Max signal {best_sig:.0f} at offset {best_off:.3f} V")
+
+        # 5) Move AWG back to best offset
+        self.awg.set_offset(best_off, channel=ch)
+        time.sleep(0.01)
+
+        # 6) Update your reference value if you use one
+        self.refSignal = best_sig
+        print(f"Reference signal updated to {self.refSignal:.0f}")
 
     def FindMaxSignal_atto_positioner_and_scanner(self):
         """
@@ -12040,18 +12190,19 @@ class GUI_OPX():
 
                 # Write headers if not appending or file doesn't exist
                 if not to_append or not file_exists:
-                    print("Writing headers...")
+                    # print("Writing headers...")
                     writer.writerow(data.keys())
 
                 # Write data rows
-                print("Preparing to write rows...")
+                # print("Preparing to write rows...")
                 zipped_rows = list(zip(*data.values()))
                 print(f"Number of rows to write: {len(zipped_rows)}")
 
                 writer.writerows(zipped_rows)
-                print("Rows written successfully.")
+                # print("Rows written successfully.")
 
             print(f"Data successfully saved to {file_name}.")
+            self.last_loaded_file = file_name
 
         except Exception as e:
             # Log the error with a timestamp
