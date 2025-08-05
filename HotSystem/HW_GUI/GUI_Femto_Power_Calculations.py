@@ -5,13 +5,13 @@ import numpy as np
 import pyperclip
 
 class FemtoPowerCalculator:
+    prefix = "Femto"
+    unique_id = "PowerCalc"
+    future_input_tag = f"{prefix}_FutureInput_{unique_id}"
+
     def __init__(self, motor_stage):
         self.motor = motor_stage  # must support get_current_position()
         self.pharos = PharosLaserAPI(host="192.168.101.58")      # must support getBasicTargetAttenuatorPercentage()
-
-        self.prefix = "Femto"
-        self.unique_id = "PowerCalc"
-
         self.window_tag = f"{self.prefix}_Window_{self.unique_id}"
         self.combo_tag = f"{self.prefix}_Mode_{self.unique_id}"
         self.angle_tag = f"{self.prefix}_HWPAngle_{self.unique_id}"
@@ -19,8 +19,7 @@ class FemtoPowerCalculator:
         self.power_tag = f"{self.prefix}_LaserPower_{self.unique_id}"
         self.energy_tag = f"{self.prefix}_PulseEnergy_{self.unique_id}"
 
-        # self.future_input_tag = f"{self.prefix}_FutureInput_{self.unique_id}"
-        self.future_input_tag = "Femto_FutureInput"
+        # self.future_input_tag = "Femto_FutureInput"
         self.future_output_group = f"{self.prefix}_FutureOutputGroup_{self.unique_id}"
 
     def DeleteMainWindow(self):

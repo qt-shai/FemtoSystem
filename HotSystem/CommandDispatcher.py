@@ -41,6 +41,7 @@ import io, json, os
 from pptx import Presentation
 from pptx.util import Inches
 from PIL import ImageGrab
+from HW_GUI.GUI_Femto_Power_Calculations import FemtoPowerCalculator
 
 # Textbox: Alt + n X
 # Font color: Alt + H F C
@@ -497,7 +498,7 @@ class CommandDispatcher:
 
             # Always include core metadata
             meta["x"], meta["y"] = [pos * 1e-6 for pos in p.opx.positioner.AxesPositions[:2]]
-            meta["future"] = dpg.get_value("Femto_FutureInput") if dpg.does_item_exist("Femto_FutureInput") else None
+            meta["future"] = dpg.get_value(FemtoPowerCalculator.future_input_tag) if dpg.does_item_exist(FemtoPowerCalculator.future_input_tag) else None
             meta["filename"] = getattr(p.opx, "last_loaded_file", None)
 
             arg = arg.strip().lower() if arg else ""
@@ -1337,6 +1338,16 @@ class CommandDispatcher:
         Usage: ax
         """
         p = self.get_parent()
+
+        # 1) If user supplied a number, set ax_alpha
+        try:
+            angle = float(arg.strip())
+            p.cam.ax_alpha = angle
+            print(f"Axis angle set to {angle}°")
+            return
+        except ValueError:
+            pass  # not a number, so treat as toggle
+
         current = getattr(p.cam, "show_axis", False)
         p.cam.toggle_show_axis(app_data=not current)
 
@@ -2043,12 +2054,20 @@ class CommandDispatcher:
             print(f"angle failed: {e}")
 
     def handle_start_scan(self, arg):
-        """Start OPX scan."""
+        """
+        Start OPX scan.
+
+        Usage:
+          stt        : fresh scan
+          stt add    : add to previous scan (accumulate)
+        """
         p=self.get_parent()
+        cmd = arg.strip().lower()
+        add_scan = (cmd == 'add')
         try:
             p.smaractGUI.fill_current_position_to_moveabs()
             self.handle_toggle_sc(reverse=False)
-            p.opx.btnStartScan()
+            p.opx.btnStartScan(add_scan=add_scan)
             print("Scan started.")
         except Exception as e:
             print(f"Error Start Scan: {e}")

@@ -641,32 +641,6 @@ class ZeluxGUI():
         self.show_center_cross = app_data  # True or False
         self.UpdateImage()  # Re-draw with or without the cross
 
-    def on_off_slider_callback(self, sender=None, app_data=None):
-        # app_data is the new slider value (0 or 1)
-        flipper_1_serial_number = "37008855"
-        flipper_2_serial_number = "37008948"
-        if sender == "on_off_slider":
-            self.flipper_serial_number = flipper_1_serial_number
-        elif sender == "on_off_slider_2":
-            self.flipper_serial_number = flipper_2_serial_number
-        if app_data == 1:
-            self.Move_flipper(self.flipper_serial_number)
-            flipper_position = self.flipper.get_position()
-            if flipper_position == 2:
-                dpg.configure_item(sender, format="Up")
-            else:
-                dpg.configure_item(sender, format="Down")
-            dpg.bind_item_theme(sender, "OnTheme")
-        else:
-            self.Move_flipper(self.flipper_serial_number)
-
-            flipper_position = self.flipper.get_position()
-            if flipper_position == 2:
-                dpg.configure_item(sender, format="Up")
-            else:
-                dpg.configure_item(sender, format="Down")
-            dpg.bind_item_theme(sender, "OffTheme")
-
     def Move_flipper(self, serial_number):
         try:
             self.flipper = FilterFlipperController(serial_number=serial_number)

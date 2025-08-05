@@ -293,13 +293,13 @@ def toggle_sc(reverse=False):
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
 
-
 def load_window_positions(file_name: str = None) -> None:
     """
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
     Also applies saved graph size for the 'plotImaga' plot.
     """
     try:
+        # 1) Determine which file to use
         if not file_name:
             if is_remote_resolution():
                 file_name = "win_pos_remote.txt"
@@ -312,68 +312,95 @@ def load_window_positions(file_name: str = None) -> None:
             print(f"{file_name} not found.")
             return
 
-        # 2) Read file
-        with open(file_name, "r") as file:
-            lines = file.readlines()
+        # 2) Read all lines
+        with open(file_name, "r") as f:
+            lines = f.readlines()
 
         window_positions = {}
-        window_sizes     = {}
+        window_sizes = {}
 
-        # 3) Parse lines
+        # 3) Parse
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            if "Viewport_Size:" in line:
-                _, value = line.split("Viewport_Size:")
-                vp_w, vp_h = map(int, value.strip().split(","))
+
+            if line.startswith("Viewport_Size:"):
+                _, val = line.split("Viewport_Size:")
+                vp_w, vp_h = map(int, val.split(","))
                 dpg.set_viewport_width(vp_w)
-                # dpg.set_viewport_height(vp_h)
+                dpg.set_viewport_height(vp_h)
+                print(f"Restored viewport size: {vp_w}×{vp_h}")
+
             elif "_Pos:" in line:
-                key, val = line.split("_Pos:")
-                name = key.strip()
-                x, y = [float(v) for v in val.split(",")]
+                name, val = line.split("_Pos:")
+                name = name.strip()
+                x, y = map(float, val.split(","))
                 window_positions[name] = (x, y)
+
             elif "_Size:" in line:
-                key, val = line.split("_Size:")
-                name = key.strip()
-                w, h = [float(v) for v in val.split(",")]
-                window_sizes[name] = (w, h)
-        # 4) Apply positions
-        for name, pos in window_positions.items():
-            if dpg.does_item_exist(name):
-                dpg.set_item_pos(name, pos)
-                print(f"Loaded position for {name}: {pos}")
-            else:
-                print(f"[load] {name} not found for position.")
+                name, val = line.split("_Size:")
+                name = name.strip()
+                w, h = map(float, val.split(","))
+                window_sizes[name] = (int(w), int(h))
 
-        # 5) Apply sizes to windows
-        for name, size in window_sizes.items():
-            # Skip the plot itself here; we'll handle it explicitly below
-            if name == "plotImaga":
+        # 4) Apply positions (with prefix‐fallback for Keysight windows)
+        for key, pos in window_positions.items():
+            applied = False
+            # exact match?
+            if dpg.does_item_exist(key):
+                dpg.set_item_pos(key, pos)
+                applied = True
+            # prefix‐match for any Keysight33500B_Win* alias
+            elif key.startswith("Keysight33500B_Win"):
+                for item in dpg.get_all_items():
+                    alias = dpg.get_item_alias(item) or str(item)
+                    if alias.startswith("Keysight33500B_Win"):
+                        dpg.set_item_pos(alias, pos)
+                        applied = True
+            if applied:
+                print(f"Loaded position for '{key}' → {pos}")
+            else:
+                print(f"[load] position target not found: '{key}'")
+
+        # 5) Apply sizes (skip the plot here; restore it below)
+        for key, (w, h) in window_sizes.items():
+            if key == "plotImaga":
                 continue
-            if dpg.does_item_exist(name):
-                w = int(size[0])
-                h = int(size[1])
-                dpg.set_item_width(name,  w)
-                dpg.set_item_height(name, h)
-                print(f"Loaded size for {name}: {size}")
-            else:
-                print(f"[load] {name} not found for size.")
 
-        # 6) Now explicitly restore the plot size
+            applied = False
+            if dpg.does_item_exist(key):
+                dpg.set_item_width(key,  w)
+                dpg.set_item_height(key, h)
+                applied = True
+            elif key.startswith("Keysight33500B_Win"):
+                for item in dpg.get_all_items():
+                    alias = dpg.get_item_alias(item) or str(item)
+                    if alias.startswith("Keysight33500B_Win"):
+                        dpg.set_item_width(alias,  w)
+                        dpg.set_item_height(alias, h)
+                        applied = True
+            if applied:
+                print(f"Loaded size for '{key}' → {w}×{h}")
+            else:
+                print(f"[load] size target not found: '{key}'")
+
+        # 6) Finally restore the plot itself
         graph_tag = "plotImaga"
         if graph_tag in window_sizes and dpg.does_item_exist(graph_tag):
             w, h = window_sizes[graph_tag]
             dpg.set_item_width(graph_tag,  w)
             dpg.set_item_height(graph_tag, h)
-            parent = getattr(sys.stdout, "parent", None)
-            parent.opx.graph_size_override = (w, h)
-            print(f"Loaded graph size for {graph_tag}: {w}×{h}")
+            # if you store it on your OPX object:
+            p=getattr(sys.stdout, "parent", None)
+            p.opx.graph_size_override = (w, h)
+            print(f"Loaded graph size for '{graph_tag}': {w}×{h}")
         else:
-            print(f"No saved size for graph '{graph_tag}', or tag not found.")
+            print(f"No saved size for graph '{graph_tag}', or it wasn't found.")
+
     except Exception as e:
         print(f"Error loading window positions and sizes: {e}")
+
 
 def copy_image_to_clipboard(image_path):
     image = Image.open(image_path)

@@ -31,7 +31,7 @@ class GUIKeysight33500B:
 
         self.red_button_theme = DpgThemes.color_theme((255, 0, 0), (0, 0, 0))
 
-        self.window_tag = "Keysight33500B_Win"
+        self.window_tag = f"Keysight33500B_Win_{self.unique_id}"
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
                         no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
             with dpg.group(horizontal=True):

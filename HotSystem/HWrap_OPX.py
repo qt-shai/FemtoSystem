@@ -8519,8 +8519,6 @@ class GUI_OPX():
                 counts_ref_st.save("counts_Ref") # fix
         self.qm, self.job = self.QUA_execute()
 
-
-
     def Common_updateGraph(self, _xLabel="?? [??],", _yLabel="I [kCounts/sec]"):
         try:
             # todo: use this function as general update graph for all experiments
@@ -9933,7 +9931,7 @@ class GUI_OPX():
         self.ScanTh = threading.Thread(target=self.scan3d_femto_pulses)
         self.ScanTh.start()
 
-    def btnStartScan(self):
+    def btnStartScan(self, add_scan=False):
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
 
@@ -10198,11 +10196,9 @@ class GUI_OPX():
         # GUI - convert Start Scan to Stop scan
         dpg.disable_item("btnOPX_StartScan")
 
-        isDebug = True
-
         self.scan_reset_data()
         self.scan_reset_positioner()
-        self.scan_get_current_pos(_isDebug=isDebug)
+        self.scan_get_current_pos(_isDebug=True)
         self.initial_scan_Location = list(self.positioner.AxesPositions)
 
         # Loop over three axes and populate scan coordinates
@@ -10358,7 +10354,7 @@ class GUI_OPX():
         #self.prepare_scan_data()
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))  # 333
         self.writeParametersToXML(fn + ".xml")
-        self.last_loaded_file = fn
+        self.last_loaded_file = fn + ".csv"
         filename_only = os.path.basename(fn)
         show_msg_window(f"{filename_only}")
         # total experiment time
@@ -12098,6 +12094,7 @@ class GUI_OPX():
                 # print("Rows written successfully.")
 
             print(f"Data successfully saved to {file_name}.")
+            self.last_loaded_file = file_name
 
         except Exception as e:
             # Log the error with a timestamp

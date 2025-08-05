@@ -1102,7 +1102,7 @@ class PyGuiOverlay(Layer):
             focused_inputs = (
                 "cmd_input",
                 "inTxtScan_expText",
-                "Femto_FutureInput",
+                "Femto_FutureInput_PowerCalc",
                 "MoveSubfolderInput"
             )
             if any(dpg.does_item_exist(tag) and dpg.is_item_focused(tag) for tag in focused_inputs):
@@ -1209,6 +1209,8 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.KEY_0: self._save_and_zero_exposure,
                 KeyboardKeys.OEM_PLUS: self._increase_koff,  # Ctrl+=
                 KeyboardKeys.OEM_MINUS: self._decrease_koff,  # Ctrl+-
+                KeyboardKeys.R_KEY: self._flush_counter_graph,
+                KeyboardKeys.K_KEY: lambda: run("mark"),
             }
             action = ctrl_actions.get(key_data_enum)
             if action:
@@ -1217,10 +1219,15 @@ class PyGuiOverlay(Layer):
                 return True
 
         # 2b) Shift+0 → restore
-        if self.CURRENT_KEY == KeyboardKeys.SHIFT_KEY and key_data_enum == KeyboardKeys.KEY_0:
-            self._restore_exposure()
-            self.CURRENT_KEY = key_data_enum
-            return True
+        if self.CURRENT_KEY == KeyboardKeys.SHIFT_KEY:
+            if  key_data_enum == KeyboardKeys.KEY_0:
+                self._restore_exposure()
+                self.CURRENT_KEY = key_data_enum
+                return True
+            elif key_data_enum == KeyboardKeys.KEY_2:
+                self._set_fine_steps(20, axes=(0, 1, 2))
+                self.CURRENT_KEY = key_data_enum
+                return True
 
         # 3) Step-size tuning for last moved axis (Ctrl or Shift + ., , or 2, M)
         if hasattr(self, "last_moved_axis") and key_data_enum in (
@@ -1236,6 +1243,31 @@ class PyGuiOverlay(Layer):
         return False
 
     # ——— Helpers for the above shortcuts ———
+    def _flush_counter_graph(self):
+        """
+        Clear all X/Y vectors and push empty data into each series
+        so the graph appears 'flushed'.
+        """
+        # reset your internal buffers
+        self.opx.X_vec = []
+        self.opx.Y_vec = []
+        self.opx.Y_vec_ref = []
+        self.opx.Y_vec_ref2 = []
+        self.opx.Y_vec_ref3 = []
+        self.opx.Y_vec_squared = []
+        self.opx.Y_resCalculated = []
+
+        # update all the plotted series
+        dpg.set_value("series_counts", [self.opx.X_vec, self.opx.Y_vec])
+        dpg.set_value("series_counts_ref", [self.opx.X_vec, self.opx.Y_vec_ref])
+        dpg.set_value("series_counts_ref2", [self.opx.X_vec, self.opx.Y_vec_ref2])
+        dpg.set_value("series_counts_ref3", [self.opx.X_vec, self.opx.Y_vec_ref3])
+        dpg.set_value("series_res_calcualted", [self.opx.X_vec, self.opx.Y_resCalculated])
+
+        # Optionally reset the graph title/axis if desired:
+        dpg.set_item_label("graphXY", "Counter graph flushed")
+        print(">> Counter graph flushed.")
+
     def _increase_koff(self):
         """
         Ctrl+= : bump the AWG DC offset up by 0.1 V on the selected channel.
@@ -1352,6 +1384,13 @@ class PyGuiOverlay(Layer):
             dpg.set_value(tag, value)
             self.smaractGUI.ipt_large_step(tag, value)
         print(f"Coarse steps set to {value} µm on axes {axes}")
+
+    def _set_fine_steps(self, value, axes=(0, 1, 2)):
+        for ax in axes:
+            tag = f"{self.smaractGUI.prefix}_ch{ax}_Fset"
+            dpg.set_value(tag, value)
+            self.smaractGUI.ipt_small_step(tag, value)
+        print(f"Fine steps set to {value} nm on axes {axes}")
 
     def _handle_step_tuning(self, key_data_enum):
         """
