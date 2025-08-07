@@ -221,6 +221,8 @@ class CommandDispatcher:
             "restore":           self.handle_restore,
             "koff":              self.handle_keysight_offset,
             "kabs":              self.handle_kabs,
+            "kx":                self.handle_kx,
+            "ky":                self.handle_ky,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -2371,29 +2373,59 @@ class CommandDispatcher:
             print("int failed.")
 
     def handle_nextrun(self, arg):
-        """Enable or disable HRS_500 in system_info.xml—will always find & toggle the full block."""
-        action = arg
+        """
+        Enable or disable devices in system_info.xml:
+          • nextrun hrs        → enable HRS_500
+          • nextrun !hrs       → disable HRS_500
+          • nextrun awg/key/keysight  → enable Keysight AWG
+          • nextrun !awg/awg off      → disable Keysight AWG
+        This will only unwrap/wrap the matching <Device>…</Device> block,
+        leaving every other instrument block untouched (with all its line breaks).
+        """
+        import os, re
+
+        action = arg.strip().lower()
         xml_path = os.path.join("SystemConfig", "xml_configs", "system_info.xml")
+
+        # map commands to (instrument-tag, friendly name)
+        DEVICES = {
+            "hrs": ("HRS_500", "HRS_500"),
+            "awg": ("keysight_awg", "Keysight AWG"),
+            "key": ("keysight_awg", "Keysight AWG"),
+            "keysight": ("keysight_awg", "Keysight AWG"),
+        }
+
+        # figure out which device + enable/disable
+        for key, (instr, friendly) in DEVICES.items():
+            if action in (key, f"{key} on"):
+                enable = True
+                break
+            if action in (f"!{key}", f"{key} off"):
+                enable = False
+                break
+        else:
+            print(f"Unknown action: '{arg}'. Use 'nextrun hrs', 'nextrun !hrs', 'nextrun awg', etc.")
+            return
+
         try:
-            text = open(xml_path, "r").read()
-            if action in ("hrs", "hrs on"):
-                # Uncomment HRS_500 block
-                new_text = re.sub(
-                    r'<!--\s*(<Device>\s*<Instrument>HRS_500</Instrument>[\s\S]*?</Device>)\s*-->',
-                    r'\1', text, flags=re.DOTALL
-                )
-                open(xml_path, "w").write(new_text)
-                print("HRS_500 enabled for next run.")
-            elif action in ("!hrs", "hrs off", "hrs off"):
-                # Comment HRS_500 block
-                new_text = re.sub(
-                    r'(<Device>\s*<Instrument>HRS_500</Instrument>[\s\S]*?</Device>)',
-                    r'<!--\1-->', text, flags=re.DOTALL
-                )
-                open(xml_path, "w").write(new_text)
-                print("HRS_500 disabled for next run.")
-            else:
-                print(f"Unknown action for nextrun: '{action}'. Use 'nextrun hrs' or 'nextrun !hrs'.")
+            text = open(xml_path, "r", encoding="utf-8").read()
+
+            # 1) Unwrap any already-commented block for this instrument:
+            #    <!-- <Device>…<Instrument>{instr}</Instrument>…</Device> -->
+            pat_unwrap = rf'<!--\s*(<Device>\s*<Instrument>{instr}</Instrument>[\s\S]*?</Device>)\s*-->'
+            text = re.sub(pat_unwrap, r'\1', text, flags=re.DOTALL)
+
+            # 2) If disabling, wrap the raw block in <!-- … -->; if enabling, leave as-is
+            if not enable:
+                pat_wrap = rf'(<Device>\s*<Instrument>{instr}</Instrument>[\s\S]*?</Device>)'
+                text = re.sub(pat_wrap, r'<!--\1-->', text, flags=re.DOTALL)
+
+            # 3) Write it back
+            with open(xml_path, "w", encoding="utf-8") as f:
+                f.write(text)
+
+            state = "enabled" if enable else "disabled"
+            print(f"{friendly} {state} for next run.")
         except Exception as e:
             print(f"Failed to process 'nextrun': {e}")
 
@@ -3043,87 +3075,271 @@ class CommandDispatcher:
 
     def handle_keysight_offset(self, arg):
         """
-        Set the Keysight AWG offset.
+        Set the Keysight AWG offset for one or both channels.
+
         Usage:
-          koff <voltage_in_volts>          # absolute
-          koff <shift><u|um>               # shift in microns
+          # Single value → applies to the GUI-selected channel
+          koff <voltage>            # absolute (V)
+          koff <shift><u|um>        # shift by microns
+
+          # Two values → CH1 and CH2
+          koff <voltage1> <voltage2>
+          koff <shift1>u <shift2>u
+          koff <shift1>u,<shift2>u
+          koff <voltage1>,<shift2>u   # mixed absolute & shift
+
         Calibration: 0.128 V → 15 µm
         """
+
         parent = self.get_parent()
         gui = getattr(parent, "keysight_gui", None)
         if not gui:
             print("No Keysight AWG GUI is active.")
             return
 
-        # read channel from your radio buttons
-        sel = dpg.get_value(f"ChannelSelect_{gui.unique_id}")
-        try:
-            ch = int(sel)
-        except ValueError:
-            ch = 1
+        # 1) parse up to two values (with optional 'u' or 'um' for microns)
+        parts = re.findall(r'([+-]?\d*\.?\d+)(?:\s*(u|um))?', arg, re.IGNORECASE)
+        if not parts:
+            print("Invalid usage: koff <value>[u|um] [<value>[u|um]]")
+            return
+        if len(parts) > 2:
+            print("Error: Too many values. Provide one or two.")
+            return
 
-        # parse arg: absolute volts or microns shift
-        m = re.match(r'^\s*([+-]?[0-9]*\.?[0-9]+)\s*(?:u|um)\s*$', arg, re.IGNORECASE)
-        if m:
-            microns = float(m.group(1))
-            volts_per_um = 0.128 / 15.0
-            delta_v = microns * volts_per_um
-            curr_off = float(gui.dev.get_current_voltage(ch))
-            new_off = curr_off + delta_v
-            print(f"Shifting offset by {microns} µm -> d{delta_v:.4f} V (new offset {new_off:.4f} V)")
-        else:
-            try:
-                new_off = float(arg)
-                print(f"Setting absolute offset to {new_off:.4f} V")
-            except ValueError:
-                print("Invalid offset. Usage: koff <voltage> or koff <microns>u")
-                return
+        volts_per_um = 0.128 / 15.0
 
-        # apply and refresh display
+        def apply_to_channel(channel, num_str, unit):
+            val = float(num_str)
+            curr = float(gui.dev.get_current_voltage(channel))
+            # choose conversion factor: microns→volts_per_um, volts→1
+            factor = volts_per_um if unit else 1.0
+            delta_v = val * factor
+            new_off = curr + delta_v
+
+            if unit:
+                print(f"CH{channel}: shift {val:.2f} µm -> d{delta_v:.4f} V (new {new_off:.4f} V)")
+            else:
+                print(f"CH{channel}: shift {val:.4f} V -> d{delta_v:.4f} V (new {new_off:.4f} V)")
+
+            gui.dev.set_offset(new_off, channel=channel)
+
         try:
-            gui.dev.set_offset(new_off, channel=ch)
+            if len(parts) == 1:
+                # single value → use GUI's selected channel
+                sel = dpg.get_value(f"ChannelSelect_{gui.unique_id}")
+                try:
+                    ch = int(sel)
+                except ValueError:
+                    ch = 1
+                num_str, unit = parts[0]
+                apply_to_channel(ch, num_str, unit)
+            else:
+                # two values → CH1 & CH2
+                for idx, (num_str, unit) in enumerate(parts):
+                    apply_to_channel(idx + 1, num_str, unit)
+
+            # refresh GUI parameters
             gui.btn_get_current_parameters()
+
         except Exception as e:
-            print(f"Failed to set offset on CH{ch}: {e}")
+            print(f"Failed to set offset(s): {e}")
 
     def handle_kabs(self, arg):
         """
-        Set absolute AWG offset based on a micron position.
-        Usage: kabs <microns>[u|um]
-        0 or 0um → baseline offset of –0.987 V.
+        Set absolute AWG offsets based on either micron positions or direct voltages.
+
+        Usage examples:
+          kabs            # shorthand for kabs 0,0 → both channels to their baselines
+          kabs 1.67       # micron mode → CH1
+          kabs 1.67 2.45  # micron mode → CH1 & CH2
+          kabs 1.67u,2.45um
+          kabs 1.2v       # voltage mode → CH1 = 1.2 V
+          kabs 1.2v 2.3v
+          kabs 1.2,2.3 v
         Calibration: 0.128 V → 15 µm.
         """
-        # 1) parse argument as microns (unit optional)
-        m = re.match(r'^\s*([+-]?\d*\.?\d+)(?:\s*(?:u|um))?\s*$', arg, re.IGNORECASE)
-        if not m:
-            print("Invalid usage: kabs <microns>[u|um]")
-            return
-        microns = float(m.group(1))
 
-        # 2) compute new offset: baseline + microns * (V/µm)
-        baseline = -0.987
+        import re
+
+        # 1) Extract all (number, optional-unit) pairs
+        parts = re.findall(r'([+-]?\d*\.?\d+)(?:\s*(u|um|v))?', arg, re.IGNORECASE)
+
+        # —— NEW: default no-arg to zero for both channels ——
+        if not parts:
+            parts = [('0', None), ('0', None)]
+
+        # 2) Separate floats and units
+        vals, unts = [], []
+        for num, unit in parts:
+            vals.append(float(num))
+            unts.append(unit.lower() if unit else None)
+
+        # 3) Decide mode: if any 'v' and *no* 'u'/'um', treat *all* as voltages
+        voltage_mode = any(u == 'v' for u in unts) and not any(u in ('u', 'um') for u in unts)
+
+        # 4) Set per-channel baselines (zero-micron offsets)
+        base1 = 1.58  # baseline for CH1
+        base2 = 0.54  # baseline for CH2
+
+        # calibration factor
         volts_per_um = 0.128 / 15.0
-        new_off = baseline + microns * volts_per_um
 
-        # 3) locate the AWG GUI & channel
+        # 5) Compute offsets
+        offsets = []
+        for idx, (val, unit) in enumerate(zip(vals, unts)):
+            if voltage_mode:
+                offsets.append(val)  # treat as direct voltage
+            else:
+                baseline = base1 if idx == 0 else base2
+                offsets.append(baseline + val * volts_per_um)
+
+        # If only one value was given, leave CH2 untouched
+        if len(offsets) == 1:
+            offsets.append(None)
+
+        # 6) Locate AWG GUI
         parent = self.get_parent()
         gui = getattr(parent, "keysight_gui", None)
         if not gui:
             print("No Keysight AWG GUI is active.")
             return
-        sel = dpg.get_value(f"ChannelSelect_{gui.unique_id}")
-        try:
-            ch = int(sel)
-        except ValueError:
-            ch = 1
 
-        # 4) apply and refresh display
+        # 7) Apply offsets
         try:
-            gui.dev.set_offset(new_off, channel=ch)
+            gui.dev.set_offset(offsets[0], channel=1)
+            msg = f"kabs: CH1 -> {offsets[0]:.4f} V"
+            if offsets[1] is not None:
+                gui.dev.set_offset(offsets[1], channel=2)
+                msg += f"; CH2 -> {offsets[1]:.4f} V"
             gui.btn_get_current_parameters()
-            print(f"kabs: CH{ch} offset -> {new_off:.4f} V (for {microns:.2f} µm)")
+            print(msg)
         except Exception as e:
-            print(f"Failed to set kabs offset on CH{ch}: {e}")
+            print(f"Failed to set kabs offset(s): {e}")
+
+    def handle_kx(self, arg):
+        """
+        Shift both AWG channels for X-axis motion.
+        Usage:
+          kx <value>[u|um|v] [<ratio>]
+        – no unit or 'v' treats value as volts directly
+        – 'u'/'um'      treats value as µm (× volts_per_um)
+        – optional <ratio> overrides default CH2:CH1 ratio
+        """
+        import re, dearpygui.dearpygui as dpg
+
+        parent = self.get_parent()
+        gui = getattr(parent, "keysight_gui", None)
+        if not gui:
+            print("No Keysight AWG GUI is active.")
+            return
+
+        # split on whitespace or comma, max 2 parts
+        parts = re.split(r'[,\s]+', arg.strip())
+        if not parts or len(parts) > 2:
+            print("Invalid usage: kx <value>[u|um|v] [<ratio>]")
+            return
+
+        # parse the motion value (with optional unit)
+        m = re.match(r'^([+-]?\d*\.?\d+)(u|um|v)?$', parts[0], re.IGNORECASE)
+        if not m:
+            print("Invalid value for kx:", parts[0])
+            return
+        val = float(m.group(1))
+        unit = (m.group(2) or "v").lower()
+
+        volts_per_um = 0.128 / 15.0
+        if unit in ("u", "um"):
+            delta_v = val * volts_per_um
+            label = "µm"
+        else:
+            delta_v = val
+            label = "V"
+
+        # parse optional ratio override
+        try:
+            kx_ratio = float(parts[1]) if len(parts) == 2 else 3.3
+        except ValueError:
+            print("Invalid ratio:", parts[1])
+            return
+
+        try:
+            c1 = float(gui.dev.get_current_voltage(1))
+            c2 = float(gui.dev.get_current_voltage(2))
+            n1 = c1 + delta_v
+            n2 = c2 + delta_v * kx_ratio
+
+            gui.dev.set_offset(n1, channel=1)
+            gui.dev.set_offset(n2, channel=2)
+            gui.btn_get_current_parameters()
+
+            print(
+                f"kx: CH1 +{val:.2f}{label} -> d{delta_v:.4f} V (now {n1:.4f} V); "
+                f"CH2 → Δ{delta_v * kx_ratio:.4f} V (now {n2:.4f} V) "
+                f"[ratio={kx_ratio:.3f}]"
+            )
+        except Exception as e:
+            print(f"Failed to perform kx: {e}")
+
+    def handle_ky(self, arg):
+        """
+        Shift both AWG channels for Y-axis motion.
+        Usage:
+          ky <value>[u|um|v] [<ratio>]
+        – no unit or 'v' treats value as volts directly
+        – 'u'/'um'      treats value as µm (× volts_per_um)
+        – optional <ratio> overrides default CH2:CH1 ratio
+        """
+        import re, dearpygui.dearpygui as dpg
+
+        parent = self.get_parent()
+        gui = getattr(parent, "keysight_gui", None)
+        if not gui:
+            print("No Keysight AWG GUI is active.")
+            return
+
+        parts = re.split(r'[,\s]+', arg.strip())
+        if not parts or len(parts) > 2:
+            print("Invalid usage: ky <value>[u|um|v] [<ratio>]")
+            return
+
+        m = re.match(r'^([+-]?\d*\.?\d+)(u|um|v)?$', parts[0], re.IGNORECASE)
+        if not m:
+            print("Invalid value for ky:", parts[0])
+            return
+        val = float(m.group(1))
+        unit = (m.group(2) or "v").lower()
+
+        volts_per_um = 0.128 / 15.0
+        if unit in ("u", "um"):
+            delta_v = val * volts_per_um
+            label = "µm"
+        else:
+            delta_v = val
+            label = "V"
+
+        try:
+            ky_ratio = float(parts[1]) if len(parts) == 2 else -0.3
+        except ValueError:
+            print("Invalid ratio:", parts[1])
+            return
+
+        try:
+            c1 = float(gui.dev.get_current_voltage(1))
+            c2 = float(gui.dev.get_current_voltage(2))
+            n1 = c1 + delta_v
+            n2 = c2 + delta_v * ky_ratio
+
+            gui.dev.set_offset(n1, channel=1)
+            gui.dev.set_offset(n2, channel=2)
+            gui.btn_get_current_parameters()
+
+            print(
+                f"ky: CH1 +{val:.2f}{label} -> d{delta_v:.4f} V (now {n1:.4f} V); "
+                f"CH2 → Δ{delta_v * ky_ratio:.4f} V (now {n2:.4f} V) "
+                f"[ratio={ky_ratio:.3f}]"
+            )
+        except Exception as e:
+            print(f"Failed to perform ky: {e}")
 
 
 # Wrapper function
