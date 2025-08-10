@@ -42,6 +42,7 @@ from pptx import Presentation
 from pptx.util import Inches
 from PIL import ImageGrab
 from HW_GUI.GUI_Femto_Power_Calculations import FemtoPowerCalculator
+from pathlib import Path
 
 # Textbox: Alt + n X
 # Font color: Alt + H F C
@@ -2262,6 +2263,61 @@ class CommandDispatcher:
              - If g2_graph → plot G2 correlation
              - If spc_data → plot spectrum
         """
+
+        def _resolve_existing_scan_file(fn: str, move_subfolder_tag: str = "MoveSubfolderInput") -> str | None:
+            """
+            Try to resolve an existing scan file:
+              - normalize slashes
+              - try the subfolder from MoveSubfolderInput
+              - search under the 'scan' root if still missing
+            Returns the resolved absolute path or None.
+            """
+            if not fn:
+                return None
+
+            # 1) Normalize slashes like Q:/...\\... -> Q:\...
+            pth = Path(os.path.normpath(str(fn)))
+            if pth.is_file():
+                return str(pth)
+
+            # 2) Figure out the base 'scan' directory from the provided path
+            parts_lower = [s.lower() for s in pth.parts]
+            base = pth.parent
+            if "scan" in parts_lower:
+                idx = parts_lower.index("scan")
+                base = Path(*pth.parts[:idx + 1])  # .../scan
+
+            # 3) Try the GUI-provided subfolder (e.g., "10-8-25")
+            subfolder = None
+            try:
+                if dpg.does_item_exist(move_subfolder_tag):
+                    subfolder = dpg.get_value(move_subfolder_tag)
+            except Exception:
+                subfolder = None
+
+            if subfolder:
+                candidate = base / str(subfolder) / pth.name
+                if candidate.is_file():
+                    return str(candidate)
+
+            # 4) Fallback: search under base for the basename
+            try:
+                matches = list(base.rglob(pth.name))
+            except Exception:
+                matches = []
+
+            if matches:
+                # Prefer a match in the selected subfolder if present
+                if subfolder:
+                    for m in matches:
+                        if m.parent.name == str(subfolder):
+                            return str(m)
+                # Otherwise pick the newest
+                matches.sort(key=lambda m: m.stat().st_mtime, reverse=True)
+                return str(matches[0])
+
+            return None
+
         try:
             fn = None
             p=self.get_parent()
@@ -2353,10 +2409,12 @@ class CommandDispatcher:
             else:
                 # Load from file
                 fn = self.get_parent().opx.last_loaded_file
-                if not fn or not os.path.isfile(fn):
-                    print("No last loaded file found.")
+                resolved_fn = _resolve_existing_scan_file(fn)
+                if not resolved_fn:
+                    print("No last loaded file found or could not resolve it. "
+                          "Check 'MoveSubfolderInput' and that the file exists under the 'scan' folder.")
                     return
-                subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", fn])
+                subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", resolved_fn])
                 # subprocess.Popen(["python", "Utils/display_all_z_slices_with_slider.py", fn])
                 print("Displaying slices from file.")
         except Exception as e:
@@ -3178,8 +3236,8 @@ class CommandDispatcher:
         voltage_mode = any(u == 'v' for u in unts) and not any(u in ('u', 'um') for u in unts)
 
         # 4) Set per-channel baselines (zero-micron offsets)
-        base1 = 1.58  # baseline for CH1
-        base2 = 0.54  # baseline for CH2
+        base1 = 1.05  # baseline for CH1
+        base2 = 0.64  # baseline for CH2
 
         # calibration factor
         volts_per_um = 0.128 / 15.0

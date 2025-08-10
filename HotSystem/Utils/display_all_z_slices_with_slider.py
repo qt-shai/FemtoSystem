@@ -115,8 +115,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         cbar = fig.colorbar(im_xy, ax=ax_xy, label="kCounts/s")
 
     # Max I slider
-    ax_max = plt.axes([0.15, 0.2, 0.7, 0.03])
+    ax_max = plt.axes([0.01, 0.06, 0.1, 0.03])
     slider_max = Slider(ax_max, 'Max I', np.min(I_), np.max(I_), valinit=maxI)
+    # put label above, centered
+    slider_max.label.set_transform(slider_max.ax.transAxes)
+    slider_max.label.set_position((0.5, 1.1))  # (x,y) in axes coords; y>1 is above
+    slider_max.label.set_ha('center')
+    slider_max.label.set_va('bottom')
 
     def update_max(val):
         vmin = minI; vmax = slider_max.val
@@ -156,7 +161,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         slider_y.on_changed(update_y)
 
         # X slice slider
-        ax_x = plt.axes([0.15, 0.05, 0.7, 0.03])
+        ax_x = plt.axes([0.15, 0.06, 0.7, 0.03])
         slider_x = Slider(ax_x, 'X slice', 1, Nx, valinit=x_idx + 1, valstep=1)
 
         def update_x(val):
@@ -168,8 +173,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         slider_x.on_changed(update_x)
 
-
-
     from matplotlib.widgets import RadioButtons
 
     # 1. Available colormaps
@@ -177,7 +180,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                  'gray', 'hot', 'jet', 'bone', 'cool', 'spring', 'summer', 'autumn', 'winter']
 
     # 2. Add axes for RadioButtons
-    radio_ax = plt.axes([0.88, 0.3, 0.10, 0.55], facecolor='lightgray')  # x, y, width, height
+    radio_ax = plt.axes([0.01, 0.6, 0.03, 0.4], facecolor='lightgray')  # x, y, width, height
     radio = RadioButtons(radio_ax, colormaps, active=0)
 
     # 3. Apply default colormap initially
@@ -269,14 +272,14 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     # Add "Copy" button in figure window
     from matplotlib.widgets import Button
-    btn_ax = plt.axes([0.9, 0.02, 0.07, 0.04])  # x, y, width, height
+    btn_ax = plt.axes([0.02, 0.45, 0.04, 0.04])  # x, y, width, height
     btn = Button(btn_ax, 'Copy')
     btn.on_clicked(lambda event: copy_main_axes_to_clipboard())
 
     from matplotlib.widgets import Button
 
     # Add2PPT Button
-    ax_addppt = plt.axes([0.9, 0.07, 0.07, 0.04])
+    ax_addppt = plt.axes([0.02, 0.4, 0.04, 0.04])
     btn_addppt = Button(ax_addppt, 'add2ppt')
 
     def handle_add2ppt(event):
@@ -319,6 +322,101 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             print(f"Failed to add to PowerPoint: {e}")
 
     btn_addppt.on_clicked(handle_add2ppt)
+
+    # --- Plot area resizing  -----------------
+    ax_ph = plt.axes([0.01, 0.005, 0.1, 0.03])  # Plot height
+    s_plot_h = Slider(ax_ph, 'Plot Height (%)', 40, 500, valinit=85, valstep=1)
+    # put label above, centered
+    s_plot_h.label.set_transform(s_plot_h.ax.transAxes)
+    s_plot_h.label.set_position((0.5, 1.1))  # (x,y) in axes coords; y>1 is above
+    s_plot_h.label.set_ha('center')
+    s_plot_h.label.set_va('bottom')
+
+    try:
+        fig.set_constrained_layout(False)
+    except Exception:
+        pass
+
+    # plt.subplots_adjust(bottom=0.3)  # make room for the extra slider
+
+    ctrl_bottom = fig.subplotpars.bottom
+    top_limit = 0.98
+    max_h = max(0.0, top_limit - ctrl_bottom)
+
+    # Fixed width fraction (centered); tweak if you want wider/narrower plots
+    FIXED_W_FRAC = 0.90
+
+    def _apply_plot_layout_h(h_frac_pct: float):
+        h_frac = h_frac_pct / 100.0
+        w_frac = FIXED_W_FRAC
+
+        left = 0.25 - 0.5 * w_frac
+        width = w_frac
+        height = max_h * h_frac
+        bottom = ctrl_bottom + 0.5 * (max_h - height)
+
+        if ax_xz is not None and ax_yz is not None:
+            gap = 0.03
+            col_w = (width - 2 * gap) / 3.0
+            ax_xy.set_position([left, bottom, col_w, height])
+            ax_xz.set_position([left + col_w + gap, bottom, col_w, height])
+            ax_yz.set_position([left + 2 * (col_w + gap), bottom, col_w, height])
+        else:
+            ax_xy.set_position([left, bottom, width, height])
+
+        # keep colorbar aligned to the right of the last panel
+        try:
+            last_ax = ax_yz if ax_yz is not None else ax_xy
+            lb = last_ax.get_position()
+            cb_gap = 0.012
+            cb_w = 0.018
+            cbar.ax.set_position([lb.x1 + cb_gap, lb.y0, cb_w, lb.height])
+        except Exception:
+            pass
+
+        fig.canvas.draw_idle()
+
+    s_plot_h.on_changed(_apply_plot_layout_h)
+    _apply_plot_layout_h(s_plot_h.val)
+
+    # --- Arrow buttons to move the plot area (keep window maximized) ---
+
+    NUDGE_STEP = 0.02  # move by 2% of figure per click
+
+    # Place the arrows at the bottom-left control strip
+    ax_up = plt.axes([0.055, 0.295, 0.02, 0.04])
+    ax_left = plt.axes([0.035, 0.255, 0.02, 0.04])
+    ax_down = plt.axes([0.055, 0.215, 0.02, 0.04])
+    ax_right = plt.axes([0.075, 0.255, 0.02, 0.04])
+
+    btn_up = Button(ax_up, '↑')
+    btn_left = Button(ax_left, '←')
+    btn_down = Button(ax_down, '↓')
+    btn_right = Button(ax_right, '→')
+
+    def _nudge(dx, dy):
+        axes_list = [ax for ax in (ax_xy, ax_xz, ax_yz) if ax is not None]
+
+        # Move all axes by the same delta (no limits)
+        for ax in axes_list:
+            p = ax.get_position()
+            ax.set_position([p.x0 + dx, p.y0 + dy, p.width, p.height])
+
+        # Keep the colorbar aligned to the right of the last panel
+        try:
+            last_ax = ax_yz if ax_yz is not None else ax_xy
+            lb = last_ax.get_position()
+            cb_gap, cb_w = 0.012, 0.018
+            cbar.ax.set_position([lb.x1 + cb_gap, lb.y0, cb_w, lb.height])
+        except Exception:
+            pass
+
+        fig.canvas.draw_idle()
+
+    btn_left.on_clicked(lambda _e: _nudge(-NUDGE_STEP, 0.0))
+    btn_right.on_clicked(lambda _e: _nudge(NUDGE_STEP, 0.0))
+    btn_up.on_clicked(lambda _e: _nudge(0.0, NUDGE_STEP))
+    btn_down.on_clicked(lambda _e: _nudge(0.0, -NUDGE_STEP))
 
     plt.show(block=False)
     try:
