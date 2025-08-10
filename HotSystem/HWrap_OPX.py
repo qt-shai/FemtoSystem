@@ -1437,6 +1437,7 @@ class GUI_OPX():
                         dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
                         dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
                         dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
+                        dpg.add_button(label="Galvo Sc", callback=self.btnStartGalvoScan)
                     # Schedule the call to happen after 1 frame
                     self.delayed_actions()
                     # dpg.set_frame_callback(dpg.get_frame_count() + 1, self.delayed_actions)
@@ -2004,7 +2005,6 @@ class GUI_OPX():
         dpg.add_colormap_scale(show=True, parent="scan_group", tag="colormapXY", min_scale=minI,
                                max_scale=Array2D.max(),
                                colormap=dpg.mvPlotColormap_Jet)
-
 
     def UpdateGuiDuringScan_____(self, Array2D: np.ndarray):  # $$$
         # todo: remove loops keep only when an imgae is needed
@@ -3496,7 +3496,6 @@ class GUI_OPX():
         measure("readout", "Detector_OPD", None, time_tagging.digital(times, tMeasure, counts_tmp))
         assign(current_counts_[idx_vec_qua[idx]], current_counts_[idx_vec_qua[idx]] + counts_tmp)
 
-
     def Random_Benchmark_QUA_PGM(self):
         # sequence parameters
         is_new_benchmark_code = True
@@ -4027,7 +4026,6 @@ class GUI_OPX():
 
         self.qm, self.job = self.QUA_execute()
 
-
     def single_shot_play_list_of_gates(self):
         align("MW", "RF")
         play("const" * amp(self.rf_proportional_pwr), "RF", duration=self.tRF // 4)
@@ -4120,8 +4118,6 @@ class GUI_OPX():
         if execute_qua:
             self.Single_shot_QUA_PGM(generate_params=True)
             self.QUA_PGM()
-
-
 
     def Test_Crap_QUA_PGM(self):
         if self.test_type == Experiment.test_electron_spinPump:
@@ -4591,8 +4587,6 @@ class GUI_OPX():
             # play("-yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
             # play("yPulse" * amp(self.mw_P_amp), "MW", duration=(self.tMW / 2) // 4)
 
-
-
     '''
     idx = QUA variable
     m_state = QUA variable
@@ -4954,7 +4948,6 @@ class GUI_OPX():
             # Measure ref
             measure("readout", "Detector_OPD", None, self.time_tagging_fn(self.times_ref, tMeasure, self.counts_tmp))
             assign(self.counts[idx], self.counts[idx] + self.counts_tmp)
-
 
     def QUA_ref0(self,idx,tPump,tLaser,tMeasure,tWait1,tWait2):
         # pump
@@ -8540,7 +8533,6 @@ class GUI_OPX():
 
         self.qm, self.job = self.QUA_execute()
 
-
     def MeasurePLE_QUA_PGM(self, trigger_threshold: int = 1):
         # MeasureByTrigger_QUA_PGM function measures counts.
         # It will run a single measurement every trigger.
@@ -10043,6 +10035,10 @@ class GUI_OPX():
         self.ScanTh = threading.Thread(target=self.StartScan)
         self.ScanTh.start()
 
+    def btnStartGalvoScan(self, add_scan=False):
+        self.ScanTh = threading.Thread(target=self.scan3d_with_galvo)
+        self.ScanTh.start()
+
     def btnStartPLE(self):
         self.ScanTh = threading.Thread(target=self.StartPLE)
         self.ScanTh.start()
@@ -10919,6 +10915,243 @@ class GUI_OPX():
 
         self.Shoot_Femto_Pulses = False
         if not (self.stopScan):
+            self.btnStop()
+
+    def scan3d_with_galvo(self):
+        """
+        3D scan using galvos for X,Y (Keysight AWG offsets) and positioner for Z.
+        X/Y mapping follows kx/ky defaults:
+            volts_per_um = 0.128/15
+            kx_ratio = 3.3
+            ky_ratio = -0.3
+        Net offsets:
+            CH1 = base_x + Vx + Vy
+            CH2 = base_y + Vx*kx_ratio + Vy*ky_ratio
+
+        Notes:
+          * Z-correction is DISABLED by request.
+          * Prints pre-scan min/max planned voltages for CH1/CH2.
+        """
+
+        # --- Stop camera & previous OPX job ---
+        cam = self.HW.camera
+        if getattr(cam, "constantGrabbing", False):
+            toggle_sc(reverse=False)
+        if dpg.does_item_exist("btnOPX_Stop"):
+            print("Stopping previous experiment before scanning...")
+            self.btnStop()
+            time.sleep(0.5)
+
+        # --- Keysight device (galvo driver) ---
+        parent = getattr(sys.stdout, "parent", None)
+        gui = getattr(parent, "keysight_gui", None)
+        if not gui or not hasattr(gui, "dev"):
+            print("ERROR: Keysight AWG GUI/device not available.")
+            return
+        dev = gui.dev
+
+        # --- kx/ky defaults (same as your handlers) ---
+        # volts_per_um = 0.128 / 15.0
+        volts_per_um = 0.128 / 100.0
+        kx_ratio = 3.3
+        ky_ratio = -0.3
+
+        def um_to_v(um):
+            return um * volts_per_um
+
+        # --- Experiment/GUI bookkeeping ---
+        self.exp = Experiment.SCAN
+        self.GUI_ParametersControl(isStart=False)
+        self.to_xml()
+        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")
+        dpg.disable_item("btnOPX_StartScan")
+
+        # --- Reset scan state & read current stage pos ---
+        self.scan_reset_data()
+        self.scan_reset_positioner()
+        self.scan_get_current_pos(_isDebug=True)
+        self.initial_scan_Location = list(self.positioner.AxesPositions)  # µm abs
+
+        # --- Read baseline galvo offsets (CH1=X, CH2=Y) ---
+        try:
+            base_off_x = float(dev.get_current_voltage(1))
+            base_off_y = float(dev.get_current_voltage(2))
+        except Exception as e:
+            print(f"ERROR: Failed to read initial galvo offsets: {e}")
+            return
+
+        # --- Build scan vectors: X,Y are REL µm; Z ABS µm around current Z ---
+        scan_coordinates, self.N_scan = [], []
+        dx_nm = self.dL_scan[0] * 1e3
+        dy_nm = self.dL_scan[1] * 1e3
+        if dx_nm < 500 or dy_nm < 500:
+            print(f"Scan step too small: dx={dx_nm:.1f} nm, dy={dy_nm:.1f} nm (≥500 nm required)")
+            return
+
+        centers_um = [0.0, 0.0, float(self.initial_scan_Location[2])]  # X,Y rel center=0; Z abs center=current Z
+        for i in range(3):
+            if self.b_Scan[i]:
+                vec = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i])
+                if i == 2:  # Z abs
+                    axis = (np.array(vec) + centers_um[i]).astype(np.int64)
+                else:  # X/Y rel
+                    axis = np.array(vec, dtype=np.float64)
+            else:
+                axis = np.array([centers_um[i]], dtype=np.float64 if i < 2 else np.int64)
+            self.N_scan.append(len(axis))
+            scan_coordinates.append(axis)
+
+        self.V_scan = scan_coordinates  # [X_rel_um, Y_rel_um, Z_abs_um]
+        Nx, Ny, Nz = self.N_scan
+
+        # --- Precompute & print planned voltage bounds (including baselines) ---
+        # Convert X/Y grid to volts
+        Vx = um_to_v(self.V_scan[0])[:, None]  # shape (Nx, 1)
+        Vy = um_to_v(self.V_scan[1])[None, :]  # shape (1, Ny)
+        ch1_grid = base_off_x + (Vx + Vy)  # CH1 at each (x,y)
+        ch2_grid = base_off_y + (Vx * kx_ratio) + (Vy * ky_ratio)  # CH2 at each (x,y)
+
+        ch1_min, ch1_max = float(np.min(ch1_grid)), float(np.max(ch1_grid))
+        ch2_min, ch2_max = float(np.min(ch2_grid)), float(np.max(ch2_grid))
+        print(f"[Pre-scan] CH1 range: {ch1_min:.4f} V -> {ch1_max:.4f} V  (baseline {base_off_x:.4f} V)")
+        print(f"[Pre-scan] CH2 range: {ch2_min:.4f} V -> {ch2_max:.4f} V  (baseline {base_off_y:.4f} V)")
+
+        # --- Move to initial Z, zero galvo deflection (baseline) ---
+        try:
+            self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][0]))
+            time.sleep(self.t_wait_motionStart)
+            dev.set_offset(base_off_x, channel=1)
+            dev.set_offset(base_off_y, channel=2)
+            gui.btn_get_current_parameters()
+        except Exception as e:
+            print(f"ERROR: Failed initial positioning: {e}")
+            return
+        self.scan_get_current_pos(True)
+
+        # --- Allocate arrays & plot first slice ---
+        self.scan_intensities = np.zeros((Nx, Ny, Nz))
+        self.scan_data = self.scan_intensities
+        self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
+        self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
+        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0],
+                       startLoc=self.startLoc, endLoc=self.endLoc)
+
+        # --- QUA acquisition setup ---
+        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                         num_measurement_per_array=1)
+        res_handles = self.job.result_handles
+        self.counts_handle = res_handles.get("counts_scanLine")
+        self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
+
+        print("start scan steps")
+        start_time = time.time()
+        print(f"start_time: {self.format_time(start_time)}")
+
+        try:
+            for iz in range(Nz):  # Z slices
+                if self.stopScan: break
+
+                z_abs = int(self.V_scan[2][iz])
+                self.positioner.MoveABSOLUTE(2, z_abs)
+                time.sleep(self.t_wait_motionStart)
+
+                row_t0 = time.time()
+                j = 0
+                while j < Ny:  # Y rows
+                    if self.stopScan: break
+
+                    y_um = float(self.V_scan[1][j])
+                    Vy = um_to_v(y_um)
+
+                    # X line
+                    for k in range(Nx):
+                        if self.stopScan: break
+                        x_um = float(self.V_scan[0][k])
+                        Vx = um_to_v(x_um)
+
+                        # === Apply combined X,Y galvo move with kx/ky defaults ===
+                        ch1 = base_off_x + (Vx + Vy)
+                        ch2 = base_off_y + (Vx * kx_ratio) + (Vy * ky_ratio)
+                        dev.set_offset(ch1, channel=1)
+                        dev.set_offset(ch2, channel=2)
+
+                        # Galvo settle (if needed)
+                        time.sleep(getattr(self, "t_wait_galvo_settle", 0.001))
+
+                        # Trigger QUA measurement
+                        if not self.stopScan:
+                            self.qm.set_io2_value(self.ScanTrigger)
+                        time.sleep(1e-3)
+                        if not self.stopScan:
+                            res = self.qm.get_io2_value()
+                        while (not self.stopScan) and (res.get('int_value') == self.ScanTrigger):
+                            res = self.qm.get_io2_value()
+
+                        # Fetch one count
+                        if self.counts_handle.is_processing():
+                            self.counts_handle.wait_for_values(1)
+                            time.sleep(0.05)
+                            counts = self.counts_handle.fetch_all()
+                            if len(counts) > 0:
+                                self.scan_intensities[k, j, iz] = counts[-1] / self.total_integration_time
+                                self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+
+                    # return X component to baseline at row end (keep Y at its row value until next row change)
+                    dev.set_offset(base_off_x + Vy, channel=1)
+                    dev.set_offset(base_off_y + (Vy * ky_ratio), channel=2)
+
+                    j += 1
+
+                    # Time-left estimate
+                    dt = time.time() - row_t0
+                    est_left = dt * ((Nz - iz - 1) * Ny + (Ny - j))
+                    dpg.set_value("Scan_Message", f"time left: {self.format_time(max(est_left, 0))}")
+
+                # --- Save after each Z slice ---
+                slice_fn = self.create_scan_file_name(local=True) + f"_z{int(self.V_scan[2][iz])}"
+                self.prepare_scan_data(
+                    max_position_x_scan=self.V_scan[0][-1] if Nx else 0.0,
+                    min_position_x_scan=self.V_scan[0][0] if Nx else 0.0,
+                    start_pos=[
+                        int(self.V_scan[0][0] if Nx else 0.0),
+                        int(self.V_scan[1][0] if Ny else 0.0),
+                        int(self.V_scan[2][iz]),
+                    ],
+                )
+                self.save_scan_data(Nx, Ny, Nz, slice_fn)
+
+        finally:
+            # Restore galvos to baselines
+            try:
+                dev.set_offset(base_off_x, channel=1)
+                dev.set_offset(base_off_y, channel=2)
+                gui.btn_get_current_parameters()
+            except Exception as e:
+                print(f"WARNING: Failed to restore galvo offsets: {e}")
+
+            # Return stage to initial XYZ
+            for ch in self.positioner.channels:
+                self.positioner.MoveABSOLUTE(ch, self.initial_scan_Location[ch])
+            self.scan_get_current_pos(True)
+
+        # --- Final save & params ---
+        self.prepare_scan_data(
+            max_position_x_scan=self.V_scan[0][-1] if Nx else 0.0,
+            min_position_x_scan=self.V_scan[0][0] if Nx else 0.0,
+            start_pos=[
+                int(self.V_scan[0][0] if Nx else 0.0),
+                int(self.V_scan[1][0] if Ny else 0.0),
+                int(self.V_scan[2][0] if Nz else self.initial_scan_Location[2]),
+            ],
+        )
+        fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))
+        self.writeParametersToXML(fn + ".xml")
+
+        # Stats
+        elapsed = time.time() - start_time
+        print(f"number of points = {Nx * Ny * Nz}")
+        print(f"Elapsed time: {elapsed:.0f} seconds")
+        if not self.stopScan:
             self.btnStop()
 
     def start_scan_general(self, move_abs_fn, read_in_pos_fn, get_positions_fn, device_reset_fn, x_vec=None, y_vec=None,

@@ -1723,12 +1723,23 @@ class PyGuiOverlay(Layer):
             sys.stdout.messages.clear()
         dpg.set_value("console_log", "")
 
-    def save_logs(self):
-        """Saves the console log to a file."""
-        logs = dpg.get_value("console_log")
-        with open("console_logs.txt", "w") as file:
-            file.write(logs)
-        print("Logs saved to console_logs.txt")
+    def save_logs(self, tag="console_log"):
+        """Save the console log as UTF-8 (handles emojis/Hebrew)."""
+        try:
+            if not dpg.does_item_exist(tag):
+                print(f"Log widget '{tag}' not found.")
+                return
+
+            logs = dpg.get_value(tag)
+            if logs is None:
+                logs = ""
+
+            with open("console_logs.txt", "w", encoding="utf-8", errors="replace") as f:
+                f.write(logs)
+
+            print(f"Logs saved (UTF-8).")
+        except Exception as e:
+            print(f"Failed to save logs: {e}")
 
     def handle_cmd_input(self):
         command = dpg.get_value("cmd_input").strip()
