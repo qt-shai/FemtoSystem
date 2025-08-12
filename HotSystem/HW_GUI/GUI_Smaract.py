@@ -177,6 +177,7 @@ class GUI_smaract():
                 self.dev.GetPosition()  # Ensure it's updated
                 pos = self.dev.AxesPositions  # [x, y, z] in pm
             elif self.simulation:
+                import random
                 pos = [random.uniform(-1e9, 1e9) for _ in range(3)]
             else:
                 print("Device not connected.")
@@ -193,9 +194,13 @@ class GUI_smaract():
 
             # ✅ Store Z value
             self.last_z_value = z_value
-            
-            # Format and copy to clipboard
-            clipboard_str = f"Site ({x_value:.1f}, {y_value:.1f}, {z_value:.1f})"
+
+            # Format with comma as decimal separator and no thousands separator
+            def fmt(v):
+                return f"{v:.1f}".replace('.', ',')
+
+            clipboard_str = f"Site ({fmt(x_value)} {fmt(y_value)} {fmt(z_value)})"
+            import pyperclip
             pyperclip.copy(clipboard_str)
 
             print(f"{clipboard_str} Copied to clipboard")
@@ -290,7 +295,7 @@ class GUI_smaract():
                     if pos is not None:
                         f.write(f"{name}_Pos: {pos[0]}, {pos[1]}\n")
                     f.write(f"{name}_Size: {size[0]}, {size[1]}\n")
-            print(f"Saved positions → {file_name}")
+            print(f"Saved positions -> {file_name}")
         except Exception as e:
             print(f"Error saving window positions: {e}")
 

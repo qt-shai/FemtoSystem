@@ -52,12 +52,16 @@ class GUI_HRS500():
                                callback=self.acquire_callback,
                                tag=f"acq_btn_{self.prefix}")  # give it an explicit tag
                 dpg.bind_item_theme(f"acq_btn_{self.prefix}", f"acquire_red_theme_{self.prefix}")  # attach the theme
-                dpg.add_button(label=" Load \n Exp",
+                dpg.add_button(label=" Load Exp",
                                width=70, height=70,
                                callback=self.load_callback,
                                tag=f"load_btn_{self.prefix}")
                 dpg.bind_item_theme(f"load_btn_{self.prefix}", f"load_green_theme_{self.prefix}")
-                dpg.add_button(label=" Load \n Data",
+                dpg.add_button(label="Load ProEM",
+                               width=120, height=70,
+                               callback=lambda: self.load_specific_exp(
+                                   r"C:\Users\Femto\Work Folders\Documents\LightField\Experiments\ProEM_shai.lfe"))
+                dpg.add_button(label=" Load Data",
                                width=70, height=70,
                                callback=self.load_data_callback,
                                tag=f"load_data_{self.prefix}")
@@ -194,6 +198,14 @@ class GUI_HRS500():
         #file_path = "C:\\Users\\ice\\Work Folders\\Documents\\LightField\\Experiments\\Experiment2.lfe"
         self.dev.load_experiment()
         print("Loaded Experiment")
+
+    def load_specific_exp(self, path):
+        try:
+            self.dev.file_path = path
+            self.dev.load_experiment()
+            print(f"Loaded experiment from {path}")
+        except Exception as e:
+            print(f"Failed to load {path}: {e}")
 
     def input_set_filename_callback(self, appdata, sender):
         self.file_name = sender

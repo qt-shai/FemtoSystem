@@ -7,8 +7,22 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
-import os
+import os, re
 import sys
+import win32com.client
+import pythoncom
+from PIL import ImageGrab, Image
+
+# --- NEW: prefer tifffile for scientific TIFFs, fallback to imageio ---
+try:
+    import tifffile as tiff
+    _HAS_TIFFFILE = True
+except Exception:
+    _HAS_TIFFFILE = False
+    try:
+        import imageio.v3 as iio
+    except Exception:
+        iio = None
 
 try:
     from Utils.Common import open_file_dialog
@@ -19,6 +33,24 @@ except ImportError:
         return filedialog.askopenfilename(filetypes=filetypes)
 
 def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, data=None):
+    """
+        If 'filepath' ends with .tif/.tiff, read it as (Z,Y,X) stack and view as Z-slices.
+        Otherwise, keep the original CSV behavior.
+        """
+
+    # --- Helpers for TIFF reading ---
+    def _read_tif_stack(path: str):
+        # prefer tifffile, fallback to imageio.v3
+        try:
+            import tifffile as tiff
+            arr = tiff.imread(path)  # returns (Z,Y,X) for multipage, (Y,X) for single
+        except Exception:
+            try:
+                import imageio.v3 as iio
+            except Exception as e:
+                raise RuntimeError("Need tifffile or imageio.v3 to read TIFFs") from e
+            arr = iio.imread(path, index=None)  # index=None -> stack if multipage
+        return np.asarray(arr)
 
     if data is not None:
         if isinstance(data, str):
@@ -30,16 +62,88 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     else:
         if not filepath:
             from tkinter.filedialog import askopenfilename as open_file_dialog
-            filepath = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
+            filepath = open_file_dialog(filetypes=[
+                ("CSV or TIFF", "*.csv *.tif *.tiff"),
+                ("CSV Files", "*.csv"),
+                ("TIFF Files", "*.tif *.tiff"),
+                ("All Files", "*.*"),
+            ])
             if not filepath or not os.path.isfile(filepath):
                 print("File not selected or not found.")
                 return
+        ext = os.path.splitext(filepath)[1].lower()
 
-        df = pd.read_csv(filepath, skiprows=1)
-        x = df.iloc[:, 4].to_numpy()
-        y = df.iloc[:, 5].to_numpy()
-        z = df.iloc[:, 6].to_numpy()
-        I = df.iloc[:, 3].to_numpy()
+        if ext in (".tif", ".tiff"):
+            # --- TIFF path: read and average all frames into one 2D image ---
+            stack = _read_tif_stack(filepath)
+            stack = np.asarray(stack, dtype=np.float64)
+
+            # Remove singleton/sample dims
+            stack = np.squeeze(stack)
+
+            # Handle color TIFFs: convert RGB(A) to grayscale first
+            if stack.ndim == 3 and stack.shape[-1] in (3, 4):
+                stack = stack[..., :3].mean(axis=-1)  # simple mean over RGB
+
+            # If it's multi-frame (Z, Y, X), average over frames
+            if stack.ndim == 3:
+                stack = stack.mean(axis=0)  # collapse Z → average image
+
+            # Ensure final shape is 2D
+            if stack.ndim != 2:
+                raise ValueError(f"Unexpected TIFF shape after averaging: {stack.shape}")
+
+            # Wrap as single "slice"
+            stack = stack[np.newaxis, ...]  # shape: (1, Y, X)
+            Nz, Ny, Nx = stack.shape
+
+            def _parse_site_center_from_name(name: str):
+                # Match Site (<x> <y> <z>) where decimals use commas
+                m = re.search(r"Site\s*\(\s*([^\s\)]+)\s+([^\s\)]+)\s+([^\s\)]+)\s*\)", name)
+                if not m:
+                    return None
+                try:
+                    # replace comma decimal with dot and convert to float (µm)
+                    cx = float(m.group(1).replace(',', '.'))
+                    cy = float(m.group(2).replace(',', '.'))
+                    cz = float(m.group(3).replace(',', '.'))
+                    return (cx, cy, cz)
+                except Exception:
+                    return None
+
+            fname = os.path.basename(filepath)
+            center_um = _parse_site_center_from_name(fname)  # (cx, cy, cz) in µm or None
+
+            # Coordinate construction:
+            # Keep your existing internal "µm * 1e6" convention, since you later multiply by 1e-6.
+            PIXEL_SIZE_UM = 0.1  # µm per pixel
+
+            if center_um is not None:
+                cx_um, cy_um, cz_um = center_um
+
+                # Build pixel-centered axes around the image center, then add the parsed center
+                x_um = (np.arange(Nx, dtype=float) - (Nx - 1) / 2.0) * PIXEL_SIZE_UM + cx_um
+                y_um = (np.arange(Ny, dtype=float) - (Ny - 1) / 2.0) * PIXEL_SIZE_UM + cy_um
+                z_um = cz_um  # single averaged Z position
+
+                # Store in your internal units (µm * 1e6). Later multiplied by 1e-6 → µm again.
+                x = x_um * 1e6
+                y = y_um * 1e6
+                z = np.array([z_um * 1e6])
+            else:
+                # Fallback: original pixel-based axes (center at 0, no offset)
+                x = np.arange(Nx, dtype=float) * 1e6 * PIXEL_SIZE_UM  # 0.1 µm/px
+                y = np.arange(Ny, dtype=float) * 1e6 * PIXEL_SIZE_UM
+                z = np.array([0.0])
+
+            I = stack.reshape(-1)
+        else:
+            # --- CSV path: original behavior ---
+            df = pd.read_csv(filepath, skiprows=1)
+            x = df.iloc[:, 4].to_numpy()
+            y = df.iloc[:, 5].to_numpy()
+            z = df.iloc[:, 6].to_numpy()
+            I = df.iloc[:, 3].to_numpy()
 
     # Grid dimensions
     x_unique = np.unique(x)
@@ -80,10 +184,35 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     if Nz > 1:
         fig, (ax_xy, ax_xz, ax_yz) = plt.subplots(1, 3, figsize=(18, 6))
     else:
-        fig, ax_xy = plt.subplots(1, 1, figsize=(6, 6))
+        fig, ax_xy = plt.subplots(1, 1, figsize=(17, 12))
         ax_xz = ax_yz = None
 
+    file_name_only = os.path.basename(filepath)
+    # Add a big white title at the top
+    fig.suptitle(
+        file_name_only,
+        fontsize=24,
+        fontweight="bold",
+        color="white",
+        y=0.98
+    )
+
+    # Move the window to (X=200px, Y=100px) from top-left of screen
+    mgr = plt.get_current_fig_manager()
+    try:
+        # TkAgg backend
+        mgr.window.wm_geometry("+290+890")  # position only
+        # mgr.window.wm_geometry("1200x900+200+100")  # size + position
+    except Exception:
+        try:
+            # Qt5Agg backend
+            mgr.window.move(200, 800)  # X, Y in pixels
+            # mgr.window.resize(1200, 900)  # optional size
+        except Exception:
+            print("Could not set initial window position for this backend.")
+
     plt.subplots_adjust(bottom=0.30)
+    dbg = fig.text(0.5, 0.1, "Msg", ha="left", va="top", fontsize=9)
 
     z_idx = 0
     y_idx = Ny // 2
@@ -284,10 +413,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     def handle_add2ppt(event):
         try:
-            import win32com.client
-            import pythoncom
-            from PIL import ImageGrab, Image
-
             # Copy the scan axes to clipboard first
             copy_main_axes_to_clipboard()
 
@@ -295,6 +420,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             meta = {
                 "filename": os.path.abspath(filepath) if filepath else "N/A"
             }
+            file_name_only = os.path.basename(filepath) if filepath else "Untitled"
 
             # Insert into PPT
             pythoncom.CoInitialize()
@@ -316,16 +442,65 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 shape = shapes[0]
                 shape.AlternativeText = json.dumps(meta, separators=(",", ":"))
 
+                # --- Add a big white title at the top with the file name ---
+                slide_w = pres.PageSetup.SlideWidth
+                # msoTextOrientationHorizontal = 1
+                title_shape = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40, 50)
+                tr = title_shape.TextFrame.TextRange
+                tr.Text = file_name_only
+                tr.ParagraphFormat.Alignment = 2  # ppAlignCenter = 2
+                tr.Font.Bold = True
+                tr.Font.Size = 28
+                # tr.Font.Color.RGB = 0xFFFFFF  # white
+
+                # Make the title box visually clean
+                try:
+                    title_shape.Fill.Visible = 0  # msoFalse
+                    title_shape.Line.Visible = 0
+                except Exception as e:
+                    pass
+
             print(f"Added slide #{new_slide.SlideIndex} with filename metadata.")
+            plt.close(fig)
 
         except Exception as e:
             print(f"Failed to add to PowerPoint: {e}")
 
     btn_addppt.on_clicked(handle_add2ppt)
 
+    # --- Grid toggle button ---
+    grid_state = {"on": False}
+
+    ax_grid = plt.axes([0.02, 0.35, 0.04, 0.04])
+    btn_grid = Button(ax_grid, 'grid off')
+
+    def _apply_grid(ax, on: bool):
+        if ax is None:
+            return
+        if on:
+            ax.grid(True, which='major', linewidth=0.5, alpha=0.5)
+            ax.grid(True, which='minor', linewidth=0.5, alpha=0.3)
+            ax.minorticks_on()
+        else:
+            ax.grid(False, which='major')
+            ax.grid(False, which='minor')
+            ax.minorticks_off()
+
+    def handle_toggle_grid(_event):
+        grid_state["on"] = not grid_state["on"]
+        on = grid_state["on"]
+        _apply_grid(ax_xy, on)
+        _apply_grid(ax_xz, on)
+        _apply_grid(ax_yz, on)
+        btn_grid.label.set_text('grid on' if on else 'grid off')
+        fig.canvas.draw_idle()
+
+    btn_grid.on_clicked(handle_toggle_grid)
+
+
     # --- Plot area resizing  -----------------
-    ax_ph = plt.axes([0.01, 0.005, 0.1, 0.03])  # Plot height
-    s_plot_h = Slider(ax_ph, 'Plot Height (%)', 40, 500, valinit=85, valstep=1)
+    ax_ph = plt.axes([0.01, 0.005, 0.1, 0.03])
+    s_plot_h = Slider(ax_ph, 'Plot Height (%)', 40, 500, valinit=155, valstep=1)
     # put label above, centered
     s_plot_h.label.set_transform(s_plot_h.ax.transAxes)
     s_plot_h.label.set_position((0.5, 1.1))  # (x,y) in axes coords; y>1 is above
@@ -401,6 +576,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         for ax in axes_list:
             p = ax.get_position()
             ax.set_position([p.x0 + dx, p.y0 + dy, p.width, p.height])
+            dbg.set_text(f"x0={p.x0 + dx:.3f}, y0={p.y0 + dy:.3f}, w={p.width:.3f}, h={p.height:.3f}")
 
         # Keep the colorbar aligned to the right of the last panel
         try:
@@ -419,12 +595,44 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     btn_down.on_clicked(lambda _e: _nudge(0.0, -NUDGE_STEP))
 
     plt.show(block=False)
+
+    ax_xy.set_position([0.156, 0.053, 0.744, 1.054])
+    # Keep the colorbar aligned to the right of the last panel
+    lb = ax_xy.get_position()
+    cb_gap, cb_w = 0.012, 0.018
+    cbar.ax.set_position([lb.x1 + cb_gap, lb.y0, cb_w, lb.height])
+
     try:
         while plt.fignum_exists(fig.number):
             plt.pause(0.1)
     except KeyboardInterrupt:
         pass
 
-if __name__=="__main__":
-    path = sys.argv[1] if len(sys.argv)>1 else None
-    display_all_z_slices(filepath=path)
+
+
+
+
+# =========================
+# CLI routing (fixed)
+# =========================
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Display CSV Z-slices or ProEM TIFF (averaged) with sliders."
+    )
+    parser.add_argument("path", nargs="?", default=None, help="Path to .csv or .tif/.tiff")
+    parser.add_argument("--vmin", type=float, default=None, help="Lower display limit")
+    parser.add_argument("--vmax", type=float, default=None, help="Upper display limit")
+    parser.add_argument("--log", action="store_true", help="Use log-scale display")
+
+    args = parser.parse_args()
+
+    # TIFF logic is handled inside display_all_z_slices
+    display_all_z_slices(
+        filepath=args.path,
+        minI=args.vmin,
+        maxI=args.vmax,
+        log_scale=args.log,
+    )
+

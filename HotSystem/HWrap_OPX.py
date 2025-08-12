@@ -10031,8 +10031,8 @@ class GUI_OPX():
         self.ScanTh = threading.Thread(target=self.scan3d_femto_pulses)
         self.ScanTh.start()
 
-    def btnStartScan(self, add_scan=False):
-        self.ScanTh = threading.Thread(target=self.StartScan)
+    def btnStartScan(self, add_scan=False, isLeftScan = False):
+        self.ScanTh = threading.Thread(target=self.StartScan,args=(add_scan, isLeftScan))
         self.ScanTh.start()
 
     def btnStartGalvoScan(self, add_scan=False):
@@ -10114,7 +10114,7 @@ class GUI_OPX():
                                 UseDisplayDuring=False,
                                 check_srs_stability=check_srs_stability)
 
-    def StartScan(self):
+    def StartScan(self, add_scan=False, isLeftScan=False):
         if self.HW.atto_scanner:
 
             # Move and read functions for mixed axes control
@@ -10189,7 +10189,7 @@ class GUI_OPX():
             self.HW.atto_scanner.start_updates()
             self.HW.atto_positioner.start_updates()
         else:
-            self.StartScan3D()
+            self.StartScan3D(add_scan=add_scan, isLeftScan=isLeftScan)
 
     def fetch_peak_intensity(self, integration_time):
         self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
@@ -10271,7 +10271,7 @@ class GUI_OPX():
 
         return Znew
 
-    def StartScan3D(self):  # currently flurascence scan
+    def StartScan3D(self,add_scan=False, isLeftScan=False):  # currently flurascence scan
         if len(self.positioner.LoggedPoints) == 3:
             with open('logged_points.txt', 'w') as f:
                 for point in self.positioner.LoggedPoints:
@@ -10310,9 +10310,14 @@ class GUI_OPX():
         self.N_scan = []
         for i in range(3):
             if self.b_Scan[i]:
-                axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
-                                                      delta=self.dL_scan[i]) * 1e3 + np.array(
-                    self.initial_scan_Location[i])).astype(np.int64)
+                if i == 0 and isLeftScan:
+                    axis_values = np.array(self.GenVector(min=-self.L_scan[i], max=0,
+                                                          delta=self.dL_scan[i]) * 1e3 + np.array(
+                        self.initial_scan_Location[i])).astype(np.int64)
+                else:
+                    axis_values = np.array(self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
+                                                          delta=self.dL_scan[i]) * 1e3 + np.array(
+                        self.initial_scan_Location[i])).astype(np.int64)
             else:
                 axis_values = np.array([self.initial_scan_Location[i]]).astype(np.int64)  # Ensure it's an array
 
@@ -10952,12 +10957,12 @@ class GUI_OPX():
 
         # --- kx/ky defaults (same as your handlers) ---
         # volts_per_um = 0.128 / 15.0
-        volts_per_um = 0.128 / 100.0
+        volts_per_um = gui.volts_per_um
         kx_ratio = 3.3
         ky_ratio = -0.3
 
-        def um_to_v(um):
-            return um * volts_per_um
+        def pm_to_v(pm):
+            return np.round(pm * 1e-3 * volts_per_um,6)
 
         # --- Experiment/GUI bookkeeping ---
         self.exp = Experiment.SCAN
@@ -10969,7 +10974,13 @@ class GUI_OPX():
         # --- Reset scan state & read current stage pos ---
         self.scan_reset_data()
         self.scan_reset_positioner()
-        self.scan_get_current_pos(_isDebug=True)
+        try:
+            print("Trying to get current position")
+            self.scan_get_current_pos(_isDebug=True)
+        except Exception as e:
+            print(f"ERROR: Failed to get current position: {e}")
+            return
+
         self.initial_scan_Location = list(self.positioner.AxesPositions)  # µm abs
 
         # --- Read baseline galvo offsets (CH1=X, CH2=Y) ---
@@ -10991,7 +11002,11 @@ class GUI_OPX():
         centers_um = [0.0, 0.0, float(self.initial_scan_Location[2])]  # X,Y rel center=0; Z abs center=current Z
         for i in range(3):
             if self.b_Scan[i]:
-                vec = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i])
+                if i == 0:  # X axis → start at 0, go to +Lx
+                    vec = self.GenVector(min=-self.L_scan[i], max=0, delta=self.dL_scan[i]) * 1e3
+                else:  # Y/Z axes → keep centered
+                    vec = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i]) * 1e3
+
                 if i == 2:  # Z abs
                     axis = (np.array(vec) + centers_um[i]).astype(np.int64)
                 else:  # X/Y rel
@@ -11003,11 +11018,14 @@ class GUI_OPX():
 
         self.V_scan = scan_coordinates  # [X_rel_um, Y_rel_um, Z_abs_um]
         Nx, Ny, Nz = self.N_scan
+        self.Xv = self.V_scan[0] / 1e6  # x data of the Smaract values from the csv
+        self.Yv = self.V_scan[1] / 1e6  # y data of the Smaract values from the csv
+        self.Zv = self.V_scan[2] / 1e6  # z data of the Smaract values from the csv
 
         # --- Precompute & print planned voltage bounds (including baselines) ---
         # Convert X/Y grid to volts
-        Vx = um_to_v(self.V_scan[0])[:, None]  # shape (Nx, 1)
-        Vy = um_to_v(self.V_scan[1])[None, :]  # shape (1, Ny)
+        Vx = pm_to_v(self.V_scan[0])[:, None]  # shape (Nx, 1)
+        Vy = pm_to_v(self.V_scan[1])[None, :]  # shape (1, Ny)
         ch1_grid = base_off_x + (Vx + Vy)  # CH1 at each (x,y)
         ch2_grid = base_off_y + (Vx * kx_ratio) + (Vy * ky_ratio)  # CH2 at each (x,y)
 
@@ -11016,7 +11034,13 @@ class GUI_OPX():
         print(f"[Pre-scan] CH1 range: {ch1_min:.4f} V -> {ch1_max:.4f} V  (baseline {base_off_x:.4f} V)")
         print(f"[Pre-scan] CH2 range: {ch2_min:.4f} V -> {ch2_max:.4f} V  (baseline {base_off_y:.4f} V)")
 
-        # --- Move to initial Z, zero galvo deflection (baseline) ---
+        # ─── Safety check ───
+        if ch1_min < -5 or ch1_max > 5 or ch2_min < -5 or ch2_max > 5:
+            print("[ERROR] Voltage range exceeds ±5 V limit. Aborting scan.")
+            if not self.stopScan:
+                self.btnStop()
+            return
+
         try:
             self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][0]))
             time.sleep(self.t_wait_motionStart)
@@ -11026,6 +11050,7 @@ class GUI_OPX():
         except Exception as e:
             print(f"ERROR: Failed initial positioning: {e}")
             return
+        # --- Move to initial Z, zero galvo deflection (baseline) ---
         self.scan_get_current_pos(True)
 
         # --- Allocate arrays & plot first slice ---
@@ -11060,14 +11085,14 @@ class GUI_OPX():
                 while j < Ny:  # Y rows
                     if self.stopScan: break
 
-                    y_um = float(self.V_scan[1][j])
-                    Vy = um_to_v(y_um)
+                    y_pm = float(self.V_scan[1][j])
+                    Vy = pm_to_v(y_pm)
 
                     # X line
                     for k in range(Nx):
                         if self.stopScan: break
-                        x_um = float(self.V_scan[0][k])
-                        Vx = um_to_v(x_um)
+                        x_pm = float(self.V_scan[0][k])
+                        Vx = pm_to_v(x_pm)
 
                         # === Apply combined X,Y galvo move with kx/ky defaults ===
                         ch1 = base_off_x + (Vx + Vy)

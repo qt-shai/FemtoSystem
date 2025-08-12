@@ -21,6 +21,7 @@ class GUIKeysight33500B:
         self.simulation = simulation
         self.unique_id = self._get_unique_id_from_device()
         self.instrument = instrument
+        self.volts_per_um = 1e-3
 
         # 1) where to store settings
         self._settings_file = os.path.join(os.getcwd(), "awg_settings.json")
@@ -35,9 +36,9 @@ class GUIKeysight33500B:
         with dpg.window(tag=self.window_tag, label=f"{self.instrument.value}",
                         no_title_bar=False, height=270, width=1800, pos=[0, 0], collapsed=False):
             with dpg.group(horizontal=True):
-                self.create_instrument_image()
+                # self.create_instrument_image()
                 self.create_waveform_controls(self.red_button_theme)
-                self.create_offset_controls(self.red_button_theme)
+
                 self.create_frequency_controls(self.red_button_theme)
                 self.create_amplitude_controls(self.red_button_theme)
                 self.create_duty_cycle_controls(self.red_button_theme)
@@ -104,8 +105,8 @@ class GUIKeysight33500B:
             )
 
     def create_waveform_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=250):
-            dpg.add_text("Waveform Controls")
+        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=150):
+            dpg.add_text("Waveform")
             dpg.add_combo(["SINE", "SQUARE", "TRIANGLE", "RAMP", "NOISE"], default_value="SINE",
                           tag=f"WaveformType_{self.unique_id}", width=100)
             dpg.add_button(label="Set Waveform", callback=self.btn_set_waveform)
@@ -114,7 +115,8 @@ class GUIKeysight33500B:
             with dpg.group(horizontal=False):
                 dpg.add_button(label="Get  Params",callback = self.btn_get_current_parameters)
                 dpg.add_input_text(tag=f"CurrentParams_{self.unique_id}",multiline = True, readonly = True,
-                                   width = 250, height = 210)
+                                   width = 250, height = 135)
+            self.create_offset_controls(self.red_button_theme)
 
     def create_frequency_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_frequency_{self.unique_id}", width=200):
@@ -147,7 +149,7 @@ class GUIKeysight33500B:
             dpg.bind_item_theme(dpg.last_item(), theme)
 
     def create_offset_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_offset_{self.unique_id}", width=200):
+        with dpg.group(horizontal=False, tag=f"column_offset_{self.unique_id}", width=150):
             dpg.add_text("Offset (V)")
             dpg.add_input_float(default_value=0.0, tag=f"Offset_{self.unique_id}",step=0.01,
                                 format='%.4f', width=100, callback=self.validate_offset_input)
@@ -165,6 +167,16 @@ class GUIKeysight33500B:
                 horizontal=True,
                 callback=self.cb_select_channel,
             )
+            with dpg.group(horizontal=True):
+                dpg.add_text("mV/um:")
+                volts_input = dpg.add_input_float(
+                    default_value=1.0,  # Default value for volts_per_um
+                    tag=f"mVoltsPerUm_{self.unique_id}",
+                    step=0.01,
+                    format='%.3f',
+                    callback=lambda sender, app_data: setattr(self, 'volts_per_um', app_data*1e-3)  # Set self.volts_per_um with the input value
+                )
+
 
     def create_duty_cycle_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_duty_cycle_{self.unique_id}", width=200):
@@ -184,7 +196,7 @@ class GUIKeysight33500B:
 
     def create_output_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_output_{self.unique_id}", width=150):
-            dpg.add_text("Output Controls")
+            dpg.add_text("Output")
             dpg.add_combo(["ON", "OFF"], default_value="OFF", tag=f"OutputState_{self.unique_id}", width=100)
             dpg.add_button(label="Set Output", callback=self.btn_set_output_state)
             dpg.bind_item_theme(dpg.last_item(), theme)

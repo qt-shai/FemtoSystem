@@ -160,6 +160,7 @@ class CommandDispatcher:
             "angle":             self.handle_set_angle,
             "start":             self.handle_start_scan,
             "stt":               self.handle_start_scan,
+            "kst":               self.handle_start_scan_with_galvo,
             "startscan":         self.handle_start_scan,
             "dx":                self.handle_set_dx,
             "dy":                self.handle_set_dy,
@@ -1689,17 +1690,61 @@ class CommandDispatcher:
             print(f"genlist failed: {e}")
 
     def handle_acquire_spectrum(self, arg):
-        """Launch threaded spectrum acquisition process."""
+        """Launch threaded spectrum acquisition process.
+        Usage: spc [st] [exposure_s]
+
+          spc               Acquire spectrum with current settings.
+          spc <time_s>      Acquire with integration time in seconds.
+          spc st            Run 'set XYZ' + paste clipboard into experiment notes, then acquire.
+          spc st <time_s>   Same as 'st' but sets exposure time.
+
+        Notes:
+          • Exposure time is given in seconds (float).
+          • 'st' = run handle_set_xyz first, then use clipboard text as experiment note.
+          • Last saved CSV is renamed with experiment note appended.
+          • New file path is copied to clipboard after acquisition.
+        """
         threading.Thread(target=self._acquire_spectrum_worker, args=(arg,), daemon=True).start()
 
     def _acquire_spectrum_worker(self, arg):
         """Actual spectrum acquisition logic, run in a background thread."""
         p = self.get_parent()
-        self.handle_mark(arg)
+
+        # --- NEW: special 'st' pre-sequence ---
+        try:
+            tokens = (arg or "").strip().split()
+            is_st = len(tokens) > 0 and tokens[0].lower() == "st"
+            rest_arg = " ".join(tokens[1:]) if is_st else (arg or "").strip()
+
+            if is_st:
+                # 1) set XYZ first
+                try:
+                    self.handle_set_xyz("")  # pass args if you need (e.g., current cursor, etc.)
+                    print("handle_set_xyz done.")
+                except Exception as e:
+                    print(f"handle_set_xyz failed: {e}")
+
+                # 2) paste clipboard into expNotes
+                try:
+                    clip = (pyperclip.paste() or "").strip()
+                    if clip:
+                        # set (overwrite) note with clipboard text
+                        self.handle_update_note(clip)
+                        print("Experiment note updated from clipboard.")
+                    else:
+                        print("Clipboard empty — note not updated.")
+                except Exception as e:
+                    print(f"Could not read clipboard / update note: {e}")
+        except Exception as e:
+            print(f"'st' pre-sequence failed: {e}")
+        # --- end NEW ---
+
+
+        self.handle_mark(rest_arg)
         time.sleep(0.1)
 
         # 0) Try to set exposure time
-        secs_str = arg.strip()
+        secs_str = rest_arg.strip()
         if secs_str:
             try:
                 secs = float(secs_str) * 1000
@@ -2063,14 +2108,35 @@ class CommandDispatcher:
         Usage:
           stt        : fresh scan
           stt add    : add to previous scan (accumulate)
+          stt left   : fresh scan with X all to the left
+          stt add left   : add-scan with X all to the left
         """
         p=self.get_parent()
+        parts = arg.strip().lower().split()
+        add_scan = "add" in parts
+        isLeftScan = "left" in parts
+
+        try:
+            p.smaractGUI.fill_current_position_to_moveabs()
+            self.handle_toggle_sc(reverse=False)
+            p.opx.btnStartScan(add_scan=add_scan,isLeftScan=isLeftScan)
+            mode = "add" if add_scan else "fresh"
+            side = " (left)" if is_left_scan else ""
+            print(f"Scan started: {mode}{side}.")
+        except Exception as e:
+            print(f"Error Start Scan: {e}")
+
+    def handle_start_scan_with_galvo(self,arg):
+        """
+                Start OPX scan with Galvo.
+        """
+        p = self.get_parent()
         cmd = arg.strip().lower()
         add_scan = (cmd == 'add')
         try:
             p.smaractGUI.fill_current_position_to_moveabs()
             self.handle_toggle_sc(reverse=False)
-            p.opx.btnStartScan(add_scan=add_scan)
+            p.opx.btnStartGalvoScan(add_scan=add_scan)
             print("Scan started.")
         except Exception as e:
             print(f"Error Start Scan: {e}")
@@ -2256,12 +2322,13 @@ class CommandDispatcher:
 
     def handle_display_slices(self, arg):
         """
-            Run Z-slices viewer.
+        Run Z-slices viewer.
 
-            - Use 'disp clip' to read scan_data or G2 graph from clipboard image's Alt Text (PowerPoint).
-             - If scan_data → display Z-slices
-             - If g2_graph → plot G2 correlation
-             - If spc_data → plot spectrum
+        - Use 'disp clip' to read scan_data or G2 graph from clipboard image's Alt Text (PowerPoint).
+         - If scan_data → display Z-slices
+         - If g2_graph → plot G2 correlation
+         - If spc_data → plot spectrum
+        - Use 'disp tif' to display the latest TIFF saved by LightField.
         """
 
         def _resolve_existing_scan_file(fn: str, move_subfolder_tag: str = "MoveSubfolderInput") -> str | None:
@@ -2321,7 +2388,29 @@ class CommandDispatcher:
         try:
             fn = None
             p=self.get_parent()
-            if arg.strip() == "clip":
+            arg_clean = arg.strip().lower()
+
+            # === NEW: 'disp tif' shows the most recent TIFF from LightField folder ===
+            if arg_clean == "tif":
+                base_dir = Path(r"C:\Users\Femto\Work Folders\Documents\LightField")
+                if not base_dir.exists():
+                    print(f"LightField folder not found: {base_dir}")
+                    return
+
+                # search recursively for .tif/.tiff and pick the newest by mtime
+                matches = list(base_dir.rglob("*.tif")) + list(base_dir.rglob("*.tiff"))
+                if not matches:
+                    print(f"No .tif/.tiff files found under: {base_dir}")
+                    return
+
+                latest = max(matches, key=lambda m: m.stat().st_mtime)
+                print(f"Opening latest TIFF: {latest}")
+
+                # launch the existing viewer
+                subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", str(latest)])
+                return
+
+            if arg_clean == "clip":
                 # 1. Grab image from clipboard
                 img = ImageGrab.grabclipboard()
                 if not isinstance(img, Image.Image):
@@ -3164,7 +3253,7 @@ class CommandDispatcher:
             print("Error: Too many values. Provide one or two.")
             return
 
-        volts_per_um = 0.128 / 15.0
+        volts_per_um = gui.volts_per_um
 
         def apply_to_channel(channel, num_str, unit):
             val = float(num_str)
@@ -3217,7 +3306,11 @@ class CommandDispatcher:
         Calibration: 0.128 V → 15 µm.
         """
 
-        import re
+        parent = self.get_parent()
+        gui = getattr(parent, "keysight_gui", None)
+        if not gui:
+            print("No Keysight AWG GUI is active.")
+            return
 
         # 1) Extract all (number, optional-unit) pairs
         parts = re.findall(r'([+-]?\d*\.?\d+)(?:\s*(u|um|v))?', arg, re.IGNORECASE)
@@ -3240,7 +3333,7 @@ class CommandDispatcher:
         base2 = 0.64  # baseline for CH2
 
         # calibration factor
-        volts_per_um = 0.128 / 15.0
+        volts_per_um = gui.volts_per_um
 
         # 5) Compute offsets
         offsets = []
@@ -3255,12 +3348,7 @@ class CommandDispatcher:
         if len(offsets) == 1:
             offsets.append(None)
 
-        # 6) Locate AWG GUI
-        parent = self.get_parent()
-        gui = getattr(parent, "keysight_gui", None)
-        if not gui:
-            print("No Keysight AWG GUI is active.")
-            return
+
 
         # 7) Apply offsets
         try:
@@ -3283,7 +3371,6 @@ class CommandDispatcher:
         – 'u'/'um'      treats value as µm (× volts_per_um)
         – optional <ratio> overrides default CH2:CH1 ratio
         """
-        import re, dearpygui.dearpygui as dpg
 
         parent = self.get_parent()
         gui = getattr(parent, "keysight_gui", None)
@@ -3305,7 +3392,7 @@ class CommandDispatcher:
         val = float(m.group(1))
         unit = (m.group(2) or "v").lower()
 
-        volts_per_um = 0.128 / 15.0
+        volts_per_um = gui.volts_per_um
         if unit in ("u", "um"):
             delta_v = val * volts_per_um
             label = "µm"
@@ -3347,7 +3434,6 @@ class CommandDispatcher:
         – 'u'/'um'      treats value as µm (× volts_per_um)
         – optional <ratio> overrides default CH2:CH1 ratio
         """
-        import re, dearpygui.dearpygui as dpg
 
         parent = self.get_parent()
         gui = getattr(parent, "keysight_gui", None)
@@ -3367,7 +3453,7 @@ class CommandDispatcher:
         val = float(m.group(1))
         unit = (m.group(2) or "v").lower()
 
-        volts_per_um = 0.128 / 15.0
+        volts_per_um = gui.volts_per_um
         if unit in ("u", "um"):
             delta_v = val * volts_per_um
             label = "µm"

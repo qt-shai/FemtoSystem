@@ -325,12 +325,12 @@ def load_window_positions(file_name: str = None) -> None:
             if not line:
                 continue
 
-            if line.startswith("Viewport_Size:"):
-                _, val = line.split("Viewport_Size:")
-                vp_w, vp_h = map(int, val.split(","))
-                dpg.set_viewport_width(vp_w)
-                dpg.set_viewport_height(vp_h)
-                print(f"Restored viewport size: {vp_w}×{vp_h}")
+            # if line.startswith("Viewport_Size:"):
+            #     _, val = line.split("Viewport_Size:")
+            #     vp_w, vp_h = map(int, val.split(","))
+            #     dpg.set_viewport_width(vp_w)
+            #     dpg.set_viewport_height(vp_h)
+            #     print(f"Restored viewport size: {vp_w}×{vp_h}")
 
             elif "_Pos:" in line:
                 name, val = line.split("_Pos:")
@@ -359,7 +359,7 @@ def load_window_positions(file_name: str = None) -> None:
                         dpg.set_item_pos(alias, pos)
                         applied = True
             if applied:
-                print(f"Loaded position for '{key}' → {pos}")
+                print(f"Loaded position for '{key}' -> {pos}")
             else:
                 print(f"[load] position target not found: '{key}'")
 
