@@ -1709,6 +1709,7 @@ class CommandDispatcher:
     def _acquire_spectrum_worker(self, arg):
         """Actual spectrum acquisition logic, run in a background thread."""
         p = self.get_parent()
+        is_st=False
 
         # --- NEW: special 'st' pre-sequence ---
         try:
@@ -1797,6 +1798,14 @@ class CommandDispatcher:
                 p.hrs_500_gui.dev.last_saved_csv = new_fp  # Update path
             except Exception as e:
                 print(f"Failed to rename SPC file: {e}")
+
+        # --- NEW: If in 'st' mode, run "disp tif" at the end ---
+        if is_st:
+            try:
+                self.handle_display_slices("tif")
+                print('Executed: disp tif')
+            except Exception as e:
+                print(f'Failed to run "disp tif": {e}')
 
     def handle_message(self, arg):
         """Show large message window."""
