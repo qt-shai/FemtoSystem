@@ -21,7 +21,9 @@ class GUIKeysight33500B:
         self.simulation = simulation
         self.unique_id = self._get_unique_id_from_device()
         self.instrument = instrument
-        self.volts_per_um = 1e-3
+        self.volts_per_um = 1e-4
+        self.base1=0.536
+        self.base2=0.039
 
         # 1) where to store settings
         self._settings_file = os.path.join(os.getcwd(), "awg_settings.json")

@@ -255,6 +255,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     plt.subplots_adjust(bottom=0.30)
     # dbg = fig.text(0.5, 0.1, "Msg", ha="left", va="top", fontsize=9)
+    print(f"Shape of I_: {I_.shape}, min={I_.min()}, max={I_.max()}")
 
     z_idx = 0
     y_idx = Ny // 2

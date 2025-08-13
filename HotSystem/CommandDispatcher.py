@@ -2348,6 +2348,8 @@ class CommandDispatcher:
               - search under the 'scan' root if still missing
             Returns the resolved absolute path or None.
             """
+            from pathlib import Path
+
             if not fn:
                 return None
 
@@ -2417,6 +2419,29 @@ class CommandDispatcher:
 
                 # launch the existing viewer
                 subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", str(latest)])
+                return
+
+            if arg_clean == "temp":
+                from pathlib import Path
+
+                base_dir = Path(r"C:\temp\TempScanData")
+                if not base_dir.exists():
+                    print(f"TempScanData folder not found: {base_dir}")
+                    return
+
+                # Find most recent CSV
+                csv_files = sorted(base_dir.glob("*.csv"), key=lambda f: f.stat().st_mtime, reverse=True)
+                if not csv_files:
+                    print("No CSV files found in TempScanData.")
+                    return
+
+                latest_file = csv_files[0]
+                print(f"Displaying most recent CSV: {latest_file.name}")
+
+                try:
+                    disp.display_all_z_slices(str(latest_file))  # Only filepath passed
+                except Exception as e:
+                    print(f"disp failed: {e}")
                 return
 
             if arg_clean == "clip":
@@ -3338,8 +3363,8 @@ class CommandDispatcher:
         voltage_mode = any(u == 'v' for u in unts) and not any(u in ('u', 'um') for u in unts)
 
         # 4) Set per-channel baselines (zero-micron offsets)
-        base1 = 1.05  # baseline for CH1
-        base2 = 0.64  # baseline for CH2
+        base1 = gui.base1 # 0.536 baseline for CH1
+        base2 = gui.base2 # 0.039 baseline for CH2
 
         # calibration factor
         volts_per_um = gui.volts_per_um
@@ -3356,8 +3381,6 @@ class CommandDispatcher:
         # If only one value was given, leave CH2 untouched
         if len(offsets) == 1:
             offsets.append(None)
-
-
 
         # 7) Apply offsets
         try:
