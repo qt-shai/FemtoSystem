@@ -12,6 +12,11 @@ import sys
 import win32com.client
 import pythoncom
 from PIL import ImageGrab, Image
+from matplotlib.widgets import RadioButtons
+import io
+from PIL import Image
+import win32clipboard
+from matplotlib.widgets import Button
 
 # --- NEW: prefer tifffile for scientific TIFFs, fallback to imageio ---
 try:
@@ -164,6 +169,42 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     Y_ = np.linspace(y.min(), y.max(), Ny) * 1e-6
     Z_ = np.linspace(z.min(), z.max(), Nz) * 1e-6
 
+    # --- Smoothing (minimal; does not modify I_) ---
+    try:
+        import scipy.ndimage as ndi
+        _HAS_SCIPY_ND = True
+    except Exception:
+        _HAS_SCIPY_ND = False
+
+    _smooth = {"on": False, "sigma": 1.0}
+
+    def _gauss1d(sigma: float):
+        if sigma <= 0:
+            return np.array([1.0], dtype=np.float64)
+        r = max(1, int(3 * sigma))
+        x = np.arange(-r, r + 1, dtype=np.float64)
+        k = np.exp(-(x * x) / (2.0 * sigma * sigma))
+        k /= k.sum()
+        return k
+
+    def _smooth2d(img2d: np.ndarray) -> np.ndarray:
+        """Return smoothed copy for display only (XY plane)."""
+        if not _smooth["on"] or _smooth["sigma"] <= 0:
+            return img2d
+        s = float(_smooth["sigma"])
+        if _HAS_SCIPY_ND:
+            return ndi.gaussian_filter(img2d, sigma=s, mode="reflect")
+        # NumPy fallback: separable conv with reflect padding
+        k = _gauss1d(s)
+        pad = len(k) // 2
+        # rows
+        rpad = np.pad(img2d, ((0, 0), (pad, pad)), mode='reflect')
+        row_conv = np.apply_along_axis(lambda v: np.convolve(v, k, mode='valid'), 1, rpad)
+        # cols
+        cpad = np.pad(row_conv, ((pad, pad), (0, 0)), mode='reflect')
+        out = np.apply_along_axis(lambda v: np.convolve(v, k, mode='valid'), 0, cpad)
+        return out
+
     if log_scale:
         I_ = np.log10(I_ + np.finfo(float).eps)
 
@@ -192,10 +233,11 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     fig.suptitle(
         file_name_only,
         fontsize=24,
-        fontweight="bold",
-        color="white",
+        fontweight="bold",        # color="white",
         y=0.98
     )
+
+    fig.canvas.manager.set_window_title(file_name_only)
 
     # Move the window to (X=200px, Y=100px) from top-left of screen
     mgr = plt.get_current_fig_manager()
@@ -212,14 +254,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             print("Could not set initial window position for this backend.")
 
     plt.subplots_adjust(bottom=0.30)
-    dbg = fig.text(0.5, 0.1, "Msg", ha="left", va="top", fontsize=9)
+    # dbg = fig.text(0.5, 0.1, "Msg", ha="left", va="top", fontsize=9)
 
     z_idx = 0
     y_idx = Ny // 2
     x_idx = Nx // 2
-
     im_xy = ax_xy.imshow(
-        I_[z_idx], extent=extent_xy,
+        _smooth2d(I_[z_idx]), extent=extent_xy,
         origin='lower', aspect='equal', vmin=minI, vmax=maxI
     )
     ax_xy.set_title(f"XY @ Z={Z_[z_idx]:.2f} µm")
@@ -227,13 +268,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     if Nz > 1:
         im_xz = ax_xz.imshow(
-            I_[:, y_idx, :], extent=extent_xz,
+            _smooth2d(I_[:, y_idx, :]), extent=extent_xz,
             origin='lower', aspect='auto', vmin=minI, vmax=maxI
         )
         ax_xz.set_title(f"XZ @ Y={Y_[y_idx]:.2f} µm")
         ax_xz.set_xlabel("X (µm)"); ax_xz.set_ylabel("Z (µm)")
 
-        im_yz = ax_yz.imshow(I_[:, :, x_idx], extent=extent_yz, origin='lower',
+        im_yz = ax_yz.imshow(_smooth2d(I_[:, :, x_idx]), extent=extent_yz, origin='lower',
                              aspect='auto', vmin=minI, vmax=maxI)
         ax_yz.set_title(f"YZ @ X={X_[x_idx]:.2f} µm")
         ax_yz.set_xlabel("Y (µm)");
@@ -243,15 +284,35 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     else:
         cbar = fig.colorbar(im_xy, ax=ax_xy, label="kCounts/s")
 
-    # Max I slider
-    ax_max = plt.axes([0.01, 0.06, 0.1, 0.03])
-    slider_max = Slider(ax_max, 'Max I', np.min(I_), np.max(I_), valinit=maxI)
-    # put label above, centered
-    slider_max.label.set_transform(slider_max.ax.transAxes)
-    slider_max.label.set_position((0.5, 1.1))  # (x,y) in axes coords; y>1 is above
-    slider_max.label.set_ha('center')
-    slider_max.label.set_va('bottom')
+    # ----------------  Smoothing controls (minimal UI)  ----------------
+    ax_sigma = plt.axes([0.1, 0.10, 0.1, 0.03])  # x, y, w, h
+    slider_sigma = Slider(ax_sigma, 'σ (px)', 0.0, 6.0, valinit=_smooth["sigma"], valstep=0.1)
+    ax_smooth = plt.axes([0.20, 0.15, 0.06, 0.04])
+    btn_smooth = Button(ax_smooth, 'smooth off')
+    def _on_sigma_change(_val):
+        _smooth["sigma"] = float(slider_sigma.val)
+        if _smooth["on"]:
+            # just refresh currently shown data
+            im_xy.set_data(_smooth2d(I_[z_idx]))
+            if Nz > 1:
+                im_xz.set_data(_smooth2d(I_[:, y_idx, :]))
+                im_yz.set_data(_smooth2d(I_[:, :, x_idx]))
+            fig.canvas.draw_idle()
+    slider_sigma.on_changed(_on_sigma_change)
+    def _toggle_smoothing(_event):
+        _smooth["on"] = not _smooth["on"]
+        btn_smooth.label.set_text('smooth on' if _smooth["on"] else 'smooth off')
+        # refresh display from original I_ through smoother (or not)
+        im_xy.set_data(_smooth2d(I_[z_idx]))
+        if Nz > 1:
+            im_xz.set_data(_smooth2d(I_[:, y_idx, :]))
+            im_yz.set_data(_smooth2d(I_[:, :, x_idx]))
+        fig.canvas.draw_idle()
+    btn_smooth.on_clicked(_toggle_smoothing)
 
+    # ----------------   Max I slider    ----------------
+    ax_max = plt.axes([0.1, 0.05, 0.1, 0.03])
+    slider_max = Slider(ax_max, 'Max I', np.min(I_), np.max(I_), valinit=maxI)
     def update_max(val):
         vmin = minI; vmax = slider_max.val
         im_xy.set_clim(vmin, vmax)
@@ -259,65 +320,86 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             im_xz.set_clim(vmin, vmax)
             im_yz.set_clim(minI, vmax)
         fig.canvas.draw_idle()
-
     slider_max.on_changed(update_max)
 
-    # Z slider (only if Nz > 1)
-    if Nz > 1:
-        ax_z = plt.axes([0.15, 0.15, 0.7, 0.03])
-        slider_z = Slider(ax_z, 'Z slice', 1, Nz, valinit=1, valstep=1)
+    # ----------------     Plot area resizing     ----------------
+    ax_ph = plt.axes([0.1, 0.005, 0.1, 0.03])
+    s_plot_h = Slider(ax_ph, 'Size (%)', 40, 500, valinit=155 if Nz == 1 else 85, valstep=1)
+    # plt.subplots_adjust(bottom=0.3)  # make room for the extra slider
+    ctrl_bottom = fig.subplotpars.bottom
+    top_limit = 0.98
+    max_h = max(0.0, top_limit - ctrl_bottom)
+    FIXED_W_FRAC = 0.90  # Fixed width fraction (centered); tweak if you want wider/narrower plots
+    def _apply_plot_layout_h(h_frac_pct: float):
+        h_frac = h_frac_pct / 100.0
+        w_frac = FIXED_W_FRAC
+        left = 0.25 - 0.5 * w_frac
+        width = w_frac
+        height = max_h * h_frac
+        bottom = ctrl_bottom + 0.5 * (max_h - height)
+        if ax_xz is not None and ax_yz is not None:
+            gap = 0.03
+            col_w = (width - 2 * gap) / 3.0
+            ax_xy.set_position([left, bottom, col_w, height])
+            ax_xz.set_position([left + col_w + gap, bottom, col_w, height])
+            ax_yz.set_position([left + 2 * (col_w + gap), bottom, col_w, height])
+        else:
+            ax_xy.set_position([left, bottom, width, height])
+        try: # keep colorbar aligned to the right of the last panel
+            last_ax = ax_yz if ax_yz is not None else ax_xy
+            lb = last_ax.get_position()
+            cb_gap = 0.012
+            cb_w = 0.018
+            cbar.ax.set_position([lb.x1 + cb_gap, lb.y0, cb_w, lb.height])
+        except Exception:
+            pass
+        fig.canvas.draw_idle()
+    s_plot_h.on_changed(_apply_plot_layout_h)
+    _apply_plot_layout_h(s_plot_h.val)
 
+    # ----------------    Z slider (only if Nz > 1)    ----------------
+    if Nz > 1:
+        ax_z = plt.axes([0.3, 0.1, 0.5, 0.03])
+        slider_z = Slider(ax_z, 'Z slice', 1, Nz, valinit=1, valstep=1)
         def update_z(val):
             nonlocal z_idx
             z_idx = int(slider_z.val) - 1
-            im_xy.set_data(I_[z_idx])
+            im_xy.set_data(_smooth2d(I_[z_idx]))
             ax_xy.set_title(f"XY @ Z={Z_[z_idx]:.2f} µm")
             fig.canvas.draw_idle()
-
         slider_z.on_changed(update_z)
-
     # X, Y sliders only if XZ is shown
     if Nz > 1:
-        ax_y = plt.axes([0.15, 0.1, 0.7, 0.03])
+        ax_y = plt.axes([0.3, 0.05, 0.5, 0.03])
         slider_y = Slider(ax_y, 'Y slice', 1, Ny, valinit=y_idx + 1, valstep=1)
         def update_y(val):
             nonlocal y_idx
             y_idx = int(slider_y.val) - 1
-            im_xz.set_data(I_[:, y_idx, :])
+            im_xz.set_data(_smooth2d(I_[:, y_idx, :]))
             ax_xz.set_title(f"XZ @ Y={Y_[y_idx]:.2f} µm")
             fig.canvas.draw_idle()
-
         slider_y.on_changed(update_y)
-
-        # X slice slider
-        ax_x = plt.axes([0.15, 0.06, 0.7, 0.03])
+        # ----------------    X slice slider    ----------------
+        ax_x = plt.axes([0.3, 0.005, 0.5, 0.03])
         slider_x = Slider(ax_x, 'X slice', 1, Nx, valinit=x_idx + 1, valstep=1)
-
         def update_x(val):
             nonlocal x_idx
             x_idx = int(slider_x.val) - 1
-            im_yz.set_data(I_[:, :, x_idx])
+            im_yz.set_data(_smooth2d(I_[:, :, x_idx]))
             ax_yz.set_title(f"YZ @ X={X_[x_idx]:.2f} µm")
             fig.canvas.draw_idle()
-
         slider_x.on_changed(update_x)
 
-    from matplotlib.widgets import RadioButtons
-
-    # 1. Available colormaps
+    # ----------------    Radio Buttons   ----------------
     colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis',
                  'gray', 'hot', 'jet', 'bone', 'cool', 'spring', 'summer', 'autumn', 'winter']
-
-    # 2. Add axes for RadioButtons
-    radio_ax = plt.axes([0.01, 0.6, 0.03, 0.4], facecolor='lightgray')  # x, y, width, height
+    radio_ax = plt.axes([0.005, 0.005, 0.03, 0.2], facecolor='lightgray')  # x, y, width, height
     radio = RadioButtons(radio_ax, colormaps, active=0)
-
     # 3. Apply default colormap initially
     im_xy.set_cmap('jet')
     if Nz > 1:
         im_xz.set_cmap('jet')
         im_yz.set_cmap('jet')
-
     # 4. Callback to update colormap
     def change_colormap(label):
         im_xy.set_cmap(label)
@@ -325,14 +407,10 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             im_xz.set_cmap(label)
             im_yz.set_cmap(label)
         fig.canvas.draw_idle()
-
     radio.on_clicked(change_colormap)
 
+    # ----------------    "Copy"    ----------------
     def copy_main_axes_to_clipboard():
-        import io
-        from PIL import Image
-        import win32clipboard
-
         # Determine how many subplots we need
         show_xz = Nz > 1
         show_yz = Nz > 1 and ax_yz is not None
@@ -398,19 +476,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         plt.close(fig_copy)
         print("Copied graph with colorbar to clipboard.")
-
-    # Add "Copy" button in figure window
-    from matplotlib.widgets import Button
-    btn_ax = plt.axes([0.02, 0.45, 0.04, 0.04])  # x, y, width, height
+    btn_ax = plt.axes([0.05, 0.15, 0.04, 0.04])  # x, y, width, height
     btn = Button(btn_ax, 'Copy')
     btn.on_clicked(lambda event: copy_main_axes_to_clipboard())
 
-    from matplotlib.widgets import Button
-
-    # Add2PPT Button
-    ax_addppt = plt.axes([0.02, 0.4, 0.04, 0.04])
+    # ----------------    Add2PPT Button    ----------------
+    ax_addppt = plt.axes([0.1, 0.15, 0.04, 0.04])
     btn_addppt = Button(ax_addppt, 'add2ppt')
-
     def handle_add2ppt(event):
         try:
             # Copy the scan axes to clipboard first
@@ -465,15 +537,12 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         except Exception as e:
             print(f"Failed to add to PowerPoint: {e}")
-
     btn_addppt.on_clicked(handle_add2ppt)
 
-    # --- Grid toggle button ---
+    # ----------------     Grid toggle button     ----------------
     grid_state = {"on": False}
-
-    ax_grid = plt.axes([0.02, 0.35, 0.04, 0.04])
+    ax_grid = plt.axes([0.15, 0.15, 0.04, 0.04])
     btn_grid = Button(ax_grid, 'grid off')
-
     def _apply_grid(ax, on: bool):
         if ax is None:
             return
@@ -485,7 +554,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             ax.grid(False, which='major')
             ax.grid(False, which='minor')
             ax.minorticks_off()
-
     def handle_toggle_grid(_event):
         grid_state["on"] = not grid_state["on"]
         on = grid_state["on"]
@@ -494,75 +562,21 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         _apply_grid(ax_yz, on)
         btn_grid.label.set_text('grid on' if on else 'grid off')
         fig.canvas.draw_idle()
-
     btn_grid.on_clicked(handle_toggle_grid)
-
-
-    # --- Plot area resizing  -----------------
-    ax_ph = plt.axes([0.01, 0.005, 0.1, 0.03])
-    s_plot_h = Slider(ax_ph, 'Plot Height (%)', 40, 500, valinit=155, valstep=1)
-    # put label above, centered
-    s_plot_h.label.set_transform(s_plot_h.ax.transAxes)
-    s_plot_h.label.set_position((0.5, 1.1))  # (x,y) in axes coords; y>1 is above
-    s_plot_h.label.set_ha('center')
-    s_plot_h.label.set_va('bottom')
-
     try:
         fig.set_constrained_layout(False)
     except Exception:
         pass
 
-    # plt.subplots_adjust(bottom=0.3)  # make room for the extra slider
-
-    ctrl_bottom = fig.subplotpars.bottom
-    top_limit = 0.98
-    max_h = max(0.0, top_limit - ctrl_bottom)
-
-    # Fixed width fraction (centered); tweak if you want wider/narrower plots
-    FIXED_W_FRAC = 0.90
-
-    def _apply_plot_layout_h(h_frac_pct: float):
-        h_frac = h_frac_pct / 100.0
-        w_frac = FIXED_W_FRAC
-
-        left = 0.25 - 0.5 * w_frac
-        width = w_frac
-        height = max_h * h_frac
-        bottom = ctrl_bottom + 0.5 * (max_h - height)
-
-        if ax_xz is not None and ax_yz is not None:
-            gap = 0.03
-            col_w = (width - 2 * gap) / 3.0
-            ax_xy.set_position([left, bottom, col_w, height])
-            ax_xz.set_position([left + col_w + gap, bottom, col_w, height])
-            ax_yz.set_position([left + 2 * (col_w + gap), bottom, col_w, height])
-        else:
-            ax_xy.set_position([left, bottom, width, height])
-
-        # keep colorbar aligned to the right of the last panel
-        try:
-            last_ax = ax_yz if ax_yz is not None else ax_xy
-            lb = last_ax.get_position()
-            cb_gap = 0.012
-            cb_w = 0.018
-            cbar.ax.set_position([lb.x1 + cb_gap, lb.y0, cb_w, lb.height])
-        except Exception:
-            pass
-
-        fig.canvas.draw_idle()
-
-    s_plot_h.on_changed(_apply_plot_layout_h)
-    _apply_plot_layout_h(s_plot_h.val)
-
-    # --- Arrow buttons to move the plot area (keep window maximized) ---
+    # ----------------    Arrow buttons    ----------------
 
     NUDGE_STEP = 0.02  # move by 2% of figure per click
 
     # Place the arrows at the bottom-left control strip
-    ax_up = plt.axes([0.055, 0.295, 0.02, 0.04])
-    ax_left = plt.axes([0.035, 0.255, 0.02, 0.04])
-    ax_down = plt.axes([0.055, 0.215, 0.02, 0.04])
-    ax_right = plt.axes([0.075, 0.255, 0.02, 0.04])
+    ax_up = plt.axes([0.87, 0.1, 0.02, 0.04])
+    ax_left = plt.axes([0.85, 0.06, 0.02, 0.04])
+    ax_down = plt.axes([0.87, 0.02, 0.02, 0.04])
+    ax_right = plt.axes([0.89, 0.06, 0.02, 0.04])
 
     btn_up = Button(ax_up, '↑')
     btn_left = Button(ax_left, '←')
@@ -576,7 +590,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         for ax in axes_list:
             p = ax.get_position()
             ax.set_position([p.x0 + dx, p.y0 + dy, p.width, p.height])
-            dbg.set_text(f"x0={p.x0 + dx:.3f}, y0={p.y0 + dy:.3f}, w={p.width:.3f}, h={p.height:.3f}")
+            # dbg.set_text(f"x0={p.x0 + dx:.3f}, y0={p.y0 + dy:.3f}, w={p.width:.3f}, h={p.height:.3f}")
 
         # Keep the colorbar aligned to the right of the last panel
         try:
@@ -596,11 +610,14 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     plt.show(block=False)
 
-    ax_xy.set_position([0.156, 0.053, 0.744, 1.054])
-    # Keep the colorbar aligned to the right of the last panel
-    lb = ax_xy.get_position()
-    cb_gap, cb_w = 0.012, 0.018
-    cbar.ax.set_position([lb.x1 + cb_gap, lb.y0, cb_w, lb.height])
+    if Nz==1:
+        ax_xy.set_position([0.156, 0.053, 0.744, 1.054])
+        # Keep the colorbar aligned to the right of the last panel
+        lb = ax_xy.get_position()
+        cb_gap, cb_w = 0.012, 0.018
+        cbar.ax.set_position([lb.x1 + cb_gap, lb.y0, cb_w, lb.height])
+    else:
+        _nudge(0.25,-0.05)
 
     try:
         while plt.fignum_exists(fig.number):
