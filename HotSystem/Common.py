@@ -24,6 +24,7 @@ import ctypes
 import win32process
 from screeninfo import get_monitors
 from PIL import ImageGrab, PngImagePlugin
+from pathlib import Path
 
 def get_primary_resolution():
     for m in get_monitors():
@@ -293,23 +294,44 @@ def toggle_sc(reverse=False):
     except Exception as e:
         print(f"Error in toggle_sc: {e}")
 
-def load_window_positions(file_name: str = None) -> None:
+def load_window_positions(file_name: str | None = None, *cb_args, **cb_kwargs) -> None:
     """
-    Load window positions and sizes from a file and update Dear PyGui windows accordingly.
-    Also applies saved graph size for the 'plotImaga' plot.
+    Can be used as a DearPyGui callback (extra args ignored).
+    If bound without args, DearPyGui will pass the sender (int) as the first positional arg,
+    so we must NOT assume the first arg is a path.
     """
 
     def _safe_log(msg: str) -> None:
-        # Bypass any wrapped/closed stdout; never raise here.
         try:
             sys.__stdout__.write(str(msg) + "\n")
             sys.__stdout__.flush()
         except Exception:
             try:
-                import dearpygui.dearpygui as dpg  # fallback log window if possible
+                import dearpygui.dearpygui as dpg
                 dpg.log_error(str(msg))
             except Exception:
-                pass  # last resort: drop the log silently
+                pass
+
+    # ---- COERCE/RESOLVE file_name ----
+    # If load_window_positions is called as a DPG callback, file_name may be an int (sender).
+    # Use it only if it's a path-like; otherwise treat as None and pick default.
+    def _is_pathlike(x):
+        try:
+            from os import PathLike
+            return isinstance(x, (str, bytes, PathLike))
+        except Exception:
+            return isinstance(x, (str, bytes))
+
+    # If caller passed file_name as a kw-only or normal arg AND it's path-like, keep it;
+    # else ignore and choose default below.
+    file_name = file_name if _is_pathlike(file_name) else None
+
+    # Optionally allow passing the filename via app_data in cb_args[1]
+    if file_name is None and cb_args:
+        # DearPyGui passes: sender, app_data, user_data
+        app_data = cb_args[1] if len(cb_args) > 1 else None
+        if _is_pathlike(app_data):
+            file_name = app_data
 
     try:
         import dearpygui.dearpygui as dpg
@@ -317,25 +339,26 @@ def load_window_positions(file_name: str = None) -> None:
         _safe_log(f"[load] DearPyGui not available: {e}")
         return
 
-    # 1) Determine which file to use
-    try:
-        if not file_name:
+    # Pick default file if still None
+    if not file_name:
+        try:
+            is_remote = False
             try:
                 is_remote = is_remote_resolution()
             except Exception:
-                is_remote = False
+                pass
             file_name = "win_pos_remote.txt" if is_remote else "win_pos_local.txt"
             _safe_log(f"Using {file_name}{' (remote)' if is_remote else ''}")
-    except Exception as e:
-        _safe_log(f"[load] Failed to resolve filename: {e}")
-        return
+        except Exception as e:
+            _safe_log(f"[load] Failed to resolve filename: {e}")
+            return
 
     pth = Path(file_name)
     if not pth.exists():
         _safe_log(f"{file_name} not found.")
         return
 
-    # 2) Read all lines robustly (avoid open()/readlines() with a lingering FD)
+    # Read safely
     try:
         text = pth.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines()
@@ -346,43 +369,27 @@ def load_window_positions(file_name: str = None) -> None:
     window_positions = {}
     window_sizes = {}
 
-    # 3) Parse
+    # Parse lines
     for raw in lines:
         line = raw.strip()
         if not line:
             continue
-
-        # Viewport size parsing kept commented out by your choice
-        # if line.startswith("Viewport_Size:"):
-        #     try:
-        #         _, val = line.split("Viewport_Size:")
-        #         vp_w, vp_h = map(int, val.split(","))
-        #         dpg.set_viewport_width(vp_w)
-        #         dpg.set_viewport_height(vp_h)
-        #         _safe_log(f"Restored viewport size: {vp_w}×{vp_h}")
-        #     except Exception as e:
-        #         _safe_log(f"[load] Failed to set viewport size: {e}")
-        #     continue
-
         if "_Pos:" in line:
             try:
                 name, val = line.split("_Pos:")
-                name = name.strip()
                 x, y = map(float, val.split(","))
-                window_positions[name] = (x, y)
+                window_positions[name.strip()] = (x, y)
             except Exception as e:
                 _safe_log(f"[parse] Bad pos line '{line}': {e}")
-
         elif "_Size:" in line:
             try:
                 name, val = line.split("_Size:")
-                name = name.strip()
                 w, h = map(float, val.split(","))
-                window_sizes[name] = (int(w), int(h))
+                window_sizes[name.strip()] = (int(w), int(h))
             except Exception as e:
                 _safe_log(f"[parse] Bad size line '{line}': {e}")
 
-    # 4) Apply positions (with prefix‐fallback for Keysight windows)
+    # Apply positions/sizes (with Keysight prefix fallback)
     try:
         all_items = dpg.get_all_items()
         aliases = {dpg.get_item_alias(i) or str(i): i for i in all_items}
@@ -407,7 +414,6 @@ def load_window_positions(file_name: str = None) -> None:
         except Exception as e:
             _safe_log(f"[load] Failed setting pos for '{key}': {e}")
 
-    # 5) Apply sizes (skip plotImaga here; restore below)
     for key, (w, h) in window_sizes.items():
         if key == "plotImaga":
             continue
@@ -429,15 +435,13 @@ def load_window_positions(file_name: str = None) -> None:
         except Exception as e:
             _safe_log(f"[load] Failed setting size for '{key}': {e}")
 
-    # 6) Restore the plot and optional graph_size_override
+    # Restore plotImaga if present
     graph_tag = "plotImaga"
     try:
         if graph_tag in window_sizes and dpg.does_item_exist(graph_tag):
             w, h = window_sizes[graph_tag]
             dpg.set_item_width(graph_tag, w)
             dpg.set_item_height(graph_tag, h)
-
-            # Safely stash on parent if present
             p = getattr(sys.stdout, "parent", None)
             if p is not None and hasattr(p, "opx"):
                 setattr(p.opx, "graph_size_override", (w, h))
