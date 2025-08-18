@@ -2339,7 +2339,7 @@ class CommandDispatcher:
          - If spc_data → plot spectrum
         - Use 'disp tif' to display the latest TIFF saved by LightField.
         """
-
+        from pathlib import Path
         def _resolve_existing_scan_file(fn: str, move_subfolder_tag: str = "MoveSubfolderInput") -> str | None:
             """
             Try to resolve an existing scan file:
@@ -2348,8 +2348,6 @@ class CommandDispatcher:
               - search under the 'scan' root if still missing
             Returns the resolved absolute path or None.
             """
-            from pathlib import Path
-
             if not fn:
                 return None
 

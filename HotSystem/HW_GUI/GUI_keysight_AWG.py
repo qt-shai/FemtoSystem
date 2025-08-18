@@ -21,9 +21,9 @@ class GUIKeysight33500B:
         self.simulation = simulation
         self.unique_id = self._get_unique_id_from_device()
         self.instrument = instrument
-        self.volts_per_um = 1e-4
-        self.base1=0.536
-        self.base2=0.039
+        self.volts_per_um = -2e-6
+        self.base1=0.5
+        self.base2=0.069
 
         # 1) where to store settings
         self._settings_file = os.path.join(os.getcwd(), "awg_settings.json")
@@ -170,13 +170,13 @@ class GUIKeysight33500B:
                 callback=self.cb_select_channel,
             )
             with dpg.group(horizontal=True):
-                dpg.add_text("mV/um:")
+                dpg.add_text("uV/um:")
                 volts_input = dpg.add_input_float(
-                    default_value=1.0,  # Default value for volts_per_um
+                    default_value=self.volts_per_um*1e6,  # Default value for volts_per_um
                     tag=f"mVoltsPerUm_{self.unique_id}",
                     step=0.01,
                     format='%.3f',
-                    callback=lambda sender, app_data: setattr(self, 'volts_per_um', app_data*1e-3)  # Set self.volts_per_um with the input value
+                    callback=lambda sender, app_data: setattr(self, 'volts_per_um', app_data*1e-6)  # Set self.volts_per_um with the input value
                 )
 
 

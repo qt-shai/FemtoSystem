@@ -298,108 +298,154 @@ def load_window_positions(file_name: str = None) -> None:
     Load window positions and sizes from a file and update Dear PyGui windows accordingly.
     Also applies saved graph size for the 'plotImaga' plot.
     """
+
+    def _safe_log(msg: str) -> None:
+        # Bypass any wrapped/closed stdout; never raise here.
+        try:
+            sys.__stdout__.write(str(msg) + "\n")
+            sys.__stdout__.flush()
+        except Exception:
+            try:
+                import dearpygui.dearpygui as dpg  # fallback log window if possible
+                dpg.log_error(str(msg))
+            except Exception:
+                pass  # last resort: drop the log silently
+
     try:
-        # 1) Determine which file to use
+        import dearpygui.dearpygui as dpg
+    except Exception as e:
+        _safe_log(f"[load] DearPyGui not available: {e}")
+        return
+
+    # 1) Determine which file to use
+    try:
         if not file_name:
-            if is_remote_resolution():
-                file_name = "win_pos_remote.txt"
-                print(f"Remote resolution detected -> Using {file_name}")
-            else:
-                file_name = "win_pos_local.txt"
-                print(f"Using {file_name}")
+            try:
+                is_remote = is_remote_resolution()
+            except Exception:
+                is_remote = False
+            file_name = "win_pos_remote.txt" if is_remote else "win_pos_local.txt"
+            _safe_log(f"Using {file_name}{' (remote)' if is_remote else ''}")
+    except Exception as e:
+        _safe_log(f"[load] Failed to resolve filename: {e}")
+        return
 
-        if not os.path.exists(file_name):
-            print(f"{file_name} not found.")
-            return
+    pth = Path(file_name)
+    if not pth.exists():
+        _safe_log(f"{file_name} not found.")
+        return
 
-        # 2) Read all lines
-        with open(file_name, "r") as f:
-            lines = f.readlines()
+    # 2) Read all lines robustly (avoid open()/readlines() with a lingering FD)
+    try:
+        text = pth.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+    except Exception as e:
+        _safe_log(f"[load] Failed reading '{file_name}': {e}")
+        return
 
-        window_positions = {}
-        window_sizes = {}
+    window_positions = {}
+    window_sizes = {}
 
-        # 3) Parse
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+    # 3) Parse
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
 
-            # if line.startswith("Viewport_Size:"):
-            #     _, val = line.split("Viewport_Size:")
-            #     vp_w, vp_h = map(int, val.split(","))
-            #     dpg.set_viewport_width(vp_w)
-            #     dpg.set_viewport_height(vp_h)
-            #     print(f"Restored viewport size: {vp_w}×{vp_h}")
+        # Viewport size parsing kept commented out by your choice
+        # if line.startswith("Viewport_Size:"):
+        #     try:
+        #         _, val = line.split("Viewport_Size:")
+        #         vp_w, vp_h = map(int, val.split(","))
+        #         dpg.set_viewport_width(vp_w)
+        #         dpg.set_viewport_height(vp_h)
+        #         _safe_log(f"Restored viewport size: {vp_w}×{vp_h}")
+        #     except Exception as e:
+        #         _safe_log(f"[load] Failed to set viewport size: {e}")
+        #     continue
 
-            elif "_Pos:" in line:
+        if "_Pos:" in line:
+            try:
                 name, val = line.split("_Pos:")
                 name = name.strip()
                 x, y = map(float, val.split(","))
                 window_positions[name] = (x, y)
+            except Exception as e:
+                _safe_log(f"[parse] Bad pos line '{line}': {e}")
 
-            elif "_Size:" in line:
+        elif "_Size:" in line:
+            try:
                 name, val = line.split("_Size:")
                 name = name.strip()
                 w, h = map(float, val.split(","))
                 window_sizes[name] = (int(w), int(h))
+            except Exception as e:
+                _safe_log(f"[parse] Bad size line '{line}': {e}")
 
-        # 4) Apply positions (with prefix‐fallback for Keysight windows)
-        for key, pos in window_positions.items():
-            applied = False
-            # exact match?
-            if dpg.does_item_exist(key):
+    # 4) Apply positions (with prefix‐fallback for Keysight windows)
+    try:
+        all_items = dpg.get_all_items()
+        aliases = {dpg.get_item_alias(i) or str(i): i for i in all_items}
+    except Exception as e:
+        _safe_log(f"[load] Could not enumerate DPG items: {e}")
+        aliases = {}
+
+    for key, pos in window_positions.items():
+        applied = False
+        try:
+            if key in aliases or dpg.does_item_exist(key):
                 dpg.set_item_pos(key, pos)
                 applied = True
-            # prefix‐match for any Keysight33500B_Win* alias
             elif key.startswith("Keysight33500B_Win"):
-                for item in dpg.get_all_items():
-                    alias = dpg.get_item_alias(item) or str(item)
+                for alias in aliases:
                     if alias.startswith("Keysight33500B_Win"):
                         dpg.set_item_pos(alias, pos)
                         applied = True
-            if applied:
-                print(f"Loaded position for '{key}' -> {pos}")
-            else:
-                print(f"[load] position target not found: '{key}'")
+                        break
+            _safe_log(f"Loaded position for '{key}' -> {pos}" if applied
+                      else f"[load] position target not found: '{key}'")
+        except Exception as e:
+            _safe_log(f"[load] Failed setting pos for '{key}': {e}")
 
-        # 5) Apply sizes (skip the plot here; restore it below)
-        for key, (w, h) in window_sizes.items():
-            if key == "plotImaga":
-                continue
-
-            applied = False
-            if dpg.does_item_exist(key):
-                dpg.set_item_width(key,  w)
+    # 5) Apply sizes (skip plotImaga here; restore below)
+    for key, (w, h) in window_sizes.items():
+        if key == "plotImaga":
+            continue
+        applied = False
+        try:
+            if key in aliases or dpg.does_item_exist(key):
+                dpg.set_item_width(key, w)
                 dpg.set_item_height(key, h)
                 applied = True
             elif key.startswith("Keysight33500B_Win"):
-                for item in dpg.get_all_items():
-                    alias = dpg.get_item_alias(item) or str(item)
+                for alias in aliases:
                     if alias.startswith("Keysight33500B_Win"):
-                        dpg.set_item_width(alias,  w)
+                        dpg.set_item_width(alias, w)
                         dpg.set_item_height(alias, h)
                         applied = True
-            if applied:
-                print(f"Loaded size for '{key}' → {w}×{h}")
-            else:
-                print(f"[load] size target not found: '{key}'")
+                        break
+            _safe_log(f"Loaded size for '{key}' → {w}×{h}" if applied
+                      else f"[load] size target not found: '{key}'")
+        except Exception as e:
+            _safe_log(f"[load] Failed setting size for '{key}': {e}")
 
-        # 6) Finally restore the plot itself
-        graph_tag = "plotImaga"
+    # 6) Restore the plot and optional graph_size_override
+    graph_tag = "plotImaga"
+    try:
         if graph_tag in window_sizes and dpg.does_item_exist(graph_tag):
             w, h = window_sizes[graph_tag]
-            dpg.set_item_width(graph_tag,  w)
+            dpg.set_item_width(graph_tag, w)
             dpg.set_item_height(graph_tag, h)
-            # if you store it on your OPX object:
-            p=getattr(sys.stdout, "parent", None)
-            p.opx.graph_size_override = (w, h)
-            print(f"Loaded graph size for '{graph_tag}': {w}×{h}")
-        else:
-            print(f"No saved size for graph '{graph_tag}', or it wasn't found.")
 
+            # Safely stash on parent if present
+            p = getattr(sys.stdout, "parent", None)
+            if p is not None and hasattr(p, "opx"):
+                setattr(p.opx, "graph_size_override", (w, h))
+            _safe_log(f"Loaded graph size for '{graph_tag}': {w}×{h}")
+        else:
+            _safe_log(f"No saved size for graph '{graph_tag}', or it wasn't found.")
     except Exception as e:
-        print(f"Error loading window positions and sizes: {e}")
+        _safe_log(f"[load] Failed restoring plot '{graph_tag}': {e}")
 
 
 def copy_image_to_clipboard(image_path):

@@ -28,6 +28,8 @@ class ZeluxGUI():
         self.zel_shift_y = 0.0  # in microns
         self.ax_alpha = 253.7 # degrees
         self.show_axis = False
+        self.cross_x = 1552
+        self.cross_y = 701
 
         try:
             self.background_image = np.load("zelux_background.npy")
@@ -384,14 +386,14 @@ class ZeluxGUI():
                         dpg.add_button(label="St", tag="btnStitchFrames", callback=self.StitchFrames)
 
                         dpg.add_checkbox(label="Coords", tag="chkShowCoords", callback=self.toggle_coords_display)
-                        # dpg.add_input_text(label="X_+", tag="inpCrossX",
-                        #                    width=50, default_value=str(int(self.cam.camera.image_width_pixels / 2)),
-                        #                    on_enter=True)
-                        # dpg.add_input_text(label="Y_+", tag="inpCrossY",
-                        #                    width=50, default_value=str(int(self.cam.camera.image_height_pixels / 2)),
-                        #                    on_enter=True)
-                        # dpg.add_button(label="Set +", tag="btnSetCross",
-                        #                callback=self.set_cross_from_inputs)
+                        dpg.add_input_text(label="X_+", tag="inpCrossX",
+                                           width=50, default_value=str(self.cross_x),
+                                           on_enter=True)
+                        dpg.add_input_text(label="Y_+", tag="inpCrossY",
+                                           width=50, default_value=str(self.cross_y),
+                                           on_enter=True)
+                        dpg.add_button(label="Set +", tag="btnSetCross",
+                                       callback=self.set_cross_from_inputs)
 
 
         else:
