@@ -148,6 +148,7 @@ class GUI_smaract():
                     dpg.add_table_column(label="Go Abs")
 
         self.load_logged_points_from_file()
+        self.load_last_abs_position()  # ✅ load saved abs fields
 
         if self.simulation:
             self.dev.AxesKeyBoardLargeStep = []
@@ -204,6 +205,11 @@ class GUI_smaract():
             pyperclip.copy(clipboard_str)
 
             print(f"{clipboard_str} Copied to clipboard")
+
+            # ✅ Save to file
+            with open("last_position.txt", "w") as f:
+                f.write(f"{x_value:.6f},{y_value:.6f},{z_value:.6f}\n")
+            print("Position saved to last_position.txt")
         except Exception as e:
             print(f"Failed to set MoveABS from position: {e}")
 
@@ -240,6 +246,24 @@ class GUI_smaract():
 
         except Exception as e:
             print(f"Failed to parse clipboard: {e}")
+
+    def load_last_abs_position(self):
+        try:
+            if os.path.exists("last_position.txt"):
+                with open("last_position.txt", "r") as f:
+                    line = f.readline().strip()
+                    x, y, z = [float(val) for val in line.split(",")]
+
+                dpg.set_value(f"{self.prefix}_ch0_ABS", x)
+                dpg.set_value(f"{self.prefix}_ch1_ABS", y)
+                dpg.set_value(f"{self.prefix}_ch2_ABS", z)
+
+                self.last_z_value = z
+                print(f"Loaded last position: x={x}, y={y}, z={z}")
+            else:
+                print("last_position.txt not found.")
+        except Exception as e:
+            print(f"Error loading last_position.txt: {e}")
 
     def save_pos(self, profile_name="local"):
         # Core static windows
