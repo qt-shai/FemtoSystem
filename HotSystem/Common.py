@@ -618,3 +618,33 @@ def wait_for_item_and_set(tag: str, value: str, max_retries=50, delay=0.1):
             time.sleep(delay)
         print(f"[!] Failed to set {tag}, item not found after {max_retries} retries.")
     threading.Thread(target=check_loop, daemon=True).start()
+
+class Experiment(Enum):
+    SCRIPT = 0
+    RABI = 1
+    ODMR_CW = 2
+    POPULATION_GATE_TOMOGRAPHY = 3
+    COUNTER = 4
+    PULSED_ODMR = 5
+    NUCLEAR_RABI = 6
+    NUCLEAR_POL_ESR = 7
+    NUCLEAR_MR = 8
+    ENTANGLEMENT_GATE_TOMOGRAPHY = 9
+    G2 = 10
+    SCAN = 11
+    Nuclear_spin_lifetimeS0 = 12
+    Nuclear_spin_lifetimeS1 = 13
+    Nuclear_Ramsay = 14
+    Hahn = 15
+    Electron_lifetime = 16
+    Electron_Coherence = 17
+    ODMR_Bfield = 18
+    Nuclear_Fast_Rot = 19
+    TIME_BIN_ENTANGLEMENT = 20
+    PLE = 21 # Photoluminescence excitation
+    EXTERNAL_FREQUENCY_SCAN = 22
+    AWG_FP_SCAN = 23
+    testCrap = 24
+    RandomBenchmark = 25
+    test_electron_spinPump = 1001
+    test_electron_spinMeasure = 1002
