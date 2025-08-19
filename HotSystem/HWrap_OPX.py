@@ -10956,10 +10956,9 @@ class GUI_OPX():
         dev = gui.dev
 
         # --- kx/ky defaults (same as your handlers) ---
-        # volts_per_um = 0.128 / 15.0
         volts_per_um = gui.volts_per_um
-        kx_ratio = 3.3
-        ky_ratio = -0.3
+        kx_ratio = gui.kx_ratio
+        ky_ratio = gui.ky_ratio
 
         def pm_to_v(pm):
             return np.round(pm * 1e-3 * volts_per_um,6)

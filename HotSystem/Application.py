@@ -1117,11 +1117,13 @@ class PyGuiOverlay(Layer):
                     self.modifier_key=None
                 else:
                     dpg.set_value("cmd_input", cur[:-1])
+                print('Focus on cmd')
                 dpg.focus_item("cmd_input")
                 return
 
             # ── Printable characters ──
             if key_data_enum in (KeyboardKeys.C_KEY, KeyboardKeys.SPACE_KEY,KeyboardKeys.ENTER_KEY):
+                print('Focus on cmd')
                 dpg.focus_item("cmd_input")
         except Exception as ex:
             self.error = f"Unexpected error in keyboard_callback: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
@@ -1199,8 +1201,8 @@ class PyGuiOverlay(Layer):
         # 2) Ctrl-only commands
         if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:
             ctrl_actions = {
-                KeyboardKeys.OEM_6: self._increase_exposure,
-                KeyboardKeys.OEM_4: self._decrease_exposure,
+                KeyboardKeys.OEM_6: self._increase_exposure, # ctrl + ]
+                KeyboardKeys.OEM_4: self._decrease_exposure, # ctrl + [
                 KeyboardKeys.L_KEY: self._toggle_lens,
                 KeyboardKeys.V_KEY: self._paste_clipboard,
                 KeyboardKeys.KEY_1: lambda: self._set_coarse_steps(1, axes=(0, 1, 2)),
@@ -1226,6 +1228,31 @@ class PyGuiOverlay(Layer):
                 return True
             elif key_data_enum == KeyboardKeys.KEY_2:
                 self._set_fine_steps(20, axes=(0, 1, 2))
+                self.CURRENT_KEY = key_data_enum
+                return True
+            elif key_data_enum == KeyboardKeys.OEM_PLUS:
+                # Shift + '=' : move in X (like kx)
+                self._shift_move_kx(sign=+1)
+                self.CURRENT_KEY = key_data_enum
+                return True
+            elif key_data_enum == KeyboardKeys.OEM_MINUS:
+                # Shift + '-' : move in Y (like ky)
+                self._shift_move_kx(sign=-1)
+                self.CURRENT_KEY = key_data_enum
+                return True
+            elif key_data_enum == KeyboardKeys.OEM_6:
+                # Shift + '=' : move in X (like kx)
+                self._shift_move_ky(sign=+1)
+                self.CURRENT_KEY = key_data_enum
+                return True
+            elif key_data_enum == KeyboardKeys.OEM_4:
+                # Shift + '-' : move in Y (like ky)
+                self._shift_move_ky(sign=-1)
+                self.CURRENT_KEY = key_data_enum
+                return True
+            elif key_data_enum == KeyboardKeys.OEM_5:
+                # Shift + '\' : run("kabs")
+                run("kabs")
                 self.CURRENT_KEY = key_data_enum
                 return True
 
@@ -1283,7 +1310,7 @@ class PyGuiOverlay(Layer):
         except:
             ch = 1
 
-        step = 0.002
+        step = gui.xy_step
         curr = float(gui.dev.get_current_voltage(ch))
         new_off = curr + step
 
@@ -1305,12 +1332,32 @@ class PyGuiOverlay(Layer):
         except:
             ch = 1
 
-        step = 0.002
+        step = gui.xy_step
         curr = float(gui.dev.get_current_voltage(ch))
         new_off = curr - step
 
         gui.dev.set_offset(new_off, channel=ch)
         dpg.set_value(f"Offset_{gui.unique_id}", new_off)
+
+    def _shift_move_kx(self, sign: int = +1) -> None:
+        """
+        Shift X using the same logic as `kx`, with a preset step.
+        Shift + '=' calls this with sign=+1.
+        """
+        gui = getattr(self, "keysight_gui", None)
+        step_um = getattr(gui, "xy_step", 1.0)
+        val_um = step_um * sign
+        run(f"kx {val_um}")
+
+    def _shift_move_ky(self, sign: int = +1) -> None:
+        """
+        Shift Y using the same logic as `ky`, with a preset step.
+        Shift + '-' calls this with sign=+1.
+        """
+        gui = getattr(self, "keysight_gui", None)
+        step_um = getattr(gui, "xy_step", 1.0)
+        val_um = step_um * sign
+        run(f"ky {val_um}")
 
     def _save_and_zero_exposure(self):
         # stash current exposure

@@ -24,6 +24,9 @@ class GUIKeysight33500B:
         self.volts_per_um = -2e-6
         self.base1=0.5
         self.base2=0.069
+        self.xy_step = 0.002
+        self.kx_ratio = 3.3
+        self.ky_ratio = -0.3
 
         # 1) where to store settings
         self._settings_file = os.path.join(os.getcwd(), "awg_settings.json")
@@ -178,6 +181,17 @@ class GUIKeysight33500B:
                     format='%.3f',
                     callback=lambda sender, app_data: setattr(self, 'volts_per_um', app_data*1e-6)  # Set self.volts_per_um with the input value
                 )
+            with dpg.group(horizontal=True):
+                dpg.add_text("Step:")
+                dpg.add_input_float(
+                    default_value=2,  # Default value for volts_per_um
+                    tag=f"XY_step_{self.unique_id}",
+                    step=0.01,
+                    format='%.3f',
+                    callback=lambda sender, app_data: setattr(self, 'xy_step', app_data * 1e-3)
+                    # Set self.volts_per_um with the input value
+                )
+            dpg.add_button(label="Set Lxy", callback=self.btn_set_offset)
 
 
     def create_duty_cycle_controls(self, theme):

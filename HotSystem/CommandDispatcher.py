@@ -349,7 +349,7 @@ class CommandDispatcher:
                             print(f"Failed to execute '{seg}': {e}")
             except Exception:
                 traceback.print_exc()
-        dpg.focus_item("cmd_input")
+        # dpg.focus_item("cmd_input")
         dpg.set_value("cmd_input", "")
 
     def savehistory_on_exit(self):
@@ -3337,7 +3337,6 @@ class CommandDispatcher:
           kabs 1.2,2.3 v
         Calibration: 0.128 V → 15 µm.
         """
-
         parent = self.get_parent()
         gui = getattr(parent, "keysight_gui", None)
         if not gui:
@@ -3347,7 +3346,7 @@ class CommandDispatcher:
         # 1) Extract all (number, optional-unit) pairs
         parts = re.findall(r'([+-]?\d*\.?\d+)(?:\s*(u|um|v))?', arg, re.IGNORECASE)
 
-        # —— NEW: default no-arg to zero for both channels ——
+        # —— default no-arg to zero for both channels ——
         if not parts:
             parts = [('0', None), ('0', None)]
 
@@ -3355,23 +3354,22 @@ class CommandDispatcher:
         vals, unts = [], []
         for num, unit in parts:
             vals.append(float(num))
-            unts.append(unit.lower() if unit else None)
+            unts.append((unit or "").lower() if unit else None)
 
-        # 3) Decide mode: if any 'v' and *no* 'u'/'um', treat *all* as voltages
+        # 3) Mode: if any 'v' and *no* 'u'/'um', treat *all* as voltages
         voltage_mode = any(u == 'v' for u in unts) and not any(u in ('u', 'um') for u in unts)
 
-        # 4) Set per-channel baselines (zero-micron offsets)
-        base1 = gui.base1 # 0.536 baseline for CH1
-        base2 = gui.base2 # 0.039 baseline for CH2
+        # 4) Baselines (define the origin X=Y=0 at these voltages)
+        base1 = getattr(gui, "base1", 0.0)
+        base2 = getattr(gui, "base2", 0.0)
 
-        # calibration factor
         volts_per_um = gui.volts_per_um
 
-        # 5) Compute offsets
+        # 5) Compute offsets to apply
         offsets = []
         for idx, (val, unit) in enumerate(zip(vals, unts)):
             if voltage_mode:
-                offsets.append(val)  # treat as direct voltage
+                offsets.append(val)  # absolute voltage
             else:
                 baseline = base1 if idx == 0 else base2
                 offsets.append(baseline + val * volts_per_um)
@@ -3380,15 +3378,41 @@ class CommandDispatcher:
         if len(offsets) == 1:
             offsets.append(None)
 
-        # 7) Apply offsets
+        # 6) Apply offsets
         try:
-            gui.dev.set_offset(offsets[0], channel=1)
-            msg = f"kabs: CH1 -> {offsets[0]:.4f} V"
+            if offsets[0] is not None:
+                gui.dev.set_offset(offsets[0], channel=1)
             if offsets[1] is not None:
                 gui.dev.set_offset(offsets[1], channel=2)
-                msg += f"; CH2 -> {offsets[1]:.4f} V"
+
             gui.btn_get_current_parameters()
+
+            # 7) Read back actual voltages
+            v1 = float(gui.dev.get_current_voltage(1))
+            v2 = float(gui.dev.get_current_voltage(2))
+
+            # 8) Compute XY (µm) relative to baselines using the 2-basis ([1,kx], [1,ky])
+            kx_ratio = getattr(gui, "kx_ratio", 3.3)
+            ky_ratio = getattr(gui, "ky_ratio", -0.3)
+
+            dv1 = v1 - base1
+            dv2 = v2 - base2
+            denom = (kx_ratio - ky_ratio)
+
+            if abs(denom) < 1e-12:
+                xy_msg = " | Pos: X=?, Y=? (ill-conditioned ratios)"
+            else:
+                # Solve: [dv1, dv2]^T = α*[1, kx]^T + β*[1, ky]^T
+                alpha_x_volts = (dv2 - dv1 * ky_ratio) / denom
+                beta_y_volts = (dv2 - dv1 * kx_ratio) / (ky_ratio - kx_ratio)
+                x_um = alpha_x_volts / volts_per_um
+                y_um = beta_y_volts / volts_per_um
+                xy_msg = f" | Pos: X={x_um:.3f} µm, Y={y_um:.3f} µm"
+
+            msg = f"kabs: CH1 -> {v1:.4f} V; CH2 -> {v2:.4f} V" + xy_msg + \
+                  f" [base1={base1:.4f}, base2={base2:.4f}, kx={kx_ratio:.3f}, ky={ky_ratio:.3f}]"
             print(msg)
+
         except Exception as e:
             print(f"Failed to set kabs offset(s): {e}")
 
@@ -3432,7 +3456,7 @@ class CommandDispatcher:
 
         # parse optional ratio override
         try:
-            kx_ratio = float(parts[1]) if len(parts) == 2 else 3.3
+            kx_ratio = float(parts[1]) if len(parts) == 2 else gui.kx_ratio
         except ValueError:
             print("Invalid ratio:", parts[1])
             return
@@ -3447,10 +3471,30 @@ class CommandDispatcher:
             gui.dev.set_offset(n2, channel=2)
             gui.btn_get_current_parameters()
 
+            # --- Compute current XY position (µm) from (n1, n2) using the two-basis (kx, ky) ---
+            ky_ratio = getattr(gui, "ky_ratio", -0.3)  # fallback if not defined
+
+            dv1 = n1 - gui.base1
+            dv2 = n2 - gui.base2
+            denom = (kx_ratio - ky_ratio)
+
+            if abs(denom) < 1e-12:
+                xy_msg = " (XY: undefined, kx_ratio == ky_ratio)"
+            else:
+                # Solve v = α*[1, kx] + β*[1, ky] for α (X-volts) and β (Y-volts)
+                # n1 = α + β
+                # n2 = α*kx + β*ky
+                alpha_x_volts = (dv2 - dv1 * ky_ratio) / denom
+                beta_y_volts = (dv2 - dv1 * kx_ratio) / (ky_ratio - kx_ratio)
+
+                x_um = alpha_x_volts / volts_per_um * 1e-3
+                y_um = beta_y_volts / volts_per_um * 1e-3
+                xy_msg = f" | Pos: X={x_um:.3f} µm, Y={y_um:.3f} µm"
+
             print(
                 f"kx: CH1 +{val:.2f}{label} -> d{delta_v:.4f} V (now {n1:.4f} V); "
-                f"CH2 → Δ{delta_v * kx_ratio:.4f} V (now {n2:.4f} V) "
-                f"[ratio={kx_ratio:.3f}]"
+                f"CH2 -> Δ{delta_v * kx_ratio:.4f} V (now {n2:.4f} V) "
+                f"[kx_ratio={kx_ratio:.3f}, ky_ratio={ky_ratio:.3f}]\n{xy_msg}"
             )
         except Exception as e:
             print(f"Failed to perform kx: {e}")
@@ -3464,7 +3508,6 @@ class CommandDispatcher:
         – 'u'/'um'      treats value as µm (× volts_per_um)
         – optional <ratio> overrides default CH2:CH1 ratio
         """
-
         parent = self.get_parent()
         gui = getattr(parent, "keysight_gui", None)
         if not gui:
@@ -3492,7 +3535,7 @@ class CommandDispatcher:
             label = "V"
 
         try:
-            ky_ratio = float(parts[1]) if len(parts) == 2 else -0.3
+            ky_ratio = float(parts[1]) if len(parts) == 2 else gui.ky_ratio
         except ValueError:
             print("Invalid ratio:", parts[1])
             return
@@ -3507,11 +3550,31 @@ class CommandDispatcher:
             gui.dev.set_offset(n2, channel=2)
             gui.btn_get_current_parameters()
 
+            # ---- XY print relative to baselines ----
+            base1 = getattr(gui, "base1", 0.0)
+            base2 = getattr(gui, "base2", 0.0)
+            kx_ratio = getattr(gui, "kx_ratio", 3.3)
+
+            dv1 = n1 - gui.base1
+            dv2 = n2 - gui.base2
+            denom = (kx_ratio - ky_ratio)
+
+            if abs(denom) < 1e-12:
+                xy_msg = " | Pos: X=?, Y=? (ill-conditioned ratios)"
+            else:
+                # [dv1, dv2]^T = α*[1, kx]^T + β*[1, ky]^T
+                alpha_x_volts = (dv2 - dv1 * ky_ratio) / denom
+                beta_y_volts = (dv2 - dv1 * kx_ratio) / (ky_ratio - kx_ratio)
+                x_um = alpha_x_volts / volts_per_um * 1e-3
+                y_um = beta_y_volts / volts_per_um * 1e-3
+                xy_msg = f" | Pos: X={x_um:.3f} µm, Y={y_um:.3f} µm"
+
             print(
                 f"ky: CH1 +{val:.2f}{label} -> d{delta_v:.4f} V (now {n1:.4f} V); "
-                f"CH2 → Δ{delta_v * ky_ratio:.4f} V (now {n2:.4f} V) "
-                f"[ratio={ky_ratio:.3f}]"
+                f"CH2 -> Δ{delta_v * ky_ratio:.4f} V (now {n2:.4f} V) "
+                f"[kx_ratio={kx_ratio:.3f}, ky_ratio={ky_ratio:.3f}, base1={base1:.4f}, base2={base2:.4f}]\n{xy_msg}"
             )
+
         except Exception as e:
             print(f"Failed to perform ky: {e}")
 
