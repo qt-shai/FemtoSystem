@@ -31,7 +31,7 @@ from PrincetonInstruments.LightField.AddIns import ExperimentSettings
 
 class LightFieldSpectrometer:
 
-    def __init__(self, visible: bool = True, file_path: str = "C:\\Users\\ice\\Work Folders\\Documents\\LightField\\Experiments\\Experiment2.lfe") -> None:
+    def __init__(self, visible: bool = True, file_path: str = "C:\\Users\\ice\\Work Folders\\Documents\\LightField\\Experiments\\ProEM_shai.lfe") -> None: # ProEM_shai.lfe Experiment2.lfe
         """
             Minimal wrapper for a **single** connected LightField spectrometer.
 
@@ -158,7 +158,6 @@ class LightFieldSpectrometer:
                 info = self.spectrometer_info()
                 print(info)
 
-
     def load_experiment(self, manual_load = False) -> None:
         """Load a previously configured experiment."""
         if manual_load:
@@ -168,7 +167,6 @@ class LightFieldSpectrometer:
 
         # LightField will close the current experiment and load the new one
         self._exp.Load(file_path)
-
 
     def wait_until_ready(self, timeout = 120.0, interval = 0.5) -> None:
         """
@@ -278,6 +276,49 @@ class LightFieldSpectrometer:
         self._exp.SetValue(
             ExperimentSettings.FileNameGenerationAttachTime,
             True)
+
+    # --- ROI helpers (ProEM rectangle) ------------------------------------------
+    def _roi_to_tuple(self, roi):
+        """
+        Convert a LightField RegionOfInterest object to a pixel-space tuple:
+        (x_min, y_min, x_max, y_max, x_binning, y_binning)
+        """
+        x0 = int(roi.X)
+        y0 = int(roi.Y)
+        w = int(roi.Width)
+        h = int(roi.Height)
+        xb = int(roi.XBinning)
+        yb = int(roi.YBinning)
+        return (x0, y0, x0 + max(0, w), y0 + max(0, h), xb, yb)
+
+    def get_selected_regions_pixels(self):
+        """
+        Return a list of currently-selected ROI(s) as pixel-space tuples:
+          [(x_min, y_min, x_max, y_max, x_binning, y_binning), ...]
+        If LightField is in a single-region mode, this will still return a list of length 1.
+        """
+        if self._exp is None:
+            raise RuntimeError("LightField experiment not connected.")
+
+        # SelectedRegions = the regions that would be returned on the next acquire
+        rois = list(getattr(self._exp, "SelectedRegions", []) or [])
+        if not rois:
+            # Fallback to the full sensor region if nothing is explicitly selected
+            roi = getattr(self._exp, "FullSensorRegion", None)
+            rois = [roi] if roi is not None else []
+
+        if not rois:
+            return []
+
+        return [self._roi_to_tuple(r) for r in rois]
+
+    def get_current_roi_pixels(self):
+        """
+        Convenience: if there is exactly one selected region, return it as a tuple.
+        Otherwise, return None (use get_selected_regions_pixels() instead).
+        """
+        regions = self.get_selected_regions_pixels()
+        return regions[0] if len(regions) == 1 else None
 
 
 if __name__ == "__main__":

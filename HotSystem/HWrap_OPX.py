@@ -228,7 +228,7 @@ class GUI_OPX():
             "btnStartNuclearMR","btnStartNuclearSpinLifetimeS0","btnStartNuclearSpinLifetimeS1",
             "btnStartNuclearRamsay","btnStartElectron_Coherence","btnStartHahn","btnStartElectronLifetime",
             "StopJob","stop_benchmark","btnStop","delayed_actions","get_device_position",
-            "intensity_to_rgb_heatmap","FastScan_updateGraph"
+            "intensity_to_rgb_heatmap","FastScan_updateGraph","format_time","intensity_to_rgb_heatmap_normalized"
         ])
         # At the end of the init - all values are overwritten from XML!
         # To update values of the parameters - update the XML or the corresponding place in the GUI

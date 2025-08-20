@@ -1,7 +1,14 @@
 import time
 import dearpygui.dearpygui as dpg
-import glfw
+import glfw, os
 import numpy as np
+from typing import Union, Optional, Callable, List, Tuple, Any
+from datetime import datetime
+from qm import generate_qua_script, QuantumMachinesManager, SimulationConfig
+from qualang_tools.results import progress_counter, fetching_tool
+from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, \
+    open_file_dialog, create_gaussian_vector,\
+    open_file_dialog, create_gaussian_vector, create_counts_vector, OptimizerMethod, find_max_signal
 
 def Update_bX_Scan(sender, app_data, user_data):
     sender.b_Scan[0] = user_data
@@ -855,8 +862,6 @@ def Update_scan(sender, app_data, user_data):
         sender.load_scan_parameters()
         sender.GUI_ScanControls()
 
-#new
-
 def Z_correction(self, _refp: list, _point: list):
     # Define the points (self.positioner.LoggedPoints equivalent)
     P = np.array(self.positioner.LoggedPoints)
@@ -1004,6 +1009,7 @@ def create_scan_file_name(self, local=False):
         :return: The full file path for the scan file.
         """
     # file name
+    import os
     timeStamp = self.getCurrentTimeStamp()  # get current time stamp
     if local:
         folder_path = "C:/temp/TempScanData/"

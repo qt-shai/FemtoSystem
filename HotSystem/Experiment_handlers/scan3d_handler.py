@@ -6,6 +6,11 @@ import dearpygui.dearpygui as dpg
 from Common import toggle_sc, show_msg_window
 from Common import Experiment
 from HW_wrapper import HW_devices as hw_devices, smaractMCS2
+from typing import Union, Optional, Callable, List, Tuple, Any
+import os, shutil, subprocess, sys, threading, time, traceback, math, copy, JobTesting_OPX
+from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, create_scan_vectors, loadFromCSV, \
+    open_file_dialog, create_gaussian_vector,\
+    open_file_dialog, create_gaussian_vector, create_counts_vector, OptimizerMethod, find_max_signal
 
 def StartScan3D(self, add_scan=False, isLeftScan=False):  # currently flurascence scan
     if len(self.positioner.LoggedPoints) == 3:

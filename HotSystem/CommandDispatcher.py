@@ -225,9 +225,20 @@ class CommandDispatcher:
             "kabs":              self.handle_kabs,
             "kx":                self.handle_kx,
             "ky":                self.handle_ky,
+            "lf":                self.handle_lf,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
+        # ProEM (LightField) ROI + calibration live in the dispatcher
+        self.proem_query: tuple[float, float, float, float] | None = None  # (x_min_px, y_min_px, x_max_px, y_max_px)
+        self.proem_sx_um_per_px: float | None = None
+        self.proem_sy_um_per_px: float | None = None
+        self.proem_x0_um: float = 0.0
+        self.proem_y0_um: float = 0.0
+        self.proem_px0: float = 0.0
+        self.proem_py0: float = 0.0
+        self.proem_flip_x: bool = False
+        self.proem_flip_y: bool = False
 
     def get_parent(self):
         return getattr(sys.stdout, "parent", None)
@@ -905,6 +916,51 @@ class CommandDispatcher:
                 module_name = raw_name
 
             print(f"Trying to reload: {module_name}")
+
+            # --- aliases + suffix-based reload (compact & with correct precedence) ---
+            alias_map = {
+                "btn_exp": "Experiment_handlers.btn_experiments_handler",
+                "btn": "Experiment_handlers.btn_experiments_handler",
+                "opx_gui": "Experiment_handlers.Opx_gui_handler",
+                "hrswrap": "HW_Wrapper.Wrapper_HRS_500",
+                "keyswrap": "Keysight_AWG.wrapper_keysight_awg",
+            }
+
+            def reload_by_suffix(sfx: str) -> bool:
+                sfx = (sfx or "").strip().strip(".")
+                if not sfx:
+                    return False
+
+                mod_name = alias_map.get(sfx, sfx)
+
+                if mod_name in sys.modules:
+                    print(f"Reloading {mod_name} ...")
+                    importlib.reload(sys.modules[mod_name])
+                    print(f"Reloaded module: {mod_name}")
+                    return True
+
+                matches = [m for m in list(sys.modules.keys())
+                           if m.endswith("." + mod_name) or m.rsplit(".", 1)[-1] == mod_name]
+                if matches:
+                    for m in matches:
+                        print(f"Reloading {m} ...")
+                        importlib.reload(sys.modules[m])
+                    print(f"Reloaded {len(matches)} module(s) matching '*.{mod_name}'")
+                    return True
+
+                try:
+                    print(f"Importing {mod_name} ...")
+                    importlib.import_module(mod_name)
+                    print(f"Imported module: {mod_name}")
+                    return True
+                except Exception as e:
+                    print(f"Import failed for '{mod_name}': {e}")
+                    return False
+
+            # IMPORTANT: correct precedence with parentheses
+            if raw_name and (name in alias_map or reload_by_suffix(raw_name)):
+                return
+            # --- end aliases block ---
 
             # === GUI_Zelux ===
             if name in ("gui_zelux", "zel", "zelux"):
@@ -3591,6 +3647,135 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Failed to perform ky: {e}")
+
+    def handle_lf(self, arg):
+        """
+        LightField / ProEM utilities.
+
+        Usage:
+          lf roi        -> refresh ROI from LightField (stores in self.proem_query)
+          lf roi print  -> also print approximate µm bounds (if calibrated)
+          lf inf        -> trigger the LightField 'Run INF' action
+        """
+        p = self.get_parent()
+        tokens = (arg or "").strip().lower().split()
+        if not tokens:
+            print("lf: missing subcommand (try: 'lf roi' or 'lf inf').")
+            return
+
+        sub = tokens[0]
+
+        if sub == "roi":
+            ok = self.refresh_proem_query_from_lightfield()
+            if not ok:
+                return
+            print(f"lf roi: ProEM ROI (pixels) = {self.proem_query}")
+
+            if len(tokens) > 1 and tokens[1] == "print":
+                sx = self.proem_sx_um_per_px
+                sy = self.proem_sy_um_per_px
+                if self.proem_query and (sx is not None) and (sy is not None):
+                    x0, y0 = self.proem_x0_um, self.proem_y0_um
+                    px0, py0 = self.proem_px0, self.proem_py0
+                    flip_x, flip_y = self.proem_flip_x, self.proem_flip_y
+
+                    x_min_px, y_min_px, x_max_px, y_max_px = map(float, self.proem_query)
+
+                    def px_to_um(px, py):
+                        x_um = x0 + sx * (px - px0)
+                        y_um = y0 + sy * (py - py0)
+                        if flip_x: x_um = -x_um
+                        if flip_y: y_um = -y_um
+                        return x_um, y_um
+
+                    x1_um, y1_um = px_to_um(x_min_px, y_min_px)
+                    x2_um, y2_um = px_to_um(x_max_px, y_max_px)
+                    xmin_um, xmax_um = (x1_um, x2_um) if x1_um <= x2_um else (x2_um, x1_um)
+                    ymin_um, ymax_um = (y1_um, y2_um) if y1_um <= y2_um else (y2_um, y1_um)
+                    print(
+                        f"lf roi: approx µm bounds → x:[{xmin_um:.2f}, {xmax_um:.2f}]  y:[{ymin_um:.2f}, {ymax_um:.2f}]")
+                else:
+                    print("lf roi print: calibration (sx/sy) not set; skipping µm bounds.")
+
+        elif sub == "inf":
+            try:
+                lf_gui = getattr(p, "hrs_500_gui", None)
+                if lf_gui is None:
+                    print("lf inf: hrs_500_gui not available.")
+                    return
+
+                if hasattr(lf_gui, "run_inf") and callable(lf_gui.run_inf):
+                    lf_gui.run_inf()
+                    print("lf inf: run_inf() on hrs_500_gui invoked.")
+                    return
+
+                if hasattr(lf_gui, "dev"):
+                    dev = lf_gui.dev
+                    for meth in ("run_inf", "RunINF", "start_inf", "StartINF", "acquire_inf", "AcquireINF"):
+                        if hasattr(dev, meth) and callable(getattr(dev, meth)):
+                            getattr(dev, meth)()
+                            print(f"lf inf: {meth}() on hrs_500_gui.dev invoked.")
+                            return
+
+                print("lf inf: no suitable method found (define run_inf/acquire_inf on GUI/dev).")
+            except Exception as e:
+                print(f"lf inf failed: {e}")
+
+        else:
+            print(f"lf: unknown subcommand '{sub}'. Try: 'lf roi' or 'lf inf'.")
+
+    def refresh_proem_query_from_lightfield(self) -> bool:
+        """
+        Get the current ProEM ROI from the HRS-500 GUI/device and store it in
+        self.proem_query = (x_min_px, y_min_px, x_max_px, y_max_px).
+        Falls back to full-sensor rectangle if a per-ROI helper isn't available.
+        """
+        try:
+            # Locate the HRS-500 GUI the way you initialize it
+            p = self.get_parent()
+            lf_gui = getattr(p, "hrs_500_gui", None)
+            if lf_gui is None:
+                print("refresh_proem_query_from_lightfield: hrs_500_gui not available.")
+                return False
+
+            # 1) Prefer an explicit ROI helper if you (now or later) expose it
+            roi = None
+            if hasattr(lf_gui, "get_current_roi_pixels") and callable(lf_gui.get_current_roi_pixels):
+                roi = lf_gui.get_current_roi_pixels()
+            elif hasattr(lf_gui, "dev") and hasattr(lf_gui.dev, "get_current_roi_pixels") \
+                    and callable(lf_gui.dev.get_current_roi_pixels):
+                roi = lf_gui.dev.get_current_roi_pixels()
+
+            # 2) If no explicit ROI helper exists or returned nothing, use full sensor size
+            if not roi:
+                if hasattr(lf_gui, "dev") and hasattr(lf_gui.dev, "get_full_sensor_size") \
+                        and callable(lf_gui.dev.get_full_sensor_size):
+                    # Expected: (X, Y, Width, Height, XBinning, YBinning)
+                    X, Y, W, H, *_ = lf_gui.dev.get_full_sensor_size()
+                    roi = (float(X), float(Y), float(X + max(0, W)), float(Y + max(0, H)))
+                else:
+                    print("refresh_proem_query_from_lightfield: no ROI helper and no full-sensor fallback.")
+                    return False
+            else:
+                # Accept 4+ tuple; clip to first 4 values
+                if len(roi) >= 4:
+                    roi = tuple(map(float, roi[:4]))
+                else:
+                    print(f"refresh_proem_query_from_lightfield: unexpected ROI format: {roi}")
+                    return False
+
+            x_min, y_min, x_max, y_max = roi
+            if not (x_max > x_min and y_max > y_min):
+                print(f"refresh_proem_query_from_lightfield: collapsed/invalid ROI: {roi}")
+                return False
+
+            self.proem_query = (x_min, y_min, x_max, y_max)
+            print(f"ProEM ROI (pixels) set to: {self.proem_query}")
+            return True
+
+        except Exception as e:
+            print(f"refresh_proem_query_from_lightfield error: {e}")
+            return False
 
 
 # Wrapper function
