@@ -581,3 +581,99 @@ def Plot_Loaded_Scan(self, use_fast_rgb: bool = False,show_only_xy: bool = True)
             print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
         except Exception as e:
             print(f"An error occurred while plotting the scan: {e}")
+
+def btnSave(self, folder=None):  # save data
+        print("Saving data...")
+        try:
+            # file name
+            # timeStamp = self.getCurrentTimeStamp()  # get current time stamp
+            self.timeStamp = self.getCurrentTimeStamp()
+
+            if folder is None:
+                # folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/' + (fr'Survey{self.HW.config.system_type}/' if self.survey else '') + self.exp.name + '/'
+                folder_path = f'Q:/QT-Quantum_Optic_Lab/expData/' + self.exp.name + f'/{self.HW.config.system_type}'
+            else:
+                folder_path = folder + (fr'Survey{self.HW.config.system_type}/' if self.survey else '') + self.exp.name + '/'
+
+            if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
+                os.makedirs(folder_path)
+            if self.exp == Experiment.RandomBenchmark:
+                #self.added_comments = dpg.get_value("inTxtOPX_expText")
+                if self.added_comments is not None:
+                    fileName = os.path.join(folder_path, self.timeStamp + '_' + self.exp.name + '_' + self.added_comments)
+                else:
+                    fileName = os.path.join(folder_path, self.timeStamp + '_' + self.exp.name)
+            else:
+                fileName = os.path.join(folder_path, self.timeStamp + '_' + self.exp.name+ '_' + self.expNotes)
+            # fileName = os.path.join(folder_path, self.timeStamp + self.exp.name)
+
+            # parameters + note
+            self.writeParametersToXML(fileName + ".xml")
+            print(f'XML file saved to {fileName}.xml')
+            self.to_xml()
+
+            # raw data
+            if self.exp == Experiment.RandomBenchmark:
+                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y_ref2': self.Y_vec_ref2,'Gate_Order': self.benchmark_number_order, 'Y_vec_squared': self.Y_vec_squared, 'Y_ref3': self.Y_vec_ref3}
+            elif self.exp == Experiment.NUCLEAR_MR:
+                RawData_to_save = {'X': self.X_vec, 'Y': self.Y_vec, 'Y_ref': self.Y_vec_ref, 'Y2': self.Y_vec2, 'Y_ref2': self.Y_vec_ref2}
+            elif self.exp == Experiment.TIME_BIN_ENTANGLEMENT:
+                # Modify below to have some pre-post-processed data for further data analysis
+                if self.simulation:
+                    RawData_to_save = {'Iteration': self.iteration_list.tolist(), 'Times': self.times_by_measurement,
+                                       'Total_Counts': self.signal.tolist(),
+                                       'Counts_stat': self.Y_vec_2.tolist(), f'Counts_Bin_1_{self.bin_times[0][0]}:{self.bin_times[0][1]}': self.counts_in_bin1,
+                                       f'Counts_Bin_2_{self.bin_times[1][0]}:{self.bin_times[1][1]}': self.counts_in_bin2, f'Counts_Bin_3_{self.bin_times[2][0]}:{self.bin_times[2][1]}': self.counts_in_bin3,
+                                       'Pulse_type': self.list_of_pulse_type, 'awg_freq': self.awg_freq_list}
+                else:
+                    RawData_to_save = {'Iteration': self.iteration_list.tolist(), 'Times': self.times_by_measurement,
+                                       'Total_Counts': self.signal.tolist(),
+                                       'Counts_stat': self.Y_vec_2.tolist(),
+                                       f'Counts_Bin_1_{self.bin_times[0][0]}:{self.bin_times[0][1]}': self.counts_in_bin1,
+                                       f'Counts_Bin_2_{self.bin_times[1][0]}:{self.bin_times[1][1]}': self.counts_in_bin2,
+                                       f'Counts_Bin_3_{self.bin_times[2][0]}:{self.bin_times[2][1]}': self.counts_in_bin3,
+                                       'Pulse_type': self.list_of_pulse_type}
+            else:
+                RawData_to_save = {
+                    'X': self.X_vec if isinstance(self.X_vec, list) else list(self.X_vec),
+                    'Y': self.Y_vec if isinstance(self.Y_vec, list) else list(self.Y_vec),
+                    'Y_ref': self.Y_vec_ref if isinstance(self.Y_vec_ref, list) else list(self.Y_vec_ref),
+                    'Y_ref2': self.Y_vec_ref2 if isinstance(self.Y_vec_ref2, list) else list(self.Y_vec_ref2),
+                    'Y_resCalc': self.Y_resCalculated if isinstance(self.Y_resCalculated, list) else list(self.Y_resCalculated)
+                }
+
+            self.save_to_cvs(fileName + ".csv", RawData_to_save, to_append=True)
+            if self.exp == Experiment.AWG_FP_SCAN:
+                RawData_to_save['Y_Aggregated'] = self.Y_vec_aggregated
+
+            self.save_to_cvs(fileName + ".csv", RawData_to_save)
+            print(f"CSV file saved to {fileName}.csv")
+
+            # save data as image (using matplotlib)
+            if folder is None and self.exp != Experiment.TIME_BIN_ENTANGLEMENT:
+                width = 1920  # Set the width of the image
+                height = 1080  # Set the height of the image
+                # Create a blank figure with the specified width and height, Convert width and height to inches
+                fig, ax = plt.subplots(figsize=(width / 100, height / 100), visible=True)
+                plt.plot(self.X_vec, self.Y_vec, label='data')  # Plot Y_vec
+                plt.plot(self.X_vec, self.Y_vec_ref, label='ref')  # Plot reference
+
+                # Adjust axes limits (optional)
+                # ax.set_xlim(0, 10)
+                # ax.set_ylim(-1, 1)
+
+                # Add legend
+                plt.legend()
+
+                # Save the figure as a PNG file
+                plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
+                print(f"Figure saved to {fileName}.png")
+                # close figure
+                plt.close(fig)
+
+                dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
+
+        except Exception as ex:
+            self.error = (
+                "Unexpected error: {}, {} in line: {}".format(ex, type(ex), (sys.exc_info()[-1].tb_lineno)))  # raise
+            print(f"Error while saving data: {ex}")

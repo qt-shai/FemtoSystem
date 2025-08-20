@@ -2135,18 +2135,32 @@ class CommandDispatcher:
         except Exception as e:
             print(f"Error Start Scan: {e}")
 
-    def handle_start_scan_with_galvo(self,arg):
+    def handle_start_scan_with_galvo(self, arg):
         """
-                Start OPX scan with Galvo.
+        Start OPX scan with Galvo.
+
+        Usage examples (arg is what follows 'kst'):
+          ''           -> full scan (no add, no query)
+          'add'        -> full scan, add to previous
+          'q'          -> scan only the queried XY rectangle
+          'add q'      -> add + queried rectangle
+          'q add'      -> same as above
         """
         p = self.get_parent()
-        cmd = arg.strip().lower()
-        add_scan = (cmd == 'add')
+        tokens = [t for t in (arg or "").strip().lower().split() if t]
+
+        add_scan = ("add" in tokens)
+        use_queried_area = ("q" in tokens) or ("query" in tokens)
+
         try:
+            # Make sure position inputs are synced and camera state is correct
             p.smaractGUI.fill_current_position_to_moveabs()
             self.handle_toggle_sc(reverse=False)
-            p.opx.btnStartGalvoScan(add_scan=add_scan)
-            print("Scan started.")
+
+            # Kick off the galvo scan, carrying the flags
+            p.opx.btnStartGalvoScan(add_scan=add_scan, use_queried_area=use_queried_area)
+            print(f"Scan started. add={add_scan}, queried_area={use_queried_area}")
+
         except Exception as e:
             print(f"Error Start Scan: {e}")
 

@@ -22,8 +22,8 @@ class GUIKeysight33500B:
         self.unique_id = self._get_unique_id_from_device()
         self.instrument = instrument
         self.volts_per_um = -2e-6
-        self.base1=0.5
-        self.base2=0.069
+        self.base1=0.335
+        self.base2=0.0082
         self.xy_step = 0.002
         self.kx_ratio = 3.3
         self.ky_ratio = -0.3

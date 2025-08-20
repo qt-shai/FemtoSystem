@@ -1,5 +1,5 @@
 import time
-import os
+import os, sys
 import copy
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -637,261 +637,332 @@ def scan3d_femto_pulses(self):  # currently flurascence scan
     if not (self.stopScan):
         self.btnStop()
 
-def scan3d_with_galvo(self):
+def scan3d_with_galvo(self, use_queried_area: bool = False):
+    """
+    3D scan using galvos for X,Y (Keysight AWG offsets) and positioner for Z.
+    X/Y mapping follows kx/ky defaults:
+        volts_per_um = 0.128/15
+        kx_ratio = 3.3
+        ky_ratio = -0.3
+    Net offsets:
+        CH1 = base_x + Vx + Vy
+        CH2 = base_y + Vx*kx_ratio + Vy*ky_ratio
+
+    Notes:
+      * Z-correction is DISABLED by request.
+      * Prints pre-scan min/max planned voltages for CH1/CH2.
+      * If use_queried_area=True, restrict X,Y to self.queried_area (plot query) on XY plane.
+    """
+    import sys, time
+    import numpy as np
+    import dearpygui.dearpygui as dpg
+
+    # --- Stop camera & previous OPX job ---
+    cam = self.HW.camera
+    if getattr(cam, "constantGrabbing", False):
+        toggle_sc(reverse=False)
+    if dpg.does_item_exist("btnOPX_Stop"):
+        print("Stopping previous experiment before scanning...")
+        self.btnStop()
+        time.sleep(0.5)
+
+    # --- Keysight device (galvo driver) ---
+    parent = getattr(sys.stdout, "parent", None)
+    gui = getattr(parent, "keysight_gui", None)
+    if not gui or not hasattr(gui, "dev"):
+        print("ERROR: Keysight AWG GUI/device not available.")
+        return
+    dev = gui.dev
+
+    # --- kx/ky defaults (same as your handlers) ---
+    volts_per_um = gui.volts_per_um
+    kx_ratio = gui.kx_ratio
+    ky_ratio = gui.ky_ratio
+
+    def pm_to_v(pm):
+        """pm (nanometers) -> volts via volts_per_um calibration (uses your 1e-3 conversion)"""
+        return np.round(pm * 1e-3 * volts_per_um, 6)
+
+    # ===== NEW: helpers for queried area =====
+    def _queried_bounds_rel_um() -> tuple[float, float, float, float] | None:
         """
-        3D scan using galvos for X,Y (Keysight AWG offsets) and positioner for Z.
-        X/Y mapping follows kx/ky defaults:
-            volts_per_um = 0.128/15
-            kx_ratio = 3.3
-            ky_ratio = -0.3
-        Net offsets:
-            CH1 = base_x + Vx + Vy
-            CH2 = base_y + Vx*kx_ratio + Vy*ky_ratio
+        Use self.queried_area captured by queryXY_callback (meters) to produce
+        (xmin_um, xmax_um, ymin_um, ymax_um) for X,Y scan limits in RELATIVE micrometers.
 
-        Notes:
-          * Z-correction is DISABLED by request.
-          * Prints pre-scan min/max planned voltages for CH1/CH2.
+        Assumes:
+          - self.queried_area = (x_min_m, y_min_m, x_max_m, y_max_m) in METERS
+          - self.queried_plane == queried_plane.XY
+          - Your galvo scan logic expects REL µm (around 0) for X,Y vectors.
         """
+        if getattr(self, "queried_area", None) is None:
+            return None
+        if getattr(self, "queried_plane", None) != queried_plane.XY:
+            return None
 
-        # --- Stop camera & previous OPX job ---
-        cam = self.HW.camera
-        if getattr(cam, "constantGrabbing", False):
-            toggle_sc(reverse=False)
-        if dpg.does_item_exist("btnOPX_Stop"):
-            print("Stopping previous experiment before scanning...")
-            self.btnStop()
-            time.sleep(0.5)
-
-        # --- Keysight device (galvo driver) ---
-        parent = getattr(sys.stdout, "parent", None)
-        gui = getattr(parent, "keysight_gui", None)
-        if not gui or not hasattr(gui, "dev"):
-            print("ERROR: Keysight AWG GUI/device not available.")
-            return
-        dev = gui.dev
-
-        # --- kx/ky defaults (same as your handlers) ---
-        volts_per_um = gui.volts_per_um
-        kx_ratio = gui.kx_ratio
-        ky_ratio = gui.ky_ratio
-
-        def pm_to_v(pm):
-            return np.round(pm * 1e-3 * volts_per_um,6)
-
-        # --- Experiment/GUI bookkeeping ---
-        self.exp = Experiment.SCAN
-        self.GUI_ParametersControl(isStart=False)
-        self.to_xml()
-        self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")
-        dpg.disable_item("btnOPX_StartScan")
-
-        # --- Reset scan state & read current stage pos ---
-        self.scan_reset_data()
-        self.scan_reset_positioner()
         try:
-            print("Trying to get current position")
-            self.scan_get_current_pos(_isDebug=True)
-        except Exception as e:
-            print(f"ERROR: Failed to get current position: {e}")
-            return
+            x_min_m, y_min_m, x_max_m, y_max_m = self.queried_area
+        except Exception:
+            return None
 
-        self.initial_scan_Location = list(self.positioner.AxesPositions)  # µm abs
+        # Normalize and validate
+        if (x_max_m is None) or (y_max_m is None):
+            return None
+        if x_max_m <= x_min_m or y_max_m <= y_min_m:
+            print("WARNING: Queried area is empty/collapsed; ignoring.")
+            return None
 
-        # --- Read baseline galvo offsets (CH1=X, CH2=Y) ---
-        try:
-            base_off_x = float(dev.get_current_voltage(1))
-            base_off_y = float(dev.get_current_voltage(2))
-        except Exception as e:
-            print(f"ERROR: Failed to read initial galvo offsets: {e}")
-            return
+        # Convert meters -> micrometers for the grid generator
+        x_min_um = float(x_min_m) * 1e6
+        x_max_um = float(x_max_m) * 1e6
+        y_min_um = float(y_min_m) * 1e6
+        y_max_um = float(y_max_m) * 1e6
 
-        # --- Build scan vectors: X,Y are REL µm; Z ABS µm around current Z ---
-        scan_coordinates, self.N_scan = [], []
-        dx_nm = self.dL_scan[0] * 1e3
-        dy_nm = self.dL_scan[1] * 1e3
-        if dx_nm < 500 or dy_nm < 500:
-            print(f"Scan step too small: dx={dx_nm:.1f} nm, dy={dy_nm:.1f} nm (≥500 nm required)")
-            return
+        return x_min_um, x_max_um, y_min_um, y_max_um
 
-        centers_um = [0.0, 0.0, float(self.initial_scan_Location[2])]  # X,Y rel center=0; Z abs center=current Z
-        for i in range(3):
-            if self.b_Scan[i]:
-                if i == 0:  # X axis → start at 0, go to +Lx
-                    vec = self.GenVector(min=-self.L_scan[i], max=0, delta=self.dL_scan[i]) * 1e3
-                else:  # Y/Z axes → keep centered
-                    vec = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i]) * 1e3
+    # --- Experiment/GUI bookkeeping ---
+    self.exp = Experiment.SCAN
+    self.GUI_ParametersControl(isStart=False)
+    self.to_xml()
+    self.writeParametersToXML(self.create_scan_file_name(local=True) + ".xml")
+    dpg.disable_item("btnOPX_StartScan")
 
-                if i == 2:  # Z abs
-                    axis = (np.array(vec) + centers_um[i]).astype(np.int64)
-                else:  # X/Y rel
-                    axis = np.array(vec, dtype=np.float64)
+    # --- Reset scan state & read current stage pos ---
+    self.scan_reset_data()
+    self.scan_reset_positioner()
+    try:
+        print("Trying to get current position")
+        self.scan_get_current_pos(_isDebug=True)
+    except Exception as e:
+        print(f"ERROR: Failed to get current position: {e}")
+        return
+
+    self.initial_scan_Location = list(self.positioner.AxesPositions)  # µm abs
+
+    # --- Read baseline galvo offsets (CH1=X, CH2=Y) ---
+    try:
+        base_off_x = float(dev.get_current_voltage(1))
+        base_off_y = float(dev.get_current_voltage(2))
+    except Exception as e:
+        print(f"ERROR: Failed to read initial galvo offsets: {e}")
+        return
+
+    # --- Build scan vectors: X,Y are REL µm; Z ABS µm around current Z ---
+    scan_coordinates, self.N_scan = [], []
+    dx_nm = self.dL_scan[0] * 1e3
+    dy_nm = self.dL_scan[1] * 1e3
+    if dx_nm < 500 or dy_nm < 500:
+        print(f"Scan step too small: dx={dx_nm:.1f} nm, dy={dy_nm:.1f} nm (≥500 nm required)")
+        return
+
+    centers_um = [0.0, 0.0, float(self.initial_scan_Location[2])]  # X,Y rel center=0; Z abs center=current Z
+
+    # ===== NEW: pick bounds from queried area if requested =====
+    queried_bounds = _queried_bounds_rel_um() if use_queried_area else None
+
+    for i in range(3):
+        if self.b_Scan[i]:
+            if i == 0:  # X axis (REL µm)
+                if queried_bounds is not None:
+                    x_min_um, x_max_um, _, _ = queried_bounds
+                    vec_um = self.GenVector(min=x_min_um, max=x_max_um, delta=self.dL_scan[i])
+                else:
+                    # previous behavior: start at -Lx and end at 0
+                    vec_um = self.GenVector(min=-self.L_scan[i], max=0, delta=self.dL_scan[i])
+
+                vec = vec_um * 1e3  # -> "pm path" in your code (nm units)
+
+            elif i == 1:  # Y axis (REL µm)
+                if queried_bounds is not None:
+                    _, _, y_min_um, y_max_um = queried_bounds
+                    vec_um = self.GenVector(min=y_min_um, max=y_max_um, delta=self.dL_scan[i])
+                else:
+                    # previous behavior: centered
+                    vec_um = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i])
+
+                vec = vec_um * 1e3  # -> nm
+
+            else:  # Z axis (ABS µm)
+                zvec_um = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2, delta=self.dL_scan[i])
+                vec = (np.array(zvec_um) + centers_um[i]).astype(np.int64)  # µm abs
+
+            # dtype as before
+            if i == 2:
+                axis = np.array(vec, dtype=np.int64)       # Z in µm abs (int)
             else:
-                axis = np.array([centers_um[i]], dtype=np.float64 if i < 2 else np.int64)
-            self.N_scan.append(len(axis))
-            scan_coordinates.append(axis)
+                axis = np.array(vec, dtype=np.float64)     # X/Y in nm path (float)
 
-        self.V_scan = scan_coordinates  # [X_rel_um, Y_rel_um, Z_abs_um]
-        Nx, Ny, Nz = self.N_scan
-        self.Xv = self.V_scan[0] / 1e6  # x data of the Smaract values from the csv
-        self.Yv = self.V_scan[1] / 1e6  # y data of the Smaract values from the csv
-        self.Zv = self.V_scan[2] / 1e6  # z data of the Smaract values from the csv
+        else:
+            axis = np.array([centers_um[i]], dtype=np.float64 if i < 2 else np.int64)
 
-        # --- Precompute & print planned voltage bounds (including baselines) ---
-        # Convert X/Y grid to volts
-        Vx = pm_to_v(self.V_scan[0])[:, None]  # shape (Nx, 1)
-        Vy = pm_to_v(self.V_scan[1])[None, :]  # shape (1, Ny)
-        ch1_grid = base_off_x + (Vx + Vy)  # CH1 at each (x,y)
-        ch2_grid = base_off_y + (Vx * kx_ratio) + (Vy * ky_ratio)  # CH2 at each (x,y)
+        self.N_scan.append(len(axis))
+        scan_coordinates.append(axis)
 
-        ch1_min, ch1_max = float(np.min(ch1_grid)), float(np.max(ch1_grid))
-        ch2_min, ch2_max = float(np.min(ch2_grid)), float(np.max(ch2_grid))
-        print(f"[Pre-scan] CH1 range: {ch1_min:.4f} V -> {ch1_max:.4f} V  (baseline {base_off_x:.4f} V)")
-        print(f"[Pre-scan] CH2 range: {ch2_min:.4f} V -> {ch2_max:.4f} V  (baseline {base_off_y:.4f} V)")
+    self.V_scan = scan_coordinates  # [X_rel_um (nm path), Y_rel_um (nm path), Z_abs_um]
+    Nx, Ny, Nz = self.N_scan
+    # Keep your exported vectors in meters, as you already do:
+    self.Xv = self.V_scan[0] / 1e6  # meters
+    self.Yv = self.V_scan[1] / 1e6  # meters
+    self.Zv = self.V_scan[2] / 1e6  # meters
 
-        # ─── Safety check ───
-        if ch1_min < -5 or ch1_max > 5 or ch2_min < -5 or ch2_max > 5:
-            print("[ERROR] Voltage range exceeds ±5 V limit. Aborting scan.")
-            if not self.stopScan:
-                self.btnStop()
-            return
+    # --- Precompute & print planned voltage bounds (including baselines) ---
+    Vx = pm_to_v(self.V_scan[0])[:, None]  # shape (Nx, 1)
+    Vy = pm_to_v(self.V_scan[1])[None, :]  # shape (1, Ny)
+    ch1_grid = base_off_x + (Vx + Vy)  # CH1 at each (x,y)
+    ch2_grid = base_off_y + (Vx * kx_ratio) + (Vy * ky_ratio)  # CH2 at each (x,y)
 
-        try:
-            self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][0]))
+    ch1_min, ch1_max = float(np.min(ch1_grid)), float(np.max(ch1_grid))
+    ch2_min, ch2_max = float(np.min(ch2_grid)), float(np.max(ch2_grid))
+    print(f"[Pre-scan] CH1 range: {ch1_min:.4f} V -> {ch1_max:.4f} V  (baseline {base_off_x:.4f} V)")
+    print(f"[Pre-scan] CH2 range: {ch2_min:.4f} V -> {ch2_max:.4f} V  (baseline {base_off_y:.4f} V)")
+
+    # ─── Safety check ───
+    if ch1_min < -5 or ch1_max > 5 or ch2_min < -5 or ch2_max > 5:
+        print("[ERROR] Voltage range exceeds ±5 V limit. Aborting scan.")
+        if not self.stopScan:
+            self.btnStop()
+        return
+
+    try:
+        self.positioner.MoveABSOLUTE(2, int(self.V_scan[2][0]))
+        time.sleep(self.t_wait_motionStart)
+        dev.set_offset(base_off_x, channel=1)
+        dev.set_offset(base_off_y, channel=2)
+        gui.btn_get_current_parameters()
+    except Exception as e:
+        print(f"ERROR: Failed initial positioning: {e}")
+        return
+
+    # --- Move to initial Z, zero galvo deflection (baseline) ---
+    self.scan_get_current_pos(True)
+
+    # --- Allocate arrays & plot first slice ---
+    self.scan_intensities = np.zeros((Nx, Ny, Nz))
+    self.scan_data = self.scan_intensities
+    self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
+    self.endLoc   = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
+    self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0],
+                   startLoc=self.startLoc, endLoc=self.endLoc)
+
+    # --- QUA acquisition setup ---
+    self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                     num_measurement_per_array=1)
+    res_handles = self.job.result_handles
+    self.counts_handle = res_handles.get("counts_scanLine")
+    self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
+
+    print("start scan steps")
+    start_time = time.time()
+    print(f"start_time: {self.format_time(start_time)}")
+
+    try:
+        for iz in range(Nz):  # Z slices
+            if self.stopScan:
+                break
+
+            z_abs = int(self.V_scan[2][iz])
+            self.positioner.MoveABSOLUTE(2, z_abs)
             time.sleep(self.t_wait_motionStart)
+
+            row_t0 = time.time()
+            j = 0
+            while j < Ny:  # Y rows
+                if self.stopScan:
+                    break
+
+                y_pm = float(self.V_scan[1][j])
+                Vy_ = pm_to_v(y_pm)
+
+                # X line
+                for k in range(Nx):
+                    if self.stopScan:
+                        break
+                    x_pm = float(self.V_scan[0][k])
+                    Vx_ = pm_to_v(x_pm)
+
+                    # === Apply combined X,Y galvo move with kx/ky defaults ===
+                    ch1 = base_off_x + (Vx_ + Vy_)
+                    ch2 = base_off_y + (Vx_ * kx_ratio) + (Vy_ * ky_ratio)
+                    dev.set_offset(ch1, channel=1)
+                    dev.set_offset(ch2, channel=2)
+
+                    # Galvo settle (if needed)
+                    time.sleep(getattr(self, "t_wait_galvo_settle", 0.001))
+
+                    # Trigger QUA measurement
+                    if not self.stopScan:
+                        self.qm.set_io2_value(self.ScanTrigger)
+                    time.sleep(1e-3)
+                    if not self.stopScan:
+                        res = self.qm.get_io2_value()
+                    while (not self.stopScan) and (res.get('int_value') == self.ScanTrigger):
+                        res = self.qm.get_io2_value()
+
+                    # Fetch one count
+                    if self.counts_handle.is_processing():
+                        self.counts_handle.wait_for_values(1)
+                        time.sleep(0.05)
+                        counts = self.counts_handle.fetch_all()
+                        if len(counts) > 0:
+                            self.scan_intensities[k, j, iz] = counts[-1] / self.total_integration_time
+                            self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
+
+                # return X component to baseline at row end (keep Y at its row value until next row change)
+                dev.set_offset(base_off_x + Vy_, channel=1)
+                dev.set_offset(base_off_y + (Vy_ * ky_ratio), channel=2)
+
+                j += 1
+
+                # Time-left estimate
+                dt = time.time() - row_t0
+                est_left = dt * ((Nz - iz - 1) * Ny + (Ny - j))
+                dpg.set_value("Scan_Message", f"time left: {self.format_time(max(est_left, 0))}")
+
+            # --- Save after each Z slice ---
+            slice_fn = self.create_scan_file_name(local=True) + f"_z{int(self.V_scan[2][iz])}"
+            self.prepare_scan_data(
+                max_position_x_scan=self.V_scan[0][-1] if Nx else 0.0,
+                min_position_x_scan=self.V_scan[0][0] if Nx else 0.0,
+                start_pos=[
+                    int(self.V_scan[0][0] if Nx else 0.0),
+                    int(self.V_scan[1][0] if Ny else 0.0),
+                    int(self.V_scan[2][iz]),
+                ],
+            )
+            self.save_scan_data(Nx, Ny, Nz, slice_fn)
+
+    finally:
+        # Restore galvos to baselines
+        try:
             dev.set_offset(base_off_x, channel=1)
             dev.set_offset(base_off_y, channel=2)
             gui.btn_get_current_parameters()
         except Exception as e:
-            print(f"ERROR: Failed initial positioning: {e}")
-            return
-        # --- Move to initial Z, zero galvo deflection (baseline) ---
+            print(f"WARNING: Failed to restore galvo offsets: {e}")
+
+        # Return stage to initial XYZ
+        for ch in self.positioner.channels:
+            self.positioner.MoveABSOLUTE(ch, self.initial_scan_Location[ch])
         self.scan_get_current_pos(True)
 
-        # --- Allocate arrays & plot first slice ---
-        self.scan_intensities = np.zeros((Nx, Ny, Nz))
-        self.scan_data = self.scan_intensities
-        self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
-        self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
-        self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0],
-                       startLoc=self.startLoc, endLoc=self.endLoc)
+    # --- Final save & params ---
+    self.prepare_scan_data(
+        max_position_x_scan=self.V_scan[0][-1] if Nx else 0.0,
+        min_position_x_scan=self.V_scan[0][0] if Nx else 0.0,
+        start_pos=[
+            int(self.V_scan[0][0] if Nx else 0.0),
+            int(self.V_scan[1][0] if Ny else 0.0),
+            int(self.V_scan[2][0] if Nz else self.initial_scan_Location[2]),
+        ],
+    )
+    fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))
+    self.writeParametersToXML(fn + ".xml")
 
-        # --- QUA acquisition setup ---
-        self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
-                         num_measurement_per_array=1)
-        res_handles = self.job.result_handles
-        self.counts_handle = res_handles.get("counts_scanLine")
-        self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
-
-        print("start scan steps")
-        start_time = time.time()
-        print(f"start_time: {self.format_time(start_time)}")
-
-        try:
-            for iz in range(Nz):  # Z slices
-                if self.stopScan: break
-
-                z_abs = int(self.V_scan[2][iz])
-                self.positioner.MoveABSOLUTE(2, z_abs)
-                time.sleep(self.t_wait_motionStart)
-
-                row_t0 = time.time()
-                j = 0
-                while j < Ny:  # Y rows
-                    if self.stopScan: break
-
-                    y_pm = float(self.V_scan[1][j])
-                    Vy = pm_to_v(y_pm)
-
-                    # X line
-                    for k in range(Nx):
-                        if self.stopScan: break
-                        x_pm = float(self.V_scan[0][k])
-                        Vx = pm_to_v(x_pm)
-
-                        # === Apply combined X,Y galvo move with kx/ky defaults ===
-                        ch1 = base_off_x + (Vx + Vy)
-                        ch2 = base_off_y + (Vx * kx_ratio) + (Vy * ky_ratio)
-                        dev.set_offset(ch1, channel=1)
-                        dev.set_offset(ch2, channel=2)
-
-                        # Galvo settle (if needed)
-                        time.sleep(getattr(self, "t_wait_galvo_settle", 0.001))
-
-                        # Trigger QUA measurement
-                        if not self.stopScan:
-                            self.qm.set_io2_value(self.ScanTrigger)
-                        time.sleep(1e-3)
-                        if not self.stopScan:
-                            res = self.qm.get_io2_value()
-                        while (not self.stopScan) and (res.get('int_value') == self.ScanTrigger):
-                            res = self.qm.get_io2_value()
-
-                        # Fetch one count
-                        if self.counts_handle.is_processing():
-                            self.counts_handle.wait_for_values(1)
-                            time.sleep(0.05)
-                            counts = self.counts_handle.fetch_all()
-                            if len(counts) > 0:
-                                self.scan_intensities[k, j, iz] = counts[-1] / self.total_integration_time
-                                self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
-
-                    # return X component to baseline at row end (keep Y at its row value until next row change)
-                    dev.set_offset(base_off_x + Vy, channel=1)
-                    dev.set_offset(base_off_y + (Vy * ky_ratio), channel=2)
-
-                    j += 1
-
-                    # Time-left estimate
-                    dt = time.time() - row_t0
-                    est_left = dt * ((Nz - iz - 1) * Ny + (Ny - j))
-                    dpg.set_value("Scan_Message", f"time left: {self.format_time(max(est_left, 0))}")
-
-                # --- Save after each Z slice ---
-                slice_fn = self.create_scan_file_name(local=True) + f"_z{int(self.V_scan[2][iz])}"
-                self.prepare_scan_data(
-                    max_position_x_scan=self.V_scan[0][-1] if Nx else 0.0,
-                    min_position_x_scan=self.V_scan[0][0] if Nx else 0.0,
-                    start_pos=[
-                        int(self.V_scan[0][0] if Nx else 0.0),
-                        int(self.V_scan[1][0] if Ny else 0.0),
-                        int(self.V_scan[2][iz]),
-                    ],
-                )
-                self.save_scan_data(Nx, Ny, Nz, slice_fn)
-
-        finally:
-            # Restore galvos to baselines
-            try:
-                dev.set_offset(base_off_x, channel=1)
-                dev.set_offset(base_off_y, channel=2)
-                gui.btn_get_current_parameters()
-            except Exception as e:
-                print(f"WARNING: Failed to restore galvo offsets: {e}")
-
-            # Return stage to initial XYZ
-            for ch in self.positioner.channels:
-                self.positioner.MoveABSOLUTE(ch, self.initial_scan_Location[ch])
-            self.scan_get_current_pos(True)
-
-        # --- Final save & params ---
-        self.prepare_scan_data(
-            max_position_x_scan=self.V_scan[0][-1] if Nx else 0.0,
-            min_position_x_scan=self.V_scan[0][0] if Nx else 0.0,
-            start_pos=[
-                int(self.V_scan[0][0] if Nx else 0.0),
-                int(self.V_scan[1][0] if Ny else 0.0),
-                int(self.V_scan[2][0] if Nz else self.initial_scan_Location[2]),
-            ],
-        )
-        fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))
-        self.writeParametersToXML(fn + ".xml")
-
-        # Stats
-        elapsed = time.time() - start_time
-        print(f"number of points = {Nx * Ny * Nz}")
-        print(f"Elapsed time: {elapsed:.0f} seconds")
-        if not self.stopScan:
-            self.btnStop()
+    # Stats
+    elapsed = time.time() - start_time
+    print(f"number of points = {Nx * Ny * Nz}")
+    print(f"Elapsed time: {elapsed:.0f} seconds")
+    if not self.stopScan:
+        self.btnStop()
 
 def start_scan_general(self, move_abs_fn, read_in_pos_fn, get_positions_fn, device_reset_fn, x_vec=None, y_vec=None,
                        z_vec=None, current_experiment=Experiment.SCAN, is_not_ple=True,
@@ -1499,3 +1570,400 @@ def StartScan(self, add_scan=False, isLeftScan=False):
             self.HW.atto_positioner.start_updates()
         else:
             self.StartScan3D(add_scan=add_scan, isLeftScan=isLeftScan)
+
+def btnFemtoPulses(self):
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Shooting femto pulses !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    self.Shoot_Femto_Pulses = True
+    self.ScanTh = threading.Thread(target=self.scan3d_femto_pulses)
+    self.ScanTh.start()
+
+def btnStartScan(self, add_scan=False, isLeftScan = False):
+    self.ScanTh = threading.Thread(target=self.StartScan,args=(add_scan, isLeftScan))
+    self.ScanTh.start()
+
+def btnStartGalvoScan(self, add_scan: bool = False, use_queried_area: bool = False):
+    """
+    Launches the galvo-based 3D scan in a background thread.
+    """
+    # Preserve your threading convention
+    try:
+        # If you keep a stop/start guarding, keep it here as needed
+        self.ScanTh = threading.Thread(
+            target=self.scan3d_with_galvo,
+            kwargs={"use_queried_area": use_queried_area},
+            daemon=True
+        )
+        self.ScanTh.start()
+    except Exception as e:
+        print(f"btnStartGalvoScan error: {e}")
+
+def btnStartPLE(self):
+    self.ScanTh = threading.Thread(target=self.StartPLE)
+    self.ScanTh.start()
+
+def btnStartExternalFrequencyScan(self, b_startFetch=True):
+    self.exp = Experiment.EXTERNAL_FREQUENCY_SCAN
+    self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+
+    self.timeStamp = self.getCurrentTimeStamp()
+    folder_path = 'C:/temp/' + self.exp.name + '/'
+    if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
+        os.makedirs(folder_path)
+    self.csv_file = os.path.join(folder_path, self.timeStamp + self.exp.name + ".csv")
+    # TODO: Boaz - Check for edge cases in number of measurements per array
+    self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                     num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
+
+    if b_startFetch and not self.bEnableSimulate:
+        self.StartFetch(_target=self.FetchData)
+
+def btnStartAWG_FP_SCAN(self, b_startFetch=True):
+    self.exp = Experiment.AWG_FP_SCAN
+    self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+
+    self.timeStamp = self.getCurrentTimeStamp()
+    folder_path = 'C:/temp/' + self.exp.name + '/'
+    if not os.path.exists(folder_path):  # Ensure the folder exists, create if not
+        os.makedirs(folder_path)
+    self.csv_file = os.path.join(folder_path, self.timeStamp + self.exp.name + ".csv")
+    # TODO: Boaz - Check for edge cases in number of measurements per array
+    self.initQUA_gen(n_count=int(self.total_integration_time * self.u.ms / self.Tcounter / self.u.ns),
+                     num_measurement_per_array=int(self.L_scan[0] / self.dL_scan[0]) if self.dL_scan[0] != 0 else 1)
+
+    if b_startFetch and not self.bEnableSimulate:
+        self.StartFetch(_target=self.FetchData)
+
+def StartPLE(self):
+        self.exp = Experiment.PLE
+        self.GUI_ParametersControl(isStart=self.bEnableSimulate)
+
+        try:
+            # Get initial wavelength position in MHz
+            scan_device = self.matisse.scan_device
+            initial_position = self.matisse.get_wavelength_position(scan_device)
+            self.mattise_frequency_offset = self.HW.wavemeter.get_frequency() - initial_position*1e6
+
+        except Exception as e:
+            print(f"Failed to retrieve initial wavelength position: {e}")
+            return
+
+        check_srs_stability=self.matisse.check_srs_stability
+        if self.HW.SRS_PID_list is None and check_srs_stability:
+            print('Cannot check SRS stability, device not found.')
+            check_srs_stability=False
+
+        num_points = self.matisse.num_scan_points
+        half_length = self.matisse.scan_range / 2
+        vec = list(
+            np.concatenate((np.linspace(initial_position - half_length, initial_position + half_length, num_points),
+                            np.linspace(initial_position + half_length, initial_position - half_length, num_points)[
+                            1:])))
+
+        self.start_scan_general(move_abs_fn=self.matisse.move_wavelength,
+                                read_in_pos_fn=lambda ch: (time.sleep(self.matisse.ple_waiting_time), True)[1],
+                                get_positions_fn=self.HW.wavemeter.get_frequency,
+                                device_reset_fn=None,
+                                x_vec=vec,
+                                y_vec=None,
+                                z_vec=None,
+                                current_experiment=Experiment.PLE,
+                                is_not_ple=False,
+                                meas_continuously=True,
+                                UseDisplayDuring=False,
+                                check_srs_stability=check_srs_stability)
+
+def btnStartG2Survey(self) -> None:
+    """
+    Wrapper function to prompt the user for a CSV file containing survey points, extract the points,
+    select the appropriate move and position functions, and start the g2 survey.
+
+    The CSV file is expected to have rows with at least two columns representing the x and y coordinates.
+    The move function is chosen based on the existence of self.HW.atto_positioner.MoveABSOLUTE or
+    self.positioner.MoveABSOLUTE. Similarly, the position function is selected from self.HW.atto_positioner.get_position
+    or self.positioner.get_position, and the wait function is wrapped from either
+    self.HW.atto_positioner.wait_for_axes_to_stop or self.positioner.ReadIsInPosition.
+
+    Recommended survey parameters:
+      - g2_threshold: 0.45
+      - g2_counts: 200
+
+    :return: None
+    """
+    try:
+        # Prompt user for CSV file path
+        system_name=None
+        file_path = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])  # Show .csv and all file types
+        points = []
+        with open(file_path, 'r') as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                if len(row) >= 2:
+                    try:
+                        x = float(row[0].strip())
+                        y = float(row[1].strip())
+                        points.append((x, y))
+                    except ValueError:
+                        print(f"Skipping row with invalid coordinates: {row}")
+        if not points:
+            print("No valid points found in the CSV file.")
+            return
+
+        # Select move, position, and wait functions based on available hardware
+        if hasattr(self, "HW") and hasattr(self.HW, "atto_positioner") and hasattr(self.HW.atto_positioner,
+                                                                                   "MoveABSOLUTE"):
+            move_fn = self.HW.atto_positioner.MoveABSOLUTE
+            get_positions_fn = self.HW.atto_positioner.get_position
+            read_in_pos_fn = lambda ax: self.HW.atto_positioner.wait_for_axes_to_stop([ax], max_wait_time=20.0)
+            system_name = "Atto"
+        elif hasattr(self, "positioner") and hasattr(self.positioner, "MoveABSOLUTE"):
+            move_fn = self.positioner.MoveABSOLUTE
+            get_positions_fn = self.positioner.GetPosition
+            read_in_pos_fn = lambda ch: self.positioner.ReadIsInPosition(ch)
+            system_name = "Femto"
+        else:
+            print("No valid move function found.")
+            return
+
+        # Determine the expected number of axes based on the current positions
+        if system_name == "Femto":
+            get_positions_fn()
+            positions = [self.positioner.AxesPositions[x] for x in range(len(points[0]))]
+        else:
+            positions = [get_positions_fn(x) for x in range(len(points[0]))]
+        if not positions:
+            print("Unable to retrieve current positions. Aborting survey.")
+            return
+
+        def run_survey():
+            self.perform_survey(
+                points=points,
+                move_fn=move_fn,
+                read_in_pos_fn=read_in_pos_fn,
+                get_positions_fn=get_positions_fn,
+                g2_counts=self.survey_g2_counts,
+                g2_threshold=self.survey_g2_threshold,
+                g2_timeout=self.survey_g2_timeout,
+                move_only=False,
+                search_peak_intensity_near_positions=True
+            )
+
+        self.survey_thread = threading.Thread(target=run_survey, daemon=True)
+        self.survey_thread.start()
+    except Exception as e:
+        print(f"An error occurred in btnStartG2Survey: {e}")
+
+def perform_survey(
+        self,
+        points: List[Tuple[float, float]],
+        move_fn: Callable[[int, int|float], Any],
+        g2_threshold: float,
+        g2_counts: int,
+        g2_timeout: int,
+        read_in_pos_fn: Callable[[int], Any],
+        get_positions_fn: Callable[[int], Any],
+        move_only: bool = False,
+        search_peak_intensity_near_positions: bool = True
+) -> None:
+        """
+        Perform a survey of g2 and PL scans of NV centers.
+
+        For each (x, y) point in the provided list, the function performs the following:
+          1. Sets the survey flag to True.
+          2. Moves to the given point using the provided move function.
+          3. Verifies positioning by reading each axis position via read_in_pos_fn and gets current positions using get_positions_fn.
+          4. Starts a live counter by invoking self.btnStartCounterLive.
+          5. Searches for peak intensity using self.MoveToPeakIntensity.
+          6. Waits for the thread self.MAxSignalTh to complete.
+          7. Stops the live counter via self.btnStop.
+          8. Initiates a g2 measurement using self.btnStartG2.
+          9. Waits until self.Y_vec[0] equals g2_counts (with a timeout safeguard).
+         10. Stops the g2 measurement with self.btnStop.
+         11. If the ratio (min(self.Y_vec) / self.Y_vec[0]) exceeds g2_threshold, starts a scan by invoking self.btnStartScan and waits for self.ScanTh to finish.
+             Otherwise, it moves on to the next point.
+
+        Throughout the survey, progress updates are printed, including:
+          - Percentage completion.
+          - Number of points processed out of the total.
+          - Time elapsed for the current point and overall.
+          - Estimated Time of Arrival (ETA) for survey completion.
+
+        :param points: List of (x, y) tuples representing the coordinates to survey.
+        :param move_fn: A callable function that moves the system to a specified (x, y) coordinate.
+        :param g2_threshold: Threshold ratio to decide whether to perform a scan.
+        :param g2_counts: Expected count value for g2 measurement to wait for.
+        :param g2_timeout: timeout of the g2 measurement if counts threshold was not reached. [seconds]
+        :param read_in_pos_fn: A callable that accepts an axis index (int) and ensures that axis is in position.
+        :param get_positions_fn: A callable that returns the current positions after reading all axes.
+        :param move_only: boolean that controls if the survey only moves to positions or performs the measurements as well.
+        :param search_peak_intensity_near_positions: boolean that controls if peak search is required around each location
+        """
+        try:
+            # Set survey flag to indicate that the survey is running
+            self.survey = True
+            self.survey_stop_flag = False
+            total_points = len(points)
+
+            if self.HW.atto_scanner:
+                self.HW.atto_scanner.MoveABSOLUTE(1, 25)
+                self.HW.atto_scanner.MoveABSOLUTE(2, 25)
+
+            if total_points == 0:
+                print("No points provided for the survey. Exiting function.")
+                return
+
+            overall_start_time = time.time()  # Record the overall start time
+
+            # Iterate over each survey point
+            for idx, point in enumerate(points, start=1):
+                if self.survey_stop_flag:
+                    return
+                point_start_time = time.time()
+                print(f"\n--- Starting point {idx}/{total_points}: {point} ---")
+
+                if self.HW.atto_scanner:
+                    self.HW.atto_scanner.MoveABSOLUTE(1, 25)
+                    self.HW.atto_scanner.MoveABSOLUTE(2, 25)
+                    system_name="Atto"
+                else:
+                    system_name="Femto"
+
+                # Move to the specified point using the provided move function
+                try:
+                    for ax in range(len(point)):
+                        move_fn(ax, point[ax])
+                        read_in_pos_fn(ax)  # Ensure in position
+                    current_positions = [get_positions_fn(x) for x in range(len(point))]
+                    print(f"Current positions after move: {current_positions}")
+                    print(f"Moved to point {point} successfully.")
+                except Exception as move_error:
+                    print(f"Error moving to point {point}: {move_error}. Skipping this point.")
+                    continue
+
+                if search_peak_intensity_near_positions:
+                    # Start the live counter and search for peak intensity
+                    try:
+                        print("Starting live counter.")
+                        self.Y_vec = []
+                        self.btnStartCounterLive()
+                        time.sleep(1)
+                        self.wait_for_job()
+                        print("Moving to peak intensity.")
+                        self.MoveToPeakIntensity()
+                        time.sleep(1)
+                    except Exception as intensity_error:
+                        print(f"Error during live counter/peak intensity at point {point}: {intensity_error}.")
+                        continue
+                    if self.survey_stop_flag:
+                        return
+                        # Wait for the MAxSignal thread to finish
+                    try:
+                        if hasattr(self, 'MAxSignalTh') and self.MAxSignalTh is not None:
+                            print("Waiting for MAxSignal thread to complete...")
+                            while self.MAxSignalTh.is_alive():
+                                time.sleep(0.1)
+                            print("MAxSignal thread completed.")
+                            time.sleep(3)
+                        else:
+                            print("MAxSignal thread not found; proceeding without waiting.")
+                    except Exception as thread_error:
+                        print(f"Error while waiting for MAxSignal thread at point {point}: {thread_error}.")
+                        continue
+
+                    # Stop the live counter
+                    try:
+                        print("Stopping live counter.")
+                        self.btnStop()
+                        self.wait_for_job()
+                    except Exception as stop_error:
+                        print(f"Error stopping live counter at point {point}: {stop_error}.")
+                        continue
+
+                if move_only:
+                    continue
+
+                # Start the g2 measurement
+                try:
+                    print("Starting g2 measurement.")
+                    self.btnStartG2()
+                    g2_wait_start = time.time()
+                    self.wait_for_job()
+                except Exception as g2_start_error:
+                    print(f"Error starting g2 measurement at point {point}: {g2_start_error}.")
+                    continue
+
+                # Wait until self.Y_vec[0] equals the expected g2_counts (with a timeout safeguard)
+                try:
+                    print(f"Waiting for g2 measurement to reach {g2_counts} counts...")
+                    timeout = g2_timeout  # maximum wait time in seconds
+                    while True:
+                        if self.survey_stop_flag:
+                            return
+                            # Ensure self.Y_vec exists and has at least one element
+                        time.sleep(0.1)
+                        if hasattr(self, "Y_vec") and self.Y_vec is not None and len(self.Y_vec) > 0 and self.Y_vec[0] == g2_counts:
+                            break
+                        if time.time() - g2_wait_start > timeout:
+                            print(f"Timeout reached while waiting for g2 counts at point {point}.")
+                            break
+
+                    print("g2 measurement condition met or timeout occurred.")
+                except Exception as g2_wait_error:
+                    print(f"Error during g2 measurement wait at point {point}: {g2_wait_error}.")
+                    continue
+
+                # Stop the g2 measurement
+                try:
+                    print("Stopping g2 measurement.")
+                    self.btnStop()
+                    if hasattr(self, 'fetchTh'):
+                        while self.fetchTh.is_alive():
+                            time.sleep(0.1)
+                except Exception as g2_stop_error:
+                    print(f"Error stopping g2 measurement at point {point}: {g2_stop_error}.")
+                    continue
+
+                # Evaluate g2 measurement results and decide whether to perform a scan
+                try:
+                    if hasattr(self, "Y_vec") and self.Y_vec is not None and self.Y_vec[0] != 0:
+                        ratio = min(self.Y_vec) / self.Y_vec[0]
+                        print(f"g2 ratio: {ratio:.3f} (Threshold: {g2_threshold})")
+                        if ratio < g2_threshold:
+                            print("g2 condition satisfied. Initiating scan.")
+                            self.btnStartScan()
+                            time.sleep(1)
+                            self.wait_for_job()
+                            if hasattr(self, 'ScanTh') and self.ScanTh is not None:
+                                print("Waiting for Scan thread to complete...")
+                                while self.ScanTh.is_alive():
+                                    time.sleep(0.1)
+                                print("Scan thread completed.")
+                                time.sleep(1)
+                            else:
+                                print("Scan thread not found; proceeding without waiting.")
+                        else:
+                            print("g2 condition not met. Skipping scan at this point.")
+                    else:
+                        print("Invalid g2 measurement data. Skipping scan evaluation for this point.")
+                except Exception as scan_error:
+                    print(f"Error during scan evaluation at point {point}: {scan_error}.")
+
+                # Calculate and display progress, elapsed time, and ETA
+                elapsed_point = time.time() - point_start_time
+                elapsed_total = time.time() - overall_start_time
+                progress_percent = (idx / total_points) * 100
+                estimated_total = (elapsed_total / idx) * total_points
+                eta = estimated_total - elapsed_total
+
+                print(
+                    f"Point {idx}/{total_points} completed in {elapsed_point:.2f} sec. "
+                    f"Overall progress: {progress_percent:.2f}% | Total elapsed: {elapsed_total:.2f} sec | ETA: {eta:.2f} sec."
+                )
+
+            print("\nSurvey completed successfully.")
+
+        except Exception as general_error:
+            print(f"An unexpected error occurred during the survey: {general_error}.")
+
+        finally:
+            # Reset the survey flag when done
+            self.survey = False

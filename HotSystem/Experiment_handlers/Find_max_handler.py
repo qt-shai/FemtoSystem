@@ -358,3 +358,18 @@ def calculate_tracking_bounds(self, initial_guess, scan_radius):
 
     print(f"Bounds are: {bounds}")
     return bounds
+
+def fetch_peak_intensity(self, integration_time):
+    self.qm.set_io2_value(self.ScanTrigger)  # should trigger measurement by QUA io
+    time.sleep(integration_time * 1e-3 + 1e-3)  # wait for measurement do occur
+
+    if self.counts_handle.is_processing():
+        # print('Waiting for QUA counts')
+        self.counts_handle.wait_for_values(1)
+        time.sleep(0.1)
+        counts = self.counts_handle.fetch_all()
+        # print(f"counts.size =  {counts.size}")
+
+        self.qmm.clear_all_job_results()
+        return counts
+
