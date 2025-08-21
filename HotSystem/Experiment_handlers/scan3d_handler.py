@@ -12,7 +12,7 @@ from Utils import calculate_z_series, intensity_to_rgb_heatmap_normalized, creat
     open_file_dialog, create_gaussian_vector,\
     open_file_dialog, create_gaussian_vector, create_counts_vector, OptimizerMethod, find_max_signal
 
-def StartScan3D(self, add_scan=False, isLeftScan=False):  # currently flurascence scan
+def StartScan3D(self, add_scan=False, isLeftScan=False,use_queried_area: bool = False,use_queried_proem: bool = False):  # currently flurascence scan
     if len(self.positioner.LoggedPoints) == 3:
         with open('logged_points.txt', 'w') as f:
             for point in self.positioner.LoggedPoints:
@@ -1582,8 +1582,17 @@ def btnFemtoPulses(self):
     self.ScanTh = threading.Thread(target=self.scan3d_femto_pulses)
     self.ScanTh.start()
 
-def btnStartScan(self, add_scan=False, isLeftScan = False):
-    self.ScanTh = threading.Thread(target=self.StartScan,args=(add_scan, isLeftScan))
+def btnStartScan(self, add_scan=False, isLeftScan=False, use_queried_area=False, use_queried_proem=False):
+    self.ScanTh = threading.Thread(
+        target=self.StartScan,  # or your scan entrypoint
+        kwargs={
+            "add_scan": add_scan,
+            "isLeftScan": isLeftScan,
+            "use_queried_area": use_queried_area,
+            "use_queried_proem": use_queried_proem
+        },
+        daemon=True
+    )
     self.ScanTh.start()
 
 def btnStartGalvoScan(self, add_scan: bool = False, use_queried_area: bool = False):

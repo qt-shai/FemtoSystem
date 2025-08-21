@@ -238,4 +238,57 @@ class GUI_HRS500():
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 100)
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding,  12, 12)
 
+    def refresh_proem_query_from_lightfield(self) -> bool:
+        """
+        Get the current ProEM ROI from the HRS-500 GUI/device and store it in
+        self.proem_query = (x_min_px, y_min_px, x_max_px, y_max_px).
+        Falls back to full-sensor rectangle if a per-ROI helper isn't available.
+        """
+        try:
+            # Locate the HRS-500 GUI the way you initialize it
+            # p = self.get_parent()
+            # lf_gui = getattr(p, "hrs_500_gui", None)
+
+            # if lf_gui is None:
+            #     print("refresh_proem_query_from_lightfield: hrs_500_gui not available.")
+            #     return False
+
+            # 1) Prefer an explicit ROI helper if you (now or later) expose it
+            roi = None
+            if hasattr(self, "get_current_roi_pixels") and callable(self.get_current_roi_pixels):
+                roi = self.get_current_roi_pixels()
+            elif hasattr(self, "dev") and hasattr(self.dev, "get_current_roi_pixels") \
+                    and callable(self.dev.get_current_roi_pixels):
+                roi = self.dev.get_current_roi_pixels()
+
+            # 2) If no explicit ROI helper exists or returned nothing, use full sensor size
+            if not roi:
+                if hasattr(self, "dev") and hasattr(self.dev, "get_full_sensor_size") \
+                        and callable(self.dev.get_full_sensor_size):
+                    # Expected: (X, Y, Width, Height, XBinning, YBinning)
+                    X, Y, W, H, *_ = self.dev.get_full_sensor_size()
+                    roi = (float(X), float(Y), float(X + max(0, W)), float(Y + max(0, H)))
+                else:
+                    print("refresh_proem_query_from_lightfield: no ROI helper and no full-sensor fallback.")
+                    return False
+            else:
+                # Accept 4+ tuple; clip to first 4 values
+                if len(roi) >= 4:
+                    roi = tuple(map(float, roi[:4]))
+                else:
+                    print(f"refresh_proem_query_from_lightfield: unexpected ROI format: {roi}")
+                    return False
+
+            x_min, y_min, x_max, y_max = roi
+            if not (x_max > x_min and y_max > y_min):
+                print(f"refresh_proem_query_from_lightfield: collapsed/invalid ROI: {roi}")
+                return False
+
+            self.proem_query = (x_min, y_min, x_max, y_max)
+            print(f"ProEM ROI (pixels) set to: {self.proem_query}")
+            return True
+
+        except Exception as e:
+            print(f"refresh_proem_query_from_lightfield error: {e}")
+            return False
 

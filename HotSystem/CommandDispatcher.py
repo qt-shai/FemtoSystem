@@ -917,51 +917,6 @@ class CommandDispatcher:
 
             print(f"Trying to reload: {module_name}")
 
-            # --- aliases + suffix-based reload (compact & with correct precedence) ---
-            alias_map = {
-                "btn_exp": "Experiment_handlers.btn_experiments_handler",
-                "btn": "Experiment_handlers.btn_experiments_handler",
-                "opx_gui": "Experiment_handlers.Opx_gui_handler",
-                "hrswrap": "HW_Wrapper.Wrapper_HRS_500",
-                "keyswrap": "Keysight_AWG.wrapper_keysight_awg",
-            }
-
-            def reload_by_suffix(sfx: str) -> bool:
-                sfx = (sfx or "").strip().strip(".")
-                if not sfx:
-                    return False
-
-                mod_name = alias_map.get(sfx, sfx)
-
-                if mod_name in sys.modules:
-                    print(f"Reloading {mod_name} ...")
-                    importlib.reload(sys.modules[mod_name])
-                    print(f"Reloaded module: {mod_name}")
-                    return True
-
-                matches = [m for m in list(sys.modules.keys())
-                           if m.endswith("." + mod_name) or m.rsplit(".", 1)[-1] == mod_name]
-                if matches:
-                    for m in matches:
-                        print(f"Reloading {m} ...")
-                        importlib.reload(sys.modules[m])
-                    print(f"Reloaded {len(matches)} module(s) matching '*.{mod_name}'")
-                    return True
-
-                try:
-                    print(f"Importing {mod_name} ...")
-                    importlib.import_module(mod_name)
-                    print(f"Imported module: {mod_name}")
-                    return True
-                except Exception as e:
-                    print(f"Import failed for '{mod_name}': {e}")
-                    return False
-
-            # IMPORTANT: correct precedence with parentheses
-            if raw_name and (name in alias_map or reload_by_suffix(raw_name)):
-                return
-            # --- end aliases block ---
-
             # === GUI_Zelux ===
             if name in ("gui_zelux", "zel", "zelux"):
                 import HW_GUI.GUI_Zelux as gui_Zelux
@@ -2171,23 +2126,44 @@ class CommandDispatcher:
         Start OPX scan.
 
         Usage:
-          stt        : fresh scan
-          stt add    : add to previous scan (accumulate)
-          stt left   : fresh scan with X all to the left
-          stt add left   : add-scan with X all to the left
+          stt              : fresh scan
+          stt add          : add to previous scan (accumulate)
+          stt left         : fresh scan with X all to the left
+          stt add left     : add-scan with X all to the left
+          stt q            : scan queried XY (plot query)
+          stt p            : scan queried XY from ProEM ROI (dispatcher fields)
+          (if both q and p present, 'p' (ProEM) takes priority)
         """
-        p=self.get_parent()
-        parts = arg.strip().lower().split()
-        add_scan = "add" in parts
-        isLeftScan = "left" in parts
+        p = self.get_parent()
+        parts = [t for t in (arg or "").strip().lower().split() if t]
+
+        add_scan = ("add" in parts)
+        is_left_scan = ("left" in parts)
+        use_queried_proem = ("p" in parts) or ("proem" in parts)
+        use_queried_area = (("q" in parts) or ("query" in parts)) and not use_queried_proem
 
         try:
+            # sync position + stop camera/previous job
             p.smaractGUI.fill_current_position_to_moveabs()
             self.handle_toggle_sc(reverse=False)
-            p.opx.btnStartScan(add_scan=add_scan,isLeftScan=isLeftScan)
+
+            # if ProEM path: refresh ROI in the dispatcher (no p.opx)
+            if use_queried_proem and hasattr(self, "refresh_proem_query_from_lightfield"):
+                self.refresh_proem_query_from_lightfield()
+
+            # kick off OPX scan; make sure OPX btnStartScan accepts the extra kwargs
+            p.opx.btnStartScan(
+                add_scan=add_scan,
+                isLeftScan=is_left_scan,
+                use_queried_area=use_queried_area,
+                use_queried_proem=use_queried_proem
+            )
+
             mode = "add" if add_scan else "fresh"
             side = " (left)" if is_left_scan else ""
-            print(f"Scan started: {mode}{side}.")
+            src = " [plot-query]" if use_queried_area else (" [ProEM-ROI]" if use_queried_proem else "")
+            print(f"Scan started: {mode}{side}{src}.")
+
         except Exception as e:
             print(f"Error Start Scan: {e}")
 
@@ -2469,9 +2445,14 @@ class CommandDispatcher:
             p=self.get_parent()
             arg_clean = arg.strip().lower()
 
-            # === NEW: 'disp tif' shows the most recent TIFF from LightField folder ===
+            base_dir = None
             if arg_clean == "tif":
                 base_dir = Path(r"C:\Users\Femto\Work Folders\Documents\LightField")
+
+            elif arg_clean == "tif1":
+                base_dir = Path(r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer")
+
+            if arg_clean in ("tif","tif1"):
                 if not base_dir.exists():
                     print(f"LightField folder not found: {base_dir}")
                     return
@@ -3672,12 +3653,12 @@ class CommandDispatcher:
             print(f"lf roi: ProEM ROI (pixels) = {self.proem_query}")
 
             if len(tokens) > 1 and tokens[1] == "print":
-                sx = self.proem_sx_um_per_px
-                sy = self.proem_sy_um_per_px
-                if self.proem_query and (sx is not None) and (sy is not None):
-                    x0, y0 = self.proem_x0_um, self.proem_y0_um
-                    px0, py0 = self.proem_px0, self.proem_py0
-                    flip_x, flip_y = self.proem_flip_x, self.proem_flip_y
+                sx = p.proem_sx_um_per_px
+                sy = p.proem_sy_um_per_px
+                if p.proem_query and (sx is not None) and (sy is not None):
+                    x0, y0 = p.proem_x0_um, p.proem_y0_um
+                    px0, py0 = p.proem_px0, p.proem_py0
+                    flip_x, flip_y = p.proem_flip_x, p.proem_flip_y
 
                     x_min_px, y_min_px, x_max_px, y_max_px = map(float, self.proem_query)
 
@@ -3724,58 +3705,7 @@ class CommandDispatcher:
         else:
             print(f"lf: unknown subcommand '{sub}'. Try: 'lf roi' or 'lf inf'.")
 
-    def refresh_proem_query_from_lightfield(self) -> bool:
-        """
-        Get the current ProEM ROI from the HRS-500 GUI/device and store it in
-        self.proem_query = (x_min_px, y_min_px, x_max_px, y_max_px).
-        Falls back to full-sensor rectangle if a per-ROI helper isn't available.
-        """
-        try:
-            # Locate the HRS-500 GUI the way you initialize it
-            p = self.get_parent()
-            lf_gui = getattr(p, "hrs_500_gui", None)
-            if lf_gui is None:
-                print("refresh_proem_query_from_lightfield: hrs_500_gui not available.")
-                return False
 
-            # 1) Prefer an explicit ROI helper if you (now or later) expose it
-            roi = None
-            if hasattr(lf_gui, "get_current_roi_pixels") and callable(lf_gui.get_current_roi_pixels):
-                roi = lf_gui.get_current_roi_pixels()
-            elif hasattr(lf_gui, "dev") and hasattr(lf_gui.dev, "get_current_roi_pixels") \
-                    and callable(lf_gui.dev.get_current_roi_pixels):
-                roi = lf_gui.dev.get_current_roi_pixels()
-
-            # 2) If no explicit ROI helper exists or returned nothing, use full sensor size
-            if not roi:
-                if hasattr(lf_gui, "dev") and hasattr(lf_gui.dev, "get_full_sensor_size") \
-                        and callable(lf_gui.dev.get_full_sensor_size):
-                    # Expected: (X, Y, Width, Height, XBinning, YBinning)
-                    X, Y, W, H, *_ = lf_gui.dev.get_full_sensor_size()
-                    roi = (float(X), float(Y), float(X + max(0, W)), float(Y + max(0, H)))
-                else:
-                    print("refresh_proem_query_from_lightfield: no ROI helper and no full-sensor fallback.")
-                    return False
-            else:
-                # Accept 4+ tuple; clip to first 4 values
-                if len(roi) >= 4:
-                    roi = tuple(map(float, roi[:4]))
-                else:
-                    print(f"refresh_proem_query_from_lightfield: unexpected ROI format: {roi}")
-                    return False
-
-            x_min, y_min, x_max, y_max = roi
-            if not (x_max > x_min and y_max > y_min):
-                print(f"refresh_proem_query_from_lightfield: collapsed/invalid ROI: {roi}")
-                return False
-
-            self.proem_query = (x_min, y_min, x_max, y_max)
-            print(f"ProEM ROI (pixels) set to: {self.proem_query}")
-            return True
-
-        except Exception as e:
-            print(f"refresh_proem_query_from_lightfield error: {e}")
-            return False
 
 
 # Wrapper function
