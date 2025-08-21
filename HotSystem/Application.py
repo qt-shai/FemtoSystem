@@ -1121,10 +1121,12 @@ class PyGuiOverlay(Layer):
                 dpg.focus_item("cmd_input")
                 return
 
-            # ── Printable characters ──
             if key_data_enum in (KeyboardKeys.C_KEY, KeyboardKeys.SPACE_KEY,KeyboardKeys.ENTER_KEY):
-                print('Focus on cmd')
-                dpg.focus_item("cmd_input")
+                if not dpg.is_item_focused("cmd_input"):
+                    # Force focus only if we are elsewhere
+                    print("Focus on cmd (via Enter)")
+                    dpg.focus_item("cmd_input")
+                return
         except Exception as ex:
             self.error = f"Unexpected error in keyboard_callback: {ex}, {type(ex)} in line: {sys.exc_info()[-1].tb_lineno}"
             print(self.error)

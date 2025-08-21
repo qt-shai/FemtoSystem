@@ -19,6 +19,17 @@ class GUI_HRS500():
         self.create_gui()
         self.data = None
 
+        # ProEM (LightField) ROI + calibration live in the dispatcher
+        self.proem_query: tuple[float, float, float, float] | None = None  # (x_min_px, y_min_px, x_max_px, y_max_px)
+        self.proem_sx_um_per_px: float | None = 0.1
+        self.proem_sy_um_per_px: float | None = 0.1
+        self.proem_x0_um: float = 665
+        self.proem_y0_um: float = 476
+        self.proem_px0: float = 0.0
+        self.proem_py0: float = 0.0
+        self.proem_flip_x: bool = False
+        self.proem_flip_y: bool = False
+
     def DeleteMainWindow(self):
         """
         Safely delete the HRS_500 main window from DearPyGui.
@@ -245,14 +256,6 @@ class GUI_HRS500():
         Falls back to full-sensor rectangle if a per-ROI helper isn't available.
         """
         try:
-            # Locate the HRS-500 GUI the way you initialize it
-            # p = self.get_parent()
-            # lf_gui = getattr(p, "hrs_500_gui", None)
-
-            # if lf_gui is None:
-            #     print("refresh_proem_query_from_lightfield: hrs_500_gui not available.")
-            #     return False
-
             # 1) Prefer an explicit ROI helper if you (now or later) expose it
             roi = None
             if hasattr(self, "get_current_roi_pixels") and callable(self.get_current_roi_pixels):

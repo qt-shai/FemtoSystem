@@ -226,19 +226,11 @@ class CommandDispatcher:
             "kx":                self.handle_kx,
             "ky":                self.handle_ky,
             "lf":                self.handle_lf,
+            "clearconsole":      self.handle_clear_console,
+            "revive":            self.handle_revive_app,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
-        # ProEM (LightField) ROI + calibration live in the dispatcher
-        self.proem_query: tuple[float, float, float, float] | None = None  # (x_min_px, y_min_px, x_max_px, y_max_px)
-        self.proem_sx_um_per_px: float | None = None
-        self.proem_sy_um_per_px: float | None = None
-        self.proem_x0_um: float = 0.0
-        self.proem_y0_um: float = 0.0
-        self.proem_px0: float = 0.0
-        self.proem_py0: float = 0.0
-        self.proem_flip_x: bool = False
-        self.proem_flip_y: bool = False
 
     def get_parent(self):
         return getattr(sys.stdout, "parent", None)
@@ -361,6 +353,7 @@ class CommandDispatcher:
             except Exception:
                 traceback.print_exc()
         # dpg.focus_item("cmd_input")
+        dpg.focus_item("OPX Window")
         dpg.set_value("cmd_input", "")
 
     def savehistory_on_exit(self):
@@ -426,28 +419,54 @@ class CommandDispatcher:
                 print(f"❌ Failed to start G2 scan: {e}")
 
     def handle_mark(self, arg):
-        """Draw cross+circle at OPX position."""
+        """
+        Draw a marker on the plot.
+
+        Usage:
+          mark                   -> mark current OPX stage position (µm)
+          mark proem <px> <py>   -> mark a ProEM pixel using LightField calibration
+        """
         try:
+            tokens = (arg or "").strip().split()
+            if tokens and tokens[0].lower() in ("proem", "px", "pixel"):
+                px = py = None
+                if len(tokens) == 1:
+                    # No px/py supplied → use stored values
+                    pass
+                elif len(tokens) == 3:
+                    try:
+                        px = int(float(tokens[1]))
+                        py = int(float(tokens[2]))
+                    except Exception:
+                        print("mark proem: <px> and <py> must be numbers.")
+                        return
+                else:
+                    print("Usage: mark proem  OR  mark proem <px> <py>")
+                    return
+
+                self.mark_proem_pixel(px, py)  # falls back to stored px/py when None
+                return
+
+            # --- legacy: mark current OPX position (µm) ---
             parent = self.get_parent()
-            x, y = [p*1e-6 for p in parent.opx.positioner.AxesPositions[:2]]
+            x, y = [p * 1e-6 for p in parent.opx.positioner.AxesPositions[:2]]
             tag = "temp_cross_marker"
-            for s in ("_h_left","_h_right","_v_top","_v_bottom","_circle"):
-                if dpg.does_item_exist(tag+s):
-                    dpg.delete_item(tag+s)
+            for s in ("_h_left", "_h_right", "_v_top", "_v_bottom", "_circle"):
+                if dpg.does_item_exist(tag + s):
+                    dpg.delete_item(tag + s)
             if not dpg.does_item_exist("plot_draw_layer"):
                 dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
             gap, length = 0.5, 3
-            # draw lines...
-            dpg.draw_line((x-length,y),(x-gap,y),color=(255,0,0,255),thickness=0.3,
-                          parent="plot_draw_layer",tag=tag+"_h_left")
-            dpg.draw_line((x+gap,y),(x+length,y),color=(255,0,0,255),thickness=0.3,
-                          parent="plot_draw_layer",tag=tag+"_h_right")
-            dpg.draw_line((x,y-length),(x,y-gap),color=(255,0,0,255),thickness=0.3,
-                          parent="plot_draw_layer",tag=tag+"_v_top")
-            dpg.draw_line((x,y+gap),(x,y+length),color=(255,0,0,255),thickness=0.3,
-                          parent="plot_draw_layer",tag=tag+"_v_bottom")
-            dpg.draw_circle(center=(x,y),radius=length,color=(255,0,0,255),
-                            thickness=2,parent="plot_draw_layer",tag=tag+"_circle")
+            dpg.draw_line((x - length, y), (x - gap, y), color=(255, 0, 0, 255), thickness=0.3,
+                          parent="plot_draw_layer", tag=tag + "_h_left")
+            dpg.draw_line((x + gap, y), (x + length, y), color=(255, 0, 0, 255), thickness=0.3,
+                          parent="plot_draw_layer", tag=tag + "_h_right")
+            dpg.draw_line((x, y - length), (x, y - gap), color=(255, 0, 0, 255), thickness=0.3,
+                          parent="plot_draw_layer", tag=tag + "_v_top")
+            dpg.draw_line((x, y + gap), (x, y + length), color=(255, 0, 0, 255), thickness=0.3,
+                          parent="plot_draw_layer", tag=tag + "_v_bottom")
+            dpg.draw_circle(center=(x, y), radius=length, color=(255, 0, 0, 255),
+                            thickness=2, parent="plot_draw_layer", tag=tag + "_circle")
             print(f"Marked at X={x:.4f}, Y={y:.4f}")
         except Exception as e:
             traceback.print_exc()
@@ -2152,12 +2171,12 @@ class CommandDispatcher:
                 self.refresh_proem_query_from_lightfield()
 
             # kick off OPX scan; make sure OPX btnStartScan accepts the extra kwargs
-            p.opx.btnStartScan(
-                add_scan=add_scan,
-                isLeftScan=is_left_scan,
-                use_queried_area=use_queried_area,
-                use_queried_proem=use_queried_proem
-            )
+            p.opx.add_scan = add_scan
+            p.opx.is_left_scan =is_left_scan
+            p.opx.use_queried_proem =use_queried_proem
+            p.opx.use_queried_area =use_queried_area
+
+            p.opx.btnStartScan()
 
             mode = "add" if add_scan else "fresh"
             side = " (left)" if is_left_scan else ""
@@ -3639,6 +3658,11 @@ class CommandDispatcher:
           lf inf        -> trigger the LightField 'Run INF' action
         """
         p = self.get_parent()
+        lf_gui = getattr(p, "hrs_500_gui", None)
+        if lf_gui is None:
+            print("lf inf: hrs_500_gui not available.")
+            return
+
         tokens = (arg or "").strip().lower().split()
         if not tokens:
             print("lf: missing subcommand (try: 'lf roi' or 'lf inf').")
@@ -3647,20 +3671,22 @@ class CommandDispatcher:
         sub = tokens[0]
 
         if sub == "roi":
-            ok = self.refresh_proem_query_from_lightfield()
+            ok = lf_gui.refresh_proem_query_from_lightfield()
             if not ok:
                 return
-            print(f"lf roi: ProEM ROI (pixels) = {self.proem_query}")
+            print(f"lf roi: ProEM ROI (pixels) = {lf_gui.proem_query}")
 
             if len(tokens) > 1 and tokens[1] == "print":
-                sx = p.proem_sx_um_per_px
-                sy = p.proem_sy_um_per_px
-                if p.proem_query and (sx is not None) and (sy is not None):
-                    x0, y0 = p.proem_x0_um, p.proem_y0_um
-                    px0, py0 = p.proem_px0, p.proem_py0
-                    flip_x, flip_y = p.proem_flip_x, p.proem_flip_y
+                sx = lf_gui.proem_sx_um_per_px
+                sy = lf_gui.proem_sy_um_per_px
+                if lf_gui.proem_query and (sx is not None) and (sy is not None):
+                    x0, y0 = [pos * 1e-6 for pos in p.opx.positioner.AxesPositions[:2]]
+                    lf_gui.proem_x0_um = x0
+                    lf_gui.proem_y0_um = y0
+                    px0, py0 = lf_gui.proem_px0, lf_gui.proem_py0
+                    flip_x, flip_y = lf_gui.proem_flip_x, lf_gui.proem_flip_y
 
-                    x_min_px, y_min_px, x_max_px, y_max_px = map(float, self.proem_query)
+                    x_min_px, y_min_px, x_max_px, y_max_px = map(float, lf_gui.proem_query)
 
                     def px_to_um(px, py):
                         x_um = x0 + sx * (px - px0)
@@ -3674,16 +3700,12 @@ class CommandDispatcher:
                     xmin_um, xmax_um = (x1_um, x2_um) if x1_um <= x2_um else (x2_um, x1_um)
                     ymin_um, ymax_um = (y1_um, y2_um) if y1_um <= y2_um else (y2_um, y1_um)
                     print(
-                        f"lf roi: approx µm bounds → x:[{xmin_um:.2f}, {xmax_um:.2f}]  y:[{ymin_um:.2f}, {ymax_um:.2f}]")
+                        f"lf roi: approx µm bounds -> x:[{xmin_um:.2f}, {xmax_um:.2f}]  y:[{ymin_um:.2f}, {ymax_um:.2f}]")
                 else:
                     print("lf roi print: calibration (sx/sy) not set; skipping µm bounds.")
 
         elif sub == "inf":
             try:
-                lf_gui = getattr(p, "hrs_500_gui", None)
-                if lf_gui is None:
-                    print("lf inf: hrs_500_gui not available.")
-                    return
 
                 if hasattr(lf_gui, "run_inf") and callable(lf_gui.run_inf):
                     lf_gui.run_inf()
@@ -3702,10 +3724,262 @@ class CommandDispatcher:
             except Exception as e:
                 print(f"lf inf failed: {e}")
 
+        elif sub == "anchor":
+            # Usage: lf anchor <px> <py>
+            if len(tokens) < 3:
+                print("lf anchor: usage → lf anchor <px> <py>")
+                return
+
+            try:
+                px = int(tokens[1])
+                py = int(tokens[2])
+            except Exception:
+                print("lf anchor: px/py must be integers.")
+                return
+
+            # Current absolute stage position (µm)
+            try:
+                x_um, y_um = [pos * 1e-6 for pos in p.opx.positioner.AxesPositions[:2]]
+            except Exception as e:
+                print(f"lf anchor: could not read stage position: {e}")
+                return
+
+            # Save anchor on the dispatcher (same place you store sx/sy etc.)
+            setattr(lf_gui, "proem_px0", px)
+            setattr(lf_gui, "proem_py0", py)
+            setattr(lf_gui, "proem_x0_um", x_um)
+            setattr(lf_gui, "proem_y0_um", y_um)
+
+            # Keep or initialize flips if not set yet
+            if not hasattr(lf_gui, "proem_flip_x"): setattr(lf_gui, "proem_flip_x", False)
+            if not hasattr(lf_gui, "proem_flip_y"): setattr(lf_gui, "proem_flip_y", False)
+
+            print(f"lf anchor: pixel ({px},{py}) <-> stage ({x_um:.2f} µm, {y_um:.2f} µm)")
+            # Optional quick check if calibration exists:
+            sx = getattr(lf_gui, "proem_sx_um_per_px", None)
+            sy = getattr(lf_gui, "proem_sy_um_per_px", None)
+            if sx is not None and sy is not None:
+                print(f"lf anchor: using scale sx={sx:.4f} µm/px, sy={sy:.4f} µm/px")
+            else:
+                print("lf anchor: note—sx/sy (µm/px) not set yet.")
+
+        elif sub in ("sx", "sy"):
+            # Usage: lf sx <num>, lf sy <num>
+            if len(tokens) < 2:
+                print(f"lf {sub}: usage → lf {sub} <µm_per_px>")
+                return
+            try:
+                val = float(tokens[1])
+            except Exception:
+                print(f"lf {sub}: value must be a number (µm/px).")
+                return
+
+            if sub == "sx":
+                setattr(lf_gui, "proem_sx_um_per_px", val)
+                print(f"lf sx: set sx = {val:.4f} µm/px")
+            else:
+                setattr(lf_gui, "proem_sy_um_per_px", val)
+                print(f"lf sy: set sy = {val:.4f} µm/px")
+
         else:
             print(f"lf: unknown subcommand '{sub}'. Try: 'lf roi' or 'lf inf'.")
 
+    def handle_clear_console(self, arg=None):
+        dpg.set_value("console_log", "")  # Replace with your console tag
+        print("Console cleared.")
 
+    def mark_proem_pixel(self, px: int | None = None, py: int | None = None):
+        """
+        Mark a ProEM pixel in the plot.
+        If px/py not provided, uses the stored values from the HRS LightField GUI.
+        """
+
+        p = self.get_parent()
+        lf_gui = getattr(p, "hrs_500_gui", None)
+
+        self.handle_lf(arg="anchor 665 476")
+        # Calibration & anchor
+        sx = getattr(lf_gui, "proem_sx_um_per_px", None)
+        sy = getattr(lf_gui, "proem_sy_um_per_px", None)
+        px0 = getattr(lf_gui, "proem_px0", None)
+        py0 = getattr(lf_gui, "proem_py0", None)
+        x0 = getattr(lf_gui, "proem_x0_um", None)
+        y0 = getattr(lf_gui, "proem_y0_um", None)
+        flip_x = bool(getattr(lf_gui, "proem_flip_x", False))
+        flip_y = bool(getattr(lf_gui, "proem_flip_y", False))
+
+        # --- Pixel source ---
+        if px is None or py is None:
+            px = getattr(lf_gui, "proem_last_px", None)
+            py = getattr(lf_gui, "proem_last_py", None)
+            if px is None or py is None:
+                print("mark_proem_pixel: no px/py given and no stored pixel available.")
+                return
+
+        # --- Check calibration ---
+        if None in (sx, sy, px0, py0, x0, y0):
+            print("mark_proem_pixel: calibration/anchor not set.")
+            return
+
+        # --- Convert pixel → µm ---
+        x_um = x0 + sx * (px - px0)
+        y_um = y0 + sy * (py - py0)
+        if flip_x:
+            x_um = -x_um
+        if flip_y:
+            y_um = -y_um
+
+        # --- Draw marker ---
+        try:
+            tag = "temp_cross_marker"
+            for s in ("_h_left", "_h_right", "_v_top", "_v_bottom", "_circle"):
+                if dpg.does_item_exist(tag + s):
+                    dpg.delete_item(tag + s)
+            if not dpg.does_item_exist("plot_draw_layer"):
+                dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+
+            gap, length = 0.5, 3
+            line_color = (255, 255, 255, 255)  # white
+            circle_color = (0, 0, 0, 255)  # black
+
+            dpg.draw_line((x_um - length, y_um), (x_um - gap, y_um),
+                          color=line_color, thickness=0.3,
+                          parent="plot_draw_layer", tag=tag + "_h_left")
+            dpg.draw_line((x_um + gap, y_um), (x_um + length, y_um),
+                          color=line_color, thickness=0.3,
+                          parent="plot_draw_layer", tag=tag + "_h_right")
+            dpg.draw_line((x_um, y_um - length), (x_um, y_um - gap),
+                          color=line_color, thickness=0.3,
+                          parent="plot_draw_layer", tag=tag + "_v_top")
+            dpg.draw_line((x_um, y_um + gap), (x_um, y_um + length),
+                          color=line_color, thickness=0.3,
+                          parent="plot_draw_layer", tag=tag + "_v_bottom")
+            dpg.draw_circle(center=(x_um, y_um), radius=length,
+                            color=circle_color, thickness=2,
+                            parent="plot_draw_layer", tag=tag + "_circle")
+
+            print(f"Marked ProEM px=({px},{py}) → ({x_um:.2f}, {y_um:.2f}) µm")
+
+            # Store last used px/py back
+            setattr(lf_gui, "proem_last_px", px)
+            setattr(lf_gui, "proem_last_py", py)
+
+
+        except Exception as e:
+            print(f"mark_proem_pixel error: {e}")
+
+    def handle_revive_app(self, arg=None):
+        """
+        Soft-revive the GUI if a long callback/scan left things unresponsive.
+
+        What it does:
+          • Signals any running scan to stop
+          • Attempts to release stuck resources & threads
+          • Rebuilds draw layers/plot textures
+          • Re-enables common disabled controls
+          • Pumps DPG frames a few times
+          • Restarts camera live view (if it was running before)
+        """
+        import gc
+        try:
+            print("[revive] attempting to revive UI...")
+
+            # ── 1) Signal long loops to stop ──
+            try:
+                self.stopScan = True
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "btnStop") and callable(self.btnStop):
+                    self.btnStop()
+            except Exception as e:
+                print(f"[revive] btnStop failed: {e}")
+
+            # ── 2) Try to gracefully wind down scanner/acq threads ──
+            for th_name in ("ScanTh", "AWG_switch_thread", "survey_thread"):
+                th = getattr(self, th_name, None)
+                if th and getattr(th, "is_alive", lambda: False)():
+                    try:
+                        # Non-blocking join attempt
+                        th.join(timeout=0.05)
+                    except Exception as e:
+                        print(f"[revive] join {th_name} failed: {e}")
+
+            # Replace any stuck lock with a fresh one
+            try:
+                if hasattr(self, "lock"):
+                    self.lock = threading.Lock()
+            except Exception:
+                pass
+
+            # ── 3) Reset result handles that might be stuck ──
+            for hname in ("counts_handle", "meas_idx_handle", "ref_counts_handle", "job"):
+                try:
+                    setattr(self, hname, None)
+                except Exception:
+                    pass
+
+            # ── 4) Rebuild DPG draw layer / textures if they got invalid ──
+            try:
+                if dpg.does_item_exist("plot_draw_layer"):
+                    dpg.delete_item("plot_draw_layer")
+                if dpg.does_item_exist("plotImaga"):
+                    dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+            except Exception as e:
+                print(f"[revive] draw layer rebuild failed: {e}")
+
+            try:
+                # Texture refresh (if you use 'texture_tag' for the live image/heatmap)
+                if dpg.does_item_exist("texture_tag"):
+                    w = h = 256  # safe small buffer
+                    import numpy as np
+                    blank = (np.zeros((h, w, 4), dtype=np.float32)).ravel()
+                    dpg.set_value("texture_tag", blank)
+            except Exception as e:
+                print(f"[revive] texture refresh failed: {e}")
+
+            # ── 5) Re-enable common controls that might be disabled ──
+            for tag in ("btnOPX_StartScan", "btnOPX_Stop", "OPX_button", "HRS_500_button", "keysight_button"):
+                if dpg.does_item_exist(tag):
+                    try:
+                        dpg.enable_item(tag)
+                    except Exception:
+                        pass
+
+            # ── 6) Pump a few frames to flush the UI ──
+            try:
+                for _ in range(5):
+                    dpg.split_frame()
+            except Exception:
+                pass
+
+            # ── 7) Nudge instrument GUIs to refresh their state (best-effort) ──
+            p = self.get_parent()
+            try:
+                if hasattr(p, "keysight_gui") and hasattr(p.keysight_gui, "btn_get_current_parameters"):
+                    p.keysight_gui.btn_get_current_parameters()
+            except Exception:
+                pass
+
+            # Restart camera live view if that’s your normal idle state
+            try:
+                cam = self.HW.camera
+                if hasattr(cam, "constantGrabbing") and not cam.constantGrabbing:
+                    # your own toggle that starts grabbing
+                    if hasattr(self, "handle_start_camera"):
+                        self.handle_start_camera("")
+            except Exception:
+                pass
+
+            # ── 8) GC to release any lingering large arrays ──
+            try:
+                gc.collect()
+            except Exception:
+                pass
+
+            print("[revive] done. If UI still looks frozen, try 'reload opx' or 'reload hrs'.")
+        except Exception as e:
+            print(f"[revive] unexpected error: {e}")
 
 
 # Wrapper function

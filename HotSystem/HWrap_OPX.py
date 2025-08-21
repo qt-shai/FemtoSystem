@@ -160,6 +160,7 @@ class GUI_OPX():
         self.matisse = self.HW.matisse_device
         self.my_qua_jobs = []
         self.spc= self.HW.hrs_500
+        self.last_used_bounds = None
 
         if (self.HW.config.system_type == configs.SystemType.FEMTO):
             self.ScanTrigger = 101  # IO2
@@ -9999,14 +10000,8 @@ class GUI_OPX():
         self.ScanTh = threading.Thread(target=self.scan3d_femto_pulses)
         self.ScanTh.start()
 
-    def btnStartScan(self, *_, **__):  # stt p
+    def btnStartScan(self):  # stt p
         """
-        ,
-                     sender=None, app_data=None, user_data=None, *,
-                     add_scan: bool = False,
-                     isLeftScan: bool = False,
-                     use_queried_area: bool = False,  # stt q
-                     use_queried_proem: bool = False
         Launch the generic scan in a background thread.
 
         Supports:
@@ -10247,19 +10242,20 @@ class GUI_OPX():
             if parent is None:
                 print("WARNING: No dispatcher parent for ProEM ROI.")
                 return None
-            roi = getattr(parent, "proem_query", None)
-            sx = getattr(parent, "proem_sx_um_per_px", None)
-            sy = getattr(parent, "proem_sy_um_per_px", None)
+            lf_gui = getattr(parent, "hrs_500_gui", None)
+            roi = getattr(lf_gui, "proem_query", None)
+            sx = getattr(lf_gui, "proem_sx_um_per_px", None)
+            sy = getattr(lf_gui, "proem_sy_um_per_px", None)
             if roi is None or sx is None or sy is None:
                 print("WARNING: ProEM ROI/calibration missing on dispatcher; ignoring 'p'.")
                 return None
 
-            x0_um = float(getattr(parent, "proem_x0_um", 0.0))
-            y0_um = float(getattr(parent, "proem_y0_um", 0.0))
-            px0 = float(getattr(parent, "proem_px0", 0.0))
-            py0 = float(getattr(parent, "proem_py0", 0.0))
-            flip_x = bool(getattr(parent, "proem_flip_x", False))
-            flip_y = bool(getattr(parent, "proem_flip_y", False))
+            x0_um = float(getattr(lf_gui, "proem_x0_um", 0.0))
+            y0_um = float(getattr(lf_gui, "proem_y0_um", 0.0))
+            px0 = float(getattr(lf_gui, "proem_px0", 0.0))
+            py0 = float(getattr(lf_gui, "proem_py0", 0.0))
+            flip_x = bool(getattr(lf_gui, "proem_flip_x", False))
+            flip_y = bool(getattr(lf_gui, "proem_flip_y", False))
 
             try:
                 x_min_px, y_min_px, x_max_px, y_max_px = map(float, roi)
@@ -10282,20 +10278,6 @@ class GUI_OPX():
             xmin, xmax = (x1_um, x2_um) if x1_um <= x2_um else (x2_um, x1_um)
             ymin, ymax = (y1_um, y2_um) if y1_um <= y2_um else (y2_um, y1_um)
 
-            # Optional: clip to previous scan extents if available
-            if hasattr(self, "startLoc") and hasattr(self, "endLoc") and self.startLoc and self.endLoc:
-                prev_xmin = min(self.startLoc[0], self.endLoc[0])
-                prev_xmax = max(self.startLoc[0], self.endLoc[0])
-                prev_ymin = min(self.startLoc[1], self.endLoc[1])
-                prev_ymax = max(self.startLoc[1], self.endLoc[1])
-                xmin = max(xmin, prev_xmin)
-                xmax = min(xmax, prev_xmax)
-                ymin = max(ymin, prev_ymin)
-                ymax = min(ymax, prev_ymax)
-
-            if xmax <= xmin or ymax <= ymin:
-                print("WARNING: ProEM ROI out-of-bounds after clipping; ignoring 'p'.")
-                return None
             return xmin, xmax, ymin, ymax
 
         # ---------------------------------------------------
@@ -10334,8 +10316,25 @@ class GUI_OPX():
         bounds_um = None
         if use_queried_proem:
             bounds_um = _queried_bounds_from_proem_um()
+            if bounds_um is None:
+                bounds_um=self.last_used_bounds
+                if bounds_um is None:
+                    self.btnStop()
+                    return
+                else:
+                    print("Reusing last query area.")
+            self.last_used_bounds = bounds_um
         if bounds_um is None and use_queried_area:
             bounds_um = _queried_bounds_from_plot_um()
+            if bounds_um is None:
+                self.btnStop()
+                return
+            self.last_used_bounds = bounds_um
+
+        if bounds_um is not None:
+            print(f"Queried bounds (µm): {[round(v, 2) for v in bounds_um]}")
+        else:
+            print("No bounds were provided.")
 
         # Build scan coordinates (absolute pm for positioner)
         scan_coordinates = []
