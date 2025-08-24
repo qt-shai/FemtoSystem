@@ -8,6 +8,13 @@ from imgui import create_context
 
 from Application import Application_singletone,PyGuiOverlay,ImGuiOverlay
 # from Application import Application_singletone,PyGuiOverlay
+import warnings
+
+# Suppress VISA termination warning
+warnings.filterwarnings("ignore", message=".*termination characters.*")
+
+# Suppress pyglet COM MTA warning
+warnings.filterwarnings("ignore", message=".*Could not set COM MTA mode.*")
 
 
 # todo:

@@ -1,5 +1,5 @@
 from typing import Optional
-import pyvisa
+import pyvisa, warnings
 
 
 class SerialDevice:
@@ -105,6 +105,7 @@ class SerialDevice:
                     self._connection = self.rm.open_resource(
                         self.address,
                         timeout=self.timeout,
+                        read_termination=self.read_terminator,
                     )
                 print(f"TCP/IP connection opened on {self.address}.")
             else:
@@ -202,6 +203,7 @@ class SerialDevice:
         :return: The response from the device.
         """
         try:
+            warnings.filterwarnings("ignore", message=".*termination characters.*")
             response: str = self._connection.read().strip()
             # Check for termination character
             if not response.endswith(self.read_terminator.strip()):

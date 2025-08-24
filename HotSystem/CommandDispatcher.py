@@ -423,15 +423,45 @@ class CommandDispatcher:
         Draw a marker on the plot.
 
         Usage:
-          mark                   -> mark current OPX stage position (µm)
-          mark proem <px> <py>   -> mark a ProEM pixel using LightField calibration
+          mark                         -> mark current OPX stage position (µm)
+          mark proem [px] [py]         -> mark a ProEM pixel using LightField calibration
+          mark k | mark g | mark keysight | mark galvo
+                                       -> mark current galvo (kabs) XY position (µm)
         """
         try:
+            def _draw_marker(x_um: float, y_um: float, label: str):
+                tag = "temp_cross_marker"
+                # clear previous
+                for s in ("_h_left", "_h_right", "_v_top", "_v_bottom", "_circle"):
+                    if dpg.does_item_exist(tag + s):
+                        dpg.delete_item(tag + s)
+                if not dpg.does_item_exist("plot_draw_layer"):
+                    dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
+
+                gap, length = 0.5, 3.0
+                white = (255, 255, 255, 255)
+                black = (0, 0, 0, 255)
+
+                dpg.draw_line((x_um - length, y_um), (x_um - gap, y_um), color=white, thickness=0.3,
+                              parent="plot_draw_layer", tag=tag + "_h_left")
+                dpg.draw_line((x_um + gap, y_um), (x_um + length, y_um), color=white, thickness=0.3,
+                              parent="plot_draw_layer", tag=tag + "_h_right")
+                dpg.draw_line((x_um, y_um - length), (x_um, y_um - gap), color=white, thickness=0.3,
+                              parent="plot_draw_layer", tag=tag + "_v_top")
+                dpg.draw_line((x_um, y_um + gap), (x_um, y_um + length), color=white, thickness=0.3,
+                              parent="plot_draw_layer", tag=tag + "_v_bottom")
+                dpg.draw_circle(center=(x_um, y_um), radius=length, color=black,
+                                thickness=2, parent="plot_draw_layer", tag=tag + "_circle")
+                print(f"Marked {label} at X={x_um:.4f} µm, Y={y_um:.4f} µm")
+
             tokens = (arg or "").strip().split()
-            if tokens and tokens[0].lower() in ("proem", "px", "pixel"):
+            kw = tokens[0].lower() if tokens else ""
+
+            # --- ProEM pixel marking ---
+            if kw in ("proem", "px", "pixel"):
                 px = py = None
                 if len(tokens) == 1:
-                    # No px/py supplied → use stored values
+                    # use stored px/py
                     pass
                 elif len(tokens) == 3:
                     try:
@@ -444,30 +474,53 @@ class CommandDispatcher:
                     print("Usage: mark proem  OR  mark proem <px> <py>")
                     return
 
-                self.mark_proem_pixel(px, py)  # falls back to stored px/py when None
+                self.mark_proem_pixel(px, py)  # this will fallback to stored px/py if None
                 return
 
-            # --- legacy: mark current OPX position (µm) ---
+            # --- Galvo (kabs) marking ---
+            if kw in ("k", "g", "keysight", "galvo"):
+                parent = self.get_parent()
+                gui = getattr(parent, "keysight_gui", None)
+                if not gui or not hasattr(gui, "dev"):
+                    print("mark k/g: Keysight AWG GUI/device not available.")
+                    return
+
+                try:
+                    # Read back actual voltages
+                    v1 = float(gui.dev.get_current_voltage(1))
+                    v2 = float(gui.dev.get_current_voltage(2))
+
+                    # Calibration / ratios
+                    base1 = float(getattr(gui, "base1", 0.0))
+                    base2 = float(getattr(gui, "base2", 0.0))
+                    volts_per_um = float(getattr(gui, "volts_per_um", 0.128 / 15))  # fallback same as docs
+                    kx_ratio = float(getattr(gui, "kx_ratio", 3.3))
+                    ky_ratio = float(getattr(gui, "ky_ratio", -0.3))
+
+                    # Solve XY (µm) from current voltages relative to baselines
+                    dv1 = v1 - base1
+                    dv2 = v2 - base2
+                    denom = (kx_ratio - ky_ratio)
+                    if abs(denom) < 1e-12:
+                        print("mark k/g: ill-conditioned kx/ky ratios.")
+                        return
+
+                    alpha_x_volts = (dv2 - dv1 * ky_ratio) / denom
+                    beta_y_volts = (dv2 - dv1 * kx_ratio) / (ky_ratio - kx_ratio)
+                    x_um = alpha_x_volts / volts_per_um
+                    y_um = beta_y_volts / volts_per_um
+
+                    _draw_marker(x_um, y_um, "galvo (kabs)")
+                    return
+                except Exception as e:
+                    print(f"mark k/g failed: {e}")
+                    return
+
+            # --- Legacy: mark current OPX stage XY (µm) ---
             parent = self.get_parent()
-            x, y = [p * 1e-6 for p in parent.opx.positioner.AxesPositions[:2]]
-            tag = "temp_cross_marker"
-            for s in ("_h_left", "_h_right", "_v_top", "_v_bottom", "_circle"):
-                if dpg.does_item_exist(tag + s):
-                    dpg.delete_item(tag + s)
-            if not dpg.does_item_exist("plot_draw_layer"):
-                dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
-            gap, length = 0.5, 3
-            dpg.draw_line((x - length, y), (x - gap, y), color=(255, 0, 0, 255), thickness=0.3,
-                          parent="plot_draw_layer", tag=tag + "_h_left")
-            dpg.draw_line((x + gap, y), (x + length, y), color=(255, 0, 0, 255), thickness=0.3,
-                          parent="plot_draw_layer", tag=tag + "_h_right")
-            dpg.draw_line((x, y - length), (x, y - gap), color=(255, 0, 0, 255), thickness=0.3,
-                          parent="plot_draw_layer", tag=tag + "_v_top")
-            dpg.draw_line((x, y + gap), (x, y + length), color=(255, 0, 0, 255), thickness=0.3,
-                          parent="plot_draw_layer", tag=tag + "_v_bottom")
-            dpg.draw_circle(center=(x, y), radius=length, color=(255, 0, 0, 255),
-                            thickness=2, parent="plot_draw_layer", tag=tag + "_circle")
-            print(f"Marked at X={x:.4f}, Y={y:.4f}")
+            x_um, y_um = [p * 1e-6 for p in parent.opx.positioner.AxesPositions[:2]]
+            _draw_marker(x_um, y_um, "stage")
+
         except Exception as e:
             traceback.print_exc()
             print(f"Error in mark: {e}")
@@ -2189,28 +2242,37 @@ class CommandDispatcher:
     def handle_start_scan_with_galvo(self, arg):
         """
         Start OPX scan with Galvo.
-
-        Usage examples (arg is what follows 'kst'):
-          ''           -> full scan (no add, no query)
-          'add'        -> full scan, add to previous
-          'q'          -> scan only the queried XY rectangle
-          'add q'      -> add + queried rectangle
-          'q add'      -> same as above
+        kst            -> default (X:-L..0, Y: centered)
+        kst q          -> use plot query bounds
+        kst p          -> use ProEM ROI bounds
+        kst c          -> center X & Y ([-L/2, +L/2])
+        kst add ...    -> (optional) keep 'add' flag for future use
         """
         p = self.get_parent()
-        tokens = [t for t in (arg or "").strip().lower().split() if t]
+        parts = (arg or "").strip().lower().split()
+        # reset flags
+        p.opx.add_scan = False
+        p.opx.use_queried_area = False
+        p.opx.use_queried_proem = False
+        p.opx.centered_xy = False
 
-        add_scan = ("add" in tokens)
-        use_queried_area = ("q" in tokens) or ("query" in tokens)
+        # parse
+        p.opx.add_scan = "add" in parts
+        if "q" in parts:  # kst q
+            p.opx.use_queried_area = True
+        if "p" in parts:  # kst p
+            p.opx.use_queried_proem = True
+        if "c" in parts:  # kst c (centered)
+            p.opx.centered_xy = True
 
         try:
             # Make sure position inputs are synced and camera state is correct
             p.smaractGUI.fill_current_position_to_moveabs()
             self.handle_toggle_sc(reverse=False)
 
-            # Kick off the galvo scan, carrying the flags
-            p.opx.btnStartGalvoScan(add_scan=add_scan, use_queried_area=use_queried_area)
-            print(f"Scan started. add={add_scan}, queried_area={use_queried_area}")
+            # Kick off the Galvo scan, carrying the flags
+            p.opx.btnStartGalvoScan()
+            print(f"Scan started. add={p.opx.add_scan}, queried_area={p.opx.use_queried_area}, centered_xy={p.opx.centered_xy}")
 
         except Exception as e:
             print(f"Error Start Scan: {e}")
@@ -3566,6 +3628,8 @@ class CommandDispatcher:
                 f"CH2 -> Δ{delta_v * kx_ratio:.4f} V (now {n2:.4f} V) "
                 f"[kx_ratio={kx_ratio:.3f}, ky_ratio={ky_ratio:.3f}]\n{xy_msg}"
             )
+
+            self.handle_mark("k")
         except Exception as e:
             print(f"Failed to perform kx: {e}")
 
@@ -3628,7 +3692,6 @@ class CommandDispatcher:
             dv1 = n1 - gui.base1
             dv2 = n2 - gui.base2
             denom = (kx_ratio - ky_ratio)
-
             if abs(denom) < 1e-12:
                 xy_msg = " | Pos: X=?, Y=? (ill-conditioned ratios)"
             else:
@@ -3638,12 +3701,12 @@ class CommandDispatcher:
                 x_um = alpha_x_volts / volts_per_um * 1e-3
                 y_um = beta_y_volts / volts_per_um * 1e-3
                 xy_msg = f" | Pos: X={x_um:.3f} µm, Y={y_um:.3f} µm"
-
             print(
                 f"ky: CH1 +{val:.2f}{label} -> d{delta_v:.4f} V (now {n1:.4f} V); "
                 f"CH2 -> Δ{delta_v * ky_ratio:.4f} V (now {n2:.4f} V) "
                 f"[kx_ratio={kx_ratio:.3f}, ky_ratio={ky_ratio:.3f}, base1={base1:.4f}, base2={base2:.4f}]\n{xy_msg}"
             )
+            self.handle_mark("k")
 
         except Exception as e:
             print(f"Failed to perform ky: {e}")

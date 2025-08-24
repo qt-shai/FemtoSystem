@@ -1681,56 +1681,48 @@ class GUI_OPX():
         return rgb_color
 
     def queryXY_callback(self, app_data):
-        # print("queryXY_callback")
-        a = dpg.get_plot_query_area(app_data)
-        if np.any(a):
-            # Find the closest index in Yv for a[3]
-            y_index = np.argmin(np.abs(self.Yv - a[3]))
-            # Find the closest index in Xv for a[1]
-            x_index = np.argmin(np.abs(self.Xv - a[1]))
+        try:
+            a = dpg.get_plot_query_area(app_data)
+
+            # normalize query area to [xmin, xmax, ymin, ymax] of floats
+            if not a:
+                self.queried_area = None
+                self.queried_plane = None
+                return
+
+            if isinstance(a, (list, tuple)) and len(a) == 4 and not isinstance(a[0], (list, tuple)):
+                xmin, xmax, ymin, ymax = map(float, a)
+            elif (isinstance(a, (list, tuple)) and len(a) == 2 and
+                  isinstance(a[0], (list, tuple)) and isinstance(a[1], (list, tuple)) and
+                  len(a[0]) == 2 and len(a[1]) == 2):
+                xmin, xmax = map(float, a[0])
+                ymin, ymax = map(float, a[1])
+            else:
+                # unknown shape
+                self.queried_area = None
+                self.queried_plane = None
+                return
+
+            # coerce Xv/Yv to numpy for math
+            xv = np.asarray(self.Xv, dtype=float)
+            yv = np.asarray(self.Yv, dtype=float)
+            if xv.size == 0 or yv.size == 0:
+                print("queryXY_callback: empty Xv/Yv")
+                self.queried_area = None
+                self.queried_plane = None
+                return
+
+            # pick nearest indices to the *left/top* edges (you can choose center if you prefer)
+            y_index = int(np.argmin(np.abs(yv - ymax)))
+            x_index = int(np.argmin(np.abs(xv - xmin)))
 
             self.idx_scan[Axis.Y.value] = y_index
             self.idx_scan[Axis.X.value] = x_index
 
-            self.queried_area = a
+            self.queried_area = [xmin, xmax, ymin, ymax]  # always store as flat [x0,x1,y0,y1] in µm
             self.queried_plane = queried_plane.XY
-        else:
-            self.queried_area = None
-            self.queried_plane = None
-
-    def queryYZ_callback(self, app_data):
-        # print("queryYZ_callback")
-        a = dpg.get_plot_query_area(app_data)
-        if np.any(a):
-            # Find the closest index in Zv for a[3]
-            z_index = np.argmin(np.abs(self.Zv - a[3]))
-            # Find the closest index in Yv for a[1]
-            y_index = np.argmin(np.abs(self.Yv - a[1]))
-
-            self.idx_scan[Axis.Z.value] = z_index
-            self.idx_scan[Axis.Y.value] = y_index
-
-            self.queried_area = a
-            self.queried_plane = queried_plane.YZ
-        else:
-            self.queried_area = None
-            self.queried_plane = None
-
-    def queryXZ_callback(self, app_data):
-        # print("queryXZ_callback")
-        a = dpg.get_plot_query_area(app_data)
-        if np.any(a):
-            # Find the closest index in Zv for a[3]
-            z_index = np.argmin(np.abs(self.Zv - a[3]))
-            # Find the closest index in Xv for a[1]
-            x_index = np.argmin(np.abs(self.Xv - a[1]))
-
-            self.idx_scan[Axis.Z.value] = z_index
-            self.idx_scan[Axis.X.value] = x_index
-
-            self.queried_area = a
-            self.queried_plane = queried_plane.XZ
-        else:
+        except Exception as e:
+            print(f"queryXY_callback error: {e}")
             self.queried_area = None
             self.queried_plane = None
 
@@ -1836,8 +1828,8 @@ class GUI_OPX():
             if (item_width is None) or (item_height is None):
                 raise Exception("Window does not exist")
 
-            end_Plot_time = time.time()
-            print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
+            # end_Plot_time = time.time()
+            # print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
         except Exception as e:
             print(f"An error occurred while plotting the scan: {e}")
 
@@ -1947,8 +1939,8 @@ class GUI_OPX():
 
         except Exception as e:
             print(f"Error during plotting: {e}")
-        end_Plot_time = time.time()
-        print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
+        # end_Plot_time = time.time()
+        # print(f"time to plot scan: {end_Plot_time - start_Plot_time}")
         try:
             dpg.set_value("texture_tag", result_array_)
         except Exception as e:
@@ -2257,7 +2249,7 @@ class GUI_OPX():
                 quaPGM = self.quaPGM
 
             list_before = self.qmm.list_open_qms()
-            print(f"before open new job: {list_before}")
+            # print(f"before open new job: {list_before}")
 
             qm = self.qmm.open_qm(config=QuaCFG, close_other_machines=closeQM)
             qm_id = qm.id
@@ -2265,7 +2257,7 @@ class GUI_OPX():
             job_id = job.id
 
             list_after = self.qmm.list_open_qms()
-            print(f"after open new job: {list_after}")
+            # print(f"after open new job: {list_after}")
 
             self.my_qua_jobs = []  # todo: optional so have more then one program open from same QMachine
             self.my_qua_jobs.append({"qm_id": qm_id, "job_id": job_id})
@@ -10034,25 +10026,55 @@ class GUI_OPX():
         except Exception as e:
             print(f"btnStartScan error: {e}")
 
-    def btnStartGalvoScan(self, add_scan: bool = False, use_queried_area: bool = False,
-                          use_queried_proem: bool = False):
+    def btnStartGalvoScan(
+            self,
+            sender=None,
+            app_data=None,
+            user_data=None,
+    ):
         """
-        Launches the galvo-based 3D scan in a background thread.
-        Supports:
-          use_queried_area  -> 'kst q'  (plot query rectangle)
-          use_queried_proem -> 'kst p'  (ProEM ROI via dispatcher)
+        Launch the galvo-based 3D scan in a background thread.
+
+        Flags normally come from self.* and can be overridden by user_data dict:
+          {"add_scan": bool, "use_queried_area": bool, "use_queried_proem": bool, "centered_xy": bool}
         """
         try:
-            import threading  # local import is robust against hot-reload order
+            # ensure attributes exist with sane defaults (so 'kst q/p/c/r' can set them before calling)
+            for name, default in (
+                    ("add_scan", False),
+                    ("use_queried_area", False),
+                    ("use_queried_proem", False),
+                    ("centered_xy", False),
+            ):
+                if not hasattr(self, name):
+                    setattr(self, name, default)
+
+            # allow a button to override via user_data (optional)
+            if isinstance(user_data, dict):
+                for k, v in user_data.items():
+                    if k in ("add_scan", "use_queried_area", "use_queried_proem", "centered_xy"):
+                        setattr(self, k, bool(v))
+
+            # snapshot flags
+            add_scan = bool(self.add_scan)
+            use_queried_area = bool(self.use_queried_area)
+            use_queried_proem = bool(self.use_queried_proem)
+            centered_xy = bool(self.centered_xy)
+
+            # spin the worker thread
             self.ScanTh = threading.Thread(
                 target=self.scan3d_with_galvo,
                 kwargs={
                     "use_queried_area": use_queried_area,
                     "use_queried_proem": use_queried_proem,
+                    "centered_xy": centered_xy,
                 },
                 daemon=True
             )
             self.ScanTh.start()
+            print(f"Galvo scan started "
+                  f"(add={add_scan}, q={use_queried_area}, p={use_queried_proem}, centered={centered_xy}).")
+
         except Exception as e:
             print(f"btnStartGalvoScan error: {e}")
 
@@ -10296,9 +10318,8 @@ class GUI_OPX():
             self.btnStop()
             time.sleep(0.5)
 
-        print("start scan steps")
         start_time = time.time()
-        print(f"start_time: {self.format_time(start_time)}")
+        print(f"start_time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
 
         # init
         self.exp = Experiment.SCAN
@@ -10327,8 +10348,12 @@ class GUI_OPX():
         if bounds_um is None and use_queried_area:
             bounds_um = _queried_bounds_from_plot_um()
             if bounds_um is None:
-                self.btnStop()
-                return
+                bounds_um = self.last_used_bounds
+                if bounds_um is None:
+                    self.btnStop()
+                    return
+                else:
+                    print("Reusing last query area.")
             self.last_used_bounds = bounds_um
 
         if bounds_um is not None:
@@ -10352,12 +10377,12 @@ class GUI_OPX():
                 if i in (0, 1) and bounds_um is not None:
                     # Use queried bounds directly (absolute µm → pm)
                     lo_um, hi_um = (bounds_um[0], bounds_um[1]) if i == 0 else (bounds_um[2], bounds_um[3])
-                    lo = min(lo_um, hi_um)
-                    hi = max(lo_um, hi_um)
-                    s = max(step_um[i], 1e-6)  # avoid zero
+                    lo = int(min(lo_um, hi_um)*1e6)
+                    hi = int(max(lo_um, hi_um)*1e6)
+                    s = int(max(step_um[i], 1e-6)*1e6)  # avoid zero
                     # ensure inclusive end
                     vals_um = np.arange(lo, hi + s * 0.5, s, dtype=np.float64)
-                    axis_values = np.round(vals_um*1e6).astype(np.int64)
+                    axis_values = np.round(vals_um).astype(np.int64)
                 else:
                     # Original behavior (centered, except X+isLeftScan)
                     vec_nm = self.GenVector(
@@ -10373,9 +10398,13 @@ class GUI_OPX():
         self.V_scan = scan_coordinates  # absolute pm for all 3 axes
 
         # CSV / plot vectors in µm
-        self.Xv = self.V_scan[0] / 1e6
-        self.Yv = self.V_scan[1] / 1e6
-        self.Zv = self.V_scan[2] / 1e6
+        self.Xv = np.asarray(self.V_scan[0], dtype=float) / 1e6
+        self.Yv = np.asarray(self.V_scan[1], dtype=float) / 1e6
+        self.Zv = np.asarray(self.V_scan[2], dtype=float) / 1e6
+
+        print(f"Xv (µm): {self.Xv[0]:.2f} -> {self.Xv[-1]:.2f}, Nx={len(self.Xv)}")
+        print(f"Yv (µm): {self.Yv[0]:.2f} -> {self.Yv[-1]:.2f}, Ny={len(self.Yv)}")
+        print(f"Zv (µm): {self.Zv[0]:.2f} -> {self.Zv[-1]:.2f}, Nz={len(self.Zv)}")
 
         # goto scan start location
         for ch in range(3):
@@ -10560,8 +10589,8 @@ class GUI_OPX():
         self.absPosunits = list(self.positioner.AxesPosUnits)
         if _isDebug:
             res = list(self.positioner.AxesPositions)
-            for ch in self.positioner.channels:
-                print(f"ch{ch}: in position = {res}, position = {res[ch]} {self.positioner.AxesPosUnits[ch]}")
+            # for ch in self.positioner.channels:
+            #     print(f"ch{ch}: in position = {res}, position = {res[ch]} {self.positioner.AxesPosUnits[ch]}")
 
     def Z_correction(self, _refp: list, _point: list):
         # Define the points (self.positioner.LoggedPoints equivalent)
@@ -10633,9 +10662,8 @@ class GUI_OPX():
 
         parent = sys.stdout.parent
 
-        print("start scan steps")
         start_time = time.time()
-        print(f"start_time: {self.format_time(start_time)}")
+        print(f"start_time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
 
         # init
         self.exp = Experiment.SCAN
@@ -11035,7 +11063,7 @@ class GUI_OPX():
         if not (self.stopScan):
             self.btnStop()
 
-    def scan3d_with_galvo(self, use_queried_area: bool = False, use_queried_proem: bool = False):
+    def scan3d_with_galvo(self, use_queried_area: bool = False, use_queried_proem: bool = False,centered_xy: bool = False):
         """
         3D scan using galvos for X,Y (Keysight AWG offsets) and positioner for Z.
 
@@ -11080,7 +11108,7 @@ class GUI_OPX():
 
         def pm_to_v(pm):
             # pm → µm is /1e6 ; but we directly use the factor expected by your driver: pm * 1e-3 * volts_per_um
-            return np.round(pm * 1e-3 * volts_per_um, 6)
+            return np.round(pm * 1e-6 * volts_per_um, 6)
 
         # ---------- helpers for queried bounds (return µm floats) ----------
         def _queried_bounds_from_plot_um():
@@ -11096,6 +11124,7 @@ class GUI_OPX():
             ymin, ymax = (y0, y1) if y0 <= y1 else (y1, y0)
             if xmax <= xmin or ymax <= ymin:
                 return None
+            print(f"_queried_bounds_from_plot_um: x=[{xmin*1e-6:.2f}, {xmax*1e-6:.2f}] µm, y=[{ymin*1e-6:.2f}, {ymax*1e-6:.2f}] µm")
             return xmin, xmax, ymin, ymax
 
         def _queried_bounds_from_proem_um():
@@ -11107,19 +11136,20 @@ class GUI_OPX():
             if parent is None:
                 print("WARNING: No dispatcher parent for ProEM ROI.")
                 return None
-            roi = getattr(parent, "proem_query", None)
-            sx = getattr(parent, "proem_sx_um_per_px", None)
-            sy = getattr(parent, "proem_sy_um_per_px", None)
+            lf_gui = getattr(parent, "hrs_500_gui", None)
+            roi = getattr(lf_gui, "proem_query", None)
+            sx = getattr(lf_gui, "proem_sx_um_per_px", None)
+            sy = getattr(lf_gui, "proem_sy_um_per_px", None)
             if roi is None or sx is None or sy is None:
                 print("WARNING: ProEM ROI/calibration missing on dispatcher; ignoring 'p'.")
                 return None
 
-            x0_um = float(getattr(parent, "proem_x0_um", 0.0))
-            y0_um = float(getattr(parent, "proem_y0_um", 0.0))
-            px0 = float(getattr(parent, "proem_px0", 0.0))
-            py0 = float(getattr(parent, "proem_py0", 0.0))
-            flip_x = bool(getattr(parent, "proem_flip_x", False))
-            flip_y = bool(getattr(parent, "proem_flip_y", False))
+            x0_um = float(getattr(lf_gui, "proem_x0_um", 0.0))
+            y0_um = float(getattr(lf_gui, "proem_y0_um", 0.0))
+            px0 = float(getattr(lf_gui, "proem_px0", 0.0))
+            py0 = float(getattr(lf_gui, "proem_py0", 0.0))
+            flip_x = bool(getattr(lf_gui, "proem_flip_x", False))
+            flip_y = bool(getattr(lf_gui, "proem_flip_y", False))
 
             try:
                 x_min_px, y_min_px, x_max_px, y_max_px = map(float, roi)
@@ -11142,20 +11172,6 @@ class GUI_OPX():
             xmin, xmax = (x1_um, x2_um) if x1_um <= x2_um else (x2_um, x1_um)
             ymin, ymax = (y1_um, y2_um) if y1_um <= y2_um else (y2_um, y1_um)
 
-            # Optional: clip to previous scan extents if present
-            if hasattr(self, "startLoc") and hasattr(self, "endLoc") and self.startLoc and self.endLoc:
-                prev_xmin = min(self.startLoc[0], self.endLoc[0])
-                prev_xmax = max(self.startLoc[0], self.endLoc[0])
-                prev_ymin = min(self.startLoc[1], self.endLoc[1])
-                prev_ymax = max(self.startLoc[1], self.endLoc[1])
-                xmin = max(xmin, prev_xmin)
-                xmax = min(xmax, prev_xmax)
-                ymin = max(ymin, prev_ymin)
-                ymax = min(ymax, prev_ymax)
-
-            if xmax <= xmin or ymax <= ymin:
-                print("WARNING: ProEM ROI out-of-bounds after clipping; ignoring 'p'.")
-                return None
             return xmin, xmax, ymin, ymax
 
         # -------------------------------------------------------------------
@@ -11200,13 +11216,35 @@ class GUI_OPX():
         bounds_um = None
         if use_queried_proem:
             bounds_um = _queried_bounds_from_proem_um()
+            if bounds_um is None:
+                bounds_um=self.last_used_bounds
+                if bounds_um is None:
+                    self.btnStop()
+                    return
+                else:
+                    print("Reusing last query area.")
+            self.last_used_bounds = bounds_um
         if bounds_um is None and use_queried_area:
             bounds_um = _queried_bounds_from_plot_um()
+            if bounds_um is None:
+                bounds_um=self.last_used_bounds
+                if bounds_um is None:
+                    self.btnStop()
+                    return
+                else:
+                    print("Reusing last query area.")
+            self.last_used_bounds = bounds_um
 
         scan_coordinates, self.N_scan = [], []
 
         # Z: ABS µm around current Z (same logic as before)
         centers_um = [0.0, 0.0, float(self.initial_scan_Location[2])]
+
+        # convenience: step size in µm from your nm GUI fields
+        step_um = [float(self.dL_scan[0]) / 1000.0,
+                   float(self.dL_scan[1]) / 1000.0,
+                   float(self.dL_scan[2]) / 1000.0]
+
         for i in range(3):
             if i == 0 or i == 1:
                 # X/Y
@@ -11219,18 +11257,21 @@ class GUI_OPX():
                             lo_um, hi_um = bounds_um[0], bounds_um[1]
                         else:
                             lo_um, hi_um = bounds_um[2], bounds_um[3]
-                        lo_pm = np.floor(min(lo_um, hi_um) * 1e6)
-                        hi_pm = np.ceil(max(lo_um, hi_um) * 1e6)
-                        step_pm = dx_pm if i == 0 else dy_pm
+                        lo = int(min(lo_um, hi_um)*1e6)
+                        hi = int(max(lo_um, hi_um)*1e6)
+                        s = int(max(step_um[i], 1e-6)*1e6)  # avoid zero
                         # ensure inclusive end; build ascending
-                        axis = np.arange(lo_pm, hi_pm + step_pm * 0.5, step_pm, dtype=np.float64)
+                        axis = np.arange(lo, hi + s * 0.5, s, dtype=np.float64)
                     else:
-                        # default behavior (X: [-L,0], Y: centered [-L/2, +L/2]) in pm
-                        if i == 0:
-                            vec_nm = self.GenVector(min=-self.L_scan[i], max=0, delta=self.dL_scan[i])
-                        else:
+                        if centered_xy:
                             vec_nm = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
                                                     delta=self.dL_scan[i])
+                        else:
+                            if i == 0:
+                                vec_nm = self.GenVector(min=-self.L_scan[i], max=0, delta=self.dL_scan[i])
+                            else:
+                                vec_nm = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
+                                                        delta=self.dL_scan[i])
                         axis = (vec_nm * 1e3).astype(np.float64)  # nm→pm
             else:
                 # Z
@@ -11247,9 +11288,34 @@ class GUI_OPX():
         self.V_scan = scan_coordinates  # [X_rel_pm, Y_rel_pm, Z_abs_um]
         Nx, Ny, Nz = self.N_scan
         # For CSV/plot: convert pm → µm by /1e6 (as in your code)
-        self.Xv = self.V_scan[0] / 1e6
-        self.Yv = self.V_scan[1] / 1e6
-        self.Zv = self.V_scan[2] / 1e6
+        self.Xv = np.asarray(self.V_scan[0], dtype=float) / 1e6
+        self.Yv = np.asarray(self.V_scan[1], dtype=float) / 1e6
+        self.Zv = np.asarray(self.V_scan[2], dtype=float) / 1e6
+
+        print(f"Xv (µm): {self.Xv[0]:.2f} -> {self.Xv[-1]:.2f}, Nx={len(self.Xv)}")
+        print(f"Yv (µm): {self.Yv[0]:.2f} -> {self.Yv[-1]:.2f}, Ny={len(self.Yv)}")
+        print(f"Zv (µm): {self.Zv[0]:.2f} -> {self.Zv[-1]:.2f}, Nz={len(self.Zv)}")
+
+        def pred(vpu, kx, ky, b1, b2, x_um, y_um):
+            Vx = vpu * x_um
+            Vy = vpu * y_um
+            ch1 = b1 + (Vx + Vy)
+            ch2 = b2 + (kx * Vx + ky * Vy)
+            return ch1, ch2
+
+        b1, b2 = gui.base1, gui.base2
+        s = float(getattr(gui, "volts_per_um", 0.128 / 15.0))
+        if s > 1.0: s = 1.0 / s
+        if s < 0:   s = -s
+
+        xlo, xhi = float(self.Xv[0]), float(self.Xv[-1])
+        ylo, yhi = float(self.Yv[0]), float(self.Yv[-1])
+        for name, (xx, yy) in {
+            "LL": (xlo, ylo), "LR": (xhi, ylo),
+            "UL": (xlo, yhi), "UR": (xhi, yhi)
+        }.items():
+            c1, c2 = pred(s, kx_ratio, ky_ratio, b1, b2, xx, yy)
+            print(f"{name}: ({xx:.2f}µm,{yy:.2f}µm) -> CH1={c1:.4f}V, CH2={c2:.4f}V")
 
         # --- Precompute & print planned voltage bounds (including baselines) ---
         Vx = pm_to_v(self.V_scan[0])[:, None]  # (Nx, 1)
@@ -11297,9 +11363,8 @@ class GUI_OPX():
         self.counts_handle = res_handles.get("counts_scanLine")
         self.meas_idx_handle = res_handles.get("meas_idx_scanLine")
 
-        print("start scan steps")
         start_time = time.time()
-        print(f"start_time: {self.format_time(start_time)}")
+        print(f"start_time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
 
         try:
             for iz in range(Nz):  # Z slices
@@ -11403,7 +11468,7 @@ class GUI_OPX():
 
         # Stats
         elapsed = time.time() - start_time
-        print(f"number of points = {Nx * Ny * Nz}")
+        # print(f"number of points = {Nx * Ny * Nz}")
         print(f"Elapsed time: {elapsed:.0f} seconds")
         if not self.stopScan:
             self.btnStop()
@@ -11424,7 +11489,8 @@ class GUI_OPX():
         print(f"Starting {dim}D scan: Nx={Nx}, Ny={Ny}, Nz={Nz}")
 
         start_time = time.time()
-        print(f"start_time: {self.format_time(start_time)}")
+        print(f"start_time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
+
 
         self.exp = current_experiment
         self.GUI_ParametersControl(isStart=False)
@@ -11892,7 +11958,7 @@ class GUI_OPX():
         self.to_xml()
         end_time = time.time()
         # print(f"end_time: {end_time}")
-        print(f"number of points = {Nx * Ny * Nz}")
+        # print(f"number of points = {Nx * Ny * Nz}")
         print(f"Elapsed time: {end_time - start_time:.0f} seconds")
 
         if not self.stopScan:
@@ -12205,7 +12271,7 @@ class GUI_OPX():
         self.positioner.GetPosition()
         self.absPosunits = self.positioner.AxesPosUnits[ch]
         self.absPos = self.positioner.AxesPositions[ch]
-        print(f"ch{ch}: in position = {res}, position = {self.absPos} [{self.absPosunits}]")
+        # print(f"ch{ch}: in position = {res}, position = {self.absPos} [{self.absPosunits}]")
 
     def readInpos(self, ch):
         res = self.positioner.ReadIsInPosition(ch)
@@ -12648,7 +12714,7 @@ class GUI_OPX():
         self.added_comments = note
 
     def save_to_cvs(self, file_name, data, to_append: bool = False, header: str = None):
-        print("Starting to save data to CSV.")
+        # print("Starting to save data to CSV.")
 
         # Ensure data is a dictionary
         if not isinstance(data, dict) or not all(isinstance(v, list) for v in data.values()):
@@ -12712,7 +12778,7 @@ class GUI_OPX():
 
     def writeParametersToXML(self, fileName):
         self.to_xml(fileName)
-        print("Parameters has been saved to", fileName)
+        # print("Parameters has been saved to", fileName)
 
     def to_xml(self, filename="OPX_params.xml"):
         root = ET.Element("Parameters")

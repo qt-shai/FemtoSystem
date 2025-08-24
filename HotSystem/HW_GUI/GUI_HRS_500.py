@@ -23,10 +23,10 @@ class GUI_HRS500():
         self.proem_query: tuple[float, float, float, float] | None = None  # (x_min_px, y_min_px, x_max_px, y_max_px)
         self.proem_sx_um_per_px: float | None = 0.1
         self.proem_sy_um_per_px: float | None = 0.1
-        self.proem_x0_um: float = 665
-        self.proem_y0_um: float = 476
-        self.proem_px0: float = 0.0
-        self.proem_py0: float = 0.0
+        self.proem_x0_um: float = 0.0
+        self.proem_y0_um: float = 0.0
+        self.proem_px0: float = 665.0
+        self.proem_py0: float = 476.0
         self.proem_flip_x: bool = False
         self.proem_flip_y: bool = False
 

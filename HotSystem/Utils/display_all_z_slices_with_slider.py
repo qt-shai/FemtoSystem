@@ -7,16 +7,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
+from matplotlib.widgets import TextBox
+from matplotlib.widgets import Button
+from matplotlib.widgets import RadioButtons
 import os, re
 import sys
 import win32com.client
 import pythoncom
 from PIL import ImageGrab, Image
-from matplotlib.widgets import RadioButtons
+
 import io
 from PIL import Image
 import win32clipboard
-from matplotlib.widgets import Button
 
 # --- NEW: prefer tifffile for scientific TIFFs, fallback to imageio ---
 try:
@@ -205,11 +207,15 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         out = np.apply_along_axis(lambda v: np.convolve(v, k, mode='valid'), 0, cpad)
         return out
 
-    if log_scale:
-        I_ = np.log10(I_ + np.finfo(float).eps)
+    # Keep a pristine copy (no log / no flatten)
+    EPS = np.finfo(float).eps
+    I_raw_cube = I_.copy()  # shape: (Nz, Ny, Nx)
 
-    if minI is None: minI = I_.min()
-    if maxI is None: maxI = I_.max()
+    # This is the array all imshows read from (can be flattened/logged)
+    I_view = np.log10(I_raw_cube + EPS) if log_scale else I_raw_cube
+
+    if minI is None: minI = I_view.min()
+    if maxI is None: maxI = I_view.max()
 
     def safe_extent(v):
         if v[0] == v[-1]:
@@ -255,13 +261,14 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     plt.subplots_adjust(bottom=0.30)
     # dbg = fig.text(0.5, 0.1, "Msg", ha="left", va="top", fontsize=9)
-    print(f"Shape of I_: {I_.shape}, min={I_.min()}, max={I_.max()}")
+    print(f"Shape of I_: {I_view.shape}, min={I_view.min()}, max={I_view.max()}")
+
 
     z_idx = 0
     y_idx = Ny // 2
     x_idx = Nx // 2
     im_xy = ax_xy.imshow(
-        _smooth2d(I_[z_idx]), extent=extent_xy,
+        _smooth2d(I_view[z_idx]), extent=extent_xy,
         origin='lower', aspect='equal', vmin=minI, vmax=maxI
     )
     ax_xy.set_title(f"XY @ Z={Z_[z_idx]:.2f} µm")
@@ -269,13 +276,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     if Nz > 1:
         im_xz = ax_xz.imshow(
-            _smooth2d(I_[:, y_idx, :]), extent=extent_xz,
+            _smooth2d(I_view[:, y_idx, :]), extent=extent_xz,
             origin='lower', aspect='auto', vmin=minI, vmax=maxI
         )
         ax_xz.set_title(f"XZ @ Y={Y_[y_idx]:.2f} µm")
         ax_xz.set_xlabel("X (µm)"); ax_xz.set_ylabel("Z (µm)")
 
-        im_yz = ax_yz.imshow(_smooth2d(I_[:, :, x_idx]), extent=extent_yz, origin='lower',
+        im_yz = ax_yz.imshow(_smooth2d(I_view[:, :, x_idx]), extent=extent_yz, origin='lower',
                              aspect='auto', vmin=minI, vmax=maxI)
         ax_yz.set_title(f"YZ @ X={X_[x_idx]:.2f} µm")
         ax_yz.set_xlabel("Y (µm)");
@@ -285,34 +292,14 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     else:
         cbar = fig.colorbar(im_xy, ax=ax_xy, label="kCounts/s")
 
-    # ----------------  Smoothing controls (minimal UI)  ----------------
-    ax_sigma = plt.axes([0.1, 0.10, 0.1, 0.03])  # x, y, w, h
-    slider_sigma = Slider(ax_sigma, 'σ (px)', 0.0, 6.0, valinit=_smooth["sigma"], valstep=0.1)
-    ax_smooth = plt.axes([0.20, 0.15, 0.06, 0.04])
-    btn_smooth = Button(ax_smooth, 'smooth off')
-    def _on_sigma_change(_val):
-        _smooth["sigma"] = float(slider_sigma.val)
-        if _smooth["on"]:
-            # just refresh currently shown data
-            im_xy.set_data(_smooth2d(I_[z_idx]))
-            if Nz > 1:
-                im_xz.set_data(_smooth2d(I_[:, y_idx, :]))
-                im_yz.set_data(_smooth2d(I_[:, :, x_idx]))
-            fig.canvas.draw_idle()
-    slider_sigma.on_changed(_on_sigma_change)
-    def _toggle_smoothing(_event):
-        _smooth["on"] = not _smooth["on"]
-        btn_smooth.label.set_text('smooth on' if _smooth["on"] else 'smooth off')
-        # refresh display from original I_ through smoother (or not)
-        im_xy.set_data(_smooth2d(I_[z_idx]))
-        if Nz > 1:
-            im_xz.set_data(_smooth2d(I_[:, y_idx, :]))
-            im_yz.set_data(_smooth2d(I_[:, :, x_idx]))
-        fig.canvas.draw_idle()
-    btn_smooth.on_clicked(_toggle_smoothing)
-
+    btn_x = 0.005
+    btn_y = 0.97
+    btn_w = 0.05
+    btn_h = 0.025
+    btn_rect = (btn_x, btn_y, btn_w, btn_h)  # tuple
+    btn_x_slider =  btn_x + 0.03
     # ----------------   Max I slider    ----------------
-    ax_max = plt.axes([0.1, 0.05, 0.1, 0.03])
+    ax_max = plt.axes((btn_x_slider, 0.05, 0.1, 0.03))
     slider_max = Slider(ax_max, 'Max I', np.min(I_), np.max(I_), valinit=maxI)
     def update_max(val):
         vmin = minI; vmax = slider_max.val
@@ -324,7 +311,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     slider_max.on_changed(update_max)
 
     # ----------------     Plot area resizing     ----------------
-    ax_ph = plt.axes([0.1, 0.005, 0.1, 0.03])
+    ax_ph = plt.axes((btn_x_slider, 0.005, 0.1, 0.03))
     s_plot_h = Slider(ax_ph, 'Size (%)', 40, 500, valinit=155 if Nz == 1 else 85, valstep=1)
     # plt.subplots_adjust(bottom=0.3)  # make room for the extra slider
     ctrl_bottom = fig.subplotpars.bottom
@@ -358,6 +345,17 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     s_plot_h.on_changed(_apply_plot_layout_h)
     _apply_plot_layout_h(s_plot_h.val)
 
+    # ----------------     Aggressiveness slider     ----------------
+
+    ax_sigma_bg = plt.axes((btn_x_slider, 0.12, 0.1, 0.03))
+    slider_sigma_bg = Slider(ax_sigma_bg, 'σ_bg', 5, 120, valinit=20, valstep=1)
+
+    def _on_sigma_bg_change(val):
+        aggr_state["cube"] = None  # force recompute on next toggle/preset
+        aggr_state["computed_sigma"] = None
+
+    slider_sigma_bg.on_changed(_on_sigma_bg_change)
+
     # ----------------    Z slider (only if Nz > 1)    ----------------
     if Nz > 1:
         ax_z = plt.axes([0.3, 0.1, 0.5, 0.03])
@@ -365,7 +363,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         def update_z(val):
             nonlocal z_idx
             z_idx = int(slider_z.val) - 1
-            im_xy.set_data(_smooth2d(I_[z_idx]))
+            im_xy.set_data(_smooth2d(I_view[z_idx]))
             ax_xy.set_title(f"XY @ Z={Z_[z_idx]:.2f} µm")
             fig.canvas.draw_idle()
         slider_z.on_changed(update_z)
@@ -376,7 +374,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         def update_y(val):
             nonlocal y_idx
             y_idx = int(slider_y.val) - 1
-            im_xz.set_data(_smooth2d(I_[:, y_idx, :]))
+            im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
             ax_xz.set_title(f"XZ @ Y={Y_[y_idx]:.2f} µm")
             fig.canvas.draw_idle()
         slider_y.on_changed(update_y)
@@ -386,29 +384,14 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         def update_x(val):
             nonlocal x_idx
             x_idx = int(slider_x.val) - 1
-            im_yz.set_data(_smooth2d(I_[:, :, x_idx]))
+            im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
             ax_yz.set_title(f"YZ @ X={X_[x_idx]:.2f} µm")
             fig.canvas.draw_idle()
         slider_x.on_changed(update_x)
 
-    # ----------------    Radio Buttons   ----------------
-    colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis',
-                 'gray', 'hot', 'jet', 'bone', 'cool', 'spring', 'summer', 'autumn', 'winter']
-    radio_ax = plt.axes([0.005, 0.005, 0.03, 0.2], facecolor='lightgray')  # x, y, width, height
-    radio = RadioButtons(radio_ax, colormaps, active=0)
-    # 3. Apply default colormap initially
-    im_xy.set_cmap('jet')
-    if Nz > 1:
-        im_xz.set_cmap('jet')
-        im_yz.set_cmap('jet')
-    # 4. Callback to update colormap
-    def change_colormap(label):
-        im_xy.set_cmap(label)
-        if Nz > 1:
-            im_xz.set_cmap(label)
-            im_yz.set_cmap(label)
-        fig.canvas.draw_idle()
-    radio.on_clicked(change_colormap)
+    def shift_rect(rect, dx=0.0, dy=-0.03):
+        x1, y1, w1, h1 = rect
+        return x1 + dx, y1 + dy, w1, h1
 
     # ----------------    "Copy"    ----------------
     def copy_main_axes_to_clipboard():
@@ -427,7 +410,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         # --- Re-plot XY ---
         im_list = []
-        im1 = axs[0].imshow(I_[z_idx], extent=extent_xy, origin='lower', aspect='equal', cmap=cmap, vmin=vmin,
+        im1 = axs[0].imshow(I_view[z_idx], extent=extent_xy, origin='lower', aspect='equal', cmap=cmap, vmin=vmin,
                             vmax=vmax)
         axs[0].set_title(ax_xy.get_title())
         axs[0].set_xlabel(ax_xy.get_xlabel())
@@ -438,7 +421,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         # --- Re-plot XZ if present ---
         if show_xz:
-            im2 = axs[idx].imshow(I_[:, y_idx, :], extent=extent_xz, origin='lower', aspect='auto', cmap=cmap,
+            im2 = axs[idx].imshow(I_view[:, y_idx, :], extent=extent_xz, origin='lower', aspect='auto', cmap=cmap,
                                   vmin=vmin, vmax=vmax)
             axs[idx].set_title(ax_xz.get_title())
             axs[idx].set_xlabel(ax_xz.get_xlabel())
@@ -448,7 +431,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         # --- Re-plot YZ if present ---
         if show_yz:
-            im3 = axs[idx].imshow(I_[:, :, x_idx], extent=extent_yz, origin='lower', aspect='auto', cmap=cmap,
+            im3 = axs[idx].imshow(I_view[:, :, x_idx], extent=extent_yz, origin='lower', aspect='auto', cmap=cmap,
                                   vmin=vmin, vmax=vmax)
             axs[idx].set_title(ax_yz.get_title())
             axs[idx].set_xlabel(ax_yz.get_xlabel())
@@ -477,12 +460,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         plt.close(fig_copy)
         print("Copied graph with colorbar to clipboard.")
-    btn_ax = plt.axes([0.05, 0.15, 0.04, 0.04])  # x, y, width, height
+    btn_ax = plt.axes(btn_rect)  # x, y, width, height
     btn = Button(btn_ax, 'Copy')
     btn.on_clicked(lambda event: copy_main_axes_to_clipboard())
+    btn_rect = shift_rect(btn_rect)
 
     # ----------------    Add2PPT Button    ----------------
-    ax_addppt = plt.axes([0.1, 0.15, 0.04, 0.04])
+    ax_addppt = plt.axes(btn_rect)
     btn_addppt = Button(ax_addppt, 'add2ppt')
     def handle_add2ppt(event):
         try:
@@ -539,10 +523,11 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         except Exception as e:
             print(f"Failed to add to PowerPoint: {e}")
     btn_addppt.on_clicked(handle_add2ppt)
+    btn_rect = shift_rect(btn_rect)
 
     # ----------------     Grid toggle button     ----------------
     grid_state = {"on": False}
-    ax_grid = plt.axes([0.15, 0.15, 0.04, 0.04])
+    ax_grid = plt.axes(btn_rect)
     btn_grid = Button(ax_grid, 'grid off')
     def _apply_grid(ax, on: bool):
         if ax is None:
@@ -568,16 +553,324 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         fig.set_constrained_layout(False)
     except Exception:
         pass
+    btn_rect = shift_rect(btn_rect)
+
+    # ----------------  Smoothing controls (minimal UI)  ----------------
+    ax_sigma = plt.axes((btn_x_slider, 0.10, 0.1, 0.03))  # x, y, w, h
+    slider_sigma = Slider(ax_sigma, 'σ (px)', 0.0, 6.0, valinit=_smooth["sigma"], valstep=0.1)
+    ax_smooth = plt.axes(btn_rect)
+    btn_smooth = Button(ax_smooth, 'smooth off')
+    def _on_sigma_change(_val):
+        _smooth["sigma"] = float(slider_sigma.val)
+        if _smooth["on"]:
+            # just refresh currently shown data
+            im_xy.set_data(_smooth2d(I_view[z_idx]))
+            if Nz > 1:
+                im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
+                im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
+            fig.canvas.draw_idle()
+    slider_sigma.on_changed(_on_sigma_change)
+    def _toggle_smoothing(_event):
+        _smooth["on"] = not _smooth["on"]
+        btn_smooth.label.set_text('smooth on' if _smooth["on"] else 'smooth off')
+        # refresh display from original I_ through smoother (or not)
+        im_xy.set_data(_smooth2d(I_[z_idx]))
+        if Nz > 1:
+            im_xz.set_data(_smooth2d(I_[:, y_idx, :]))
+            im_yz.set_data(_smooth2d(I_[:, :, x_idx]))
+        fig.canvas.draw_idle()
+    btn_smooth.on_clicked(_toggle_smoothing)
+    btn_rect = shift_rect(btn_rect)
+
+    # ----------------     Flatten (beam-profile removal + DC invariance)     ----------------
+    # Uses Q:\QT-Quantum_Optic_Lab\expData\Spectrometer\beam.tif
+    flatten_state = {"on": False, "beam": None, "cube": None}
+    def _resize_to(img: np.ndarray, shape_xy: tuple[int, int]) -> np.ndarray:
+        """Resize 2D img to (Ny, Nx) using scipy if present, otherwise numpy-only bilinear."""
+        ny, nx = shape_xy
+        if img.shape == (ny, nx):
+            return img
+        if _HAS_SCIPY_ND:
+            try:
+                fy = ny / img.shape[0]
+                fx = nx / img.shape[1]
+                return ndi.zoom(img, (fy, fx), order=1)
+            except Exception:
+                pass
+        # numpy-only bilinear
+        y_old, x_old = img.shape
+        x_old_coords = np.linspace(0, 1, x_old)
+        x_new_coords = np.linspace(0, 1, nx)
+        tmp = np.apply_along_axis(lambda row: np.interp(x_new_coords, x_old_coords, row), 1, img)
+        y_old_coords = np.linspace(0, 1, y_old)
+        y_new_coords = np.linspace(0, 1, ny)
+        return np.apply_along_axis(lambda col: np.interp(y_new_coords, y_old_coords, col), 0, tmp)
+    def _load_beam_norm() -> np.ndarray:
+        """Load beam.tif → 2D normalized (median=1) beam profile, resized to data (Ny,Nx)."""
+        if flatten_state["beam"] is not None:
+            return flatten_state["beam"]
+        beam_path = r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer\beam.tif"
+        try:
+            B = _read_tif_stack(beam_path)
+            B = np.asarray(B, dtype=np.float64)
+            B = np.squeeze(B)
+            if B.ndim == 3 and B.shape[-1] in (3, 4):   # RGB(A) → gray
+                B = B[..., :3].mean(axis=-1)
+            if B.ndim == 3:                             # multi-frame → average
+                B = B.mean(axis=0)
+            B = _resize_to(B, (Ny, Nx))
+            # Smooth a bit to remove sensor/shot noise in the reference
+            try:
+                B = ndi.gaussian_filter(B, sigma=3.0)
+            except Exception:
+                pass
+            med = np.median(B[B > 0]) if np.any(B > 0) else 1.0
+            B_norm = B / max(med, EPS)
+            B_norm = np.clip(B_norm, 1e-3, None)       # avoid divide-by-zero
+        except Exception as e:
+            print(f"⚠️ beam.tif not loaded ({e}); using unity flat-field.")
+            B_norm = np.ones((Ny, Nx), dtype=np.float64)
+        flatten_state["beam"] = B_norm
+        return B_norm
+    def _compute_flat_cube() -> np.ndarray:
+        """Return cube with spatial profile removed, DC-invariant, then rescaled to raw kCounts/s."""
+        Bn = _load_beam_norm()
+
+        # global reference in kCounts/s (robust)
+        raw_pos = I_raw_cube[I_raw_cube > 0]
+        ref = float(np.median(raw_pos)) if raw_pos.size else float(np.mean(I_raw_cube))
+        if ref <= 0 or not np.isfinite(ref):
+            ref = 1.0
+
+        C = np.empty_like(I_raw_cube, dtype=np.float64)
+        for k in range(Nz):
+            S = I_raw_cube[k].astype(np.float64)
+            med = np.median(S[S > 0]) if np.any(S > 0) else S.mean()
+            med = med if med > 0 else 1.0
+            # DC-invariant per slice, remove beam profile
+            C[k] = (S / med) / Bn
+
+        # restore to kCounts/s scale so your old clim remains meaningful
+        C *= ref
+        return C
+    def _apply_flatten(tgt_on: bool | None = None):
+        nonlocal I_view
+        if tgt_on is None:
+            tgt_on = not flatten_state["on"]
+        flatten_state["on"] = tgt_on
+
+        if tgt_on:
+            if flatten_state["cube"] is None:
+                flatten_state["cube"] = _compute_flat_cube()
+            C = flatten_state["cube"]
+            I_view = np.log10(C + EPS) if log_scale else C
+            cbar.set_label("kCounts/s")  # unchanged scale label
+            btn_flat.label.set_text("flatten on")
+        else:
+            I_view = np.log10(I_raw_cube + EPS) if log_scale else I_raw_cube
+            cbar.set_label("kCounts/s")
+            btn_flat.label.set_text("flatten off")
+
+        # refresh images (no clim changes)
+        im_xy.set_data(_smooth2d(I_view[z_idx]))
+        if Nz > 1:
+            im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
+            im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
+        fig.canvas.draw_idle()
+
+    # UI button
+    ax_flat = plt.axes(btn_rect)   # x, y, w, h
+    btn_flat = Button(ax_flat, 'flatten off')
+    btn_flat.on_clicked(lambda _e: _apply_flatten())
+    btn_rect = shift_rect(btn_rect)
+
+    # -------   Aggressive flatten: per-slice background (big blur) removal   -------
+    aggr_state = {"on": False, "cube": None, "computed_sigma": None}
+
+    def _compute_flat_cube_aggressive(sigma_bg: float = 20.0) -> np.ndarray:
+        """
+        Strong shading correction per slice:
+          C[k] = ( S / median(S) ) / ( G(S, sigma_bg) / median(G(S, sigma_bg)) )
+        then rescale to global raw median so clim stays meaningful.
+        """
+        # reference scale (kCounts/s) — same as normal flatten so ranges match
+        raw_pos = I_raw_cube[I_raw_cube > 0]
+        ref = float(np.median(raw_pos)) if raw_pos.size else float(np.mean(I_raw_cube))
+        if ref <= 0 or not np.isfinite(ref):
+            ref = 1.0
+
+        C = np.empty_like(I_raw_cube, dtype=np.float64)
+        for k in range(Nz):
+            S = I_raw_cube[k].astype(np.float64)
+
+            # per-slice DC normalize
+            medS = np.median(S[S > 0]) if np.any(S > 0) else S.mean()
+            medS = medS if medS > 0 else 1.0
+            Sn = S / medS
+
+            # very smooth background of this slice (fallback if scipy missing)
+            if _HAS_SCIPY_ND:
+                B = ndi.gaussian_filter(Sn, sigma=sigma_bg, mode="reflect")
+            else:
+                # simple separable blur using our small Gaussian builder many times
+                # approximate a big blur by applying smaller sigma repeatedly
+                B = Sn.copy()
+                for _ in range(5):
+                    B = _smooth2d(B)
+            # normalize background to median=1, clamp to avoid /0
+            medB = np.median(B[B > 0]) if np.any(B > 0) else 1.0
+            Bn = np.clip(B / max(medB, EPS), 1e-3, None)
+
+            C[k] = Sn / Bn
+
+        C *= ref  # back to kCounts/s scale (so your slider/clim remain valid)
+        return C
+
+    def _apply_flatten_aggressive(tgt_on: bool | None = None):
+        nonlocal I_view
+        if tgt_on is None:
+            tgt_on = not aggr_state["on"]
+        aggr_state["on"] = tgt_on
+
+        if tgt_on:
+            # turn normal flatten OFF
+            flatten_state["on"] = False
+            try:
+                btn_flat.label.set_text("flatten off")
+            except Exception:
+                pass
+
+            sigma_bg = float(getattr(slider_sigma_bg, "val", 20.0))  # ← read slider
+            if aggr_state["cube"] is None or aggr_state.get("computed_sigma") != sigma_bg:
+                aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
+                aggr_state["computed_sigma"] = sigma_bg
+
+            C = aggr_state["cube"]
+            I_view = np.log10(C + EPS) if log_scale else C
+            try:
+                btn_flat_aggr.label.set_text(f"flatten++ on (σ={sigma_bg:.0f})")
+            except Exception:
+                pass
+        else:
+            I_view = np.log10(I_raw_cube + EPS) if log_scale else I_raw_cube
+            try:
+                btn_flat_aggr.label.set_text("flatten++ off")
+            except Exception:
+                pass
+
+        # refresh images (do NOT touch clim)
+        im_xy.set_data(_smooth2d(I_view[z_idx]))
+        if Nz > 1:
+            im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
+            im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
+        fig.canvas.draw_idle()
+
+    # Aggressive flatten button
+    ax_flat_aggr = plt.axes(btn_rect)
+    btn_flat_aggr = Button(ax_flat_aggr, 'flatten++ off')
+    btn_flat_aggr.on_clicked(lambda _e: _apply_flatten_aggressive(None))
+    btn_rect = shift_rect(btn_rect)
+
+    # ---------   Preset button: sigma=1.7, smooth on, flatten on, Max I=650   ---------
+
+    # --- Preset 1 ---
+    ax_preset1 = plt.axes(btn_rect)  # re-use your btn_rect placement
+    btn_preset1 = Button(ax_preset1, 'Preset 1')
+
+    def _apply_preset1(_evt=None):
+        # sigma → 1.7 and smooth ON
+        slider_sigma.set_val(1.7)
+        _smooth["on"] = True
+        try:
+            btn_smooth.label.set_text('smooth on')
+        except Exception:
+            pass
+
+        # flatten ON
+        _apply_flatten(True)
+
+        target_vmax = 1300.0
+        if hasattr(slider_max, "valmax") and target_vmax > slider_max.valmax:
+            slider_max.valmax = target_vmax
+        if hasattr(slider_max, "valmin") and target_vmax < slider_max.valmin:
+            slider_max.valmin = target_vmax
+        slider_max.set_val(target_vmax)
+
+        try:
+            txt_max.set_val(f"{target_vmax:.0f}")
+        except Exception:
+            pass
+
+        fig.canvas.draw_idle()
+
+    btn_preset1.on_clicked(_apply_preset1)
+    btn_rect = shift_rect(btn_rect)  # move rectangle for stacking
+
+    # --- Preset 2 ---
+    ax_preset2 = plt.axes(btn_rect)
+    btn_preset2 = Button(ax_preset2, 'Preset 2')
+
+    def _apply_preset2(_evt=None):
+        # sigma → 1.7 and smooth ON
+        slider_sigma.set_val(1.7)
+        _smooth["on"] = True
+        try:
+            btn_smooth.label.set_text('smooth on')
+        except Exception:
+            pass
+
+        # AGGRESSIVE flatten ON with sigma_bg=50 (override slider)
+        sigma_bg = 5.0
+        aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
+        aggr_state["computed_sigma"] = sigma_bg
+        _apply_flatten_aggressive(True)  # will use cached cube
+
+        target_vmax = 1300.0
+        if hasattr(slider_max, "valmax") and target_vmax > slider_max.valmax:
+            slider_max.valmax = target_vmax
+        if hasattr(slider_max, "valmin") and target_vmax < slider_max.valmin:
+            slider_max.valmin = target_vmax
+        slider_max.set_val(target_vmax)
+
+        try:
+            txt_max.set_val(f"{target_vmax:.0f}")
+        except Exception:
+            pass
+
+        fig.canvas.draw_idle()
+
+    btn_preset2.on_clicked(_apply_preset2)
+    btn_rect = shift_rect(btn_rect)
+
+    # ----------------    Radio Buttons   ----------------
+    colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis',
+                 'gray', 'hot', 'jet', 'bone', 'cool', 'spring', 'summer', 'autumn', 'winter']
+    radio_ax = plt.axes((btn_rect[0], btn_rect[1]-0.2, btn_rect[2], 0.2), facecolor='lightgray')  # x, y, width, height
+    radio = RadioButtons(radio_ax, colormaps, active=0)
+    # 3. Apply default colormap initially
+    im_xy.set_cmap('jet')
+    if Nz > 1:
+        im_xz.set_cmap('jet')
+        im_yz.set_cmap('jet')
+
+    # 4. Callback to update colormap
+    def change_colormap(label):
+        im_xy.set_cmap(label)
+        if Nz > 1:
+            im_xz.set_cmap(label)
+            im_yz.set_cmap(label)
+        fig.canvas.draw_idle()
+    radio.on_clicked(change_colormap)
+    btn_rect = shift_rect(btn_rect,dy=-0.25)
 
     # ----------------    Arrow buttons    ----------------
 
     NUDGE_STEP = 0.02  # move by 2% of figure per click
-
     # Place the arrows at the bottom-left control strip
-    ax_up = plt.axes([0.87, 0.1, 0.02, 0.04])
-    ax_left = plt.axes([0.85, 0.06, 0.02, 0.04])
-    ax_down = plt.axes([0.87, 0.02, 0.02, 0.04])
-    ax_right = plt.axes([0.89, 0.06, 0.02, 0.04])
+    ax_up = plt.axes((btn_rect[0]+0.015, btn_rect[1],0.015, 0.03))
+    ax_left = plt.axes((btn_rect[0], btn_rect[1]-0.03,0.015, 0.03))
+    ax_down = plt.axes((btn_rect[0]+0.015, btn_rect[1]-0.06,0.015, 0.03))
+    ax_right = plt.axes((btn_rect[0]+0.03, btn_rect[1]-0.03, 0.015, 0.03))
 
     btn_up = Button(ax_up, '↑')
     btn_left = Button(ax_left, '←')
