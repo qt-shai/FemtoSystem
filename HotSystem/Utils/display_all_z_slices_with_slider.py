@@ -351,8 +351,28 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     slider_sigma_bg = Slider(ax_sigma_bg, 'σ_bg', 5, 120, valinit=20, valstep=1)
 
     def _on_sigma_bg_change(val):
-        aggr_state["cube"] = None  # force recompute on next toggle/preset
+        # invalidate cache
+        aggr_state["cube"] = None
         aggr_state["computed_sigma"] = None
+
+        # if flatten++ is currently ON, recompute and refresh the view now
+        if aggr_state.get("on", False):
+            sigma_bg = float(val)
+            aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
+            aggr_state["computed_sigma"] = sigma_bg
+
+            C = aggr_state["cube"]
+            I_view = np.log10(C + EPS) if log_scale else C  # keep scale logic
+            # push updated data to plots (do NOT touch clim)
+            im_xy.set_data(_smooth2d(I_view[z_idx]))
+            if Nz > 1:
+                im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
+                im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
+            try:
+                btn_flat_aggr.label.set_text(f"flatten++ on (σ={sigma_bg:.0f})")
+            except Exception:
+                pass
+            fig.canvas.draw_idle()
 
     slider_sigma_bg.on_changed(_on_sigma_bg_change)
 
@@ -778,18 +798,19 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     btn_preset1 = Button(ax_preset1, 'Preset 1')
 
     def _apply_preset1(_evt=None):
-        # sigma → 1.7 and smooth ON
-        slider_sigma.set_val(1.7)
+        slider_sigma.set_val(0.8)
         _smooth["on"] = True
         try:
             btn_smooth.label.set_text('smooth on')
         except Exception:
             pass
 
-        # flatten ON
-        _apply_flatten(True)
+        # AGGRESSIVE flatten ON with sigma_bg=50 (override slider)
+        sigma_bg = 15.0
+        _apply_flatten_aggressive(True)
+        _on_sigma_bg_change(sigma_bg)
 
-        target_vmax = 1300.0
+        target_vmax = 1500.0
         if hasattr(slider_max, "valmax") and target_vmax > slider_max.valmax:
             slider_max.valmax = target_vmax
         if hasattr(slider_max, "valmin") and target_vmax < slider_max.valmin:
@@ -800,6 +821,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             txt_max.set_val(f"{target_vmax:.0f}")
         except Exception:
             pass
+        s_plot_h.set_val(350)  # triggers _apply_plot_layout_h via on_changed
+        _nudge(0.15, -0.3)
 
         fig.canvas.draw_idle()
 
@@ -821,11 +844,10 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         # AGGRESSIVE flatten ON with sigma_bg=50 (override slider)
         sigma_bg = 5.0
-        aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
-        aggr_state["computed_sigma"] = sigma_bg
-        _apply_flatten_aggressive(True)  # will use cached cube
+        _apply_flatten_aggressive(True)
+        _on_sigma_bg_change(sigma_bg)
 
-        target_vmax = 1300.0
+        target_vmax = 4000.0
         if hasattr(slider_max, "valmax") and target_vmax > slider_max.valmax:
             slider_max.valmax = target_vmax
         if hasattr(slider_max, "valmin") and target_vmax < slider_max.valmin:
