@@ -23,8 +23,8 @@ class GUIKeysight33500B:
         self.instrument = instrument
         # self.volts_per_um = -2e-6
         self.volts_per_um = -8000e-6
-        self.base1=0.325 # 0.3248
-        self.base2=0.147 # 0.1516
+        self.base1=-0.095
+        self.base2=0.582
         self.xy_step = 0.002
         self.kx_ratio = 3.3
         self.ky_ratio = -0.3
@@ -111,7 +111,7 @@ class GUIKeysight33500B:
             )
 
     def create_waveform_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=150):
+        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=180):
             dpg.add_text("Waveform")
             dpg.add_combo(["SINE", "SQUARE", "TRIANGLE", "RAMP", "NOISE"], default_value="SINE",
                           tag=f"WaveformType_{self.unique_id}", width=100)
@@ -121,7 +121,7 @@ class GUIKeysight33500B:
             with dpg.group(horizontal=False):
                 dpg.add_button(label="Get  Params",callback = self.btn_get_current_parameters)
                 dpg.add_input_text(tag=f"CurrentParams_{self.unique_id}",multiline = True, readonly = True,
-                                   width = 250, height = 135)
+                                   width = 250, height = 200)
             self.create_offset_controls(self.red_button_theme)
 
     def create_frequency_controls(self, theme):

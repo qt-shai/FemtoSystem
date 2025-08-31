@@ -2159,10 +2159,22 @@ class CommandDispatcher:
         self.handle_toggle_sc(reverse=True)
 
     def handle_stop_scan(self, arg):
-        """Stop OPX scan."""
-        p=self.get_parent()
-        p.opx.btnStop()
-        print("Scan stopped.")
+        """Stop scan.
+        - 'stp' / 'stop'           -> normal stop (restore at end)
+        - 'stp scan' / 'stop scan' -> stop and KEEP current galvo/stage (no restore)
+        """
+        try:
+            p = self.get_parent()
+            keep = str(arg or "").strip().lower() == "scan"
+            if keep:
+                p.opx.stopScanNoRestore = True
+            p.opx.btnStop() # stop OPX/QUA job if running
+            if keep:
+                print("Scan stopped. Keeping current position and galvo voltages (no restore).")
+            else:
+                print("Stopped.")
+        except Exception:
+            pass
 
     def handle_set_angle(self, arg):
         """Set HWP angle and wait until the hardware reaches it."""
@@ -3689,7 +3701,7 @@ class CommandDispatcher:
           kabs 1.2,2.3 v
           kabs 0.5,0.8 u?          # QUERY ONLY: print voltages for 0.5um, 0.8um (no apply)
           kabs 1.2,2.3 v?          # QUERY ONLY: echo voltages (no apply)
-
+          kabs ?                   # QUERY ONLY: print current CH1/CH2 voltages (no apply)
         """
         import re
 
@@ -3708,9 +3720,18 @@ class CommandDispatcher:
         if query_mode:
             arg = arg[:m_q.start()].strip()  # strip the '?'-suffix before parsing numbers
 
-        # 1) Extract all (number, optional-unit) pairs
-        #    Accept commas or spaces as separators.
+        # 1) Extract all (number, optional-unit) pairs (commas or spaces as separators)
         parts = re.findall(r'([+-]?\d*\.?\d+)(?:\s*(u|um|v))?', arg, re.IGNORECASE)
+
+        # --- Special case: plain "kabs ?" (no numbers) -> read & print current voltages ---
+        if query_mode and len(parts) == 0:
+            try:
+                v1 = float(gui.dev.get_current_voltage(1))
+                v2 = float(gui.dev.get_current_voltage(2))
+                print(f"kabs? -> CH1: {v1:.4f} V; CH2: {v2:.4f} V")
+            except Exception as e:
+                print(f"kabs? failed to read voltages: {e}")
+            return
 
         # —— default no-arg to zero for both channels ——
         if not parts:

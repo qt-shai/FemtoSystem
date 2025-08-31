@@ -1821,7 +1821,7 @@ class PyGuiOverlay(Layer):
 
             # Heuristics for padding/titlebar (kept small so it just works)
             PAD_X = 12
-            PAD_Y = 40  # title bar + top/bottom padding
+            PAD_Y = 50  # title bar + top/bottom padding
 
             # Resize the top child to fill remaining vertical space
             out_w = max(100, win_w - 2 * PAD_X)

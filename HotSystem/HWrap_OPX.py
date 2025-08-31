@@ -226,6 +226,7 @@ class GUI_OPX():
         self.singleStepTime_scan = 0.033  # [sec]
         self.stopScan = True
         self.scanFN = ""
+        self.stopScanNoRestore = False
 
         self.bEnableShuffle = True
         self.bEnableSimulate = False
@@ -10517,12 +10518,19 @@ class GUI_OPX():
                                               int(self.V_scan[2][i])])
             self.save_scan_data(Nx, Ny, Nz, slice_filename)
 
-        # back to start position
-        for i in self.positioner.channels:
-            self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
-        self.scan_get_current_pos(True)
+        keep = self.stopScanNoRestore
+        if not keep:
+            # back to start position
+            for i in self.positioner.channels:
+                self.positioner.MoveABSOLUTE(i, self.initial_scan_Location[i])
+            self.scan_get_current_pos(True)
+        else:
+            print("Leaving stage where they are (per 'stp scan').")
 
-        # save data to csv
+        # reset flags so next scan behaves normally
+        self.stopScanNoRestore = False
+
+    # save data to csv
         self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1], min_position_x_scan=self.V_scan[0][0],
                                start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))
@@ -11440,18 +11448,23 @@ class GUI_OPX():
                 self.save_scan_data(Nx, Ny, Nz, slice_fn)
 
         finally:
-            # Restore galvos to baselines
-            try:
-                dev.set_offset(base_off_x, channel=1)
-                dev.set_offset(base_off_y, channel=2)
-                gui.btn_get_current_parameters()
-            except Exception as e:
-                print(f"WARNING: Failed to restore galvo offsets: {e}")
+            keep = self.stopScanNoRestore
+            if not keep:
+                try: # Restore galvos to baselines
+                    dev.set_offset(base_off_x, channel=1)
+                    dev.set_offset(base_off_y, channel=2)
+                    gui.btn_get_current_parameters()
+                    # Return stage to initial XYZ
+                    for ch in self.positioner.channels:
+                        self.positioner.MoveABSOLUTE(ch, self.initial_scan_Location[ch])
+                    self.scan_get_current_pos(True)
+                except Exception as e:
+                    print(f"WARNING: Failed to restore galvo offsets: {e}")
+            else:
+                print("Leaving galvo offsets and stage where they are (per 'stp scan').")
 
-            # Return stage to initial XYZ
-            for ch in self.positioner.channels:
-                self.positioner.MoveABSOLUTE(ch, self.initial_scan_Location[ch])
-            self.scan_get_current_pos(True)
+            # reset flags so next scan behaves normally
+            self.stopScanNoRestore = False
 
         # --- Final save & params ---
         self.prepare_scan_data(
