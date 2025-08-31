@@ -2740,45 +2740,265 @@ class CommandDispatcher:
         except Exception as e:
             print(f"Failed to process 'nextrun': {e}")
 
-    def handle_help(self, arg):
-        """Show help for commands in a larger window with search."""
-        # 1) Build the full help text
-        lines = []
-        for k, fn in self.handlers.items():
-            doc = fn.__doc__.strip().splitlines()[0] if fn.__doc__ else ""
-            lines.append(f"{k:<12} - {doc}")
-        full_help = "\n".join(lines)
+    def handle_help(self, arg: str | None = None):
+        """Show help with searchable command list; 'help <cmd>' opens that command."""
+        # Local imports to avoid module-level deps if you embed this function somewhere else
+        import inspect
+        import textwrap
+        import difflib
+        import functools
+        import dearpygui.dearpygui as dpg
 
-        # 2) Remove any existing help window
+        # ---------- helpers ----------
+        def _unwrap_callable(fn):
+            """
+            Return (base, meta) where base is the best callable for signature/doc extraction.
+            meta includes binding/partial info.
+            """
+            meta = {"bound_to": None, "is_partial": False, "partial_args": (), "partial_kwargs": {}}
+
+            # Bound method?
+            if hasattr(fn, "__self__") and fn.__self__ is not None:
+                meta["bound_to"] = fn.__self__.__class__.__name__
+                base = getattr(fn, "__func__", fn)
+            else:
+                base = fn
+
+            # functools.partial ?
+            if isinstance(base, functools.partial):
+                meta["is_partial"] = True
+                meta["partial_args"] = base.args
+                meta["partial_kwargs"] = base.keywords or {}
+                base = base.func
+
+            # Unwrap decorators (respects __wrapped__ if wraps() was used)
+            try:
+                base = inspect.unwrap(base)
+            except Exception:
+                pass
+
+            return base, meta
+
+        def _safe_signature(obj):
+            import inspect
+            try:
+                return inspect.signature(obj)
+            except Exception:
+                pass
+            call = getattr(obj, "__call__", None)
+            if call:
+                try:
+                    return inspect.signature(call)
+                except Exception:
+                    pass
+            return None
+
+        def _get_doc(obj):
+            import inspect
+            doc = inspect.getdoc(obj)  # dedented or None
+            if not doc:
+                doc = getattr(obj, "HELP", None) or getattr(obj, "help", None)
+            return (doc or "").rstrip()
+
+        def _first_line(text: str) -> str:
+            return text.strip().splitlines()[0] if text else ""
+
+        def _aliases_for(fn_base):
+            """Group all handler keys that point to the same underlying callable."""
+            # Build once and cache map: id(base) -> [aliases]
+            if not hasattr(_aliases_for, "_cache"):
+                mapping = {}
+                for k, fn in self.handlers.items():
+                    b, _ = _unwrap_callable(fn)
+                    mapping.setdefault(id(b), []).append(k)
+                _aliases_for._cache = mapping
+            return sorted(_aliases_for._cache.get(id(fn_base), []), key=str.lower)
+
+        def _build_index():
+            idx = []
+            for k, fn in self.handlers.items():
+                base, _ = _unwrap_callable(fn)
+                idx.append((k, _first_line(_get_doc(base))))
+            idx.sort(key=lambda t: t[0].lower())
+            return idx
+
+        def _usage_from_signature(cmd: str, sig):
+            if not sig:
+                return None
+            import inspect as _insp
+            params = []
+            for p in sig.parameters.values():
+                if p.name in ("self", "cls"):
+                    continue
+                if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+                    params.append(f"[{p.name}]")
+                elif p.default is not _insp._empty:
+                    params.append(f"[{p.name}=…]")
+                else:
+                    params.append(f"<{p.name}>")
+            return f"{cmd} {' '.join(params)}".rstrip()
+
+        def _format_detail(cmd: str, fn) -> str:
+            base, meta = _unwrap_callable(fn)
+            sig = _safe_signature(base)
+            doc = _get_doc(base)
+
+            lines = []
+            # Header
+            lines.append(f"{cmd}")
+            lines.append("=" * max(4, len(cmd)))
+            # Signature and usage
+            if sig:
+                lines.append(f"Signature: {cmd}{sig}")
+                usage = _usage_from_signature(cmd, sig)
+                if usage:
+                    lines.append(f"Usage: {usage}")
+            else:
+                lines.append("Signature: (unavailable)")
+
+            # Owner/Module/Qualname
+            owner = meta["bound_to"]
+            mod = getattr(base, "__module__", "(unknown)")
+            qn = getattr(base, "__qualname__", getattr(base, "__name__", "(unknown)"))
+            if owner:
+                lines.append(f"Owner: {owner}")
+            lines.append(f"Module: {mod}")
+            lines.append(f"Object: {qn}")
+
+            # Partial info
+            if meta["is_partial"]:
+                lines.append(f"Partial: args={meta['partial_args']}, kwargs={meta['partial_kwargs']}")
+
+            # Aliases
+            aliases = _aliases_for(base)
+            if aliases:
+                # Put the focused cmd first, then the rest
+                ordered = [cmd] + [a for a in aliases if a != cmd]
+                lines.append("Aliases: " + ", ".join(ordered))
+
+            # Docstring
+            lines.append("")
+            lines.append(doc if doc else "(no documentation provided)")
+            return "\n".join(lines)
+
+        def _format_summary(index):
+            width = max((len(k) for k, _ in index), default=12)
+            out = []
+            for k, doc in index:
+                out.append(f"{k.ljust(width)}  -  {doc}")
+            return "\n".join(out)
+
+        # ---------- state ----------
+        index = _build_index()
+        full_help_text = _format_summary(index)
+
+        # ---------- destroy prior window ----------
         if dpg.does_item_exist("help_window"):
             dpg.delete_item("help_window")
 
-        # 3) Create the help window
-        with dpg.window(tag="help_window", label="Command Help", width=600, height=400, autosize=False):
-            # --- Search bar & button in a horizontal group ---
+        # ---------- callbacks (close over index) ----------
+        def _help_set_list(items):
+            dpg.configure_item("help_cmd_list", items=items)
+            if items:
+                dpg.set_value("help_cmd_list", items[0])
+
+        def _show_detail_for(cmd: str):
+            fn = self.handlers.get(cmd)
+            if not fn:
+                dpg.set_value("help_text", f"Command '{cmd}' not found.")
+                return
+            dpg.set_value("help_text", _format_detail(cmd, fn))
+
+        def _on_select(sender, app_data, user_data):
+            _show_detail_for(app_data)
+
+        def _search(sender=None, app_data=None, user_data=None):
+            q = (dpg.get_value("help_search_input") or "").strip().lower()
+            if not q:
+                items = [k for k, _ in index]
+                _help_set_list(items)
+                dpg.set_value("help_text", full_help_text)
+                return
+            # Filter by substring in command or first-line doc
+            filtered = [k for (k, doc) in index if (q in k.lower() or q in (doc or "").lower())]
+            if not filtered:
+                # Fuzzy suggestions
+                candidates = [k for k, _ in index]
+                fuzzy = difflib.get_close_matches(q, candidates, n=8, cutoff=0.5)
+                if fuzzy:
+                    _help_set_list(fuzzy)
+                    _show_detail_for(fuzzy[0])
+                else:
+                    _help_set_list([])
+                    dpg.set_value("help_text", f"No matches for '{q}'.")
+                return
+            _help_set_list(filtered)
+            _show_detail_for(filtered[0])
+
+        def _copy_detail(sender=None, app_data=None, user_data=None):
+            text = dpg.get_value("help_text") or ""
+            try:
+                dpg.set_clipboard_text(text)
+            except Exception:
+                pass
+
+        # ---------- UI ----------
+        with dpg.window(tag="help_window", label="Command Help", width=820, height=520, autosize=False):
+            # Top bar
             with dpg.group(horizontal=True):
                 dpg.add_input_text(
                     tag="help_search_input",
-                    label="",
-                    width=200,
-                    hint="Type part of a command and press Enter",
+                    hint="Type to search… (Enter)",
+                    width=300,
                     on_enter=True,
-                    callback=lambda s, a, u: self._help_search()
+                    callback=_search
                 )
-                dpg.add_button(
-                    label="Lookup",
-                    callback=lambda s, a, u: self._help_search()
-                )
+                dpg.add_button(label="Lookup", callback=_search)
+                dpg.add_button(label="Copy", callback=_copy_detail)
+            # Split panes
+            with dpg.group(horizontal=True):
+                # Left: command list
+                with dpg.child_window(width=240, height=-1, border=True):
+                    dpg.add_text("Commands")
+                    dpg.add_listbox(
+                        tag="help_cmd_list",
+                        items=[k for k, _ in index],
+                        num_items=16,
+                        callback=_on_select,
+                        width=-1
+                    )
+                # Right: detail / text area
+                with dpg.child_window(width=-1, height=-1, border=True):
+                    dpg.add_input_text(
+                        tag="help_text",
+                        default_value=full_help_text,
+                        multiline=True,
+                        readonly=True,
+                        width=-1,
+                        height=-1
+                    )
 
-            # --- Main help text area ---
-            dpg.add_input_text(
-                tag="help_text",
-                default_value=full_help,
-                multiline=True,
-                readonly=True,
-                width=-1,
-                height=-1
-            )
+        # ---------- initial selection logic ----------
+        initial_cmd = None
+        if arg:
+            q = str(arg).strip()
+            if q in self.handlers:
+                initial_cmd = q
+            else:
+                candidates = list(self.handlers.keys())
+                match = difflib.get_close_matches(q, candidates, n=1, cutoff=0.6)
+                if match:
+                    initial_cmd = match[0]
+
+        if initial_cmd:
+            items = [k for k, _ in index]
+            if initial_cmd in items:
+                items.remove(initial_cmd)
+                items.insert(0, initial_cmd)
+            _help_set_list(items)
+            _show_detail_for(initial_cmd)
+        else:
+            _help_set_list([k for k, _ in index])
 
     def _help_search(self):
         """Callback for help lookup."""
@@ -3459,23 +3679,37 @@ class CommandDispatcher:
         """
         Set absolute AWG offsets based on either micron positions or direct voltages.
 
-        Usage examples:
-          kabs            # shorthand for kabs 0,0 → both channels to their baselines
-          kabs 1.67       # micron mode → CH1
-          kabs 1.67 2.45  # micron mode → CH1 & CH2
+        Usage:
+          kabs                     # shorthand for kabs 0,0 -> both channels to baselines
+          kabs 1.67                # micron mode -> CH1
+          kabs 1.67 2.45           # micron mode -> CH1 & CH2
           kabs 1.67u,2.45um
-          kabs 1.2v       # voltage mode → CH1 = 1.2 V
+          kabs 1.2v                # voltage mode -> CH1 = 1.2 V
           kabs 1.2v 2.3v
           kabs 1.2,2.3 v
-        Calibration: 0.128 V → 15 µm.
+          kabs 0.5,0.8 u?          # QUERY ONLY: print voltages for 0.5um, 0.8um (no apply)
+          kabs 1.2,2.3 v?          # QUERY ONLY: echo voltages (no apply)
+
         """
+        import re
+
         parent = self.get_parent()
         gui = getattr(parent, "keysight_gui", None)
         if not gui:
             print("No Keysight AWG GUI is active.")
             return
 
+        arg = (arg or "").strip()
+
+        # --- Detect trailing query flag like 'u?' / 'um?' / 'v?' / '?' ---
+        m_q = re.search(r'(?:\s*(u|um|v))?\s*\?$', arg, re.IGNORECASE)
+        query_mode = bool(m_q)
+        query_unit = (m_q.group(1) or "").lower() if query_mode else None
+        if query_mode:
+            arg = arg[:m_q.start()].strip()  # strip the '?'-suffix before parsing numbers
+
         # 1) Extract all (number, optional-unit) pairs
+        #    Accept commas or spaces as separators.
         parts = re.findall(r'([+-]?\d*\.?\d+)(?:\s*(u|um|v))?', arg, re.IGNORECASE)
 
         # —— default no-arg to zero for both channels ——
@@ -3488,20 +3722,25 @@ class CommandDispatcher:
             vals.append(float(num))
             unts.append((unit or "").lower() if unit else None)
 
-        # 3) Mode: if any 'v' and *no* 'u'/'um', treat *all* as voltages
-        voltage_mode = any(u == 'v' for u in unts) and not any(u in ('u', 'um') for u in unts)
+        # 3) Determine mode
+        if query_unit in ("v",):
+            voltage_mode = True
+        elif query_unit in ("u", "um"):
+            voltage_mode = False
+        else:
+            # If any 'v' and no 'u'/'um' found in tokens -> voltage mode
+            voltage_mode = any(u == 'v' for u in unts) and not any(u in ('u', 'um') for u in unts)
 
-        # 4) Baselines (define the origin X=Y=0 at these voltages)
+        # 4) Baselines and calibration
         base1 = getattr(gui, "base1", 0.0)
         base2 = getattr(gui, "base2", 0.0)
-
         volts_per_um = gui.volts_per_um
 
-        # 5) Compute offsets to apply
+        # 5) Compute planned offsets (absolute voltages to send)
         offsets = []
         for idx, (val, unit) in enumerate(zip(vals, unts)):
             if voltage_mode:
-                offsets.append(val)  # absolute voltage
+                offsets.append(val)  # absolute voltage (already volts)
             else:
                 baseline = base1 if idx == 0 else base2
                 offsets.append(baseline + val * volts_per_um)
@@ -3509,6 +3748,15 @@ class CommandDispatcher:
         # If only one value was given, leave CH2 untouched
         if len(offsets) == 1:
             offsets.append(None)
+
+        # --- QUERY MODE: just print the planned voltages and return ---
+        if query_mode:
+            ch1 = "N/A" if offsets[0] is None else f"{offsets[0]:.4f} V"
+            ch2 = "N/A" if offsets[1] is None else f"{offsets[1]:.4f} V"
+            unit_lbl = "volts" if voltage_mode else "microns"
+            print(
+                f"kabs? ({unit_lbl}) -> CH1: {ch1}; CH2: {ch2}  [base1={base1:.4f}, base2={base2:.4f}, V/um={volts_per_um:.6f}]")
+            return
 
         # 6) Apply offsets
         try:
@@ -3523,7 +3771,7 @@ class CommandDispatcher:
             v1 = float(gui.dev.get_current_voltage(1))
             v2 = float(gui.dev.get_current_voltage(2))
 
-            # 8) Compute XY (µm) relative to baselines using the 2-basis ([1,kx], [1,ky])
+            # 8) Compute XY (um) relative to baselines using the 2-basis ([1,kx], [1,ky])
             kx_ratio = getattr(gui, "kx_ratio", 3.3)
             ky_ratio = getattr(gui, "ky_ratio", -0.3)
 
@@ -3534,15 +3782,17 @@ class CommandDispatcher:
             if abs(denom) < 1e-12:
                 xy_msg = " | Pos: X=?, Y=? (ill-conditioned ratios)"
             else:
-                # Solve: [dv1, dv2]^T = α*[1, kx]^T + β*[1, ky]^T
+                # Solve: [dv1, dv2]^T = alpha*[1, kx]^T + beta*[1, ky]^T
                 alpha_x_volts = (dv2 - dv1 * ky_ratio) / denom
                 beta_y_volts = (dv2 - dv1 * kx_ratio) / (ky_ratio - kx_ratio)
                 x_um = alpha_x_volts / volts_per_um
                 y_um = beta_y_volts / volts_per_um
-                xy_msg = f" | Pos: X={x_um:.3f} µm, Y={y_um:.3f} µm"
+                xy_msg = f" | Pos: X={x_um:.3f} um, Y={y_um:.3f} um"
 
-            msg = f"kabs: CH1 -> {v1:.4f} V; CH2 -> {v2:.4f} V" + xy_msg + \
-                  f" [base1={base1:.4f}, base2={base2:.4f}, kx={kx_ratio:.3f}, ky={ky_ratio:.3f}]"
+            msg = (
+                    f"kabs: CH1 -> {v1:.4f} V; CH2 -> {v2:.4f} V" + xy_msg +
+                    f" [base1={base1:.4f}, base2={base2:.4f}, kx={kx_ratio:.3f}, ky={ky_ratio:.3f}]"
+            )
             print(msg)
 
         except Exception as e:

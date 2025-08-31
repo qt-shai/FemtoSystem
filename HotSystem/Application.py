@@ -667,10 +667,17 @@ class PyGuiOverlay(Layer):
         pos = [int(0.0*self.Monitor_width),int(0.0*self.Monitor_height)]     # position relative to actual screen size
         size = [int(1.0*self.Monitor_width),int(1*self.Monitor_height)]   # new window width,height
 
-        with dpg.font_registry():
-            default_font = dpg.add_font("C:\\Windows\\Fonts\\Calibri.ttf", int(30*fontScale)+1)
+        ARROW_CHARS = [0x2190, 0x2191, 0x2192, 0x2193, 0x2194, 0x21A9, 0x21AA, 0x27A1]  # ← ↑ → ↓ ↔ ↩ ↪ ➡
+        EXTRA_CHARS = ARROW_CHARS + [0x00B5, 0x03BC, 0x00B0, 0x00D7, 0x00B1, 0x2264, 0x2265]  # µ μ ° × ± ≤ ≥
 
-        dpg.bind_font(default_font)
+        with dpg.font_registry():
+            # default_font = dpg.add_font("C:\\Windows\\Fonts\\Calibri.ttf", int(30*fontScale)+1)
+            # default_font = dpg.add_font("C:\\Windows\\Fonts\\arial.ttf", int(30 * fontScale) + 1)
+            font_path = "C:\\Windows\\Fonts\\arial.ttf"
+            with dpg.font(font_path, int(30 * fontScale) + 1,tag="app_font"):
+                dpg.add_font_chars(EXTRA_CHARS)
+
+        dpg.bind_font("app_font")
 
         self.AddAndBindFonts()
 
@@ -1744,27 +1751,93 @@ class PyGuiOverlay(Layer):
             pass
         with dpg.item_handler_registry(tag="right_region_handler"):
             pass
-    #Can be used after fixes later
+        #Can be used after fixes later
         with dpg.window(label="Viewport Window", tag="Viewport_Window", no_resize=True, no_move=True,width = self.viewport_w, height = self.viewport_h):
             dpg.add_drawlist(tag="full_drawlist", width=800, height=600)
         dpg.set_primary_window("Viewport_Window", True)
         # dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
 
+    # def create_console_gui(self):
+    #     """Creates a console GUI window for displaying logs and user inputs."""
+    #     with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
+    #         # Console log display
+    #         with dpg.child_window(tag="console_output", autosize_x=True, height=120):
+    #             dpg.add_text("Console initialized.", tag="console_log", wrap=1500)
+    #         # Input field for sending commands or messages
+    #         with dpg.group(horizontal=True):
+    #             dpg.add_input_text(label="", tag="cmd_input", hint="Enter command", width=650,
+    #                                on_enter=True, callback=lambda s, a, u: self.handle_cmd_input())
+    #             dpg.add_input_text(label="", tag="console_input", width=20)
+    #             dpg.add_button(label="S", callback=self.send_console_input)
+    #             dpg.add_button(label="C", callback=self.clear_console)
+    #             dpg.add_combo(items=[], tag="command_history", width=40, callback=self.fill_console_input)
+    #             dpg.add_button(label="Sv", callback=self.save_logs)
+    #
+    #     # --- resize handler on the window ---
+    #     if not dpg.does_item_exist("console_resize_handlers"):
+    #         with dpg.item_handler_registry(tag="console_resize_handlers"):
+    #             dpg.add_item_resize_handler(callback=self._on_console_resize)
+    #     dpg.bind_item_handler_registry("console_window", "console_resize_handlers")
+    #
+    #     # Do an initial layout pass
+    #     self._on_console_resize(None, None, None)
+
     def create_console_gui(self):
         """Creates a console GUI window for displaying logs and user inputs."""
-        with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
-            # Console log display
-            with dpg.child_window(tag="console_output", autosize_x=True, height=120):
+        with dpg.window(tag="console_window", label="Console", pos=[20, 20],
+                        width=600, height=420):  # ensure the window itself is resizable
+            # Top: log area (we'll resize it in the handler)
+            with dpg.child_window(tag="console_output", width=-1, height=200, border=True):
                 dpg.add_text("Console initialized.", tag="console_log", wrap=1500)
-            # Input field for sending commands or messages
-            with dpg.group(horizontal=True):
-                dpg.add_input_text(label="", tag="cmd_input", hint="Enter command", width=650,
-                                   on_enter=True, callback=lambda s, a, u: self.handle_cmd_input())
+
+            # Bottom: input row (fixed-height row)
+            with dpg.group(horizontal=True, tag="console_bottom"):
+                dpg.add_input_text(label="", tag="cmd_input", hint="Enter command",
+                                   width=400, on_enter=True,
+                                   callback=lambda s, a, u: self.handle_cmd_input())
                 dpg.add_input_text(label="", tag="console_input", width=20)
-                dpg.add_button(label="S", callback=self.send_console_input)
-                dpg.add_button(label="C", callback=self.clear_console)
-                dpg.add_combo(items=[], tag="command_history", width=40, callback=self.fill_console_input)
-                dpg.add_button(label="Sv", callback=self.save_logs)
+                dpg.add_button(label="S", tag="btn_send_console", callback=self.send_console_input)
+                dpg.add_button(label="C", tag="btn_clear_console", callback=self.clear_console)
+                dpg.add_combo(items=[], tag="command_history", width=60,
+                              callback=self.fill_console_input)
+                dpg.add_button(label="Sv", tag="btn_save_logs", callback=self.save_logs)
+
+        # Attach a resize handler **to the window**
+        if not dpg.does_item_exist("console_resize_handlers"):
+            with dpg.item_handler_registry(tag="console_resize_handlers"):
+                dpg.add_item_resize_handler(callback=self._on_console_resize)
+        dpg.bind_item_handler_registry("console_window", "console_resize_handlers")
+
+        # First layout pass
+        self._on_console_resize(None, None, None)
+
+    def _on_console_resize(self, sender, app_data, user_data):
+        """Keep the console_output filling the window and stretch cmd_input."""
+        try:
+            # Window inner size (content region)
+            win_w, win_h = dpg.get_item_rect_size("console_window")
+            # Height of the bottom row
+            bottom_w, bottom_h = dpg.get_item_rect_size("console_bottom")
+
+            # Heuristics for padding/titlebar (kept small so it just works)
+            PAD_X = 12
+            PAD_Y = 40  # title bar + top/bottom padding
+
+            # Resize the top child to fill remaining vertical space
+            out_w = max(100, win_w - 2 * PAD_X)
+            out_h = max(80, win_h - bottom_h - PAD_Y)
+            dpg.configure_item("console_output", width=out_w, height=out_h)
+
+            # Make the command input expand to available horizontal space
+            spacing = 6
+            fixed_tags = ["console_input", "btn_send_console", "btn_clear_console",
+                          "command_history", "btn_save_logs"]
+            fixed_w = sum(max(0, dpg.get_item_width(t)) for t in fixed_tags) + spacing * (len(fixed_tags) + 1)
+            cmd_w = max(120, out_w - fixed_w)
+            dpg.configure_item("cmd_input", width=cmd_w)
+
+        except Exception:
+            pass
 
     def clear_console(self):
         """Clears the console log."""
