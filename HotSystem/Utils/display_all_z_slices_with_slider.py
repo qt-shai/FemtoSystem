@@ -1,8 +1,9 @@
 import json
 
 import matplotlib
+# matplotlib.use('QtAgg')
 matplotlib.use('TkAgg')
-
+import json, os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -14,8 +15,8 @@ import os, re
 import sys
 import win32com.client
 import pythoncom
-from PIL import ImageGrab, Image
-
+from PIL import ImageGrab, Image, ImageDraw
+import tempfile
 import io
 from PIL import Image
 import win32clipboard
@@ -38,6 +39,38 @@ except ImportError:
     def open_file_dialog(filetypes):
         root = Tk(); root.withdraw()
         return filedialog.askopenfilename(filetypes=filetypes)
+
+
+# ------- Map overlay config -------
+MAP_IMAGE_PATH = "map.jpg"     # path to your site map image
+MAP_MODE = "corner"  # "center" or "corner"
+MAP_CALIB_PATH = "map_calibration.json"
+
+# If MAP_MODE == "center": we assume 0,0 is the center of the JPEG.
+# If MAP_MODE == "corner": define world coords for the top-left pixel (Xmin_um, Ymax_um)
+# and pixels-per-micron. +X to the right, +Y down (image convention).
+MAP_PX_PER_UM = 1.0            # pixels per micron (tune to your map scale)
+MAP_XMIN_UM = -1000.0          # used only when MAP_MODE == "corner"
+MAP_YMAX_UM =  1000.0          # used only when MAP_MODE == "corner"
+
+# Cross drawing params
+CROSS_SIZE_PX = 100             # half-size of cross arm in pixels
+CROSS_THICK_PX = 20             # line thickness
+CROSS_COLOR = (255, 0, 0)      # red
+RING_RADIUS_PX = 180          # NEW: circle radius in pixels
+RING_THICK_PX = 20           # NEW: circle outline thickness
+
+# ------- Preset parameters -------
+PRESET1_SIGMA = 0.1
+PRESET1_SIGMA_BG = 10.0
+PRESET1_VMAX = 13000.0
+PRESET1_PLOT_HEIGHT = 200
+PRESET1_NUDGE = (0.15, -0.3)
+PRESET1_FLIP_UD = False
+PRESET1_FLIP_LR = True
+
+OUTSIDE_MARGIN_PX = 50  # padding when cross falls outside map image
+
 
 def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, data=None):
     """
@@ -207,6 +240,18 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         out = np.apply_along_axis(lambda v: np.convolve(v, k, mode='valid'), 0, cpad)
         return out
 
+    # --- ADD: flip state + helper ---
+    flip_state = {"ud": False, "lr": False}
+
+    def _maybe_flip(a2d: np.ndarray) -> np.ndarray:
+        """Flip up/down and/or left/right for display if toggles are on."""
+        out = a2d
+        if flip_state.get("ud", False):
+            out = np.flipud(out)
+        if flip_state.get("lr", False):
+            out = np.fliplr(out)
+        return out
+
     # Keep a pristine copy (no log / no flatten)
     EPS = np.finfo(float).eps
     I_raw_cube = I_.copy()  # shape: (Nz, Ny, Nx)
@@ -268,7 +313,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     y_idx = Ny // 2
     x_idx = Nx // 2
     im_xy = ax_xy.imshow(
-        _smooth2d(I_view[z_idx]), extent=extent_xy,
+        _maybe_flip(_smooth2d(I_view[z_idx])), extent=extent_xy,
         origin='lower', aspect='equal', vmin=minI, vmax=maxI
     )
     ax_xy.set_title(f"XY @ Z={Z_[z_idx]:.2f} µm")
@@ -361,10 +406,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
             aggr_state["computed_sigma"] = sigma_bg
 
+            # ⬇️ make this assignment update the shared buffer
+            nonlocal I_view
             C = aggr_state["cube"]
-            I_view = np.log10(C + EPS) if log_scale else C  # keep scale logic
+            I_view = np.log10(C + EPS) if log_scale else C
+
             # push updated data to plots (do NOT touch clim)
-            im_xy.set_data(_smooth2d(I_view[z_idx]))
+            im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
             if Nz > 1:
                 im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
                 im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
@@ -383,7 +431,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         def update_z(val):
             nonlocal z_idx
             z_idx = int(slider_z.val) - 1
-            im_xy.set_data(_smooth2d(I_view[z_idx]))
+            im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
             ax_xy.set_title(f"XY @ Z={Z_[z_idx]:.2f} µm")
             fig.canvas.draw_idle()
         slider_z.on_changed(update_z)
@@ -430,7 +478,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         # --- Re-plot XY ---
         im_list = []
-        im1 = axs[0].imshow(I_view[z_idx], extent=extent_xy, origin='lower', aspect='equal', cmap=cmap, vmin=vmin,
+        im1 = axs[0].imshow(_maybe_flip(I_view[z_idx]), extent=extent_xy, origin='lower', aspect='equal', cmap=cmap, vmin=vmin,
                             vmax=vmax)
         axs[0].set_title(ax_xy.get_title())
         axs[0].set_xlabel(ax_xy.get_xlabel())
@@ -545,6 +593,295 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     btn_addppt.on_clicked(handle_add2ppt)
     btn_rect = shift_rect(btn_rect)
 
+    # ----------------    Cal map Button (console + robust click capture)    ----------------
+    ax_calmap = plt.axes(btn_rect)
+    btn_calmap = Button(ax_calmap, 'Cal map')
+    btn_rect = shift_rect(btn_rect)
+
+    def _calibrate_map(_evt=None):
+        try:
+            base = Image.open(MAP_IMAGE_PATH).convert("RGB")
+        except Exception as e:
+            print(f"⚠️ map image not found/unreadable: {MAP_IMAGE_PATH} ({e})")
+            return
+
+        figC, axC = plt.subplots(1, 1, figsize=(7, 7))
+        # Keep image coordinates: origin at top-left, +X right, +Y down
+        H, W = base.size[1], base.size[0]
+        axC.imshow(base, origin='upper')
+        axC.set_xlim(0, W)
+        axC.set_ylim(H, 0)
+        axC.set_title("Calibration: LEFT-click TWO known points (P1 then P2).\n"
+                      "Tip: turn off pan/zoom in the toolbar. Press Esc to cancel.")
+        figC.canvas.draw_idle()
+
+        # Make sure toolbar isn't in pan/zoom mode
+        try:
+            mgr = plt.get_current_fig_manager()
+            tb = getattr(mgr, "toolbar", None)
+            if tb and getattr(tb, "mode", ""):
+                # clear any active mode
+                # if it's 'pan/zoom' toggle pan; if it's 'zoom rect' toggle zoom; otherwise try both
+                if "pan" in tb.mode:
+                    tb.pan()  # toggles off
+                elif "zoom" in tb.mode:
+                    tb.zoom()  # toggles off
+                else:
+                    try:
+                        tb.pan()
+                    except Exception:
+                        pass
+                    try:
+                        tb.zoom()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        clicks = []
+
+        def _on_click(ev):
+            if ev.inaxes is not axC: return
+            if ev.button != 1:       return  # left-click only
+            if ev.xdata is None or ev.ydata is None: return
+            clicks.append((ev.xdata, ev.ydata))
+            axC.plot(ev.xdata, ev.ydata, 'rx', markersize=10, mew=2)
+            figC.canvas.draw_idle()
+
+        cid = figC.canvas.mpl_connect('button_press_event', _on_click)
+
+        # Show non-blocking and wait until 2 clicks or window closed
+        plt.show(block=False)
+        try:
+            while plt.fignum_exists(figC.number) and len(clicks) < 2:
+                plt.pause(0.05)
+        except KeyboardInterrupt:
+            pass
+
+        figC.canvas.mpl_disconnect(cid)
+        plt.close(figC)
+
+        if len(clicks) < 2:
+            print("❌ Calibration aborted (need two clicks).")
+            return
+
+        (x1, y1), (x2, y2) = clicks[:2]
+        print(f"Clicked pixel coords: P1=({x1:.1f}, {y1:.1f}), P2=({x2:.1f}, {y2:.1f})")
+
+        # Ask for world coords in console
+        try:
+            X1 = _parse_float(input("Enter X1 (µm): "))
+            Y1 = _parse_float(input("Enter Y1 (µm): "))
+            X2 = _parse_float(input("Enter X2 (µm): "))
+            Y2 = _parse_float(input("Enter Y2 (µm): "))
+        except Exception as e:
+            print(f"❌ Invalid numeric input: {e}")
+            return
+
+        # compute per-axis scale (pixels per µm)
+        if (X2 - X1) == 0 or (Y1 - Y2) == 0:
+            print("❌ Degenerate inputs; need points with different X and Y.")
+            return
+
+        px_per_um_x = (x2 - x1) / (X2 - X1)
+        px_per_um_y = (y2 - y1) / (Y1 - Y2)  # Y increases downward in pixels
+
+        # compute world origin (top-left) from P1
+        xmin_um = X1 - (x1 / px_per_um_x)
+        ymax_um = Y1 + (y1 / px_per_um_y)
+
+        _save_map_calib("corner", px_per_um_x, px_per_um_y, xmin_um, ymax_um)
+
+        print(f"✅ Calibration solved:")
+        print(f"   px/µm_x = {px_per_um_x:.6f}, px/µm_y = {px_per_um_y:.6f}")
+        print(f"   xmin_um = {xmin_um:.3f}, ymax_um = {ymax_um:.3f}")
+
+    btn_calmap.on_clicked(_calibrate_map)
+
+    def _preview_map_cross(_evt=None):
+        """Open map.jpg and overlay a cross at the filename's Site(x,y) using current calibration.
+           If the cross would fall outside the image, expand the view so it's still visible.
+        """
+        try:
+            base = Image.open(MAP_IMAGE_PATH).convert("RGB")
+        except Exception as e:
+            print(f"⚠️ map image not found/unreadable: {MAP_IMAGE_PATH} ({e})")
+            return
+
+        # Parse coords from current filename
+        fname = os.path.basename(filepath) if filepath else ""
+        ctr = _parse_site_center_from_name(fname)
+        if not ctr:
+            print("❌ No Site(...) coordinates found in current filename.")
+            return
+        cx_um, cy_um, _cz_um = ctr
+
+        W, H = base.size
+        cal = _load_map_calib()
+
+        # Compute pixel position
+        mode = "corner"
+        if cal.get("mode", "").lower() == "corner":
+            px_per_um_x = cal["px_per_um_x"]
+            px_per_um_y = cal["px_per_um_y"]
+            xmin_um = cal["xmin_um"]
+            ymax_um = cal["ymax_um"]
+            px = (cx_um - xmin_um) * px_per_um_x
+            py = (ymax_um - cy_um) * px_per_um_y
+            mode = "corner(calibrated)"
+        else:
+            # fallback to configured params
+            if MAP_MODE.lower() == "center":
+                px = W / 2.0 + cx_um * MAP_PX_PER_UM
+                py = H / 2.0 - cy_um * MAP_PX_PER_UM
+                mode = "center(config)"
+            else:
+                px = (cx_um - MAP_XMIN_UM) * MAP_PX_PER_UM
+                py = (MAP_YMAX_UM - cy_um) * MAP_PX_PER_UM
+                mode = "corner(config)"
+
+        # Show the preview
+        figP, axP = plt.subplots(1, 1, figsize=(7, 7))
+        axP.imshow(base)
+        axP.set_title(
+            f"Preview: {mode}\nFile: {fname}\n"
+            f"Site X={cx_um:.2f} µm, Y={cy_um:.2f} µm → px=({px:.1f}, {py:.1f})"
+        )
+
+        # draw cross (BIGGER)
+        L = CROSS_SIZE_PX
+        axP.plot([px - L, px + L], [py, py], '-', lw=CROSS_THICK_PX, color='r', zorder=3)
+        axP.plot([px, px], [py - L, py + L], '-', lw=CROSS_THICK_PX, color='r', zorder=3)
+
+        # circle around cross
+        import matplotlib.patches as mpatches
+        circ = mpatches.Circle((px, py), radius=RING_RADIUS_PX, fill=False,
+                               edgecolor='r', linewidth=RING_THICK_PX, zorder=3)
+        axP.add_patch(circ)
+
+        # Expand view so cross is visible even if outside original bounds
+        try:
+            margin = OUTSIDE_MARGIN_PX
+        except NameError:
+            margin = 50
+        x_min = min(0, px - RING_RADIUS_PX - margin)
+        x_max = max(W, px + RING_RADIUS_PX + margin)
+        y_min = min(0, py - RING_RADIUS_PX - margin)
+        y_max = max(H, py + RING_RADIUS_PX + margin)
+
+        axP.set_xlim(x_min, x_max)
+        axP.set_ylim(y_max, y_min)  # keep image coordinates (origin at top-left)
+
+        # warn if outside bounds
+        if not (0 <= px <= W and 0 <= py <= H):
+            axP.text(0.02, 0.98, "⚠️ Cross outside image bounds (view expanded)",
+                     transform=axP.transAxes, va='top', ha='left',
+                     bbox=dict(facecolor='yellow', alpha=0.6, edgecolor='none'))
+
+        plt.show(block=False)
+
+    # ----------------    Preview map Button    ----------------
+    ax_prevmap = plt.axes(btn_rect)
+    btn_prevmap = Button(ax_prevmap, 'Preview map')
+    btn_prevmap.on_clicked(_preview_map_cross)
+    btn_rect = shift_rect(btn_rect)
+
+    # ----------------    Add+Map Button    ----------------
+    ax_addppt_map = plt.axes(btn_rect)
+    btn_addppt_map = Button(ax_addppt_map, 'add+map')
+
+    def handle_add2ppt_with_map(event):
+        try:
+            # 1) Copy the scan axes to clipboard (same as add2ppt)
+            copy_main_axes_to_clipboard()
+
+            # Metadata (only file name)
+            meta = {"filename": os.path.abspath(filepath) if filepath else "N/A"}
+            file_name_only = os.path.basename(filepath) if filepath else "Untitled"
+
+            # 2) Insert slide and paste the scan snapshot
+            pythoncom.CoInitialize()
+            ppt = win32com.client.Dispatch("PowerPoint.Application")
+            if ppt.Presentations.Count == 0:
+                print("No PowerPoint presentations are open.")
+                return
+            pres = ppt.ActivePresentation
+            new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)  # ppLayoutBlank = 12
+            ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
+
+            img = ImageGrab.grabclipboard()
+            if not isinstance(img, Image.Image):
+                print("Clipboard does not contain an image.")
+                return
+
+            shapes = new_slide.Shapes.Paste()
+            if shapes.Count > 0:
+                shape = shapes[0]
+                shape.AlternativeText = json.dumps(meta, separators=(",", ":"))
+
+                # Title with filename at the top (same as add2ppt)
+                slide_w = pres.PageSetup.SlideWidth
+                title_shape = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40, 50)  # msoTextOrientationHorizontal=1
+                tr = title_shape.TextFrame.TextRange
+                tr.Text = file_name_only
+                tr.ParagraphFormat.Alignment = 2  # ppAlignCenter
+                tr.Font.Bold = True
+                tr.Font.Size = 28
+                try:
+                    title_shape.Fill.Visible = 0
+                    title_shape.Line.Visible = 0
+                except Exception:
+                    pass
+
+            # 3) Parse coordinates from filename (you already have a parser)
+            fname = os.path.basename(filepath) if filepath else ""
+            center_um = None
+            try:
+                center_um = _parse_site_center_from_name(fname)  # (cx, cy, cz) in µm
+            except Exception:
+                center_um = None
+
+            if center_um is None:
+                print("⚠️ Could not parse Site(...) coordinates from filename; skipping map overlay.")
+                plt.close(fig)
+                return
+
+            cx_um, cy_um, _cz_um = center_um
+
+            # 4) Draw cross on map and insert image
+            tmp_map_path = _make_map_with_cross(cx_um, cy_um, MAP_IMAGE_PATH)
+            if tmp_map_path is None:
+                print("⚠️ Map image not available; added slide without map.")
+                plt.close(fig)
+                return
+
+            # Insert the small map on the same slide
+            # Position: bottom-right corner, keeping margins; size proportional to slide width
+            slide_h = pres.PageSetup.SlideHeight
+            map_w = slide_w * 0.25
+            map_h = slide_h * 0.25
+            margin = 20
+            left = slide_w - map_w - margin
+            top = margin
+
+            pic = new_slide.Shapes.AddPicture(
+                FileName=tmp_map_path, LinkToFile=False, SaveWithDocument=True,
+                Left=left, Top=top, Width=map_w, Height=map_h
+            )
+            pic.AlternativeText = json.dumps(
+                {"type": "site-map", "x_um": cx_um, "y_um": cy_um, "source": MAP_IMAGE_PATH},
+                separators=(",", ":")
+            )
+
+            print(f"Added slide #{new_slide.SlideIndex} with scan and site-map cross at ({cx_um:.1f}, {cy_um:.1f}) µm.")
+            plt.close(fig)
+
+        except Exception as e:
+            print(f"Failed to add to PowerPoint with map: {e}")
+
+    btn_addppt_map.on_clicked(handle_add2ppt_with_map)
+    btn_rect = shift_rect(btn_rect)
+
     # ----------------     Grid toggle button     ----------------
     grid_state = {"on": False}
     ax_grid = plt.axes(btn_rect)
@@ -575,6 +912,43 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         pass
     btn_rect = shift_rect(btn_rect)
 
+    # ----------------    Flip Up/Down toggle button    ----------------
+    ax_flipud = plt.axes(btn_rect)
+    btn_flipud = Button(ax_flipud, 'flip UD off')
+
+    def _toggle_flipud(_event):
+        flip_state["ud"] = not flip_state["ud"]
+        btn_flipud.label.set_text('flip UD on' if flip_state["ud"] else 'flip UD off')
+
+        # refresh displays (no clim change)
+        im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
+        if Nz > 1:
+            im_xz.set_data(_maybe_flip(_smooth2d(I_view[:, y_idx, :])))
+            im_yz.set_data(_maybe_flip(_smooth2d(I_view[:, :, x_idx])))
+        fig.canvas.draw_idle()
+
+    btn_flipud.on_clicked(_toggle_flipud)
+    btn_rect = shift_rect(btn_rect)
+
+    # ---------------- NEW: Flip Left/Right toggle button ----------------
+    ax_fliplr = plt.axes(btn_rect)
+    btn_fliplr = Button(ax_fliplr, 'flip LR off')
+
+    def _toggle_fliplr(_event):
+        flip_state["lr"] = not flip_state["lr"]
+
+    btn_fliplr.label.set_text('flip LR on' if flip_state["lr"] else 'flip LR off')
+
+    # refresh displays (no clim change)
+    im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
+    if Nz > 1:
+        im_xz.set_data(_maybe_flip(_smooth2d(I_view[:, y_idx, :])))
+        im_yz.set_data(_maybe_flip(_smooth2d(I_view[:, :, x_idx])))
+    fig.canvas.draw_idle()
+
+    btn_fliplr.on_clicked(_toggle_fliplr)
+    btn_rect = shift_rect(btn_rect)
+
     # ----------------  Smoothing controls (minimal UI)  ----------------
     ax_sigma = plt.axes((btn_x_slider, 0.10, 0.1, 0.03))  # x, y, w, h
     slider_sigma = Slider(ax_sigma, 'σ (px)', 0.0, 6.0, valinit=_smooth["sigma"], valstep=0.1)
@@ -584,21 +958,23 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         _smooth["sigma"] = float(slider_sigma.val)
         if _smooth["on"]:
             # just refresh currently shown data
-            im_xy.set_data(_smooth2d(I_view[z_idx]))
+            im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
             if Nz > 1:
                 im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
                 im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
             fig.canvas.draw_idle()
     slider_sigma.on_changed(_on_sigma_change)
+
     def _toggle_smoothing(_event):
         _smooth["on"] = not _smooth["on"]
         btn_smooth.label.set_text('smooth on' if _smooth["on"] else 'smooth off')
-        # refresh display from original I_ through smoother (or not)
-        im_xy.set_data(_smooth2d(I_[z_idx]))
+        # ⬇️ refresh from I_view so current processing (flatten/log/etc.) is preserved
+        im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
         if Nz > 1:
-            im_xz.set_data(_smooth2d(I_[:, y_idx, :]))
-            im_yz.set_data(_smooth2d(I_[:, :, x_idx]))
+            im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
+            im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
         fig.canvas.draw_idle()
+
     btn_smooth.on_clicked(_toggle_smoothing)
     btn_rect = shift_rect(btn_rect)
 
@@ -692,7 +1068,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             btn_flat.label.set_text("flatten off")
 
         # refresh images (no clim changes)
-        im_xy.set_data(_smooth2d(I_view[z_idx]))
+        im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
         if Nz > 1:
             im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
             im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
@@ -779,7 +1155,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 pass
 
         # refresh images (do NOT touch clim)
-        im_xy.set_data(_smooth2d(I_view[z_idx]))
+        im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
         if Nz > 1:
             im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
             im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
@@ -798,19 +1174,19 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     btn_preset1 = Button(ax_preset1, 'Preset 1')
 
     def _apply_preset1(_evt=None):
-        slider_sigma.set_val(0.8)
+        slider_sigma.set_val(PRESET1_SIGMA)
         _smooth["on"] = True
         try:
             btn_smooth.label.set_text('smooth on')
         except Exception:
             pass
 
-        # AGGRESSIVE flatten ON with sigma_bg=50 (override slider)
-        sigma_bg = 15.0
+        # AGGRESSIVE flatten ON with preset sigma_bg
         _apply_flatten_aggressive(True)
-        _on_sigma_bg_change(sigma_bg)
+        _on_sigma_bg_change(PRESET1_SIGMA_BG)
 
-        target_vmax = 1500.0
+        # vmax
+        target_vmax = PRESET1_VMAX
         if hasattr(slider_max, "valmax") and target_vmax > slider_max.valmax:
             slider_max.valmax = target_vmax
         if hasattr(slider_max, "valmin") and target_vmax < slider_max.valmin:
@@ -821,8 +1197,28 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             txt_max.set_val(f"{target_vmax:.0f}")
         except Exception:
             pass
-        s_plot_h.set_val(350)  # triggers _apply_plot_layout_h via on_changed
-        _nudge(0.15, -0.3)
+
+        # plot height + nudge
+        s_plot_h.set_val(PRESET1_PLOT_HEIGHT)
+        _nudge(*PRESET1_NUDGE)
+
+        # apply flips based on constants
+        try:
+            flip_state["ud"] = PRESET1_FLIP_UD
+            if 'btn_flipud' in globals() and btn_flipud is not None:
+                btn_flipud.label.set_text('flip UD on' if flip_state["ud"] else 'flip UD off')
+
+            flip_state["lr"] = PRESET1_FLIP_LR
+            if 'btn_fliplr' in globals() and btn_fliplr is not None:
+                btn_fliplr.label.set_text('flip LR on' if flip_state["lr"] else 'flip LR off')
+        except Exception:
+            pass
+
+        # refresh displays
+        im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
+        if Nz > 1:
+            im_xz.set_data(_maybe_flip(_smooth2d(I_view[:, y_idx, :])))
+            im_yz.set_data(_maybe_flip(_smooth2d(I_view[:, :, x_idx])))
 
         fig.canvas.draw_idle()
 
@@ -934,6 +1330,121 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         cbar.ax.set_position([lb.x1 + cb_gap, lb.y0, cb_w, lb.height])
     else:
         _nudge(0.25,-0.05)
+
+    def _make_map_with_cross(x_um: float, y_um: float, map_path: str = MAP_IMAGE_PATH) -> str | None:
+        """
+        Open map.jpg, draw a cross at (x_um, y_um) in world microns, save to a temp PNG.
+        Returns the temp file path, or None if anything fails.
+        """
+        try:
+            base = Image.open(map_path).convert("RGB")
+        except Exception as e:
+            print(f"⚠️ map image not found or unreadable: {map_path} ({e})")
+            return None
+
+        W, H = base.size
+        draw = ImageDraw.Draw(base)
+
+        # world→pixel mapping
+        mode = MAP_MODE.lower()
+        if mode == "center":
+            # center at (W/2, H/2), +X right, +Y up (so subtract y offset)
+            px = W / 2.0 + x_um * MAP_PX_PER_UM
+            py = H / 2.0 - y_um * MAP_PX_PER_UM
+        elif mode == "corner":
+            cal = _load_map_calib()
+            if cal.get("mode", "").lower() == "corner":
+                px_per_um_x = cal["px_per_um_x"]
+                px_per_um_y = cal["px_per_um_y"]
+                xmin_um = cal["xmin_um"]
+                ymax_um = cal["ymax_um"]
+            else:
+                # fallback to hardcoded if no calibration file exists yet
+                px_per_um_x = MAP_PX_PER_UM
+                px_per_um_y = MAP_PX_PER_UM
+                xmin_um = MAP_XMIN_UM
+                ymax_um = MAP_YMAX_UM
+            # Corner mapping: world (xmin_um, ymax_um) → pixel (0,0); +X→right, +Y→down
+            px = (x_um - xmin_um) * px_per_um_x
+            py = (ymax_um - y_um) * px_per_um_y
+        else:
+            print(f"⚠️ Unknown MAP_MODE '{MAP_MODE}', expected 'center' or 'corner'.")
+            return None
+
+        # --- If cross would be outside, pad canvas so it remains visible ---
+        try:
+            margin = OUTSIDE_MARGIN_PX
+        except NameError:
+            margin = 50  # safe default if constant not defined
+
+        dx_left = int(max(0, margin - px))
+        dx_right = int(max(0, px + margin - (W - 1)))
+        dy_top = int(max(0, margin - py))
+        dy_bottom = int(max(0, py + margin - (H - 1)))
+
+        if dx_left or dx_right or dy_top or dy_bottom:
+            newW = W + dx_left + dx_right
+            newH = H + dy_top + dy_bottom
+            padded = Image.new("RGB", (newW, newH), (255, 255, 255))  # white background
+            padded.paste(base, (dx_left, dy_top))
+            base = padded
+            W, H = newW, newH
+            px += dx_left
+            py += dy_top
+            draw = ImageDraw.Draw(base)  # re-init draw for new image
+
+        # draw cross (BIGGER)
+        x0 = px - CROSS_SIZE_PX;
+        x1 = px + CROSS_SIZE_PX
+        y0 = py - CROSS_SIZE_PX;
+        y1 = py + CROSS_SIZE_PX
+        draw.line((x0, py, x1, py), fill=CROSS_COLOR, width=CROSS_THICK_PX)
+        draw.line((px, y0, px, y1), fill=CROSS_COLOR, width=CROSS_THICK_PX)
+
+        # circle around cross
+        r = RING_RADIUS_PX
+        bbox = (px - r, py - r, px + r, py + r)
+        try:
+            draw.ellipse(bbox, outline=CROSS_COLOR, width=RING_THICK_PX)
+        except TypeError:
+            # Pillow without 'width' support: simulate thicker edge
+            for off in range(-(RING_THICK_PX // 2), (RING_THICK_PX // 2) + 1):
+                draw.ellipse((bbox[0] - off, bbox[1] - off, bbox[2] + off, bbox[3] + off),
+                             outline=CROSS_COLOR)
+
+        # save to temp file
+        tmp = tempfile.NamedTemporaryFile(prefix="map_cross_", suffix=".png", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        base.save(tmp_path, "PNG")
+        return tmp_path
+
+    def _load_map_calib():
+        """Return dict with keys mode, px_per_um_x, px_per_um_y, xmin_um, ymax_um if present."""
+        if os.path.isfile(MAP_CALIB_PATH):
+            try:
+                with open(MAP_CALIB_PATH, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                return d
+            except Exception as e:
+                print(f"⚠️ Could not read {MAP_CALIB_PATH}: {e}")
+        return {}
+
+    def _save_map_calib(mode, px_per_um_x, px_per_um_y, xmin_um, ymax_um):
+        d = {
+            "mode": mode,
+            "px_per_um_x": float(px_per_um_x),
+            "px_per_um_y": float(px_per_um_y),
+            "xmin_um": float(xmin_um),
+            "ymax_um": float(ymax_um),
+        }
+        with open(MAP_CALIB_PATH, "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=2)
+        print(f"✅ Saved calibration → {MAP_CALIB_PATH}: {d}")
+
+    def _parse_float(s):
+        # accept decimal comma
+        return float(str(s).replace(",", "."))
 
     try:
         while plt.fignum_exists(fig.number):

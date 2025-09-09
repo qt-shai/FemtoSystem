@@ -219,11 +219,20 @@ class GUI_smaract():
             print(f"Clipboard text: {clipboard_text}")
 
             if clipboard_text.lower().startswith("site"):
-                # New “Site (x, y, z)” format
+                # Parse "Site (x y z)" with commas as decimal separators
                 start = clipboard_text.find("(")
                 end = clipboard_text.find(")", start)
-                coords = clipboard_text[start + 1:end].split(",")
-                x_value, y_value, z_value = [float(c.strip()) for c in coords]
+                inside = clipboard_text[start + 1:end]
+
+                # Replace decimal commas with dots
+                inside = inside.replace(",", ".")
+                # Split by whitespace (handles spaces or tabs)
+                parts = [p for p in inside.strip().split() if p]
+
+                if len(parts) < 3:
+                    raise ValueError(f"Expected 3 coordinates in Site(...), got {parts}")
+
+                x_value, y_value, z_value = map(float, parts[:3])
 
                 dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
                 dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
@@ -233,12 +242,12 @@ class GUI_smaract():
 
             else:
                 # Legacy "X=..., Y=...[...]" format
-                x_str = clipboard_text.split('X=')[1].split(',')[0]
-                y_str = clipboard_text.split('Y=')[1].split(']')[0]
+                text = clipboard_text.replace(",", ".")  # allow decimal commas
+                x_str = text.split('X=')[1].split(',')[0]
+                y_str = text.split('Y=')[1].split(']')[0]
                 x_value = float(x_str.strip())
                 y_value = float(y_str.strip())
 
-                # only set X and Y
                 dpg.set_value(f"{self.prefix}_ch0_ABS", x_value)
                 dpg.set_value(f"{self.prefix}_ch1_ABS", y_value)
 
@@ -323,12 +332,12 @@ class GUI_smaract():
         except Exception as e:
             print(f"Error saving window positions: {e}")
 
-    def load_pos(self, profile_name="local"):
+    def load_pos(self, profile_name="local", include_main=False, main_tag=None):
         if str(profile_name) == "530":
             profile_name = "local"
         file_name = f"win_pos_{profile_name}.txt"
         try:
-            load_window_positions(file_name)
+            load_window_positions(file_name, include_main=include_main, main_tag=main_tag)
         except Exception as e:
             print(f"Error loading window positions and sizes: {e}")
 

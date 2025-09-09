@@ -322,6 +322,10 @@ def load_window_positions(file_name: str | None = None, *cb_args, **cb_kwargs) -
         except Exception:
             return isinstance(x, (str, bytes))
 
+    # NEW: read options
+    include_main = bool(cb_kwargs.get("include_main", False))
+    main_tag_opt = cb_kwargs.get("main_tag")  # may be None
+
     # If caller passed file_name as a kw-only or normal arg AND it's path-like, keep it;
     # else ignore and choose default below.
     file_name = file_name if _is_pathlike(file_name) else None
@@ -450,6 +454,24 @@ def load_window_positions(file_name: str | None = None, *cb_args, **cb_kwargs) -
             _safe_log(f"No saved size for graph '{graph_tag}', or it wasn't found.")
     except Exception as e:
         _safe_log(f"[load] Failed restoring plot '{graph_tag}': {e}")
+
+    # ---------- NEW: optionally resize the main window / viewport ----------
+    if include_main:
+        try:
+            sizes_ci = {k.lower(): v for k, v in window_sizes.items()}
+            pick_w_h = None
+            if "viewport" in sizes_ci:
+                pick_w_h = sizes_ci["viewport"]
+            w, h = map(int, pick_w_h)
+            try:
+                dpg.set_viewport_width(w)
+                dpg.set_viewport_height(h)
+                _safe_log(f"Resized primary viewport from Viewport_Size' → {w}x{h}")
+                return
+            except Exception:
+                pass
+        except Exception as e:
+            _safe_log(f"[load] Failed resizing main window/viewport: {e}")
 
 
 def copy_image_to_clipboard(image_path):

@@ -23,8 +23,10 @@ class GUIKeysight33500B:
         self.instrument = instrument
         # self.volts_per_um = -2e-6
         self.volts_per_um = -8000e-6
-        self.base1=-0.095
-        self.base2=0.582
+        # self.base1=-0.095
+        # self.base2=0.582
+        self.base1 = -0.577
+        self.base2 = -0.373
         self.xy_step = 0.002
         self.kx_ratio = 3.3
         self.ky_ratio = -0.3

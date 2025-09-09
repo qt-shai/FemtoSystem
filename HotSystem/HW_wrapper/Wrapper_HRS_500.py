@@ -31,7 +31,7 @@ from PrincetonInstruments.LightField.AddIns import ExperimentSettings
 
 class LightFieldSpectrometer:
 
-    def __init__(self, visible: bool = True, file_path: str = "C:\\Users\\ice\\Work Folders\\Documents\\LightField\\Experiments\\ProEM_shai.lfe") -> None: # ProEM_shai.lfe Experiment2.lfe
+    def __init__(self, visible: bool = True, file_path: str = r"C:\\Users\\Femto\\Work Folders\\Documents\\LightField\\Experiments\\ProEM_shai.lfe") -> None: # ProEM_shai.lfe Experiment2.lfe
         """
             Minimal wrapper for a **single** connected LightField spectrometer.
 
@@ -61,6 +61,7 @@ class LightFieldSpectrometer:
         self._auto = None
         self._exp = None
         self._device = None
+        self.proEM_mode = True
 
     # def __del__(self):
     #     self.close()

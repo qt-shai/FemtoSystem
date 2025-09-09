@@ -22,6 +22,7 @@ import HW_wrapper.HW_devices as hw_devices
 from HW_GUI.GUI_MFF_101 import GUI_MFF
 from Common import *
 from PrincetonInstruments.LightField.AddIns import CameraSettings
+from PrincetonInstruments.LightField.AddIns import ExperimentSettings
 from Utils import open_file_dialog
 import Utils.display_all_z_slices_with_slider as disp
 from PIL import ImageGrab, Image
@@ -43,6 +44,7 @@ from pptx.util import Inches
 from PIL import ImageGrab
 from HW_GUI.GUI_Femto_Power_Calculations import FemtoPowerCalculator
 from pathlib import Path
+from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
 
 # Textbox: Alt + n X
 # Font color: Alt + H F C
@@ -99,6 +101,7 @@ class CommandDispatcher:
     """
     def __init__(self):
         # Map command verbs to handler methods
+        self.proEM_mode = True
         self.default_graph_size = (None, None)
         self.handlers = {
             # simple commands
@@ -147,9 +150,12 @@ class CommandDispatcher:
             "gen list":          self.handle_generate_list,
             "genlist":           self.handle_generate_list,
             "spc":               self.handle_acquire_spectrum,
+            "hrs":               self.handle_hrs,
             "msg":               self.handle_message,
             "msgclear":          self.handle_message_clear,
             "st":                self.handle_set_xyz,
+            "pst":               lambda arg="": self.get_parent().smaractGUI.paste_clipboard_to_moveabs(),
+            "paste":             lambda arg="": self.get_parent().smaractGUI.paste_clipboard_to_moveabs(),
             "note":              self.handle_update_note,
             "att":               self.handle_set_attenuator,
             "future":            self.handle_future,
@@ -228,12 +234,25 @@ class CommandDispatcher:
             "lf":                self.handle_lf,
             "clearconsole":      self.handle_clear_console,
             "revive":            self.handle_revive_app,
+            "close qm":          self.handle_close_qm,
+            "qmm":               self.handle_close_qm,
+            "up":                self.handle_up,
+            "reset":             self.handle_reset_smaract,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
 
     def get_parent(self):
         return getattr(sys.stdout, "parent", None)
+
+    def _ensure_exec_ns(self):
+        # Shared namespace for exec/eval across runs
+        if not hasattr(self, "_exec_ns"):
+            self._exec_ns = {"parent": self.get_parent()}
+        else:
+            # keep parent fresh
+            self._exec_ns["parent"] = self.get_parent()
+        return self._exec_ns
 
     def run(self, command: str, record_history: bool = True):
         """
@@ -315,46 +334,91 @@ class CommandDispatcher:
                         break
                     handler(arg)
                 else:
-                    # not a known command → try to recall from history
+                    # --- NEW: direct Python helpers ---
+                    # Usage examples(now super easy)
+                    # Import DearPyGui once; persists in the command environment
+                    # self.run("import dearpygui.dearpygui as dpg")
+
+                    # Query your tag immediately
+                    # self.run("py print(dpg.does_item_exist('cmd_input'))")
+
+                    # You can chain with semicolons too:
+                    # self.run("import dearpygui.dearpygui as dpg; py print(dpg.does_item_exist('cmd_input
+                    # 2.1 import / from  (persist in shared namespace)
+                    if key in ("import", "from"):
+                        ns = self._ensure_exec_ns()
+                        stmt = f"{key} {arg}".strip()
+                        try:
+                            exec(stmt, ns)
+                            print(f"Executed: {stmt}")
+                            dpg.set_value("cmd_input","")
+                        except Exception as e:
+                            print(f"Import failed: {stmt}\n   {e}")
+                        continue
+
+                    # 2.2 py <stmt>  (exec arbitrary Python statement in shared namespace)
+                    #     py? <expr> (eval expression and print result)
+                    if key in ("py", "py?"):
+                        ns = self._ensure_exec_ns()
+                        code = arg
+                        try:
+                            if key == "py":
+                                exec(code, ns)
+                                dpg.set_value("cmd_input", "")
+                            else:
+                                result = eval(code, ns)
+                                print(result)
+                                dpg.set_value("cmd_input", "")
+                        except Exception as e:
+                            print(f"❌ Python error: {e}")
+                        continue
+
+                    # --- Existing behavior: history recall / python / shell ---
                     history = getattr(parent, "command_history", [])
-                    # look backwards for the first entry that contains seg, but isn’t exactly seg
-                    matches = [
-                        cmd for cmd in reversed(history)
-                        if seg in cmd and cmd != seg
-                    ]
+                    matches = [cmd for cmd in reversed(history) if seg in cmd and cmd != seg]
                     if matches:
                         found = matches[0]
                         dpg.set_value("cmd_input", found)
                         dpg.focus_item("cmd_input")
                         print(f"Recalled from history: {found}")
+                        ns = self._ensure_exec_ns()
+                        try:
+                            if found.strip().startswith(("import ", "from ")):
+                                exec(found, ns)
+                            else:
+                                # if looks like assignment, or has semicolons, safer with exec
+                                if "=" in found or ";" in found:
+                                    exec(found, ns)
+                                else:
+                                    result = eval(found, ns)
+                                    if result is not None:
+                                        print(result)
+                        except Exception as e:
+                            print(f"❌ Error while executing recalled command: {e}")
                         return
                     else:
-                        # not a known command → try Python first, then shell
+                        # try Python first, then shell
                         try:
-                            # prepare a namespace for exec/eval
-                            ns = {"parent": parent}
-                            # if it's an assignment or other statement, use exec
+                            ns = self._ensure_exec_ns()
                             if "=" in seg:
                                 exec(seg, ns)
                             else:
-                                result = eval(seg, {"parent": parent})
+                                result = eval(seg, ns)
                                 if result is not None:
                                     print(result)
                             continue
                         except Exception as e:
                             print(f"Failed to execute '{seg}': {e}")
-
-                        # fallback: execute as shell command
                         try:
                             print(f"Didn't find '{seg}' in history. Executing shell command: {seg}")
                             subprocess.run(seg, shell=True)
                         except Exception as e:
                             print(f"Failed to execute '{seg}': {e}")
             except Exception:
-                traceback.print_exc()
-        # dpg.focus_item("cmd_input")
-        dpg.focus_item("OPX Window")
-        dpg.set_value("cmd_input", "")
+                    traceback.print_exc()
+            # dpg.focus_item("cmd_input")
+            dpg.focus_item("OPX Window")
+            dpg.set_value("cmd_input", "")
 
     def savehistory_on_exit(self):
         try:
@@ -364,6 +428,15 @@ class CommandDispatcher:
             print(f"Failed to save history on exit: {e}")
 
     # --- Handlers (methods) ---
+    def handle_close_qm(self, arg):
+        """Close all Quantum Machines (QM).  Usage: 'close qm' or 'qmm'"""
+        try:
+            p = self.get_parent()
+            p.opx.qmm.close_all_quantum_machines()
+            print("QM: closed all quantum machines.")
+        except Exception as e:
+            print(f"QM close failed: {e}")
+
     def handle_auto(self, arg):
         """Apply auto‑fit to OPX graph axes: 'auto', 'auto x', 'auto y'."""
         x_tag = "plotImaga_X"
@@ -935,16 +1008,37 @@ class CommandDispatcher:
             print("Counter start failed.")
 
     def handle_load_positions(self, arg):
-        """Load window positions profile."""
+        """Load window positions profile.
+
+        Usage:
+          lpos                 -> load 'local'
+          lpos r               -> load 'remote'
+          lpos <name>          -> load profile <name>
+          lpos !<main_tag>     -> load 'local' + resize main window/viewport using size in file
+          lpos <name> !<tag>   -> load <name> + resize main window/viewport using size in file
+          (example: lpos !console)
+        """
         p = self.get_parent()
-        raw = arg.strip()
-        # default to "local", but treat "r" as "remote"
-        profile = "local" if not raw else ("remote" if raw.lower() == "r" else raw)
-        # only attempt load if smaractGUI exists
+        raw = (arg or "").strip()
+
+        # parse profile + optional '!main_tag'
+        include_main = False
+        main_tag = None
+        tokens = [t for t in raw.split() if t]
+        prof = None
+        for t in tokens:
+            if t.startswith("!"):
+                include_main = True
+                main_tag = t[1:] or None
+            else:
+                prof = t
+
+        profile = "local" if not prof else ("remote" if prof.lower() == "r" else prof)
+
         if hasattr(p, "smaractGUI"):
             try:
-                p.smaractGUI.load_pos(profile)
-                print("Loaded positions.")
+                p.smaractGUI.load_pos(profile, include_main=include_main, main_tag=main_tag)
+                print("Loaded positions." + (" (incl. main window size)" if include_main else ""))
             except Exception as e:
                 print(f"Error loading positions: {e}")
         else:
@@ -1140,6 +1234,68 @@ class CommandDispatcher:
                     p.smaract_thread.start()
                 print("Reloaded HW_GUI.GUI_Smaract and recreated GUI_smaract.")
                 return
+
+            # === HRS_500 GUI with ProEM experiment ===
+            if name in ("hrs proem", "hrs_proem", "hrsproem", "proem"):
+                import HW_GUI.GUI_HRS_500 as gui_HRS500
+                importlib.reload(gui_HRS500)
+
+                PROEM_LFE = r"C:\Users\Femto\Work Folders\Documents\LightField\Experiments\ProEM_shai.lfe"
+
+                # Try to preserve the current window position/size if it exists
+                pos, size = [60, 60], [1200, 800]
+                if hasattr(p, "hrs_500_gui") and p.hrs_500_gui:
+                    try:
+                        pos = dpg.get_item_pos(p.hrs_500_gui.window_tag)
+                        size = dpg.get_item_rect_size(p.hrs_500_gui.window_tag)
+                        p.hrs_500_gui.DeleteMainWindow()
+                    except Exception as e:
+                        print(f"Old HRS_500 GUI removal failed (ProEM): {e}")
+
+                # (Re)create the LightField spectrometer specifically with the ProEM experiment
+                try:
+                    devs = hw_devices.HW_devices()
+
+                    # Cleanly disconnect the existing device if possible
+                    try:
+                        if getattr(devs, "hrs_500", None) and hasattr(devs.hrs_500, "disconnect"):
+                            devs.hrs_500.disconnect()
+                    except Exception as e:
+                        print(f"Warning: could not disconnect previous HRS_500 device: {e}")
+
+                    # New instance with the ProEM experiment path
+                    devs.hrs_500 = LightFieldSpectrometer(
+                        visible=True,
+                        file_path=PROEM_LFE
+                    )
+                    devs.hrs_500.connect()
+                except Exception as e:
+                    print(f"Failed to initialize HRS_500 with ProEM experiment: {e}")
+                    raise
+
+                # Rebuild the GUI using the (re)initialized device
+                p.hrs_500_gui = gui_HRS500.GUI_HRS500(devs.hrs_500)
+
+                # Rebuild the “bring window” button
+                if dpg.does_item_exist("HRS_500_button"):
+                    dpg.delete_item("HRS_500_button")
+                p.create_bring_window_button(
+                    p.hrs_500_gui.window_tag, button_label="Spectrometer (ProEM)",
+                    tag="HRS_500_button", parent="focus_group"
+                )
+
+                # Track as active instrument and restore geometry
+                p.active_instrument_list.append(p.hrs_500_gui.window_tag)
+                try:
+                    dpg.set_item_pos(p.hrs_500_gui.window_tag, pos)
+                    dpg.set_item_width(p.hrs_500_gui.window_tag, size[0])
+                    dpg.set_item_height(p.hrs_500_gui.window_tag, size[1])
+                except Exception:
+                    pass
+
+                print("Reloaded HW_GUI.GUI_HRS500 with ProEM experiment and recreated Spectrometer GUI.")
+                return
+
 
             # === HRS_500 GUI ===
             if name in ("hrs", "hrs500", "hrs_500"):
@@ -1564,6 +1720,30 @@ class CommandDispatcher:
         except Exception as e:
             print(f"down failed: {e}")
 
+    def handle_up(self, arg):
+        """Move Z to last saved value; 'up ?' prints it; 'up 1' or no saved -> Z=600."""
+        try:
+            p = self.get_parent()
+            s = (arg or "").strip()
+            last = getattr(p.smaractGUI, "last_z_value", None)
+
+            if s == "?":
+                print("up? -> no last Z saved" if last is None else f"up? -> last Z = {last:.2f}")
+                return
+
+            if s == "1" or last is None:
+                z = 600.0
+                dpg.set_value("mcs_ch2_ABS", z)
+                p.smaractGUI.move_absolute(None, None, 2)
+                print(f"Moved Z to {z:.2f}")
+                return
+
+            dpg.set_value("mcs_ch2_ABS", float(last))
+            p.smaractGUI.move_absolute(None, None, 2)
+            print(f"Moved to last Z = {last:.2f}")
+        except Exception as e:
+            print(f"up failed: {e}")
+
     def handle_round_position(self, arg):
         """Round XYZ to given precision."""
         p = self.get_parent()
@@ -1772,6 +1952,32 @@ class CommandDispatcher:
         except Exception as e:
             print(f"genlist failed: {e}")
 
+    def handle_hrs(self, arg: str):
+        p = self.get_parent()
+        a = (arg or "").strip().lower()
+
+        if a == "local":
+            target = r"C:\Users\Femto\Work Folders\Documents\LightField"
+            try:
+                dev = getattr(p.hrs_500_gui, "dev", None)
+                exp = getattr(dev, "_exp", None)
+                if exp is None:
+                    print("HRS: no experiment instance.")
+                    return
+
+                # wait out any UI updating before SetValue
+                while getattr(exp, "IsUpdating", False):
+                    time.sleep(0.05)
+
+                # this is the “Save In” directory
+                exp.SetValue(ExperimentSettings.FileNameGenerationDirectory, target)
+                print(f"HRS Save In set to: {target}")
+            except Exception as e:
+                print(f"Failed to set Save In folder: {e}")
+            return
+
+        print(f"Unknown hrs command: {arg!r}")
+
     def handle_acquire_spectrum(self, arg):
         """Launch threaded spectrum acquisition process.
         Usage: spc [st] [exposure_s]
@@ -1823,7 +2029,6 @@ class CommandDispatcher:
             print(f"'st' pre-sequence failed: {e}")
         # --- end NEW ---
 
-
         self.handle_mark(rest_arg)
         time.sleep(0.1)
 
@@ -1844,14 +2049,35 @@ class CommandDispatcher:
             pass
 
         # 2) Acquire spectrum
-        if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data"):
+        if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data") and not self.proEM_mode:
             try:
                 p.hrs_500_gui.acquire_callback()
             except Exception as e:
                 print(f"acquire_callback failed: {e}")
                 return
         else:
-            print("Parent OPX or SPC not available.")
+            if hasattr(p, "hrs_500_gui") and self.proEM_mode: # proEM mode
+                p.hrs_500_gui.dev._exp.Stop()
+                self.handle_set_xyz("")
+                fn=__import__('pyperclip').paste()
+                # Clean clipboard -> base name
+                s = (fn or "").strip().strip('"').strip("'")
+                s = s.replace("\r", "").replace("\n", " ")
+                pt = Path(s)
+                base = pt.stem if pt.suffix else os.path.basename(s)
+                base = re.sub(r'[<>:"/\\|?*]', "_", base)[:120]  # keep it short & legal
+                p.hrs_500_gui.dev.set_filename(base)
+                while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                    time.sleep(0.1)
+                p.hrs_500_gui.dev.acquire_Data()
+                time.sleep(0.5)
+                if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
+                    p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
+                    while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                        time.sleep(0.1)
+                    p.hrs_500_gui.dev._exp.Preview()
+            else:
+                print("Parent OPX or SPC not available.")
             return
 
         # 3) Locate saved CSV
@@ -2254,38 +2480,50 @@ class CommandDispatcher:
     def handle_start_scan_with_galvo(self, arg):
         """
         Start OPX scan with Galvo.
-        kst            -> default (X:-L..0, Y: centered)
+        kst            -> default (X:-L..0, Y:centered)
         kst q          -> use plot query bounds
         kst p          -> use ProEM ROI bounds
         kst c          -> center X & Y ([-L/2, +L/2])
-        kst add ...    -> (optional) keep 'add' flag for future use
+        kst left       -> X: centered range, start at left (overrides 'c' for X)
+        kst top        -> Y: start at 0 and go up to +L (overrides 'c' for Y)
+        kst top left   -> combine both
+        kst add ...    -> keep 'add' flag
         """
         p = self.get_parent()
         parts = (arg or "").strip().lower().split()
+
         # reset flags
         p.opx.add_scan = False
         p.opx.use_queried_area = False
         p.opx.use_queried_proem = False
         p.opx.centered_xy = False
+        p.opx.start_top = False
 
         # parse
         p.opx.add_scan = "add" in parts
-        if "q" in parts:  # kst q
+        if "q" in parts:
             p.opx.use_queried_area = True
-        if "p" in parts:  # kst p
+        if "p" in parts:
             p.opx.use_queried_proem = True
-        if "c" in parts:  # kst c (centered)
+        if "c" in parts:
             p.opx.centered_xy = True
 
+        # new flags (order-agnostic)
+        if "left" in parts:
+            p.opx.centered_xy = False
+        if "top" in parts:
+            p.opx.start_top = True
+
         try:
-            # Make sure position inputs are synced and camera state is correct
             p.smaractGUI.fill_current_position_to_moveabs()
             self.handle_toggle_sc(reverse=False)
 
-            # Kick off the Galvo scan, carrying the flags
-            p.opx.btnStartGalvoScan()
-            print(f"Scan started. add={p.opx.add_scan}, queried_area={p.opx.use_queried_area}, centered_xy={p.opx.centered_xy}")
-
+            p.opx.btnStartGalvoScan()  # scan worker will read the opx flags directly
+            print(
+                "Scan started. "
+                f"add={p.opx.add_scan}, queried_area={p.opx.use_queried_area}, "
+                f"centered_xy={p.opx.centered_xy}, start_left={p.opx.start_left}, start_top={p.opx.start_top}"
+            )
         except Exception as e:
             print(f"Error Start Scan: {e}")
 
@@ -2671,6 +2909,51 @@ class CommandDispatcher:
                 except Exception as e:
                     print(f"Failed to parse Alt Text metadata: {e}")
                     return
+
+            # ---------- Pattern search: e.g. "*16_47_54.tif" or "scan123" ----------
+            # If the arg isn't one of the known keywords, treat it as a filename pattern
+            if arg and arg_clean not in ("tif", "tif1", "temp", "clip"):
+                # sanitize incoming pattern (allow quotes/wildcards)
+                pattern = arg.strip().strip('"').strip("'")
+                # if no wildcard provided, search by substring
+                if not any(ch in pattern for ch in "*?"):
+                    # if user didn't specify an extension, search common ones
+                    # We'll try tif/tiff/csv automatically by expanding the pattern
+                    exts = [".tif", ".tiff", ".csv"] if "." not in os.path.basename(pattern) else [""]
+                    patterns = [f"*{pattern}*{ext}" for ext in exts] if exts != [""] else [f"*{pattern}*"]
+                else:
+                    patterns = [pattern]
+
+                # candidate roots to search
+                roots = [
+                    Path(r"C:\Users\Femto\Work Folders\Documents\LightField"),
+                    Path(r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer"),
+                    Path.cwd(),
+                ]
+
+                matches = []
+                for root in roots:
+                    if not root.exists():
+                        continue
+                    for pat in patterns:
+                        try:
+                            # Path.rglob uses glob-style patterns
+                            matches.extend([m for m in root.rglob(pat) if m.is_file()])
+                        except Exception:
+                            pass
+
+                if not matches:
+                    print(f'No files found matching pattern(s): {patterns} in roots: {", ".join(str(r) for r in roots if r.exists())}')
+                    return
+
+                # Prefer newest by modification time
+                matches.sort(key=lambda m: m.stat().st_mtime, reverse=True)
+                target = matches[0]
+                print(f"Opening match: {target}")
+                subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", str(target)])
+                return
+
+
             else:
                 # Load from file
                 fn = self.get_parent().opx.last_loaded_file
@@ -2686,14 +2969,32 @@ class CommandDispatcher:
             print(f"disp failed: {e}")
 
     def handle_set_integration_time(self, arg):
-        """Set integration time and append note."""
-        p=self.get_parent()
+        """Set/query integration time (ms).  Usage: 'int <ms>' or 'int ?'"""
+        import re
+        p = self.get_parent()
+        opx = getattr(p, "opx", None)
+        if opx is None:
+            print("int: OPX not available.")
+            return
+
+        s = (arg or "").strip()
+        if s == "?":
+            ms = getattr(opx, "total_integration_time", None)
+            print(f"int? -> {ms} ms" if ms is not None else "int? -> unknown")
+            return
+
+        m = re.match(r"^\s*([+-]?\d+(?:\.\d+)?)\s*(?:ms)?\s*$", s, re.IGNORECASE)
+        if not m:
+            print("int failed. Usage: 'int <ms>' or 'int ?'")
+            return
+
+        ms = int(round(float(m.group(1))))
         try:
-            ms=int(arg)
-            p.opx.UpdateCounterIntegrationTime(user_data=ms)
+            # Use your OPX setter exactly as defined
+            opx.UpdateCounterIntegrationTime(user_data=ms)
             self.handle_update_note(f"!Int {ms} ms")
-        except:
-            print("int failed.")
+        except Exception as e:
+            print(f"int failed: {e}")
 
     def handle_nextrun(self, arg):
         """
@@ -4314,6 +4615,61 @@ class CommandDispatcher:
             print("[revive] done. If UI still looks frozen, try 'reload opx' or 'reload hrs'.")
         except Exception as e:
             print(f"[revive] unexpected error: {e}")
+
+    def handle_reset_smaract(self, arg: str):
+        """
+        Usage:
+          reset smaract [small_um] [large_um] [reps]
+          e.g., 'reset smaract 3 30 2'
+        """
+        p = self.get_parent()
+        try:
+            parts = (arg or "").split()
+            small = float(parts[0]) if len(parts) > 0 else 2.0
+            large = float(parts[1]) if len(parts) > 1 else 20.0
+            reps = int(parts[2]) if len(parts) > 2 else 1
+
+            # capture current absolute position in microns
+            start_um = [v * 1e-6 for v in p.opx.positioner.AxesPositions]  # [X,Y,Z] µm
+
+            def go(ax: int, val_um: float):
+                dpg.set_value(f"mcs_ch{ax}_ABS", float(val_um))
+                p.smaractGUI.move_absolute(None, None, ax)
+
+            for _ in range(reps):
+                # Pre-jog Z (large up/down) to shake encoders
+                for dz in (large, -large):
+                    go(2, start_um[2] + dz)
+                go(2, start_um[2])
+
+                # XY figure-8 around center, with tiny Z nibbles at each vertex
+                cx, cy = start_um[0], start_um[1]
+                path = [
+                    (cx + large, cy + small),
+                    (cx, cy - large),
+                    (cx - large, cy + small),
+                    (cx, cy + large),
+                    (cx + small, cy),
+                    (cx - small, cy),
+                    (cx, cy - small),
+                    (cx, cy),
+                ]
+                for x_um, y_um in path:
+                    go(0, x_um)
+                    go(1, y_um)
+                    # small Z shake
+                    go(2, start_um[2] + small)
+                    go(2, start_um[2] - small)
+                go(2, start_um[2])
+
+            # Return home exactly
+            for ax, val_um in enumerate(start_um):
+                go(ax, val_um)
+
+            print("Reset SmarAct done. Returned to: "
+                  f"X={start_um[0]:.2f} µm, Y={start_um[1]:.2f} µm, Z={start_um[2]:.2f} µm")
+        except Exception as e:
+            print(f"reset smaract failed: {e}")
 
 
 # Wrapper function

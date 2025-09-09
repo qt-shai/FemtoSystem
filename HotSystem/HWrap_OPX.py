@@ -10024,6 +10024,9 @@ class GUI_OPX():
             }, daemon=True)
             # self.ScanTh = threading.Thread(target=self.StartScan, daemon=True)
             self.ScanTh.start()
+
+            self.use_queried_area = False
+            self.use_queried_proem = False
         except Exception as e:
             print(f"btnStartScan error: {e}")
 
@@ -11252,6 +11255,7 @@ class GUI_OPX():
         step_um = [float(self.dL_scan[0]) / 1000.0,
                    float(self.dL_scan[1]) / 1000.0,
                    float(self.dL_scan[2]) / 1000.0]
+        start_top = bool(getattr(self, "start_top", False))
 
         for i in range(3):
             if i == 0 or i == 1:
@@ -11271,15 +11275,22 @@ class GUI_OPX():
                         # ensure inclusive end; build ascending
                         axis = np.arange(lo, hi + s * 0.5, s, dtype=np.float64)
                     else:
-                        if centered_xy:
-                            vec_nm = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
-                                                    delta=self.dL_scan[i])
-                        else:
-                            if i == 0:
-                                vec_nm = self.GenVector(min=-self.L_scan[i], max=0, delta=self.dL_scan[i])
+                        L = self.L_scan[i]  # nm (GUI)
+                        d = self.dL_scan[i]  # nm step
+                        if i == 0:
+                            # X
+                            if centered_xy:
+                                vec_nm = self.GenVector(min=-L / 2, max=+L / 2, delta=d)
                             else:
-                                vec_nm = self.GenVector(min=-self.L_scan[i] / 2, max=self.L_scan[i] / 2,
-                                                        delta=self.dL_scan[i])
+                                vec_nm = self.GenVector(min=-L, max=0, delta=d)  # default
+                        else:
+                            # Y
+                            if start_top:
+                                # "top should start from 0 up"
+                                vec_nm = self.GenVector(min=0, max=+L, delta=d)
+                            else:
+                                vec_nm = self.GenVector(min=-L / 2, max=+L / 2, delta=d)  # default Y centered
+
                         axis = (vec_nm * 1e3).astype(np.float64)  # nm→pm
             else:
                 # Z

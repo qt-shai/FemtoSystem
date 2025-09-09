@@ -1194,6 +1194,25 @@ class PyGuiOverlay(Layer):
 
         return was_moved
 
+    def _cmd_input_has_focus(self):
+        """Return True if the command input is focused (DPG)."""
+        try:
+            tag = getattr(self, "cmd_input", None) or "cmd_input"
+            if not dpg.does_item_exist(tag):
+                print(f"[DBG] cmd_input({tag}) does not exist")
+                return False
+            st = dpg.get_item_state(tag)
+            focused = bool(st.get("focused"))
+            active = bool(st.get("active"))
+            focused = focused or dpg.is_item_focused(tag)
+            print(f"[DBG] cmd_input({tag}) focused={focused} active={active}")
+            if st.get("focused") or st.get("active") or dpg.is_item_focused(tag):
+                return True
+            return focused or active
+        except Exception as e:
+            print(f"[DBG] Exception in _cmd_input_has_focus: {e}")
+            return False
+
     def handle_ctrl_shift_commands(self, key_data_enum, is_coarse):
         """
         Handle all Ctrl+ and Shift+ keyboard shortcuts.
@@ -1217,10 +1236,12 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.KEY_1: lambda: self._set_coarse_steps(1, axes=(0, 1, 2)),
                 KeyboardKeys.KEY_2: lambda: self._set_coarse_steps(20, axes=(0, 1)),
                 KeyboardKeys.KEY_3: lambda: self._set_coarse_steps(30, axes=(0, 1, 2)),
+                KeyboardKeys.KEY_4: lambda: self._set_coarse_steps(400, axes=(0, 1)),
                 KeyboardKeys.KEY_0: self._save_and_zero_exposure,
                 KeyboardKeys.OEM_PLUS: self._increase_koff,  # Ctrl+=
                 KeyboardKeys.OEM_MINUS: self._decrease_koff,  # Ctrl+-
                 KeyboardKeys.R_KEY: self._flush_counter_graph,
+                KeyboardKeys.S_KEY: lambda: run("st"),
                 KeyboardKeys.K_KEY: lambda: run("mark"),
             }
             action = ctrl_actions.get(key_data_enum)
@@ -1231,6 +1252,11 @@ class PyGuiOverlay(Layer):
 
         # 2b) Shift+0 → restore
         if self.CURRENT_KEY == KeyboardKeys.SHIFT_KEY:
+            # --- NEW: ignore Shift+= / Shift+- when typing in cmd input ---
+            if self._cmd_input_has_focus() and key_data_enum in (KeyboardKeys.OEM_PLUS, KeyboardKeys.OEM_MINUS):
+                # print('ignoring _ and + when cmd_input is in focus')
+                return False
+
             if  key_data_enum == KeyboardKeys.KEY_0:
                 self._restore_exposure()
                 self.CURRENT_KEY = key_data_enum
@@ -1245,6 +1271,7 @@ class PyGuiOverlay(Layer):
                 self.CURRENT_KEY = key_data_enum
                 return True
             elif key_data_enum == KeyboardKeys.OEM_MINUS:
+                print(self._cmd_input_has_focus())
                 # Shift + '-' : move in Y (like ky)
                 self._shift_move_kx(sign=-1)
                 self.CURRENT_KEY = key_data_enum

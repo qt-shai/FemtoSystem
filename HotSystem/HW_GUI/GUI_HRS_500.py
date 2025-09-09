@@ -92,7 +92,7 @@ class GUI_HRS500():
                                 tag=self.series_tag)
     def load_data_callback(self):
         # Bring up a file dialog for CSV filesa
-        start_dir = r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer"
+        start_dir = r"C:\Users\Femto\Work Folders\Documents\LightField"
         file_path = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],initial_folder=start_dir)
         if not file_path:
             print("Load canceled or no file selected.")
