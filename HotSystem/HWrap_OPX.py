@@ -11074,7 +11074,8 @@ class GUI_OPX():
         if not (self.stopScan):
             self.btnStop()
 
-    def scan3d_with_galvo(self, use_queried_area: bool = False, use_queried_proem: bool = False,centered_xy: bool = False):
+    def scan3d_with_galvo(self, use_queried_area: bool = False, use_queried_proem: bool = False,
+                          centered_xy: bool = False):
         """
         3D scan using galvos for X,Y (Keysight AWG offsets) and positioner for Z.
 
@@ -11082,13 +11083,15 @@ class GUI_OPX():
         If use_queried_proem=True  → use XY bounds from ProEM ROI (dispatcher calibration).
 
         X/Y mapping (from Keysight GUI):
-            volts_per_um = gui.volts_per_um
+            volts_per_um_x = gui.volts_per_um_x  (fallback: gui.volts_per_um)
+            volts_per_um_y = gui.volts_per_um_y  (fallback: gui.volts_per_um)
             kx_ratio = gui.kx_ratio
             ky_ratio = gui.ky_ratio
 
         Net offsets:
             CH1 = base_x + Vx + Vy
             CH2 = base_y + Vx*kx_ratio + Vy*ky_ratio
+          where Vx = volts_per_um_x * X_um,  Vy = volts_per_um_y * Y_um
 
         Notes:
           * Z-correction is DISABLED by request.
@@ -11112,14 +11115,23 @@ class GUI_OPX():
             return
         dev = gui.dev
 
-        # --- kx/ky defaults (same as your handlers) ---
-        volts_per_um = gui.volts_per_um
-        kx_ratio = gui.kx_ratio
-        ky_ratio = gui.ky_ratio
+        # --- kx/ky defaults + PER-AXIS VOLT SCALES ---
+        vpu_x = float(getattr(gui, "volts_per_um_x", getattr(gui, "volts_per_um", 0.0)))  # V per µm (X)
+        vpu_y = float(getattr(gui, "volts_per_um_y", getattr(gui, "volts_per_um", 0.0)))  # V per µm (Y)
+        if vpu_x == 0.0 or vpu_y == 0.0:
+            print("ERROR: volts_per_um_x / volts_per_um_y (or fallback volts_per_um) not configured.")
+            return
 
-        def pm_to_v(pm):
-            # pm → µm is /1e6 ; but we directly use the factor expected by your driver: pm * 1e-3 * volts_per_um
-            return np.round(pm * 1e-6 * volts_per_um, 6)
+        kx_ratio = float(gui.kx_ratio)
+        ky_ratio = float(gui.ky_ratio)
+
+        # pm → V helpers (per-axis)
+        def pm_to_v_x(pm):
+            # pm * 1e-6 = µm
+            return np.round(pm * 1e-6 * vpu_x, 6)
+
+        def pm_to_v_y(pm):
+            return np.round(pm * 1e-6 * vpu_y, 6)
 
         # ---------- helpers for queried bounds (return µm floats) ----------
         def _queried_bounds_from_plot_um():
@@ -11135,7 +11147,8 @@ class GUI_OPX():
             ymin, ymax = (y0, y1) if y0 <= y1 else (y1, y0)
             if xmax <= xmin or ymax <= ymin:
                 return None
-            print(f"_queried_bounds_from_plot_um: x=[{xmin*1e-6:.2f}, {xmax*1e-6:.2f}] µm, y=[{ymin*1e-6:.2f}, {ymax*1e-6:.2f}] µm")
+            print(
+                f"_queried_bounds_from_plot_um: x=[{xmin * 1e-6:.2f}, {xmax * 1e-6:.2f}] µm, y=[{ymin * 1e-6:.2f}, {ymax * 1e-6:.2f}] µm")
             return xmin, xmax, ymin, ymax
 
         def _queried_bounds_from_proem_um():
@@ -11228,7 +11241,7 @@ class GUI_OPX():
         if use_queried_proem:
             bounds_um = _queried_bounds_from_proem_um()
             if bounds_um is None:
-                bounds_um=self.last_used_bounds
+                bounds_um = self.last_used_bounds
                 if bounds_um is None:
                     self.btnStop()
                     return
@@ -11238,7 +11251,7 @@ class GUI_OPX():
         if bounds_um is None and use_queried_area:
             bounds_um = _queried_bounds_from_plot_um()
             if bounds_um is None:
-                bounds_um=self.last_used_bounds
+                bounds_um = self.last_used_bounds
                 if bounds_um is None:
                     self.btnStop()
                     return
@@ -11269,9 +11282,9 @@ class GUI_OPX():
                             lo_um, hi_um = bounds_um[0], bounds_um[1]
                         else:
                             lo_um, hi_um = bounds_um[2], bounds_um[3]
-                        lo = int(min(lo_um, hi_um)*1e6)
-                        hi = int(max(lo_um, hi_um)*1e6)
-                        s = int(max(step_um[i], 1e-6)*1e6)  # avoid zero
+                        lo = int(min(lo_um, hi_um) * 1e6)
+                        hi = int(max(lo_um, hi_um) * 1e6)
+                        s = int(max(step_um[i], 1e-6) * 1e6)  # avoid zero
                         # ensure inclusive end; build ascending
                         axis = np.arange(lo, hi + s * 0.5, s, dtype=np.float64)
                     else:
@@ -11315,32 +11328,29 @@ class GUI_OPX():
         print(f"Yv (µm): {self.Yv[0]:.2f} -> {self.Yv[-1]:.2f}, Ny={len(self.Yv)}")
         print(f"Zv (µm): {self.Zv[0]:.2f} -> {self.Zv[-1]:.2f}, Nz={len(self.Zv)}")
 
-        def pred(vpu, kx, ky, b1, b2, x_um, y_um):
-            Vx = vpu * x_um
-            Vy = vpu * y_um
+        # Corner predictions using per-axis scales
+        def pred(vpu_x_, vpu_y_, kx, ky, b1, b2, x_um, y_um):
+            Vx = vpu_x_ * x_um
+            Vy = vpu_y_ * y_um
             ch1 = b1 + (Vx + Vy)
             ch2 = b2 + (kx * Vx + ky * Vy)
             return ch1, ch2
 
         b1, b2 = gui.base1, gui.base2
-        s = float(getattr(gui, "volts_per_um", 0.128 / 15.0))
-        if s > 1.0: s = 1.0 / s
-        if s < 0:   s = -s
-
         xlo, xhi = float(self.Xv[0]), float(self.Xv[-1])
         ylo, yhi = float(self.Yv[0]), float(self.Yv[-1])
         for name, (xx, yy) in {
             "LL": (xlo, ylo), "LR": (xhi, ylo),
             "UL": (xlo, yhi), "UR": (xhi, yhi)
         }.items():
-            c1, c2 = pred(s, kx_ratio, ky_ratio, b1, b2, xx, yy)
+            c1, c2 = pred(vpu_x, vpu_y, kx_ratio, ky_ratio, b1, b2, xx, yy)
             print(f"{name}: ({xx:.2f}µm,{yy:.2f}µm) -> CH1={c1:.4f}V, CH2={c2:.4f}V")
 
         # --- Precompute & print planned voltage bounds (including baselines) ---
-        Vx = pm_to_v(self.V_scan[0])[:, None]  # (Nx, 1)
-        Vy = pm_to_v(self.V_scan[1])[None, :]  # (1, Ny)
-        ch1_grid = base_off_x + (Vx + Vy)
-        ch2_grid = base_off_y + (Vx * kx_ratio) + (Vy * ky_ratio)
+        Vx_grid = pm_to_v_x(self.V_scan[0])[:, None]  # (Nx, 1)
+        Vy_grid = pm_to_v_y(self.V_scan[1])[None, :]  # (1, Ny)
+        ch1_grid = base_off_x + (Vx_grid + Vy_grid)
+        ch2_grid = base_off_y + (Vx_grid * kx_ratio) + (Vy_grid * ky_ratio)
 
         ch1_min, ch1_max = float(np.min(ch1_grid)), float(np.max(ch1_grid))
         ch2_min, ch2_max = float(np.min(ch2_grid)), float(np.max(ch2_grid))
@@ -11399,17 +11409,17 @@ class GUI_OPX():
                     if self.stopScan: break
 
                     y_pm = float(self.V_scan[1][j])
-                    Vy = pm_to_v(y_pm)
+                    Vy_volt = pm_to_v_y(y_pm)
 
                     # X line
                     for k in range(Nx):
                         if self.stopScan: break
                         x_pm = float(self.V_scan[0][k])
-                        Vx = pm_to_v(x_pm)
+                        Vx_volt = pm_to_v_x(x_pm)
 
-                        # === Apply combined X,Y galvo move with kx/ky defaults ===
-                        ch1 = base_off_x + (Vx + Vy)
-                        ch2 = base_off_y + (Vx * kx_ratio) + (Vy * ky_ratio)
+                        # === Apply combined X,Y galvo move with per-axis scales ===
+                        ch1 = base_off_x + (Vx_volt + Vy_volt)
+                        ch2 = base_off_y + (Vx_volt * kx_ratio) + (Vy_volt * ky_ratio)
                         dev.set_offset(ch1, channel=1)
                         dev.set_offset(ch2, channel=2)
 
@@ -11435,8 +11445,8 @@ class GUI_OPX():
                                 self.UpdateGuiDuringScan(self.scan_intensities[:, :, iz], use_fast_rgb=True)
 
                     # return X component to baseline at row end (keep Y at its row value until next row change)
-                    dev.set_offset(base_off_x + Vy, channel=1)
-                    dev.set_offset(base_off_y + (Vy * ky_ratio), channel=2)
+                    dev.set_offset(base_off_x + Vy_volt, channel=1)
+                    dev.set_offset(base_off_y + (Vy_volt * ky_ratio), channel=2)
 
                     j += 1
 
@@ -11461,7 +11471,7 @@ class GUI_OPX():
         finally:
             keep = self.stopScanNoRestore
             if not keep:
-                try: # Restore galvos to baselines
+                try:  # Restore galvos to baselines
                     dev.set_offset(base_off_x, channel=1)
                     dev.set_offset(base_off_y, channel=2)
                     gui.btn_get_current_parameters()
@@ -11492,7 +11502,6 @@ class GUI_OPX():
 
         # Stats
         elapsed = time.time() - start_time
-        # print(f"number of points = {Nx * Ny * Nz}")
         print(f"Elapsed time: {elapsed:.0f} seconds")
         if not self.stopScan:
             self.btnStop()

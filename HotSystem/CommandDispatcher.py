@@ -50,6 +50,78 @@ from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
 # Font color: Alt + H F C
 # Paste as pic: Alt + H V U
 
+CONFIG_PATH = r"C:\WC\HotSystem\SystemConfig\xml_configs\system_info.xml"
+
+def _dispatcher_base_dir(self) -> str:
+    """Folder of CommandDispatcher.py (works even if module path is indirect)."""
+    mod = sys.modules.get(self.__class__.__module__) or sys.modules.get(__name__)
+    here = getattr(mod, "__file__", __file__)
+    return os.path.dirname(os.path.abspath(here))
+
+def _prefer_py(path: str) -> str:
+    """Prefer .py over .pyc/.pyo when available."""
+    if path.endswith((".pyc", ".pyo")) and os.path.exists(path[:-1]):
+        return path[:-1]
+    return path
+
+def _open_path(path: str):
+    """Open a file with the default app (Windows) and print a status line."""
+    path = _prefer_py(path)
+    if not os.path.exists(path):
+        print(f"[show] File not found: {path}")
+        return
+    try:
+        os.startfile(path)  # Windows default opener
+        print(f"[show] Opened: {path}")
+    except Exception as e:
+        print(f"[show] Failed to open {path}: {e}")
+
+def _open_module_or_fallback(module_name: str, fallback_rel: str, base_dir: str):
+    """
+    Try to open the source file of module_name; if not found, open base_dir/fallback_rel.
+    """
+    try:
+        mod = sys.modules.get(module_name) or importlib.import_module(module_name)
+        path = os.path.abspath(getattr(mod, "__file__", ""))
+        if path and os.path.exists(path):
+            _open_path(path)
+            return
+    except Exception as e:
+        # Not fatal; we'll try the fallback below.
+        print(f"[show] Import fallback for {module_name}: {e}")
+
+    fall = os.path.join(base_dir, *fallback_rel.split("\\"))
+    _open_path(fall)
+
+# Primary mapping: alias(es) -> (module, fallback_relative_path)
+SHOW_MAP = {
+    # GUIs
+    ("opx", "hwrap_opx", "opxwrap"): ("HWrap_OPX", r"HWrap_OPX.py"),
+    ("disp", "display", "zslices", "zslice"): ("Utils.display_all_z_slices_with_slider", r"Utils\display_all_z_slices_with_slider.py"),
+    ("awg", "keysight", "keysight_awg"): ("HW_GUI.GUI_keysight_AWG", r"HW_GUI\GUI_keysight_AWG.py"),
+    ("cld", "cld1011", "cld1011lp"): ("HW_GUI.GUI_CLD1011LP", r"HW_GUI\GUI_CLD1011LP.py"),
+    ("cob", "cobolt"): ("HW_GUI.GUI_Cobolt", r"HW_GUI\GUI_Cobolt.py"),
+    ("femto",): ("HW_GUI.GUI_Femto_Power_Calculations", r"HW_GUI\GUI_Femto_Power_Calculations.py"),
+    ("hrs", "hrs500", "hrs_500"): ("HW_GUI.GUI_HRS_500", r"HW_GUI\GUI_HRS_500.py"),
+    ("kdc", "kdc101", "kdc_101"): ("HW_GUI.GUI_KDC101", r"HW_GUI\GUI_KDC101.py"),
+    ("smaract",): ("HW_GUI.GUI_Smaract", r"HW_GUI\GUI_Smaract.py"),
+    ("zelux",): ("HW_GUI.GUI_Zelux", r"HW_GUI\GUI_Zelux.py"),
+    # App root
+    ("app",): ("Application", r"Application.py"),
+}
+
+# Wrapper mapping for: show wrap <thing>
+WRAP_MAP = {
+    "cld":     ("HW_wrapper.Wrapper_CLD1011", r"HW_wrapper\Wrapper_CLD1011.py"),
+    "zelux":   ("HW_wrapper.Wrapper_Zelux",   r"HW_wrapper\Wrapper_Zelux.py"),
+    "cob":     ("HW_wrapper.Wrapper_Cobolt",  r"HW_wrapper\Wrapper_Cobolt.py"),
+    "smaract": ("HW_wrapper.Wrapper_Smaract", r"HW_wrapper\Wrapper_Smaract.py"),
+}
+
+
+
+
+
 class DualOutput:
     def __init__(self, original_stream):
         """
@@ -238,6 +310,7 @@ class CommandDispatcher:
             "qmm":               self.handle_close_qm,
             "up":                self.handle_up,
             "reset":             self.handle_reset_smaract,
+            "show":              self.handle_show,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -1296,7 +1369,6 @@ class CommandDispatcher:
                 print("Reloaded HW_GUI.GUI_HRS500 with ProEM experiment and recreated Spectrometer GUI.")
                 return
 
-
             # === HRS_500 GUI ===
             if name in ("hrs", "hrs500", "hrs_500"):
                 import HW_GUI.GUI_HRS_500 as gui_HRS500
@@ -1374,6 +1446,70 @@ class CommandDispatcher:
 
                 print("Reloaded GUI_keysight_AWG and recreated GUIKeysight33500B.")
                 return
+
+            # === CLD1011LP GUI ===
+            if name in ("cld", "cld1011", "cld1011lp"):
+                import HW_GUI.GUI_CLD1011LP as gui_CLD
+                importlib.reload(gui_CLD)
+
+                # Try to keep the existing device; if missing, try to recreate it
+                from HW_wrapper.HW_devices import HW_devices
+                devs = HW_devices()
+                device = getattr(devs, "CLD1011LP", None)
+
+                # Optionally reload the wrapper and recreate device if needed
+                try:
+                    import HW_wrapper.Wrapper_CLD1011 as wrap_CLD
+                    importlib.reload(wrap_CLD)
+                except Exception as e:
+                    wrap_CLD = None
+                    print(f"Warning: could not reload Wrapper_CLD1011: {e}")
+
+                if device is None and wrap_CLD is not None:
+                    try:
+                        # If you have a config-driven simulation flag, read it here instead:
+                        sim_flag = False
+                        device = wrap_CLD.ThorlabsCLD1011LP(simulation=sim_flag)
+                        devs.CLD1011LP = device
+                    except Exception as e:
+                        print(f"Warning: could not (re)create CLD1011LP device: {e}")
+
+                # Cleanup previous GUI (no DeleteMainWindow in this GUI; remove by tag)
+                if hasattr(p, "cld1011lp_gui") and p.cld1011lp_gui:
+                    try:
+                        pos = dpg.get_item_pos(p.cld1011lp_gui.window_tag)
+                        size = dpg.get_item_rect_size(p.cld1011lp_gui.window_tag)
+                        dpg.delete_item(p.cld1011lp_gui.window_tag)
+                    except Exception as e:
+                        print(f"Old CLD1011LP GUI removal failed: {e}")
+                        pos, size = [60, 60], [600, 440]
+                else:
+                    pos, size = [60, 60], [600, 440]
+
+                # Create the GUI (constructor builds the window)
+                sim_flag = bool(getattr(device, "simulation", False)) if device is not None else False
+                p.cld1011lp_gui = gui_CLD.GUI_CLD1011LP(simulation=sim_flag)
+
+                # Rebuild the “bring window” button
+                if dpg.does_item_exist("CLD1011LP_button"):
+                    dpg.delete_item("CLD1011LP_button")
+                p.create_bring_window_button(
+                    p.cld1011lp_gui.window_tag, button_label="CLD1011LP",
+                    tag="CLD1011LP_button", parent="focus_group"
+                )
+                p.active_instrument_list.append(p.cld1011lp_gui.window_tag)
+
+                # Restore geometry
+                try:
+                    dpg.set_item_pos(p.cld1011lp_gui.window_tag, pos)
+                    dpg.set_item_width(p.cld1011lp_gui.window_tag, size[0])
+                    dpg.set_item_height(p.cld1011lp_gui.window_tag, size[1])
+                except Exception:
+                    pass
+
+                print("Reloaded HW_GUI.GUI_CLD1011LP and recreated CLD1011LP GUI.")
+                return
+
 
             # === Display Z-Slices Viewer ===
             if name in ("disp", "display_slices", "zslider", "zslice"):
@@ -4124,10 +4260,12 @@ class CommandDispatcher:
         """
         Shift both AWG channels for X-axis motion.
         Usage:
-          kx <value>[u|um|v] [<ratio>]
-        – no unit or 'v' treats value as volts directly
+          kx <value>[u|um|v] [<kx_ratio> [<ky_ratio>]]
+        – no unit treats value as µm (× volts_per_um)
         – 'u'/'um'      treats value as µm (× volts_per_um)
-        – optional <ratio> overrides default CH2:CH1 ratio
+        – 'v'           treats value as volts directly
+        – optional <kx_ratio> overrides CH2:CH1 ratio for X motion
+        – optional <ky_ratio> overrides the Y basis ratio used for XY position solve
         """
 
         parent = self.get_parent()
@@ -4136,10 +4274,10 @@ class CommandDispatcher:
             print("No Keysight AWG GUI is active.")
             return
 
-        # split on whitespace or comma, max 2 parts
+        # split on whitespace or comma, allow up to 3 parts: value, kx_ratio, ky_ratio
         parts = re.split(r'[,\s]+', arg.strip())
-        if not parts or len(parts) > 2:
-            print("Invalid usage: kx <value>[u|um|v] [<ratio>]")
+        if not parts or len(parts) > 3:
+            print("Invalid usage: kx <value>[u|um|v] [<kx_ratio> [<ky_ratio>]]")
             return
 
         # parse the motion value (with optional unit)
@@ -4148,23 +4286,32 @@ class CommandDispatcher:
             print("Invalid value for kx:", parts[0])
             return
         val = float(m.group(1))
-        unit = (m.group(2) or "v").lower()
+        # DEFAULT TO µm WHEN NO UNIT IS PROVIDED
+        unit = (m.group(2) or "um").lower()
 
-        volts_per_um = gui.volts_per_um
+        # at the top of each handler, after fetching gui:
+        vpu_x = getattr(gui, "volts_per_um_x", gui.volts_per_um)  # V per µm along X
+        vpu_y = getattr(gui, "volts_per_um_y", gui.volts_per_um)  # V per µm along Y
+
         if unit in ("u", "um"):
-            delta_v = val * volts_per_um
+            delta_v = val * vpu_x
             label = "µm"
         else:
             delta_v = val
             label = "V"
 
-        # parse optional ratio override
+        # parse optional ratio overrides
         try:
-            kx_ratio = float(parts[1]) if len(parts) == 2 else gui.kx_ratio
+            kx_ratio = float(parts[1]) if len(parts) >= 2 else gui.kx_ratio
         except ValueError:
-            print("Invalid ratio:", parts[1])
+            print("Invalid kx_ratio:", parts[1])
             return
 
+        try:
+            ky_ratio = float(parts[2]) if len(parts) == 3 else getattr(gui, "ky_ratio", -0.3)
+        except ValueError:
+            print("Invalid ky_ratio:", parts[2])
+            return
         try:
             c1 = float(gui.dev.get_current_voltage(1))
             c2 = float(gui.dev.get_current_voltage(2))
@@ -4176,10 +4323,11 @@ class CommandDispatcher:
             gui.btn_get_current_parameters()
 
             # --- Compute current XY position (µm) from (n1, n2) using the two-basis (kx, ky) ---
-            ky_ratio = getattr(gui, "ky_ratio", -0.3)  # fallback if not defined
+            base1 = getattr(gui, "base1", 0.0)
+            base2 = getattr(gui, "base2", 0.0)
 
-            dv1 = n1 - gui.base1
-            dv2 = n2 - gui.base2
+            dv1 = n1 - base1
+            dv2 = n2 - base2
             denom = (kx_ratio - ky_ratio)
 
             if abs(denom) < 1e-12:
@@ -4191,14 +4339,15 @@ class CommandDispatcher:
                 alpha_x_volts = (dv2 - dv1 * ky_ratio) / denom
                 beta_y_volts = (dv2 - dv1 * kx_ratio) / (ky_ratio - kx_ratio)
 
-                x_um = alpha_x_volts / volts_per_um * 1e-3
-                y_um = beta_y_volts / volts_per_um * 1e-3
+                # Convert volts to position (keep same scale convention as the rest of your codebase)
+                x_um = alpha_x_volts / vpu_x
+                y_um = beta_y_volts / vpu_y
                 xy_msg = f" | Pos: X={x_um:.3f} µm, Y={y_um:.3f} µm"
 
             print(
                 f"kx: CH1 +{val:.2f}{label} -> d{delta_v:.4f} V (now {n1:.4f} V); "
                 f"CH2 -> Δ{delta_v * kx_ratio:.4f} V (now {n2:.4f} V) "
-                f"[kx_ratio={kx_ratio:.3f}, ky_ratio={ky_ratio:.3f}]\n{xy_msg}"
+                f"[kx_ratio={kx_ratio:.3f}, ky_ratio={ky_ratio:.3f}, base1={base1:.4f}, base2={base2:.4f}]\n{xy_msg}"
             )
 
             self.handle_mark("k")
@@ -4210,7 +4359,7 @@ class CommandDispatcher:
         Shift both AWG channels for Y-axis motion.
         Usage:
           ky <value>[u|um|v] [<ratio>]
-        – no unit or 'v' treats value as volts directly
+        – no unit or 'um' treats value as um directly
         – 'u'/'um'      treats value as µm (× volts_per_um)
         – optional <ratio> overrides default CH2:CH1 ratio
         """
@@ -4230,11 +4379,14 @@ class CommandDispatcher:
             print("Invalid value for ky:", parts[0])
             return
         val = float(m.group(1))
-        unit = (m.group(2) or "v").lower()
+        unit = (m.group(2) or "um").lower()
 
-        volts_per_um = gui.volts_per_um
+        # at the top of each handler, after fetching gui:
+        vpu_x = getattr(gui, "volts_per_um_x", gui.volts_per_um)  # V per µm along X
+        vpu_y = getattr(gui, "volts_per_um_y", gui.volts_per_um)  # V per µm along Y
+
         if unit in ("u", "um"):
-            delta_v = val * volts_per_um
+            delta_v = val * vpu_y
             label = "µm"
         else:
             delta_v = val
@@ -4270,8 +4422,8 @@ class CommandDispatcher:
                 # [dv1, dv2]^T = α*[1, kx]^T + β*[1, ky]^T
                 alpha_x_volts = (dv2 - dv1 * ky_ratio) / denom
                 beta_y_volts = (dv2 - dv1 * kx_ratio) / (ky_ratio - kx_ratio)
-                x_um = alpha_x_volts / volts_per_um * 1e-3
-                y_um = beta_y_volts / volts_per_um * 1e-3
+                x_um = alpha_x_volts / vpu_x
+                y_um = beta_y_volts / vpu_y
                 xy_msg = f" | Pos: X={x_um:.3f} µm, Y={y_um:.3f} µm"
             print(
                 f"ky: CH1 +{val:.2f}{label} -> d{delta_v:.4f} V (now {n1:.4f} V); "
@@ -4670,6 +4822,72 @@ class CommandDispatcher:
                   f"X={start_um[0]:.2f} µm, Y={start_um[1]:.2f} µm, Z={start_um[2]:.2f} µm")
         except Exception as e:
             print(f"reset smaract failed: {e}")
+
+    def handle_show(self, arg):
+        """
+        show commands:
+          show config
+          show cmd | dispatcher
+          show opx | disp | awg | cld | cob | femto | hrs | kdc | smaract | zelux
+          show wrap <cld|zelux|cob|smaract>
+          show map clib
+          show app
+        """
+        sub = (arg or "").strip()
+        if not sub:
+            print(
+                "Usage: show config | show cmd | show <opx|disp|awg|cld|cob|femto|hrs|kdc|smaract|zelux|app> | show wrap <cld|zelux|cob|smaract> | show map clib")
+            return
+
+        toks = sub.split()
+        key = toks[0].lower()
+        base_dir = _dispatcher_base_dir(self)
+
+        # ----- show config -----
+        if key == "config":
+            _open_path(CONFIG_PATH)
+            return
+
+        # ----- show cmd / dispatcher (open CommandDispatcher.py) -----
+        if key in ("cmd", "command", "dispatcher"):
+            try:
+                mod = sys.modules.get(self.__class__.__module__) or sys.modules.get(__name__)
+                dispatcher_path = os.path.abspath(getattr(mod, "__file__", "CommandDispatcher.py"))
+                if not os.path.isabs(dispatcher_path):
+                    dispatcher_path = os.path.abspath(dispatcher_path)
+                _open_path(dispatcher_path)
+            except Exception as e:
+                print(f"[show] Could not determine CommandDispatcher.py path: {e}")
+            return
+
+        # ----- show wrap <name> -----
+        if key == "wrap":
+            if len(toks) < 2:
+                print("Usage: show wrap <cld|zelux|cob|smaract>")
+                return
+            which = toks[1].lower()
+            if which not in WRAP_MAP:
+                print(f"[show] Unknown wrap '{which}'. Options: {', '.join(WRAP_MAP.keys())}")
+                return
+            mod_name, fallback_rel = WRAP_MAP[which]
+            _open_module_or_fallback(mod_name, fallback_rel, base_dir)
+            return
+
+        # ----- show map clib (or calib) -----
+        if key == "map":
+            if len(toks) >= 2 and toks[1].lower() in ("calibration", "calib"):
+                _open_path(os.path.join(base_dir, r"Utils\map_calibration.json"))
+                return
+            print("Usage: show map clib")
+            return
+
+        # ----- simple mapped opens (GUIs / app) -----
+        for aliases, (mod_name, fallback_rel) in SHOW_MAP.items():
+            if key in aliases:
+                _open_module_or_fallback(mod_name, fallback_rel, base_dir)
+                return
+
+        print(f"[show] Unknown subcommand: {sub}")
 
 
 # Wrapper function
