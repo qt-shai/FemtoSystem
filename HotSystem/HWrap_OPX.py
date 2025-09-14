@@ -11269,6 +11269,7 @@ class GUI_OPX():
                    float(self.dL_scan[1]) / 1000.0,
                    float(self.dL_scan[2]) / 1000.0]
         start_top = bool(getattr(self, "start_top", False))
+        start_left = bool(getattr(self, "start_left", False))
 
         for i in range(3):
             if i == 0 or i == 1:
@@ -11291,11 +11292,15 @@ class GUI_OPX():
                         L = self.L_scan[i]  # nm (GUI)
                         d = self.dL_scan[i]  # nm step
                         if i == 0:
-                            # X
+                              # X
                             if centered_xy:
-                                vec_nm = self.GenVector(min=-L / 2, max=+L / 2, delta=d)
+                                  vec_nm = self.GenVector(min=-L / 2, max=+L / 2, delta=d)
                             else:
-                                vec_nm = self.GenVector(min=-L, max=0, delta=d)  # default
+                                # legacy (non-centered): left = [-L .. 0], right = [0 .. +L]
+                                if not start_left:
+                                    vec_nm = self.GenVector(min=0, max=L, delta=d)  # RIGHT: 0..+L
+                                else:
+                                    vec_nm = self.GenVector(min=-L, max=0, delta=d)  # LEFT: -L..0
                         else:
                             # Y
                             if start_top:

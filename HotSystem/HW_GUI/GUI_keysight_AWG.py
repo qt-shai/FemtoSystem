@@ -27,8 +27,8 @@ class GUIKeysight33500B:
         self.volts_per_um_x = -3000e-6
         self.volts_per_um_y = -9600e-6
 
-        self.base1 = 0.713
-        self.base2 = -0.513
+        self.base1 = 0.7293
+        self.base2 = -0.5179
         self.xy_step = 0.002
         self.kx_ratio = 3.3
         self.ky_ratio = -0.3

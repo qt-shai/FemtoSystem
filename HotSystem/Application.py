@@ -668,7 +668,7 @@ class PyGuiOverlay(Layer):
         size = [int(1.0*self.Monitor_width),int(1*self.Monitor_height)]   # new window width,height
 
         ARROW_CHARS = [0x2190, 0x2191, 0x2192, 0x2193, 0x2194, 0x21A9, 0x21AA, 0x27A1]  # ← ↑ → ↓ ↔ ↩ ↪ ➡
-        EXTRA_CHARS = ARROW_CHARS + [0x00B5, 0x03BC, 0x00B0, 0x00D7, 0x00B1, 0x2264, 0x2265]  # µ μ ° × ± ≤ ≥
+        EXTRA_CHARS = ARROW_CHARS + [0x00B5, 0x03BC, 0x00B0, 0x00D7, 0x00B1, 0x2264, 0x2265, 0x2022, 0x2026, 0x2013, 0x2014]  # µ μ ° × ± ≤ ≥ bullet • … – —
 
         with dpg.font_registry():
             # default_font = dpg.add_font("C:\\Windows\\Fonts\\Calibri.ttf", int(30*fontScale)+1)
@@ -1250,47 +1250,29 @@ class PyGuiOverlay(Layer):
                 self.CURRENT_KEY = key_data_enum
                 return True
 
-        # 2b) Shift+0 → restore
+        # 2b) Shift-only commands
         if self.CURRENT_KEY == KeyboardKeys.SHIFT_KEY:
-            # --- NEW: ignore Shift+= / Shift+- when typing in cmd input ---
+            # Ignore Shift+= / Shift+- when typing in cmd input
             if self._cmd_input_has_focus() and key_data_enum in (KeyboardKeys.OEM_PLUS, KeyboardKeys.OEM_MINUS):
-                # print('ignoring _ and + when cmd_input is in focus')
                 return False
 
-            if  key_data_enum == KeyboardKeys.KEY_0:
-                self._restore_exposure()
+            shift_actions = {
+                KeyboardKeys.KEY_0:      self._restore_exposure,                    # Shift+0
+                KeyboardKeys.KEY_2:      lambda: self._set_fine_steps(20, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
+                KeyboardKeys.KEY_5:      lambda: self._set_fine_steps(50, axes=(0, 1, 2)),  # Shift+5 → 50 nm all axes (NEW)
+                KeyboardKeys.OEM_PLUS:   lambda: self._shift_move_kx(sign=+1),      # Shift+='
+                KeyboardKeys.OEM_MINUS:  lambda: self._shift_move_kx(sign=-1),      # Shift+'-'
+                KeyboardKeys.OEM_6:      lambda: self._shift_move_ky(sign=+1),      # Shift+']'
+                KeyboardKeys.OEM_4:      lambda: self._shift_move_ky(sign=-1),      # Shift+'['
+                KeyboardKeys.OEM_5:      lambda: run("kabs"),                        # Shift+'\'
+            }
+
+            action = shift_actions.get(key_data_enum)
+            if action:
+                action()
                 self.CURRENT_KEY = key_data_enum
                 return True
-            elif key_data_enum == KeyboardKeys.KEY_2:
-                self._set_fine_steps(20, axes=(0, 1, 2))
-                self.CURRENT_KEY = key_data_enum
-                return True
-            elif key_data_enum == KeyboardKeys.OEM_PLUS:
-                # Shift + '=' : move in X (like kx)
-                self._shift_move_kx(sign=+1)
-                self.CURRENT_KEY = key_data_enum
-                return True
-            elif key_data_enum == KeyboardKeys.OEM_MINUS:
-                print(self._cmd_input_has_focus())
-                # Shift + '-' : move in Y (like ky)
-                self._shift_move_kx(sign=-1)
-                self.CURRENT_KEY = key_data_enum
-                return True
-            elif key_data_enum == KeyboardKeys.OEM_6:
-                # Shift + '=' : move in X (like kx)
-                self._shift_move_ky(sign=+1)
-                self.CURRENT_KEY = key_data_enum
-                return True
-            elif key_data_enum == KeyboardKeys.OEM_4:
-                # Shift + '-' : move in Y (like ky)
-                self._shift_move_ky(sign=-1)
-                self.CURRENT_KEY = key_data_enum
-                return True
-            elif key_data_enum == KeyboardKeys.OEM_5:
-                # Shift + '\' : run("kabs")
-                run("kabs")
-                self.CURRENT_KEY = key_data_enum
-                return True
+
 
         # 3) Step-size tuning for last moved axis (Ctrl or Shift + ., , or 2, M)
         if hasattr(self, "last_moved_axis") and key_data_enum in (
@@ -1783,31 +1765,6 @@ class PyGuiOverlay(Layer):
             dpg.add_drawlist(tag="full_drawlist", width=800, height=600)
         dpg.set_primary_window("Viewport_Window", True)
         # dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
-
-    # def create_console_gui(self):
-    #     """Creates a console GUI window for displaying logs and user inputs."""
-    #     with dpg.window(tag="console_window", label="Console", pos=[20, 20], width=400, height=360):
-    #         # Console log display
-    #         with dpg.child_window(tag="console_output", autosize_x=True, height=120):
-    #             dpg.add_text("Console initialized.", tag="console_log", wrap=1500)
-    #         # Input field for sending commands or messages
-    #         with dpg.group(horizontal=True):
-    #             dpg.add_input_text(label="", tag="cmd_input", hint="Enter command", width=650,
-    #                                on_enter=True, callback=lambda s, a, u: self.handle_cmd_input())
-    #             dpg.add_input_text(label="", tag="console_input", width=20)
-    #             dpg.add_button(label="S", callback=self.send_console_input)
-    #             dpg.add_button(label="C", callback=self.clear_console)
-    #             dpg.add_combo(items=[], tag="command_history", width=40, callback=self.fill_console_input)
-    #             dpg.add_button(label="Sv", callback=self.save_logs)
-    #
-    #     # --- resize handler on the window ---
-    #     if not dpg.does_item_exist("console_resize_handlers"):
-    #         with dpg.item_handler_registry(tag="console_resize_handlers"):
-    #             dpg.add_item_resize_handler(callback=self._on_console_resize)
-    #     dpg.bind_item_handler_registry("console_window", "console_resize_handlers")
-    #
-    #     # Do an initial layout pass
-    #     self._on_console_resize(None, None, None)
 
     def create_console_gui(self):
         """Creates a console GUI window for displaying logs and user inputs."""

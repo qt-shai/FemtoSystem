@@ -116,11 +116,10 @@ WRAP_MAP = {
     "zelux":   ("HW_wrapper.Wrapper_Zelux",   r"HW_wrapper\Wrapper_Zelux.py"),
     "cob":     ("HW_wrapper.Wrapper_Cobolt",  r"HW_wrapper\Wrapper_Cobolt.py"),
     "smaract": ("HW_wrapper.Wrapper_Smaract", r"HW_wrapper\Wrapper_Smaract.py"),
+    "hrs":     ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
+    "hrs500":  ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
+    "hrs_500": ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
 }
-
-
-
-
 
 class DualOutput:
     def __init__(self, original_stream):
@@ -329,9 +328,184 @@ class CommandDispatcher:
 
     def run(self, command: str, record_history: bool = True):
         """
-        Main entry: accept a single command or ';'-separated list,
-        dispatching each verb to the appropriate handler.
+            Execute one or more console commands.
+
+            Overview
+            --------
+            - Accepts a single command or a ';'-separated list and dispatches each
+              segment to a registered handler in self.handlers.
+            - If no handler matches, supports:
+                1) Inline Python helpers: 'import', 'from', 'py', 'py?' executed
+                   in a shared namespace returned by _ensure_exec_ns().
+                2) History-assisted recall: searches previous commands for a match and
+                   replays the most recent one.
+                3) Python fallback: tries eval/exec of the raw text.
+                4) Shell fallback: runs the text in the OS shell (subprocess).
+            - Maintains GUI focus and clears the input widget when done.
+
+            Parameters
+            ----------
+            command : str
+                The raw command line. May contain multiple commands separated by ';'.
+                Examples:
+                    "xabs10; yabs-5; zabs0"
+                    "wait500; opx start"
+                    "py dpg.get_value('cmd_input')"
+            record_history : bool, default True
+                If True, appends the original command line to parent.command_history
+                and advances parent.history_index. Set False for internal or replayed
+                executions you do not want to store.
+
+            Command Grammar
+            ---------------
+            A command line is split by ';' into segments:
+                segment := verb [SP arg]
+                verb    := first token (case-insensitive)
+                arg     := the remainder of the segment (may be empty)
+
+            Handler dispatch:
+                - The lowercase verb is looked up in self.handlers.
+                - If found, handler(arg) is called (with special handling for 'wait').
+                - If not found, proceed to Python helpers, history recall, Python
+                  fallback, then shell fallback (in that order).
+
+            Special Cases
+            -------------
+            1) Embedded-number verbs:
+                If a segment's verb starts with one of:
+                    xabs, yabs, zabs, dx, dy, dz, angle, att, lastz, int
+                and there is no exact handler for the full token, the numeric suffix
+                is moved into arg and 'verb' is rewritten to the prefix.
+                Example:
+                    "xabs12"  -> key="xabs", arg="12"
+                    "dz-200"  -> key="dz",   arg="-200"
+
+            2) Multi-word verbs:
+                - "show windows" is normalized from: key=="show" and arg.lower()=="windows"
+                - "gen list"     is normalized from: key=="gen"  and arg.lower()=="list"
+                After normalization, key becomes "show windows" or "gen list" with arg="".
+
+            3) 'wait' handler (scheduling):
+                - If key=="wait", arg is parsed as milliseconds.
+                - The remaining segments are scheduled to run after the delay in a daemon
+                  thread (non-blocking). Example:
+                      "wait500; xabs10; yabs20"
+                  will delay 500 ms, then run the two remaining commands in order.
+                - On parse error, prints usage and continues.
+
+            Python Helpers (no handler match)
+            ---------------------------------
+            The console provides lightweight Python execution in a shared namespace:
+                - "import ..." or "from ... import ...":
+                    Executes the statement in the shared namespace.
+                    Useful for one-time setup, e.g. "import dearpygui.dearpygui as dpg".
+                - "py <stmt>":
+                    Executes an arbitrary Python statement via exec().
+                    Example: "py dpg.set_value('cmd_input','')"
+                - "py? <expr>":
+                    Evaluates a Python expression via eval() and prints the result.
+                    Example: "py? dpg.does_item_exist('cmd_input')"
+
+            Notes:
+                - The shared namespace comes from _ensure_exec_ns(). If you need access
+                  to the dispatcher or GUI, you can extend that namespace (e.g., inject
+                  'self' or 'parent') inside _ensure_exec_ns() or right before exec/eval.
+                - If you added ns['self'] = self, you can do:
+                      "py self.proEM_mode = False"
+                      "py? self.proEM_mode"
+
+            History Recall
+            --------------
+            If no handler and no Python-helper verb matched:
+                - Searches parent.command_history (most-recent-first) for a previous
+                  command containing the exact typed segment as a substring, excluding
+                  the current segment itself.
+                - If found, the matched command is placed back into the input widget,
+                  focused, printed as recalled, and immediately executed in the same
+                  shared namespace:
+                      * If it starts with "import"/"from": exec()
+                      * Else if it contains '=' or ';': exec()
+                      * Else: eval() and print result if not None
+                - If nothing is found, the console proceeds to Python fallback then shell.
+
+            Python Fallback, then Shell
+            ---------------------------
+            Python fallback:
+                - If the segment contains '=', uses exec(); otherwise tries eval().
+                - Prints the evaluated result if not None.
+                - On failure, prints the Python error and continues to shell.
+            Shell fallback:
+                - If Python fails, attempts to run the exact text via subprocess.run()
+                  with shell=True. Errors are reported to the console.
+
+            GUI Behavior
+            ------------
+            - If command is empty: focuses "OPX Window" and returns.
+            - After processing segments, focuses "OPX Window" and clears the "cmd_input"
+              widget (if present).
+            - Uses parent.update_command_history(...) and maintains parent.history_index.
+
+            Threading
+            ---------
+            - The 'loop' meta-command and the 'wait' scheduling both spawn daemon threads:
+                * loop worker executes a generated series of commands with a 0.2 s pause.
+                * wait schedules remaining segments after a millisecond delay.
+              Daemon threads will not block program exit.
+
+            'loop' Meta-command
+            -------------------
+            Syntax:
+                loop <start> <end> <template>
+            Behavior:
+                - Parses start/end as integers and splits <template> by ';'.
+                - For each i in [start, end], runs each subcommand with i substituted
+                  only if your template logic uses i (the current implementation prints
+                  the index and calls run(sub) directly; you can embed i into sub
+                  yourself before invoking, or adapt this block to format templates).
+                - Runs in a daemon thread and prints a status line.
+
+            Return Value
+            ------------
+            None. Results and status are printed to the console. Side effects include:
+                - Mutations in UI state via Dear PyGui.
+                - Updates to parent.command_history and parent.history_index.
+                - Background threads for 'loop' and 'wait'.
+
+            Examples
+            --------
+            Simple handler:
+                "show windows"
+
+            Embedded-number:
+                "xabs12; dz-200"
+
+            Multi-word normalization:
+                "show windows"
+                "gen list"
+
+            Delay with 'wait':
+                "wait1000; xabs0; yabs0; zabs0"
+
+            Loop:
+                "loop 1 3 xabs10; yabs20"
+
+            Python helpers:
+                "import dearpygui.dearpygui as dpg"
+                "py dpg.set_value('cmd_input','')"
+                "py? dpg.does_item_exist('cmd_input')"
+
+            History recall:
+                If you previously ran "opx start acquisition", typing "start acquisition"
+                (without quotes) will recall and execute the last matching command.
+
+            Error Handling
+            --------------
+            - All per-segment execution is wrapped in try/except; Python or shell errors
+              are printed but do not crash the console.
+            - A top-level try/except around the segment loop also prints a traceback on
+              unexpected failures.
         """
+
         parent = self.get_parent()
         if parent is None:
             print("Warning: run() called but sys.stdout.parent not set.")
@@ -433,6 +607,8 @@ class CommandDispatcher:
                     #     py? <expr> (eval expression and print result)
                     if key in ("py", "py?"):
                         ns = self._ensure_exec_ns()
+                        ns.setdefault("self", self)  # <-- add
+                        ns.setdefault("parent", self.get_parent())  # optional, handy
                         code = arg
                         try:
                             if key == "py":
@@ -741,21 +917,32 @@ class CommandDispatcher:
 
             # Add scan structure (but not raw scan_Out) unless user passed 1/2/3/5/spc
             if arg not in ("1", "2", "g2", "3", "5", "spc"):
-                meta.update({
-                    "Nx": p.opx.N_scan[0],
-                    "Ny": p.opx.N_scan[1],
-                    "Nz": p.opx.N_scan[2],
-                    "startLoc": p.opx.startLoc,
-                    "dL_scan": p.opx.dL_scan,
-                })
-                meta["scan_data"] = self.convert_loaded_csv_to_scan_data(
-                    scan_out=p.opx.scan_Out,
-                    Nx=p.opx.N_scan[0],
-                    Ny=p.opx.N_scan[1],
-                    Nz=p.opx.N_scan[2],
-                    startLoc=p.opx.startLoc,
-                    dL_scan=p.opx.dL_scan,
-                )
+                try:
+                    scan_out = getattr(p.opx, "scan_Out", None)
+                    Nx, Ny, Nz = tuple(getattr(p.opx, "N_scan", (0, 0, 0)))
+                    startLoc = getattr(p.opx, "startLoc", None)
+                    dL_scan = getattr(p.opx, "dL_scan", None)
+
+                    # only include scan_data if scan_Out is a 2D array with at least 2 columns
+                    if isinstance(scan_out, np.ndarray) and scan_out.ndim >= 2 and scan_out.shape[1] >= 2:
+                        meta.update({
+                            "Nx": Nx,
+                            "Ny": Ny,
+                            "Nz": Nz,
+                            "startLoc": startLoc,
+                            "dL_scan": dL_scan,
+                        })
+                        meta["scan_data"] = self.convert_loaded_csv_to_scan_data(
+                            scan_out=scan_out,
+                            Nx=Nx,
+                            Ny=Ny,
+                            Nz=Nz,
+                            startLoc=startLoc,
+                            dL_scan=dL_scan,
+                        )
+                    # else: silently skip scan_data when shape is incompatible
+                except Exception as e:
+                    print(f"Skipping scan_data: {e}")
 
             # Include G2 graph
             # Include G2 graph
@@ -778,7 +965,7 @@ class CommandDispatcher:
                 spc_data = getattr(p.hrs_500_gui, "data", None)
                 if spc_fp:
                     meta["spc_csv"] = spc_fp
-                if isinstance(spc_data, np.ndarray) and spc_data.shape[1] >= 2:
+                if isinstance(spc_data, np.ndarray) and spc_data.ndim >= 2 and spc_data.shape[1] >= 2:
                     meta["spc_data"] = {
                         "x": spc_data[:, 0].tolist(),
                         "y": spc_data[:, 1].tolist()
@@ -1128,7 +1315,127 @@ class CommandDispatcher:
             print("Save positions failed.")
 
     def handle_reload(self, arg):
-        """Reload modules or specific GUI components exactly as before."""
+        """
+            Reload modules or specific GUI components.
+
+            Usage
+            -----
+              reload <option>
+
+            Examples
+            --------
+              reload keys
+              reload zelux
+              reload femto
+              reload opx
+              reload kdc_101
+              reload smaract
+              reload hrs_proem
+              reload hrs
+              reload keysight_awg
+              reload cld1011lp
+              reload disp
+              reload GUI_MyWidget         # → reloads HW_GUI.GUI_MyWidget
+              reload my.custom.module     # → generic importlib reload
+              reload                      # → defaults to module 'CommandDispatcher'
+
+            Options (synonyms) & What They Do
+            ---------------------------------
+            keys
+              • Rebuilds the global key press handler (tag: "key_press_handler").
+              • Deletes the old handler if present, then registers a new one bound to p.Callback_key_press.
+
+            gui_zelux, zel, zelux
+              • Reloads HW_GUI.GUI_Zelux.
+              • Deletes the existing Zelux window (if present) while saving its position/size.
+              • Creates a new ZeluxGUI, re-adds its "bring window" button (tag "Zelux_button"),
+                appends to p.active_instrument_list.
+              • If cameras are available, (re)adds the window, rebuilds controls ("ZeluxControls"),
+                and restores geometry.
+              • Recreates MFF-101 flipper GUIs for all devices in hw_devices.HW_devices().mff_101_list.
+
+            femto, femto_gui
+              • Reloads HW_GUI.GUI_Femto_Power_Calculations.
+              • Removes the old Femto GUI (saving position/size), instantiates FemtoPowerCalculator(p.kdc_101_gui),
+                calls create_gui(), re-adds "Femto_button", restores geometry, and tracks as active.
+
+            opx
+              • Reloads HWrap_OPX.
+              • Removes old OPX GUI (saving position/size), instantiates wrap_OPX.GUI_OPX(),
+                calls controls(), re-adds "OPX_button", calls p.create_sequencer_button(),
+                restores geometry, and tracks as active.
+
+            kdc, kdc_101
+              • Reloads HW_GUI.GUI_KDC101.
+              • Removes old KDC GUI (saving position/size).
+              • Creates GUI_KDC101 with serial_number taken from the previous GUI
+                and device from hw_devices.HW_devices().kdc_101.
+              • Re-adds "kdc_101_button", restores geometry, and tracks as active.
+
+            smaract, smaract_gui
+              • Reloads HW_GUI.GUI_Smaract.
+              • Removes old Smaract GUI (saving position/size).
+              • Creates GUI_smaract(simulation=p.smaractGUI.simulation,
+                serial_number=p.smaractGUI.selectedDevice), calls create_gui(),
+                re-adds "Smaract_button", restores geometry, and tracks as active.
+              • If not in simulation, starts p.smaract_thread targeting p.render_smaract.
+
+            hrs proem, hrs_proem, hrsproem, proem
+              • Reloads HW_GUI.GUI_HRS_500 for the ProEM LightField experiment.
+              • Disconnects any existing devs.hrs_500 (if possible).
+              • Creates a new LightFieldSpectrometer(visible=True, file_path="...ProEM_shai.lfe"),
+                connects it, and builds GUI_HRS500 with that device.
+              • Re-adds "HRS_500_button" (label "Spectrometer (ProEM)"), restores geometry, tracks as active.
+
+            hrs, hrs500, hrs_500
+              • Reloads HW_GUI.GUI_HRS_500 (standard path).
+              • Removes old GUI (saving position/size), creates GUI_HRS500(hw_devices.HW_devices().hrs_500),
+                re-adds "HRS_500_button" (label "Spectrometer"), restores geometry, tracks as active.
+
+            keysight, awg, keysight_awg
+              • Reloads HW_GUI.GUI_keysight_AWG.
+              • If an old GUI exists, preserves pos/size, device, and simulation; deletes its window tag.
+              • Creates GUIKeysight33500B(device=<preserved or default>, simulation=<preserved or False>),
+                re-adds "keysight_button" (label "KEYSIGHT_AWG"), restores geometry, tracks as active.
+
+            cld, cld1011, cld1011lp
+              • Reloads HW_GUI.GUI_CLD1011LP and tries to reload the wrapper HW_wrapper.Wrapper_CLD1011.
+              • Attempts to reuse HW_devices().CLD1011LP; if missing, tries to (re)create it.
+              • Deletes old GUI by window tag (no DeleteMainWindow), then creates GUI_CLD1011LP(simulation=<device.simulation or False>).
+              • Re-adds "CLD1011LP_button", restores geometry, tracks as active.
+
+            disp, display_slices, zslider, zslice
+              • Reloads Utils.display_all_z_slices_with_slider and rebinds:
+                  p.display_all_z_slices = display_all_z_slices
+
+            GUI_* (prefix match)
+              • If the argument starts with "GUI_", it is resolved as "HW_GUI.<ARG>" (e.g., GUI_Zelux → HW_GUI.GUI_Zelux)
+                and then reloaded.
+
+            <module> (generic)
+              • If the argument is any other module name:
+                  - If it's already imported (in sys.modules), importlib.reload() is used.
+                  - Otherwise, importlib.import_module() is used.
+              • With no argument, reloads "CommandDispatcher".
+
+            Behavior & Side Effects
+            -----------------------
+              • Most GUI paths attempt to preserve window geometry by reading the old window's position and size,
+                deleting the window/GUI, then restoring geometry on the newly created GUI.
+              • Each GUI path re-creates its "bring window" button with a fixed tag:
+                  - Zelux_button, Femto_button, OPX_button, kdc_101_button,
+                    Smaract_button, HRS_500_button, keysight_button, CLD1011LP_button
+                and appends the window tag to p.active_instrument_list.
+              • Smaract spawns a rendering thread when not in simulation.
+              • ProEM path sets up a LightFieldSpectrometer with a specific .lfe experiment file.
+
+            Errors
+            ------
+              • Any exception prints a full traceback and "Reload failed for '<module_name>'".
+              • Some geometry restoration calls are wrapped in try/except and may be skipped if the window/tag is absent.
+
+        """
+
         p = self.get_parent()
         try:
             import importlib
@@ -1373,6 +1680,11 @@ class CommandDispatcher:
             if name in ("hrs", "hrs500", "hrs_500"):
                 import HW_GUI.GUI_HRS_500 as gui_HRS500
                 importlib.reload(gui_HRS500)
+
+                EXP3_LFE = r"C:\Users\Femto\Work Folders\Documents\LightField\Experiments\Experiment3.lfe"
+
+                # Try to preserve the current window position/size if it exists
+                pos, size = [60, 60], [1200, 800]
                 if hasattr(p, "hrs_500_gui") and p.hrs_500_gui:
                     try:
                         pos = dpg.get_item_pos(p.hrs_500_gui.window_tag)
@@ -1380,21 +1692,50 @@ class CommandDispatcher:
                         p.hrs_500_gui.DeleteMainWindow()
                     except Exception as e:
                         print(f"Old HRS_500 GUI removal failed: {e}")
-                p.hrs_500_gui = gui_HRS500.GUI_HRS500(hw_devices.HW_devices().hrs_500)
+
+                # (Re)create the LightField spectrometer with the Experiment3.lfe
+                try:
+                    devs = hw_devices.HW_devices()
+
+                    # Cleanly disconnect the existing device if possible
+                    try:
+                        if getattr(devs, "hrs_500", None) and hasattr(devs.hrs_500, "disconnect"):
+                            devs.hrs_500.disconnect()
+                    except Exception as e:
+                        print(f"Warning: could not disconnect previous HRS_500 device: {e}")
+
+                    # New instance with the Experiment3 experiment path
+                    devs.hrs_500 = LightFieldSpectrometer(
+                        visible=True,
+                        file_path=EXP3_LFE
+                    )
+                    devs.hrs_500.connect()
+                except Exception as e:
+                    print(f"Failed to initialize HRS_500 with Experiment3 experiment: {e}")
+                    raise
+
+                # Rebuild the GUI using the (re)initialized device
+                p.hrs_500_gui = gui_HRS500.GUI_HRS500(devs.hrs_500)
+
+                # Rebuild the “bring window” button
                 if dpg.does_item_exist("HRS_500_button"):
                     dpg.delete_item("HRS_500_button")
                 p.create_bring_window_button(
-                    p.hrs_500_gui.window_tag, button_label="Spectrometer",
+                    p.hrs_500_gui.window_tag, button_label="Spectrometer (Experiment3)",
                     tag="HRS_500_button", parent="focus_group"
                 )
+
+                # Track as active instrument and restore geometry
                 p.active_instrument_list.append(p.hrs_500_gui.window_tag)
                 try:
                     dpg.set_item_pos(p.hrs_500_gui.window_tag, pos)
                     dpg.set_item_width(p.hrs_500_gui.window_tag, size[0])
                     dpg.set_item_height(p.hrs_500_gui.window_tag, size[1])
-                except:
+                except Exception:
                     pass
-                print("Reloaded HW_GUI.GUI_HRS500 and recreated Spectrometer GUI.")
+
+                print("Reloaded HW_GUI.GUI_HRS500 with Experiment3.lfe and recreated Spectrometer GUI.")
+                self.proEM_mode = False
                 return
 
             # === reload Keysight AWG GUI ===
@@ -1509,7 +1850,6 @@ class CommandDispatcher:
 
                 print("Reloaded HW_GUI.GUI_CLD1011LP and recreated CLD1011LP GUI.")
                 return
-
 
             # === Display Z-Slices Viewer ===
             if name in ("disp", "display_slices", "zslider", "zslice"):
@@ -2107,6 +2447,8 @@ class CommandDispatcher:
 
                 # this is the “Save In” directory
                 exp.SetValue(ExperimentSettings.FileNameGenerationDirectory, target)
+
+                dev.save_directory = target
                 print(f"HRS Save In set to: {target}")
             except Exception as e:
                 print(f"Failed to set Save In folder: {e}")
@@ -2140,7 +2482,10 @@ class CommandDispatcher:
         try:
             tokens = (arg or "").strip().split()
             is_st = len(tokens) > 0 and tokens[0].lower() == "st"
-            rest_arg = " ".join(tokens[1:]) if is_st else (arg or "").strip()
+            work_tokens = tokens[1:] if is_st else tokens
+            no_preview = "!" in work_tokens
+            rest_arg = " ".join(work_tokens)  # may include '!'
+            rest_arg_clean = " ".join(t for t in work_tokens if t != "!").strip()
 
             if is_st:
                 # 1) set XYZ first
@@ -2165,11 +2510,11 @@ class CommandDispatcher:
             print(f"'st' pre-sequence failed: {e}")
         # --- end NEW ---
 
-        self.handle_mark(rest_arg)
+        self.handle_mark(rest_arg_clean)
         time.sleep(0.1)
 
         # 0) Try to set exposure time
-        secs_str = rest_arg.strip()
+        secs_str = rest_arg_clean
         if secs_str:
             try:
                 secs = float(secs_str) * 1000
@@ -2185,35 +2530,39 @@ class CommandDispatcher:
             pass
 
         # 2) Acquire spectrum
-        if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data") and not self.proEM_mode:
-            try:
-                p.hrs_500_gui.acquire_callback()
-            except Exception as e:
-                print(f"acquire_callback failed: {e}")
-                return
-        else:
-            if hasattr(p, "hrs_500_gui") and self.proEM_mode: # proEM mode
-                p.hrs_500_gui.dev._exp.Stop()
-                self.handle_set_xyz("")
-                fn=__import__('pyperclip').paste()
-                # Clean clipboard -> base name
-                s = (fn or "").strip().strip('"').strip("'")
-                s = s.replace("\r", "").replace("\n", " ")
-                pt = Path(s)
-                base = pt.stem if pt.suffix else os.path.basename(s)
-                base = re.sub(r'[<>:"/\\|?*]', "_", base)[:120]  # keep it short & legal
-                p.hrs_500_gui.dev.set_filename(base)
+        # if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data") and not self.proEM_mode:
+        #     try:
+        #         p.hrs_500_gui.acquire_callback()
+        #     except Exception as e:
+        #         print(f"acquire_callback failed: {e}")
+        #         return
+        # else:
+        if hasattr(p, "hrs_500_gui"): # and self.proEM_mode: # proEM mode
+            p.hrs_500_gui.dev._exp.Stop()
+            self.handle_set_xyz("")
+            fn=__import__('pyperclip').paste()
+            # Clean clipboard -> base name
+            s = (fn or "").strip().strip('"').strip("'")
+            s = s.replace("\r", "").replace("\n", " ")
+            pt = Path(s)
+            base = pt.stem if pt.suffix else os.path.basename(s)
+            base = re.sub(r'[<>:"/\\|?*]', "_", base)[:120]  # keep it short & legal
+            p.hrs_500_gui.dev.set_filename(base)
+            while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                time.sleep(0.1)
+            p.hrs_500_gui.acquire_callback()
+            # p.hrs_500_gui.dev.acquire_Data()
+            time.sleep(0.5)
+            if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
+                p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
                 while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
                     time.sleep(0.1)
-                p.hrs_500_gui.dev.acquire_Data()
-                time.sleep(0.5)
-                if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
-                    p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
-                    while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
-                        time.sleep(0.1)
+                if not no_preview and self.proEM_mode:
                     p.hrs_500_gui.dev._exp.Preview()
-            else:
-                print("Parent OPX or SPC not available.")
+        else:
+            print("Parent OPX or SPC not available.")
+
+        if self.proEM_mode:
             return
 
         # 3) Locate saved CSV
@@ -2621,9 +2970,11 @@ class CommandDispatcher:
         kst p          -> use ProEM ROI bounds
         kst c          -> center X & Y ([-L/2, +L/2])
         kst left       -> X: centered range, start at left (overrides 'c' for X)
+        kst right      -> X: centered range, start at right (overrides 'c' for X)
         kst top        -> Y: start at 0 and go up to +L (overrides 'c' for Y)
         kst top left   -> combine both
         kst add ...    -> keep 'add' flag
+        kst r          -> alias for 'right'
         """
         p = self.get_parent()
         parts = (arg or "").strip().lower().split()
@@ -2634,6 +2985,7 @@ class CommandDispatcher:
         p.opx.use_queried_proem = False
         p.opx.centered_xy = False
         p.opx.start_top = False
+        p.opx.start_left = False
 
         # parse
         p.opx.add_scan = "add" in parts
@@ -2647,6 +2999,10 @@ class CommandDispatcher:
         # new flags (order-agnostic)
         if "left" in parts:
             p.opx.centered_xy = False
+            p.opx.start_left = True
+        if ("right" in parts) or ("r" in parts):
+            p.opx.centered_xy = False  # override 'c' for X
+            p.opx.start_left = False
         if "top" in parts:
             p.opx.start_top = True
 
@@ -3196,7 +3552,11 @@ class CommandDispatcher:
         import textwrap
         import difflib
         import functools
-        import dearpygui.dearpygui as dpg
+
+        # --- help catalog (handlers + extras like 'run') ---
+        extras = {"run": self.run}
+        catalog = dict(self.handlers)
+        catalog.update(extras)
 
         # ---------- helpers ----------
         def _unwrap_callable(fn):
@@ -3265,7 +3625,7 @@ class CommandDispatcher:
 
         def _build_index():
             idx = []
-            for k, fn in self.handlers.items():
+            for k, fn in catalog.items():
                 base, _ = _unwrap_callable(fn)
                 idx.append((k, _first_line(_get_doc(base))))
             idx.sort(key=lambda t: t[0].lower())
@@ -3352,7 +3712,8 @@ class CommandDispatcher:
                 dpg.set_value("help_cmd_list", items[0])
 
         def _show_detail_for(cmd: str):
-            fn = self.handlers.get(cmd)
+            fn = catalog.get(cmd)
+
             if not fn:
                 dpg.set_value("help_text", f"Command '{cmd}' not found.")
                 return
@@ -3431,10 +3792,10 @@ class CommandDispatcher:
         initial_cmd = None
         if arg:
             q = str(arg).strip()
-            if q in self.handlers:
+            if q in catalog:
                 initial_cmd = q
             else:
-                candidates = list(self.handlers.keys())
+                candidates = list(catalog.keys())
                 match = difflib.get_close_matches(q, candidates, n=1, cutoff=0.6)
                 if match:
                     initial_cmd = match[0]
@@ -4829,14 +5190,14 @@ class CommandDispatcher:
           show config
           show cmd | dispatcher
           show opx | disp | awg | cld | cob | femto | hrs | kdc | smaract | zelux
-          show wrap <cld|zelux|cob|smaract>
+          show wrap <cld|zelux|cob|smaract|hrs>
           show map clib
           show app
         """
         sub = (arg or "").strip()
         if not sub:
             print(
-                "Usage: show config | show cmd | show <opx|disp|awg|cld|cob|femto|hrs|kdc|smaract|zelux|app> | show wrap <cld|zelux|cob|smaract> | show map clib")
+                "Usage: show config | show cmd | show <opx|disp|awg|cld|cob|femto|hrs|kdc|smaract|zelux|app> | show wrap <cld|zelux|cob|smaract|hrs> | show map clib")
             return
 
         toks = sub.split()

@@ -62,6 +62,7 @@ class LightFieldSpectrometer:
         self._exp = None
         self._device = None
         self.proEM_mode = True
+        self.save_directory = r"C:\Users\Femto\Work Folders\Documents\LightField"
 
     # def __del__(self):
     #     self.close()
