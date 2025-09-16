@@ -473,7 +473,6 @@ def load_window_positions(file_name: str | None = None, *cb_args, **cb_kwargs) -
         except Exception as e:
             _safe_log(f"[load] Failed resizing main window/viewport: {e}")
 
-
 def copy_image_to_clipboard(image_path):
     image = Image.open(image_path)
 
@@ -597,9 +596,17 @@ def copy_quti_window_to_clipboard(metadata_dict: dict = None):
         print("Window 'QuTi SW' not found.")
         return
 
-    win32gui.ShowWindow(hwnd, 5)
-    win32gui.SetForegroundWindow(hwnd)
-    win32gui.BringWindowToTop(hwnd)
+    # If minimized, restore (doesn't force foreground)
+    if win32gui.IsIconic(hwnd):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        time.sleep(0.15)
+
+    try:
+        win32gui.ShowWindow(hwnd, 5)
+        win32gui.SetForegroundWindow(hwnd)
+        win32gui.BringWindowToTop(hwnd)
+    except Exception as e:
+        print(f"Error copying window screenshot: {e}")
 
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
     screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))

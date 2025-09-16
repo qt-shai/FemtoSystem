@@ -172,7 +172,9 @@ class CommandDispatcher:
     """
     def __init__(self):
         # Map command verbs to handler methods
-        self.proEM_mode = True
+        # self.proEM_mode = True
+        self._last_fq_idx = None
+        self.proEM_mode = False
         self.default_graph_size = (None, None)
         self.handlers = {
             # simple commands
@@ -247,11 +249,15 @@ class CommandDispatcher:
             "ly":                self.handle_set_Ly,
             "lz":                self.handle_set_Lz,
             "savehistory":       self.handle_save_history,
+            "savehist":          self.handle_save_history,
             "loadhistory":       self.handle_load_history,
+            "loadhist":          self.handle_load_history,
             "delhistory":        self.handle_del_history,
+            "delhist":           self.handle_del_history,
+            "hist":              self.handle_hist,
             "sv":                self.handle_save_processed_image,
-            "show windows":      self.handle_list_windows,
-            "show":              self.handle_show_window,
+            "shww":              self.handle_list_windows,
+            "shw":               self.handle_show_window,
             "hide":              self.handle_hide_window,
             "scpos":             self.handle_copy_scan_position,
             "exp":               self.handle_set_exposure,
@@ -310,6 +316,8 @@ class CommandDispatcher:
             "up":                self.handle_up,
             "reset":             self.handle_reset_smaract,
             "show":              self.handle_show,
+            "collapse":          self.handle_collapse,
+            "expand":            self.handle_expand,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -510,15 +518,131 @@ class CommandDispatcher:
         if parent is None:
             print("Warning: run() called but sys.stdout.parent not set.")
             return
+
         cmd_line = command.strip()
         if not cmd_line:
             dpg.focus_item("OPX Window")
             return
+
         if not hasattr(parent, "command_history"):
             parent.command_history = []
+
         if record_history:
             parent.update_command_history(cmd_line)
             parent.history_index = len(parent.command_history)
+
+        # --- '>>' Override Macros (define/override) ---------------------------------
+        # Usage:
+        #   >> fq next;spc 60      -> overrides key 'f' with that command
+        #   >>s spc 30             -> overrides key 's' explicitly
+        #   >>f2 fq 1;spc 60       -> overrides numbered key 'f2'
+        if cmd_line.startswith(">>"):
+            import re
+            body_raw = cmd_line[2:]  # drop leading '>>'
+            body = body_raw.lstrip()
+            if not hasattr(self, "cmd_macros"):
+                self.cmd_macros = {}
+
+            # Explicit key form: >>f <command>  or >>f2 <command>
+            m = re.match(r"^([A-Za-z]\d*)\s+(.+)$", body, flags=re.DOTALL)
+            if m:
+                key, payload = m.group(1).lower(), m.group(2).strip()
+            else:
+                # Infer key from first alphabetic char of the payload
+                m2 = re.search(r"[A-Za-z]", body)
+                if not m2:
+                    print("Nothing to bind after '>>'.")
+                    dpg.focus_item("OPX Window");
+                    dpg.set_value("cmd_input", "")
+                    return
+                key = m2.group(0).lower()
+                payload = body
+
+            self.cmd_macros[key] = payload
+            print(f"Overridden macro '>{key}': {payload!r}")
+            dpg.focus_item("OPX Window");
+            dpg.set_value("cmd_input", "")
+            return
+        # ---------------------------------------------------------------------------
+
+        # --- '>' Macros: define / invoke / query -------------------------------------
+        # Usage:
+        #   > fq next;spc 60     -> saves under first letter 'f' (or 'f2' if 'f' already used)
+        #   >f                   -> runs the saved macro for key 'f'
+        #   >f2                  -> runs the saved macro for key 'f2'
+        #   >?f    or   >f?      -> shows the stored command for key 'f' (or 'f2')
+        #   >?                   -> lists all stored macros
+        if cmd_line.startswith(">"):
+            import re
+            body_raw = cmd_line[1:]  # drop leading '>'
+            body = body_raw.lstrip()
+            if not hasattr(self, "cmd_macros"):
+                self.cmd_macros = {}
+
+            # LIST ALL: '>?'  -> show every stored macro
+            if body.strip() == "?":
+                if not self.cmd_macros:
+                    print("No macros defined.")
+                else:
+                    print("Macros:")
+                    for k in sorted(self.cmd_macros.keys(), key=lambda s: (s[0], len(s), s)):
+                        print(f"  >{k}  ->  {self.cmd_macros[k]}")
+                dpg.set_value("cmd_input", "")
+                return
+
+            # QUERY ONE: '>?f' or '>f?' (supports digits: f2)
+            q = body.strip()
+            m = re.fullmatch(r"\?\s*([A-Za-z]\d*)", q) or re.fullmatch(r"([A-Za-z]\d*)\s*\?", q)
+            if m:
+                key = m.group(1).lower()
+                target = self.cmd_macros.get(key)
+                if target:
+                    print(f"[>{key}] {target}")
+                else:
+                    print(f"No macro bound to '>{key}'.")
+                dpg.set_value("cmd_input", "")
+                return
+
+            # INVOKE: '>f' or '>f2'
+            key_try = body.strip()
+            if re.fullmatch(r"[A-Za-z]\d*", key_try or ""):
+                key = key_try.lower()
+                target = self.cmd_macros.get(key)
+                if target:
+                    print(f"[>{key}] {target}")
+                    self.run(target)  # invoke macro
+                else:
+                    print(f"No macro bound to '>{key}'. Use '> <command>' to define.")
+                dpg.set_value("cmd_input", "")
+                return
+
+            # DEFINE: take first alphabetic char of the command as base key; auto-number if needed
+            m = re.search(r"[A-Za-z]", body)
+            if not m:
+                print("Nothing to bind after '>'.")
+                dpg.set_value("cmd_input", "")
+                return
+            base = m.group(0).lower()
+
+            # Find next free key: base, base2, base3, ...
+            existing = [k for k in self.cmd_macros.keys() if re.fullmatch(fr"{base}\d*", k)]
+            if base not in existing:
+                key = base
+            else:
+                # parse numeric suffixes; treat bare 'base' as index 1
+                used_nums = {1}
+                for k in existing:
+                    suf = k[len(base):]
+                    if suf.isdigit():
+                        used_nums.add(int(suf))
+                n = max(used_nums) + 1
+                key = f"{base}{n}"
+
+            self.cmd_macros[key] = body
+            print(f"Saved macro '>{key}': {body!r}")
+            dpg.set_value("cmd_input", "")
+            return
+        # ----------------------------------------------------------------------
 
         # Handle 'loop' specially
         if cmd_line.startswith("loop "):
@@ -544,7 +668,7 @@ class CommandDispatcher:
 
         # Split and dispatch
         segments = [seg.strip() for seg in cmd_line.split(";") if seg.strip()]
-        for seg in segments:
+        for i, seg in enumerate(segments):
             try:
                 verb, *rest = seg.split(" ", 1)
                 key = verb.lower()
@@ -562,6 +686,49 @@ class CommandDispatcher:
                 if key=="gen" and arg.lower()=="list":
                     key="gen list"; arg=""
 
+                # handle '>' macro segments inside pipelines (invoke/query/list)
+                if key.startswith(">"):
+                    import re
+                    body = seg[1:].strip()
+                    if not hasattr(self, "cmd_macros"):
+                        self.cmd_macros = {}
+
+                    # list all: '>?'
+                    if body == "?":
+                        if not self.cmd_macros:
+                            print("No macros defined.")
+                        else:
+                            print("Macros:")
+                            for k in sorted(self.cmd_macros.keys(), key=lambda s: (s[0], len(s), s)):
+                                print(f"  >{k}  ->  {self.cmd_macros[k]}")
+                        dpg.set_value("cmd_input", "")
+                        continue
+
+                    # query one: '>?f' or '>f?'  (supports digits: f2)
+                    m = re.fullmatch(r"\?\s*([A-Za-z]\d*)", body) or re.fullmatch(r"([A-Za-z]\d*)\s*\?", body)
+                    if m:
+                        k = m.group(1).lower()
+                        tgt = self.cmd_macros.get(k)
+                        print(f"[>{k}] {tgt}" if tgt else f"No macro bound to '>{k}'.")
+                        dpg.set_value("cmd_input", "")
+                        continue
+
+                    # invoke: '>f' or '>f2'
+                    if re.fullmatch(r"[A-Za-z]\d*", body or ""):
+                        k = body.lower()
+                        tgt = self.cmd_macros.get(k)
+                        if tgt:
+                            print(f"[>{k}] {tgt}")
+                            self.run(tgt)
+                        else:
+                            print(f"No macro bound to '>{k}'. Use '> <command>' to define.")
+                        dpg.set_value("cmd_input", "")
+                        continue
+
+                    print("Macro usage: '>X', '>X?', or '>?'")
+                    dpg.set_value("cmd_input", "")
+                    continue
+
                 handler = self.handlers.get(key)
                 if handler:
                     # 'wait' delays subsequent commands
@@ -571,14 +738,53 @@ class CommandDispatcher:
                         except:
                             print("Invalid wait syntax; use wait<ms>")
                             continue
-                        rest_cmds = segments[segments.index(seg)+1:]
+                        rest_cmds = segments[i + 1:]
                         def delayed():
                             time.sleep(ms/1000)
-                            for c in rest_cmds:
-                                self.run(c)
+                            if rest_cmds:
+                                self.run("; ".join(rest_cmds))
                         threading.Thread(target=delayed, daemon=True).start()
                         print(f"Waiting {ms}ms before running {rest_cmds}")
                         break
+                    # 'await' waits for a condition, then runs subsequent commands
+                    if key == "await":
+                        target = (arg or "").strip().lower()
+                        rest_cmds = segments[i + 1:]
+
+                        if target == "scan":
+                            evt = getattr(self, "_scan_done_evt", None)
+                            if not isinstance(evt, threading.Event):
+                                evt = threading.Event()
+                                self._scan_done_evt = evt
+
+                            def after_scan():
+                                print(f"Awaiting SCAN… then running {rest_cmds}")
+                                evt.wait()
+                                # run as a single pipeline so 'await' continues to gate properly
+                                if rest_cmds:
+                                    self.run("; ".join(rest_cmds))
+
+                            threading.Thread(target=after_scan, daemon=True).start()
+                            break
+
+                        if target == "spc":
+                            evt = getattr(self, "_spc_done_evt", None)
+                            if not isinstance(evt, threading.Event):
+                                evt = threading.Event()
+                                self._spc_done_evt = evt
+
+                            def after_spc():
+                                print(f"Awaiting SPC… then running {rest_cmds}")
+                                evt.wait()
+                                if rest_cmds:
+                                    self.run("; ".join(rest_cmds), record_history=False)  # ← join + don't re-log
+
+                            threading.Thread(target=after_spc, daemon=True).start()
+                            break
+                        else:
+                            print(f"Unknown await target: {target!r} (try: await spc)")
+                            break
+
                     handler(arg)
                 else:
                     # --- NEW: direct Python helpers ---
@@ -622,7 +828,6 @@ class CommandDispatcher:
                             print(f"❌ Python error: {e}")
                         continue
 
-                    # --- Existing behavior: history recall / python / shell ---
                     history = getattr(parent, "command_history", [])
                     matches = [cmd for cmd in reversed(history) if seg in cmd and cmd != seg]
                     if matches:
@@ -632,41 +837,32 @@ class CommandDispatcher:
                         print(f"Recalled from history: {found}")
                         ns = self._ensure_exec_ns()
                         try:
-                            if found.strip().startswith(("import ", "from ")):
-                                exec(found, ns)
-                            else:
-                                # if looks like assignment, or has semicolons, safer with exec
-                                if "=" in found or ";" in found:
-                                    exec(found, ns)
-                                else:
-                                    result = eval(found, ns)
-                                    if result is not None:
-                                        print(result)
+                            head = found.lstrip()
+                            low = head.lower()
+
+                            # explicit python helpers
+                            if low.startswith("import ") or low.startswith("from "):
+                                exec(found, ns);
+                                return
+                            if low.startswith("py? "):
+                                result = eval(found[3:], ns)
+                                if result is not None: print(result)
+                                return
+                            if low.startswith("py "):
+                                exec(found[3:], ns)
+                                return
+
+                            # everything else: treat as console command (handles 'await', '>', '>>', etc.)
+                            self.run(found, record_history=False)
+                            return
                         except Exception as e:
                             print(f"❌ Error while executing recalled command: {e}")
                         return
-                    else:
-                        # try Python first, then shell
-                        try:
-                            ns = self._ensure_exec_ns()
-                            if "=" in seg:
-                                exec(seg, ns)
-                            else:
-                                result = eval(seg, ns)
-                                if result is not None:
-                                    print(result)
-                            continue
-                        except Exception as e:
-                            print(f"Failed to execute '{seg}': {e}")
-                        try:
-                            print(f"Didn't find '{seg}' in history. Executing shell command: {seg}")
-                            subprocess.run(seg, shell=True)
-                        except Exception as e:
-                            print(f"Failed to execute '{seg}': {e}")
+
             except Exception:
                     traceback.print_exc()
             # dpg.focus_item("cmd_input")
-            dpg.focus_item("OPX Window")
+            # dpg.focus_item("OPX Window")
             dpg.set_value("cmd_input", "")
 
     def savehistory_on_exit(self):
@@ -981,7 +1177,10 @@ class CommandDispatcher:
                 raise RuntimeError("No PowerPoint presentations are open!")
             pres = ppt.ActivePresentation
             new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)
-            ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
+            try:
+                ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
+            except Exception as e:
+                print(f"[a] GotoSlide skipped: {e}")
 
             # Paste image and embed Alt Text metadata
             img = ImageGrab.grabclipboard()
@@ -1442,6 +1641,8 @@ class CommandDispatcher:
             raw_name = arg.strip()
             name = raw_name.lower()
 
+            self.handle_save_history(None)
+
             # === reload keys ===
             if name == "keys":
                 handler_tag = "key_press_handler"
@@ -1866,6 +2067,8 @@ class CommandDispatcher:
                 importlib.import_module(module_name)
             print(f"Reloaded module: {module_name}")
 
+            print("Now it is time to loadhist if you want")
+
         except Exception:
             traceback.print_exc()
             print(f"Reload failed for '{module_name}'")
@@ -2015,39 +2218,153 @@ class CommandDispatcher:
             print("toggle_coords failed.")
 
     def handle_fill_query(self, arg):
-        """Fill/move/store query points (fq)."""
+        """
+            Fill/move/store query points (fq).
+
+            Usage
+            -----
+            fq
+                Fill ABS inputs from the current "query" (via opx.fill_moveabs_from_query()),
+                move X and Y to those ABS values, read Z from the stage, and store a new point
+                with the next available index. Prints the stored point and then lists points.
+
+            fq <idx>
+                If a point with index <idx> exists:
+                    - Set the ABS inputs to that point's (x,y,z) in meters,
+                    - Move ALL axes (X,Y,Z) to those values,
+                    - Print "Moved to point #<idx>".
+                If it does not exist:
+                    - Store the CURRENT STAGE POSITION as point <idx> (no movement),
+                    - Positions are taken from p.opx.positioner.AxesPositions (assumed µm),
+                      converted to meters,
+                    - Print "Stored point #<idx>: (...)".
+
+            fq !
+                Fill ABS inputs from the current "query" but DO NOT MOVE, then append a new
+                point at the next available index using the ABS inputs (x,y,z) as-is (meters).
+
+            fq <idx> !
+                Fill ABS inputs from the current "query" but DO NOT MOVE, then store/overwrite
+                point <idx> with the ABS inputs (x,y,z) as-is (meters).
+
+            fq next
+                Same as 'fq <idx>' but with <idx> = next available index (max saved idx + 1).
+
+            fq next !
+                Same as 'fq <idx> !' but with <idx> = next available index.
+
+            Notes
+            -----
+            - All saved points are stored as tuples: (idx, x, y, z) with units in meters.
+            - Hardware stage readings (p.opx.positioner.AxesPositions) are assumed to be in µm
+              and are converted to meters by multiplying by 1e-6.
+            - "Query" here refers to whatever p.opx.fill_moveabs_from_query() pulls into the
+              ABS widgets (e.g., parsed text fields), WITHOUT moving the stage by itself.
+            - After any action, the points list is shown via self.handle_list_points().
+
+            Examples
+            --------
+            fq               # fill from query, move X/Y, store as new point
+            fq 3             # move to stored point #3, or store current stage pos as #3 if missing
+            fq !             # store a new point from query ABS values without moving
+            fq 10 !          # store/overwrite point #10 from query ABS values without moving
+            fq next          # act like 'fq <next_idx>'
+            fq next !        # act like 'fq <next_idx> !'
+            """
         p = self.get_parent()
         try:
-            idx = int(arg) if arg.isdigit() else None
-            if idx:
-                # move to stored idx or store if none
-                pts = getattr(p, "saved_query_points", [])
-                found = [pt for pt in pts if pt[0]==idx]
-                if found:
-                    _,x,y,z = found[0]
-                    for ax, val in enumerate((x,y,z)):
-                        dpg.set_value(f"mcs_ch{ax}_ABS", val)
-                        p.smaractGUI.move_absolute(None,None,ax)
-                    print(f"Moved to point #{idx}")
-                else:
-                    pos = [v*1e-6 for v in p.opx.positioner.AxesPositions]
-                    pts.append((idx, *pos))
+            # --- Parse arg: support "<idx>", "!", "<idx> !", "! <idx>", etc.
+            tokens = str(arg).split() if isinstance(arg, str) else []
+            no_move = "!" in tokens
+            want_next = any(t.lower() == "next" for t in tokens)
+
+            idx = None
+            for t in tokens:
+                if t.isdigit():
+                    idx = int(t)
+                    break
+
+            if want_next and idx is None:
+                last = getattr(self, "_last_fq_idx", None)
+                idx = (last + 1) if isinstance(last, int) else 1
+
+            # Convenience accessors
+            def _get_abs_xyz_from_gui():
+                x = dpg.get_value("mcs_ch0_ABS")
+                y = dpg.get_value("mcs_ch1_ABS")
+                z = dpg.get_value("mcs_ch2_ABS")
+                return x, y, z
+
+            def _get_xyz_from_stage_m():
+                # Stage returns µm -> convert to meters
+                return tuple(v * 1e-6 for v in p.opx.positioner.AxesPositions)
+
+            pts = getattr(p, "saved_query_points", [])
+
+            if idx is not None:
+                if no_move:
+                    # --- "fq <idx> !" : fill ABS from query, DO NOT MOVE, store/overwrite idx
+                    p.opx.fill_moveabs_from_query()  # fills ABS widgets only
+                    x, y, z = _get_abs_xyz_from_gui()
+
+                    # Replace existing or append new with this idx (no motion)
+                    updated = False
+                    for i, (j, *_rest) in enumerate(pts):
+                        if j == idx:
+                            pts[i] = (idx, x, y, z)
+                            updated = True
+                            break
+                    if not updated:
+                        pts.append((idx, x, y, z))
                     p.saved_query_points = pts
-                    print(f"Stored point #{idx}: {pos}")
+                    self._last_fq_idx = idx
+                    print(f"Stored point #{idx} without moving: {(x, y, z)}")
+
+                else:
+                    # --- "fq <idx>" : move to stored idx OR store current stage position at idx
+                    found = [pt for pt in pts if pt[0] == idx]
+                    if found:
+                        _, x, y, z = found[0]
+                        for ax, val in enumerate((x, y, z)):
+                            dpg.set_value(f"mcs_ch{ax}_ABS", val)
+                            p.smaractGUI.move_absolute(None, None, ax)
+                        print(f"Moved to point #{idx}")
+                        self._last_fq_idx = idx
+                    else:
+                        x, y, z = _get_xyz_from_stage_m()
+                        pts.append((idx, x, y, z))
+                        p.saved_query_points = pts
+                        self._last_fq_idx = idx
+                        print(f"Stored point #{idx}: {(x, y, z)}")
+
             else:
-                # regular fill+move
-                p.opx.fill_moveabs_from_query()
-                for ax in range(2):
-                    p.smaractGUI.move_absolute(None,None,ax)
-                z = p.opx.positioner.AxesPositions[2]*1e-6
-                dpg.set_value(f"mcs_ch2_ABS", z)
-                x,y = [dpg.get_value(f"mcs_ch{ax}_ABS") for ax in range(2)]
-                pts = getattr(p,"saved_query_points",[])
-                new_idx = pts[-1][0]+1 if pts else 1
-                pts.append((new_idx,x,y,z))
-                p.saved_query_points = pts
-                print(f"Stored point #{new_idx}: {(x,y,z)}")
-            self.handle_list_points(arg)
+                if no_move:
+                    # --- "fq !" : fill ABS from query, DO NOT MOVE, append new index
+                    p.opx.fill_moveabs_from_query()  # fills ABS widgets only
+                    x, y, z = _get_abs_xyz_from_gui()
+                    new_idx = pts[-1][0] + 1 if pts else 1
+                    pts.append((new_idx, x, y, z))
+                    p.saved_query_points = pts
+                    self._last_fq_idx = new_idx
+                    print(f"Stored point #{new_idx} without moving: {(x, y, z)}")
+
+                else:
+                    # --- "fq" : regular fill + move X/Y, update Z from stage, store new index
+                    p.opx.fill_moveabs_from_query()
+                    for ax in range(2):  # move X and Y only
+                        p.smaractGUI.move_absolute(None, None, ax)
+                    # Z from stage after any controller updates
+                    z = p.opx.positioner.AxesPositions[2] * 1e-6
+                    dpg.set_value("mcs_ch2_ABS", z)
+                    x, y = [dpg.get_value(f"mcs_ch{ax}_ABS") for ax in range(2)]
+                    new_idx = pts[-1][0] + 1 if pts else 1
+                    pts.append((new_idx, x, y, z))
+                    p.saved_query_points = pts
+                    self._last_fq_idx = new_idx
+                    print(f"Stored point #{new_idx}: {(x, y, z)}")
+
+            # Show list (pass a clean arg: just the idx if present, else empty)
+            self.handle_list_points(str(idx) if idx is not None else "")
         except Exception as e:
             print(f"fq failed: {e}")
 
@@ -2342,6 +2659,8 @@ class CommandDispatcher:
                 dpg.delete_item("plot_draw_layer")
                 dpg.add_draw_layer(parent="plotImaga",tag="plot_draw_layer")
             print("All cleared.")
+            self._last_fq_idx = 0
+            print("fq next index reset to 0.")
 
     def handle_shift_point(self, arg):
         """Shift a stored point by ΔX,ΔY."""
@@ -2471,12 +2790,20 @@ class CommandDispatcher:
           • Last saved CSV is renamed with experiment note appended.
           • New file path is copied to clipboard after acquisition.
         """
+        run("cn")
         threading.Thread(target=self._acquire_spectrum_worker, args=(arg,), daemon=True).start()
 
     def _acquire_spectrum_worker(self, arg):
         """Actual spectrum acquisition logic, run in a background thread."""
         p = self.get_parent()
         is_st=False
+
+        # --- SPC done event ---
+        evt = getattr(self, "_spc_done_evt", None)
+        if not isinstance(evt, threading.Event):
+            evt = threading.Event()
+            self._spc_done_evt = evt
+        evt.clear()
 
         # --- NEW: special 'st' pre-sequence ---
         try:
@@ -2600,6 +2927,13 @@ class CommandDispatcher:
                 print('Executed: disp tif')
             except Exception as e:
                 print(f'Failed to run "disp tif": {e}')
+
+        run("wait 2000;a")
+        try:
+            self._spc_done_evt.set()
+            print("SPC finished.")
+        except Exception:
+            pass
 
     def handle_message(self, arg):
         """Show large message window."""
@@ -3105,32 +3439,64 @@ class CommandDispatcher:
             print("lz failed.")
 
     def handle_save_history(self, arg=None):
-        """Save command history to file."""
-        p=self.get_parent()
+        """Save command history and '>' macros to files. Optional suffix: savehist <suffix>"""
+        import json, os
+        p = self.get_parent()
+        suffix = (arg or "").strip()
+        hist_fn = f"history_{suffix}.txt" if suffix else "history.txt"
+        macro_fn = f"macros_{suffix}.json" if suffix else "macros.json"
         try:
-            with open("history.txt","w") as f:
-                for cmd in p.command_history:
-                    f.write(cmd+"\n")
-            print("History saved.")
-        except:
-            print("savehistory failed.")
+            with open(hist_fn, "w", encoding="utf-8") as f:
+                for cmd in getattr(p, "command_history", []):
+                    f.write(cmd + "\n")
+            with open(macro_fn, "w", encoding="utf-8") as mf:
+                json.dump(getattr(self, "cmd_macros", {}), mf, ensure_ascii=False, indent=2)
+            print(f"History and macros saved to: {hist_fn}, {macro_fn}")
+        except Exception as e:
+            print(f"savehistory failed: {e}")
 
     def handle_load_history(self, arg):
-        """Load command history from file."""
-        p=self.get_parent()
-        try:
-            with open("history.txt") as f:
-                p.command_history = [l.strip() for l in f]
-            print("History loaded.")
-        except:
-            print("loadhistory failed.")
-
-    def handle_del_history(self,arg):
-        """ Clears command history """
+        """Load command history and '>' macros from files. Optional suffix: loadhist <suffix>"""
+        import json, os
         p = self.get_parent()
-        p.command_history=[]
-        p.history_index=0
-        print("Command history cleared.")
+        suffix = (arg or "").strip()
+        hist_fn = f"history_{suffix}.txt" if suffix else "history.txt"
+        macro_fn = f"macros_{suffix}.json" if suffix else "macros.json"
+        try:
+            with open(hist_fn, encoding="utf-8") as f:
+                p.command_history = [l.rstrip("\n") for l in f]
+            try:
+                with open(macro_fn, encoding="utf-8") as mf:
+                    self.cmd_macros = json.load(mf)
+            except FileNotFoundError:
+                self.cmd_macros = {}
+            print(f"History and macros loaded from: {hist_fn}, {macro_fn}")
+        except Exception as e:
+            print(f"loadhistory failed: {e}")
+
+    def handle_del_history(self, arg):
+        """Clears command history and '>' macros (memory) and deletes files. Optional suffix: delhist <suffix>"""
+        import os, json
+        p = self.get_parent()
+        suffix = (arg or "").strip()
+        hist_fn = f"history_{suffix}.txt" if suffix else "history.txt"
+        macro_fn = f"macros_{suffix}.json" if suffix else "macros.json"
+
+        # clear in-memory
+        p.command_history = []
+        p.history_index = 0
+        self.cmd_macros = {}
+        print("Command history and macros cleared (memory).")
+
+        # delete files if present
+        for fn in (hist_fn, macro_fn):
+            try:
+                os.remove(fn)
+                print(f"Deleted file: {fn}")
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                print(f"Failed to delete {fn}: {e}")
         return
 
     def handle_save_processed_image(self, arg):
@@ -3851,12 +4217,8 @@ class CommandDispatcher:
         def _delayed_runner():
             time.sleep(ms / 1000.0)
             print(f"[wait] {ms} ms elapsed -> now running {remaining}")
-            for cmd in remaining:
-                try:
-                    # invoke your dispatcher’s run() on each command
-                    self.run(cmd)
-                except Exception as e:
-                    print(f"Error running '{cmd}': {e}")
+            if remaining:
+                self.run("; ".join(remaining))
 
         threading.Thread(target=_delayed_runner, daemon=True).start()
         print(f"Started background wait for {ms}ms... deferring {remaining}")
@@ -5242,6 +5604,41 @@ class CommandDispatcher:
             print("Usage: show map clib")
             return
 
+        # ----- show hist / history (prints history.txt and macros.json) -----
+        if key in ("hist", "history"):
+            import json
+            # History
+            try:
+                with open("history.txt", encoding="utf-8") as f:
+                    lines = [l.rstrip("\n") for l in f]
+                print(f"--- History ({len(lines)} lines) ---")
+                for i, line in enumerate(lines, 1):
+                    print(f"{i:4d}  {line}")
+            except FileNotFoundError:
+                print("--- History ---")
+                print("No history.txt found.")
+            except Exception as e:
+                print(f"[show history] Failed to read history.txt: {e}")
+
+            # Macros
+            try:
+                with open("macros.json", encoding="utf-8") as mf:
+                    macros = json.load(mf)
+            except FileNotFoundError:
+                macros = {}
+            except Exception as e:
+                print(f"[show history] Failed to read macros.json: {e}")
+                macros = {}
+
+            print(f"--- Macros ({len(macros)} entries) ---")
+            if macros:
+                for k in sorted(macros.keys(), key=lambda s: (s[0], len(s), s)):
+                    print(f">{k}  ->  {macros[k]}")
+            else:
+                print("No macros defined.")
+            return
+
+
         # ----- simple mapped opens (GUIs / app) -----
         for aliases, (mod_name, fallback_rel) in SHOW_MAP.items():
             if key in aliases:
@@ -5249,6 +5646,195 @@ class CommandDispatcher:
                 return
 
         print(f"[show] Unknown subcommand: {sub}")
+
+    def handle_collapse(self, arg: str):
+        """Collapse instrument windows: zelux / hrs / cobolt / cld / all.
+           Examples:
+             collapse zelux
+             collapse hrs zelux
+             collapse all
+        """
+        import dearpygui.dearpygui as dpg
+        p = self.get_parent()
+        words = [w.strip().lower() for w in (arg or "").split() if w.strip()]
+        if not words:
+            print("Usage: collapse [zelux|hrs|cobolt|cld|all] ...")
+            return
+
+        # Resolve window tags for each target
+        def _win_tags_for(kind: str):
+            tags = []
+
+            # Zelux
+            if kind in ("zelux", "zel"):
+                if getattr(p, "cam", None) and getattr(p.cam, "window_tag", None):
+                    tags.append(p.cam.window_tag)
+                else:
+                    # fallback: any window alias starting with "Zelux"
+                    tags += [a for a in dpg.get_aliases() if a.lower().startswith("zelux")]
+
+            # HRS / Spectrometer
+            elif kind in ("hrs", "hrs500", "hrs_500"):
+                if getattr(p, "hrs_500_gui", None) and getattr(p.hrs_500_gui, "window_tag", None):
+                    tags.append(p.hrs_500_gui.window_tag)
+                else:
+                    tags += [a for a in dpg.get_aliases() if
+                             a.lower().startswith("hrs_500") or "spectrometer" in a.lower()]
+
+            # Cobolt
+            elif kind in ("cobolt", "cob"):
+                if getattr(p, "cobolt_gui", None) and getattr(p.cobolt_gui, "window_tag", None):
+                    tags.append(p.cobolt_gui.window_tag)
+                else:
+                    tags += [a for a in dpg.get_aliases() if a.lower().startswith("cobolt")]
+
+            # CLD1011LP
+            elif kind in ("cld", "cld1011", "cld1011lp"):
+                if getattr(p, "cld1011lp_gui", None) and getattr(p.cld1011lp_gui, "window_tag", None):
+                    tags.append(p.cld1011lp_gui.window_tag)
+                else:
+                    tags += [a for a in dpg.get_aliases() if
+                             a.lower().startswith("cld1011") or a.lower().startswith("cld")]
+
+            return [t for t in tags if t and dpg.does_item_exist(t)]
+
+        # Expand 'all' to all groups
+        targets = []
+        if "all" in words:
+            targets = ["zelux", "hrs", "cobolt", "cld"]
+        else:
+            targets = words
+
+        # Collapse each resolved window
+        total = 0
+        for kind in targets:
+            found = _win_tags_for(kind)
+            if not found:
+                print(f"[collapse] No window found for '{kind}'.")
+                continue
+            for tag in found:
+                try:
+                    dpg.configure_item(tag, collapsed=True)
+                    print(f"[collapse] {kind}: collapsed '{tag}'.")
+                    total += 1
+                except Exception as e:
+                    print(f"[collapse] Failed to collapse '{tag}': {e}")
+
+        if total == 0:
+            print("[collapse] Nothing collapsed.")
+
+    def handle_expand(self, arg: str):
+        """Expand instrument windows: zelux / hrs / cobolt / cld / all.
+           Examples:
+             expand zelux
+             expand hrs zelux
+             expand all
+        """
+        import dearpygui.dearpygui as dpg
+        p = self.get_parent()
+        words = [w.strip().lower() for w in (arg or "").split() if w.strip()]
+        if not words:
+            print("Usage: expand [zelux|hrs|cobolt|cld|all] ...")
+            return
+
+        def _win_tags_for(kind: str):
+            tags = []
+
+            # Zelux
+            if kind in ("zelux", "zel"):
+                if getattr(p, "cam", None) and getattr(p.cam, "window_tag", None):
+                    tags.append(p.cam.window_tag)
+                else:
+                    tags += [a for a in dpg.get_aliases() if a.lower().startswith("zelux")]
+
+            # HRS / Spectrometer
+            elif kind in ("hrs", "hrs500", "hrs_500"):
+                if getattr(p, "hrs_500_gui", None) and getattr(p.hrs_500_gui, "window_tag", None):
+                    tags.append(p.hrs_500_gui.window_tag)
+                else:
+                    tags += [a for a in dpg.get_aliases() if
+                             a.lower().startswith("hrs_500") or "spectrometer" in a.lower()]
+
+            # Cobolt
+            elif kind in ("cobolt", "cob"):
+                if getattr(p, "cobolt_gui", None) and getattr(p.cobolt_gui, "window_tag", None):
+                    tags.append(p.cobolt_gui.window_tag)
+                else:
+                    tags += [a for a in dpg.get_aliases() if a.lower().startswith("cobolt")]
+
+            # CLD1011LP
+            elif kind in ("cld", "cld1011", "cld1011lp"):
+                if getattr(p, "cld1011lp_gui", None) and getattr(p.cld1011lp_gui, "window_tag", None):
+                    tags.append(p.cld1011lp_gui.window_tag)
+                else:
+                    tags += [a for a in dpg.get_aliases() if
+                             a.lower().startswith("cld1011") or a.lower().startswith("cld")]
+
+            return [t for t in tags if t and dpg.does_item_exist(t)]
+
+        targets = ["zelux", "hrs", "cobolt", "cld"] if "all" in words else words
+
+        total = 0
+        for kind in targets:
+            found = _win_tags_for(kind)
+            if not found:
+                print(f"[expand] No window found for '{kind}'.")
+                continue
+            for tag in found:
+                try:
+                    dpg.configure_item(tag, collapsed=False)
+                    print(f"[expand] {kind}: expanded '{tag}'.")
+                    total += 1
+                except Exception as e:
+                    print(f"[expand] Failed to expand '{tag}': {e}")
+
+        if total == 0:
+            print("[expand] Nothing expanded.")
+
+    def handle_hist(self, arg: str):
+        """Bind a '>' macro from a history line number.
+           Usage:
+             hist <n>      # e.g., hist 30  -> saves history[29] as a macro ('> <that line>')
+        """
+        import re
+        p = self.get_parent()
+        try:
+            n = int((arg or "").strip())
+        except Exception:
+            print("Usage: hist <line_number>")
+            return
+
+        hist = getattr(p, "command_history", [])
+        if n < 1 or n > len(hist):
+            print(f"[hist] Out of range. Have {len(hist)} history lines.")
+            return
+
+        body = hist[n - 1].strip()  # the command to bind as a macro (same as '> <body>')
+
+        if not hasattr(self, "cmd_macros"):
+            self.cmd_macros = {}
+
+        # Take first alphabetic char as base key
+        m = re.search(r"[A-Za-z]", body)
+        if not m:
+            print("[hist] No alphabetic command found to bind.")
+            return
+        base = m.group(0).lower()
+
+        # Find next free key: base, base2, base3, ...
+        existing = [k for k in self.cmd_macros.keys() if re.fullmatch(fr"{base}\d*", k)]
+        if base not in existing:
+            key = base
+        else:
+            used_nums = {1}
+            for k in existing:
+                suf = k[len(base):]
+                if suf.isdigit():
+                    used_nums.add(int(suf))
+            key = f"{base}{max(used_nums) + 1}"
+
+        self.cmd_macros[key] = body
+        print(f"Saved macro '>{key}': {body!r}")
 
 
 # Wrapper function

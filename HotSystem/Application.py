@@ -1258,13 +1258,15 @@ class PyGuiOverlay(Layer):
 
             shift_actions = {
                 KeyboardKeys.KEY_0:      self._restore_exposure,                    # Shift+0
-                KeyboardKeys.KEY_2:      lambda: self._set_fine_steps(20, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
+                KeyboardKeys.KEY_1:      lambda: self._set_fine_steps(100, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
+                KeyboardKeys.KEY_2:      lambda: self._set_fine_steps(2, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
                 KeyboardKeys.KEY_5:      lambda: self._set_fine_steps(50, axes=(0, 1, 2)),  # Shift+5 → 50 nm all axes (NEW)
                 KeyboardKeys.OEM_PLUS:   lambda: self._shift_move_kx(sign=+1),      # Shift+='
                 KeyboardKeys.OEM_MINUS:  lambda: self._shift_move_kx(sign=-1),      # Shift+'-'
                 KeyboardKeys.OEM_6:      lambda: self._shift_move_ky(sign=+1),      # Shift+']'
                 KeyboardKeys.OEM_4:      lambda: self._shift_move_ky(sign=-1),      # Shift+'['
-                KeyboardKeys.OEM_5:      lambda: run("kabs"),                        # Shift+'\'
+                KeyboardKeys.OEM_5:      lambda: run("kabs;mark k"),                # Shift+'\'
+                KeyboardKeys.F_KEY:      lambda: run("fq !"),
             }
 
             action = shift_actions.get(key_data_enum)

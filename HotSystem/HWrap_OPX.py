@@ -1629,7 +1629,9 @@ class GUI_OPX():
         try:
             if self.queried_area is None:
                 print("No queried area available.")
-                return
+                a = dpg.get_plot_query_area('plotImaga')
+                xmin, xmax, ymin, ymax = map(float, a)
+                self.queried_area = [xmin, xmax, ymin, ymax]
             x_pos = self.queried_area[0]
             y_pos = self.queried_area[2]
             dpg.set_value("mcs_ch0_ABS", x_pos)
@@ -10308,6 +10310,20 @@ class GUI_OPX():
 
         # ---------------------------------------------------
 
+        # scan completion event (for 'await scan')
+        evt = getattr(self, "_scan_done_evt", None)
+        if not isinstance(evt, threading.Event):
+            evt = threading.Event()
+            self._scan_done_evt = evt
+        evt.clear()
+
+        def _scan_done(msg="SCAN finished."):
+            try:
+                self._scan_done_evt.set()
+                print(msg)
+            except Exception:
+                pass
+
         if len(self.positioner.LoggedPoints) == 3:
             with open('logged_points.txt', 'w') as f:
                 for point in self.positioner.LoggedPoints:
@@ -10355,6 +10371,7 @@ class GUI_OPX():
                 bounds_um = self.last_used_bounds
                 if bounds_um is None:
                     self.btnStop()
+                    _scan_done("SCAN aborted: no query area.")
                     return
                 else:
                     print("Reusing last query area.")
@@ -10533,7 +10550,7 @@ class GUI_OPX():
         # reset flags so next scan behaves normally
         self.stopScanNoRestore = False
 
-    # save data to csv
+        # save data to csv
         self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1], min_position_x_scan=self.V_scan[0][0],
                                start_pos=[int(self.V_scan[0][0]), int(self.V_scan[1][0]), int(self.V_scan[2][0])])
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))
@@ -10549,6 +10566,7 @@ class GUI_OPX():
         if not self.stopScan:
             self.btnStop()
 
+        _scan_done()
         return self.scan_data
 
     def fetch_peak_intensity(self, integration_time):
