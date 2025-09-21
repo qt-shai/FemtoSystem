@@ -11426,7 +11426,7 @@ class GUI_OPX():
                 self.positioner.MoveABSOLUTE(2, z_abs)
                 time.sleep(self.t_wait_motionStart)
 
-                row_t0 = time.time()
+                slice_t0 = time.time()
                 j = 0
                 while j < Ny:  # Y rows
                     if self.stopScan: break
@@ -11473,10 +11473,18 @@ class GUI_OPX():
 
                     j += 1
 
-                    # Time-left estimate
-                    dt = time.time() - row_t0
-                    est_left = dt * ((Nz - iz - 1) * Ny + (Ny - j))
-                    dpg.set_value("Scan_Message", f"time left: {self.format_time(max(est_left, 0))}")
+                    # Time-left estimate (use per-row average over this Z slice)
+                    rows_done = j
+                    if rows_done > 0:
+                        avg_row = (time.time() - slice_t0) / rows_done  # seconds per row (avg so far)
+                    else:
+                        avg_row = 0.0
+
+                    rows_left = Ny - j
+                    slices_left = Nz - iz - 1
+                    # include Z move settle time for remaining slices
+                    est_left = avg_row * (rows_left + slices_left * Ny) + self.t_wait_motionStart * slices_left
+                    dpg.set_value("Scan_Message", f"time left: {self.format_time(max(est_left, 0.0))}")
 
                 # --- Save after each Z slice ---
                 slice_fn = self.create_scan_file_name(local=True) + f"_z{int(self.V_scan[2][iz])}"
@@ -12418,7 +12426,7 @@ class GUI_OPX():
         # number of points to scan on each side
         self.track_numberOfPoints = self.N_tracking_search*5
         # fixed step size for Z in pm
-        self.trackStep = 50000
+        self.trackStep = 50000*2
         # start offset so scan is centered
         initialShift = int(self.trackStep * self.track_numberOfPoints / 2)
 

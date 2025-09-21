@@ -726,15 +726,15 @@ class PyGuiOverlay(Layer):
         self.startDPG(IsDemo=False,_width=2150,_height=1800)
         self.setup_main_exp_buttons()
         self.setup_instruments()
-        dpg.focus_item("Main_Window")
-
+        # dpg.focus_item("Main_Window")
         self.create_console_gui()
         # Redirect stdout and stderr to both the GUI console and the original outputs
         sys.stdout = DualOutput(sys.__stdout__)
         sys.stdout.parent = self
         sys.stderr = DualOutput(sys.__stderr__)
+        dpg.focus_item("cmd_input")
 
-        # dpg.set_frame_callback(100, lambda: dpg.focus_item("cmd_input"))
+        # dpg.set_frame_callback(100, lambda: dpg.focus_item("cmd_input"))|
 
     def setup_instruments(self) -> None:
         """
@@ -976,7 +976,7 @@ class PyGuiOverlay(Layer):
                     parent = getattr(sys.stdout, "parent", None)
                     if parent:
                         # outout.run(f"future{input_str}")
-                        run(f"future {input_str}")
+                        run(f"future {input_str}", record_history=False)
                         print(f"[DPG frame callback] Ran future: {input_str}")
                         load_window_positions()
                     else:
@@ -1205,7 +1205,7 @@ class PyGuiOverlay(Layer):
             focused = bool(st.get("focused"))
             active = bool(st.get("active"))
             focused = focused or dpg.is_item_focused(tag)
-            print(f"[DBG] cmd_input({tag}) focused={focused} active={active}")
+            # print(f"[DBG] cmd_input({tag}) focused={focused} active={active}")
             if st.get("focused") or st.get("active") or dpg.is_item_focused(tag):
                 return True
             return focused or active
@@ -1234,15 +1234,19 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.L_KEY: self._toggle_lens,
                 KeyboardKeys.V_KEY: self._paste_clipboard,
                 KeyboardKeys.KEY_1: lambda: self._set_coarse_steps(1, axes=(0, 1, 2)),
-                KeyboardKeys.KEY_2: lambda: self._set_coarse_steps(20, axes=(0, 1)),
+                KeyboardKeys.KEY_2: lambda: self._set_coarse_steps(2, axes=(0, 1)),
                 KeyboardKeys.KEY_3: lambda: self._set_coarse_steps(30, axes=(0, 1, 2)),
                 KeyboardKeys.KEY_4: lambda: self._set_coarse_steps(400, axes=(0, 1)),
+                KeyboardKeys.KEY_5: lambda: self._set_coarse_steps(5, axes=(0, 1)),
                 KeyboardKeys.KEY_0: self._save_and_zero_exposure,
                 KeyboardKeys.OEM_PLUS: self._increase_koff,  # Ctrl+=
                 KeyboardKeys.OEM_MINUS: self._decrease_koff,  # Ctrl+-
                 KeyboardKeys.R_KEY: self._flush_counter_graph,
-                KeyboardKeys.S_KEY: lambda: run("st"),
-                KeyboardKeys.K_KEY: lambda: run("mark"),
+                KeyboardKeys.S_KEY: lambda: run("st", record_history=False),
+                KeyboardKeys.K_KEY: lambda: run("mark", record_history=False),
+                KeyboardKeys.Q_KEY: lambda: self._toggle_mff(0),
+                KeyboardKeys.W_KEY: lambda: self._toggle_mff(1),
+                KeyboardKeys.E_KEY: lambda: self._toggle_mff(2),
             }
             action = ctrl_actions.get(key_data_enum)
             if action:
@@ -1259,14 +1263,15 @@ class PyGuiOverlay(Layer):
             shift_actions = {
                 KeyboardKeys.KEY_0:      self._restore_exposure,                    # Shift+0
                 KeyboardKeys.KEY_1:      lambda: self._set_fine_steps(100, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
-                KeyboardKeys.KEY_2:      lambda: self._set_fine_steps(2, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
+                KeyboardKeys.KEY_2:      lambda: self._set_fine_steps(20, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
                 KeyboardKeys.KEY_5:      lambda: self._set_fine_steps(50, axes=(0, 1, 2)),  # Shift+5 → 50 nm all axes (NEW)
                 KeyboardKeys.OEM_PLUS:   lambda: self._shift_move_kx(sign=+1),      # Shift+='
                 KeyboardKeys.OEM_MINUS:  lambda: self._shift_move_kx(sign=-1),      # Shift+'-'
                 KeyboardKeys.OEM_6:      lambda: self._shift_move_ky(sign=+1),      # Shift+']'
                 KeyboardKeys.OEM_4:      lambda: self._shift_move_ky(sign=-1),      # Shift+'['
-                KeyboardKeys.OEM_5:      lambda: run("kabs;mark k"),                # Shift+'\'
-                KeyboardKeys.F_KEY:      lambda: run("fq !"),
+                KeyboardKeys.OEM_5:      lambda: run("kabs;mark k", record_history=False),     # Shift+'\'
+                KeyboardKeys.K_KEY:      lambda: run("mark k", record_history=False),
+                KeyboardKeys.F_KEY:      lambda: run("fq !", record_history=False),
             }
 
             action = shift_actions.get(key_data_enum)
@@ -1274,18 +1279,6 @@ class PyGuiOverlay(Layer):
                 action()
                 self.CURRENT_KEY = key_data_enum
                 return True
-
-
-        # 3) Step-size tuning for last moved axis (Ctrl or Shift + ., , or 2, M)
-        if hasattr(self, "last_moved_axis") and key_data_enum in (
-                KeyboardKeys.OEM_PERIOD,
-                KeyboardKeys.OEM_COMMA,
-                KeyboardKeys.OEM_2,
-                KeyboardKeys.M_KEY
-        ):
-            self._handle_step_tuning(key_data_enum)
-            self.CURRENT_KEY = key_data_enum
-            return True
 
         return False
 
@@ -1367,7 +1360,7 @@ class PyGuiOverlay(Layer):
         gui = getattr(self, "keysight_gui", None)
         step_um = getattr(gui, "xy_step", 1.0)
         val_um = step_um * sign
-        run(f"kx {val_um}")
+        run(f"kx {val_um}", record_history=False),
 
     def _shift_move_ky(self, sign: int = +1) -> None:
         """
@@ -1377,7 +1370,7 @@ class PyGuiOverlay(Layer):
         gui = getattr(self, "keysight_gui", None)
         step_um = getattr(gui, "xy_step", 1.0)
         val_um = step_um * sign
-        run(f"ky {val_um}")
+        run(f"ky {val_um}", record_history=False),
 
     def _save_and_zero_exposure(self):
         # stash current exposure
@@ -1432,6 +1425,20 @@ class PyGuiOverlay(Layer):
             dpg.set_value("slideExposure", actual)
             del self._saved_exposure
 
+    def _toggle_mff(self, idx: int):
+        """Toggle MFF at index `idx`. If with_exposure_hook=True, apply the same exposure
+        behavior as _toggle_lens (save/zero on insert, restore on remove)."""
+
+        mffs = getattr(self, "mff_101_gui", [])
+        if not (0 <= idx < len(mffs)):
+            print(f"_toggle_mff: MFF index {idx} not available (have {len(mffs)}).")
+            return
+
+        fl = mffs[idx]
+        tag = f"on_off_slider_{fl.unique_id}"
+        pos = int(fl.dev.get_position())  # typically 1 or 2
+        fl.on_off_slider_callback(tag, 1 - (pos - 1))  # toggle
+
     def _paste_clipboard(self):
         try:
             import pyperclip
@@ -1458,59 +1465,6 @@ class PyGuiOverlay(Layer):
             dpg.set_value(tag, value)
             self.smaractGUI.ipt_small_step(tag, value)
         print(f"Fine steps set to {value} nm on axes {axes}")
-
-    def _handle_step_tuning(self, key_data_enum):
-        """
-        Handle Ctrl/Shift + period/comma and 2/M shortcuts for coarse/fine step tuning.
-        """
-        axis = self.last_moved_axis
-        coarse_tag = f"{self.smaractGUI.prefix}_ch{axis}_Cset"
-        fine_tag = f"{self.smaractGUI.prefix}_ch{axis}_Fset"
-
-        combo = (self.CURRENT_KEY, key_data_enum)
-        # reset or increment tuning counter
-        if combo == getattr(self, "step_tuning_key", None) and axis == getattr(self, "step_tuning_axis", None):
-            self.step_tuning_counter += 1
-        else:
-            self.step_tuning_counter = 0
-            self.step_tuning_key = combo
-            self.step_tuning_axis = axis
-
-        factor = 2 ** self.step_tuning_counter
-
-        # map combos to (tag, setter, delta, unit)
-        tuning_map = {
-            (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_PERIOD): (
-            coarse_tag, self.smaractGUI.ipt_large_step, 'delta', factor, "Coarse"),
-            (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_COMMA): (
-            coarse_tag, self.smaractGUI.ipt_large_step, 'delta', -factor, "Coarse"),
-            (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_PERIOD): (
-            fine_tag, self.smaractGUI.ipt_small_step, 'delta', factor * 10, "Fine"),
-            (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_COMMA): (
-            fine_tag, self.smaractGUI.ipt_small_step, 'delta', -factor * 10, "Fine"),
-            (KeyboardKeys.CTRL_KEY, KeyboardKeys.OEM_2): (
-            coarse_tag, self.smaractGUI.ipt_large_step, 'abs', 20, "Coarse"),
-            (KeyboardKeys.SHIFT_KEY, KeyboardKeys.OEM_2): (
-            fine_tag, self.smaractGUI.ipt_small_step, 'abs', 100, "Fine"),
-            (KeyboardKeys.CTRL_KEY, KeyboardKeys.M_KEY): (
-            coarse_tag, self.smaractGUI.ipt_large_step, 'abs', 1, "Coarse"),
-            (KeyboardKeys.SHIFT_KEY, KeyboardKeys.M_KEY): (
-            fine_tag, self.smaractGUI.ipt_small_step, 'abs', 20, "Fine"),
-        }
-
-        tag, setter, mode, value, label = tuning_map.get(combo, (None, None, None, None, None))
-        if not tag:
-            return
-
-        current = dpg.get_value(tag)
-        if mode == 'delta':
-            new_val = max(1, current + value)
-        else:  # 'abs'
-            new_val = value
-
-        dpg.set_value(tag, new_val)
-        setter(tag, new_val)
-        print(f"{label} step axis {axis} = {new_val:.1f}")
 
     def smaract_log_points(self):
         try:

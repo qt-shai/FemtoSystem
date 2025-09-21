@@ -428,51 +428,74 @@ class ZeluxGUI():
         height = self.cam.camera.image_height_pixels
         width = self.cam.camera.image_width_pixels
 
-        # Prepare RGB image (with or without background subtraction)
-        if self.subtract_background and self.background_image is not None:
-            img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
-            bg_rgba = self.background_image.reshape((height, width, 4))
+        # Always reshape the latest frame
+        img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
 
-            gray = np.mean(img_rgba[:, :, :3], axis=2)
-            bg_gray = np.mean(bg_rgba[:, :, :3], axis=2)
+        # Utility: convert any image array to float in [0, 1] safely
+        def to_float01(a):
+            if a.dtype == np.uint8:
+                return a.astype(np.float32) / 255.0
+            if np.issubdtype(a.dtype, np.integer):
+                maxv = float(np.iinfo(a.dtype).max)
+                return a.astype(np.float32) / maxv
+            # float input
+            return np.clip(a.astype(np.float32), 0.0, 1.0)
+
+        # ---------------- Image prep ----------------
+        if self.subtract_background and getattr(self, "background_image", None) is not None:
+            # Convert both current frame and background to float [0,1]
+            bg_rgba = self.background_image.reshape((height, width, 4))
+            img_rgb_f = to_float01(img_rgba[:, :, :3])
+            bg_rgb_f = to_float01(bg_rgba[:, :, :3])
+
+            # Grayscale, subtract, offset, clip
+            gray = img_rgb_f.mean(axis=2)
+            bggray = bg_rgb_f.mean(axis=2)
 
             offset = 0.25
-            subtracted = gray - bg_gray + offset
-            subtracted = np.clip(subtracted, 0, None)
+            subtracted = np.clip(gray - bggray + offset, 0.0, None)
 
+            # Normalize + gamma, then expand back to 3-channel 8-bit
             gamma = 0.98
-            norm = np.clip(subtracted / (subtracted.max() + 1e-6), 0, 1)
+            norm = subtracted / (subtracted.max() + 1e-6)
             bright = np.power(norm, gamma)
-
-            img_rgb = (np.stack([bright] * 3, axis=-1) * 255).astype(np.uint8)
+            img_rgb = (np.repeat(bright[..., None], 3, axis=2) * 255.0).astype(np.uint8)
         else:
-            img_rgba = self.cam.lateset_image_buffer.reshape((height, width, 4))
-            img_rgb = (img_rgba[:, :, :3] * 255).astype(np.uint8)
+            # No background subtraction: DO NOT rescale if buffer already uint8
+            rgb = img_rgba[:, :, :3]
+            if rgb.dtype == np.uint8:
+                img_rgb = rgb.copy()
+            else:
+                img_rgb = (np.clip(rgb, 0.0, 1.0) * 255.0).astype(np.uint8)
 
-        # --- Overlay: draw cross and coordinates using OpenCV ---
-        if self.show_center_cross or self.show_coords_grid:
+        # ---------------- Overlays ----------------
+        if getattr(self, "show_center_cross", False) or getattr(self, "show_coords_grid", False):
             center_x = width // 2
             center_y = height // 2
 
-            # Draw cross
+            # Crosshair
             cv2.line(img_rgb, (center_x - 100, center_y), (center_x + 100, center_y), (0, 255, 0), 1)
             cv2.line(img_rgb, (center_x, center_y - 100), (center_x, center_y + 100), (0, 255, 0), 1)
 
-            # Get current absolute position (stage coordinates)
+            # Stage coordinates (keep your original units behavior)
+            abs_x = abs_y = abs_z = 0.0
             try:
                 self.positioner.GetPosition()
-                abs_x = self.positioner.AxesPositions[0] * 1e-6  # microns to mm
+                abs_x = self.positioner.AxesPositions[0] * 1e-6  # microns to meters? (kept as in your code)
                 abs_y = self.positioner.AxesPositions[1] * 1e-6
                 abs_z = self.positioner.AxesPositions[2] * 1e-6
                 coord_text = f"X = {abs_x:.1f}, Y = {abs_y:.1f}, Z = {abs_z:.1f}"
             except Exception:
                 coord_text = "Stage position not available"
 
-            # Draw coordinates in bottom-left
             cv2.putText(img_rgb, coord_text, (10, height - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1, cv2.LINE_AA)
 
-        if self.show_coords_grid:
+        if getattr(self, "show_coords_grid", False):
+            # Defaults if the position fetch failed above
+            if "abs_x" not in locals():  # just in case
+                abs_x = abs_y = 0.0
+
             step_px = 100
             pixel_to_um_x = 0.04  # um/pixel
             pixel_to_um_y = 0.04
@@ -483,7 +506,7 @@ class ZeluxGUI():
             y = 0
             while y < height - step_px:
                 y_shifted = int(y + y_shift_px)
-                offset_px = y_shifted - center_y
+                offset_px = y_shifted - (height // 2)
                 coord_y = abs_y + offset_px * pixel_to_um_y
                 cv2.line(img_rgb, (0, y_shifted), (width, y_shifted), (100, 255, 100), 1, cv2.LINE_AA)
                 cv2.putText(img_rgb, f"{coord_y:.1f}", (5, y_shifted + 15),
@@ -494,25 +517,30 @@ class ZeluxGUI():
             x = 2 * step_px
             while x < width:
                 x_shifted = int(x + x_shift_px)
-                offset_px = x_shifted - center_x
+                offset_px = x_shifted - (width // 2)
                 coord_x = abs_x - offset_px * pixel_to_um_x
                 cv2.line(img_rgb, (x_shifted, 0), (x_shifted, height), (100, 255, 100), 1, cv2.LINE_AA)
                 cv2.putText(img_rgb, f"{coord_x:.1f}", (x_shifted + 2, height - 18),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
                 x += step_px
 
-        # --- Save to disk ---
+        # ---------------- Save ----------------
         folder_path = 'Q:/QT-Quantum_Optic_Lab/expData/Images/'
         if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
+            os.makedirs(folder_path, exist_ok=True)
 
         timeStamp = getCurrentTimeStamp()
         filename = os.path.join(folder_path, f"Zelux_Image_{timeStamp}.png")
 
-        # Save using OpenCV (convert RGB to BGR)
+        # OpenCV expects BGR
         cv2.imwrite(filename, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
         print(f"Image saved with overlays to: {filename}")
-        copy_image_to_clipboard(filename)
+
+        try:
+            copy_image_to_clipboard(filename)
+        except Exception:
+            pass
+
         return filename
 
     def rotate_image(self, sender, app_data, user_data=None):

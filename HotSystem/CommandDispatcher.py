@@ -14,6 +14,8 @@ import numpy as np
 from PIL import ImageGrab, Image
 import pytesseract
 import dearpygui.dearpygui as dpg
+from bokeh.util.terminal import yellow
+
 from Utils.extract_positions import preprocess_image, extract_positions, TESSERACT_CONFIG
 from Utils import loadFromCSV
 from Utils.export_points import export_points
@@ -519,9 +521,18 @@ class CommandDispatcher:
             print("Warning: run() called but sys.stdout.parent not set.")
             return
 
+        def _refocus():
+            if not record_history:
+                return
+            try:
+                dpg.focus_item("cmd_input")
+                dpg.set_value("cmd_input", "")
+            except Exception:
+                pass
+
         cmd_line = command.strip()
         if not cmd_line:
-            dpg.focus_item("OPX Window")
+            _refocus()
             return
 
         if not hasattr(parent, "command_history"):
@@ -552,75 +563,35 @@ class CommandDispatcher:
                 m2 = re.search(r"[A-Za-z]", body)
                 if not m2:
                     print("Nothing to bind after '>>'.")
-                    dpg.focus_item("OPX Window");
-                    dpg.set_value("cmd_input", "")
+                    _refocus()
                     return
                 key = m2.group(0).lower()
                 payload = body
 
             self.cmd_macros[key] = payload
             print(f"Overridden macro '>{key}': {payload!r}")
-            dpg.focus_item("OPX Window");
-            dpg.set_value("cmd_input", "")
+            _refocus()
             return
         # ---------------------------------------------------------------------------
 
-        # --- '>' Macros: define / invoke / query -------------------------------------
+        # --- '>' Macro DEFINE (top-level only when '> ' prefix) ----------------------
         # Usage:
-        #   > fq next;spc 60     -> saves under first letter 'f' (or 'f2' if 'f' already used)
-        #   >f                   -> runs the saved macro for key 'f'
-        #   >f2                  -> runs the saved macro for key 'f2'
-        #   >?f    or   >f?      -> shows the stored command for key 'f' (or 'f2')
-        #   >?                   -> lists all stored macros
-        if cmd_line.startswith(">"):
+        #   > <command...>   -> define new macro (auto-pick first-letter key, auto-number on dup)
+        # Notes:
+        #   - No define if there's no space after '>' (e.g., '>c' = run, handled in segment loop)
+        if cmd_line.startswith(">") and (len(cmd_line) > 1 and cmd_line[1].isspace()):
             import re
-            body_raw = cmd_line[1:]  # drop leading '>'
-            body = body_raw.lstrip()
+            body_raw = cmd_line[1:]  # keep the original to preserve user spacing
+            body = body_raw.lstrip()  # normalized payload for key detection
+
             if not hasattr(self, "cmd_macros"):
                 self.cmd_macros = {}
 
-            # LIST ALL: '>?'  -> show every stored macro
-            if body.strip() == "?":
-                if not self.cmd_macros:
-                    print("No macros defined.")
-                else:
-                    print("Macros:")
-                    for k in sorted(self.cmd_macros.keys(), key=lambda s: (s[0], len(s), s)):
-                        print(f"  >{k}  ->  {self.cmd_macros[k]}")
-                dpg.set_value("cmd_input", "")
-                return
-
-            # QUERY ONE: '>?f' or '>f?' (supports digits: f2)
-            q = body.strip()
-            m = re.fullmatch(r"\?\s*([A-Za-z]\d*)", q) or re.fullmatch(r"([A-Za-z]\d*)\s*\?", q)
-            if m:
-                key = m.group(1).lower()
-                target = self.cmd_macros.get(key)
-                if target:
-                    print(f"[>{key}] {target}")
-                else:
-                    print(f"No macro bound to '>{key}'.")
-                dpg.set_value("cmd_input", "")
-                return
-
-            # INVOKE: '>f' or '>f2'
-            key_try = body.strip()
-            if re.fullmatch(r"[A-Za-z]\d*", key_try or ""):
-                key = key_try.lower()
-                target = self.cmd_macros.get(key)
-                if target:
-                    print(f"[>{key}] {target}")
-                    self.run(target)  # invoke macro
-                else:
-                    print(f"No macro bound to '>{key}'. Use '> <command>' to define.")
-                dpg.set_value("cmd_input", "")
-                return
-
-            # DEFINE: take first alphabetic char of the command as base key; auto-number if needed
+            # Require at least one alphabetic char to determine the base key
             m = re.search(r"[A-Za-z]", body)
             if not m:
                 print("Nothing to bind after '>'.")
-                dpg.set_value("cmd_input", "")
+                _refocus()
                 return
             base = m.group(0).lower()
 
@@ -629,20 +600,18 @@ class CommandDispatcher:
             if base not in existing:
                 key = base
             else:
-                # parse numeric suffixes; treat bare 'base' as index 1
                 used_nums = {1}
                 for k in existing:
                     suf = k[len(base):]
                     if suf.isdigit():
                         used_nums.add(int(suf))
-                n = max(used_nums) + 1
-                key = f"{base}{n}"
+                key = f"{base}{max(used_nums) + 1}"
 
             self.cmd_macros[key] = body
             print(f"Saved macro '>{key}': {body!r}")
-            dpg.set_value("cmd_input", "")
+            _refocus()
             return
-        # ----------------------------------------------------------------------
+        # ---------------------------------------------------------------------------
 
         # Handle 'loop' specially
         if cmd_line.startswith("loop "):
@@ -693,6 +662,18 @@ class CommandDispatcher:
                     if not hasattr(self, "cmd_macros"):
                         self.cmd_macros = {}
 
+                    # delete one: '>p-' or '>p4-'
+                    m = re.fullmatch(r"([A-Za-z]\d*)-", body)
+                    if m:
+                        k = m.group(1).lower()
+                        if hasattr(self, "cmd_macros") and k in self.cmd_macros:
+                            del self.cmd_macros[k]
+                            print(f"Deleted macro '>{k}'.")
+                        else:
+                            print(f"No macro bound to '>{k}'.")
+                        _refocus()
+                        continue
+
                     # list all: '>?'
                     if body == "?":
                         if not self.cmd_macros:
@@ -701,7 +682,7 @@ class CommandDispatcher:
                             print("Macros:")
                             for k in sorted(self.cmd_macros.keys(), key=lambda s: (s[0], len(s), s)):
                                 print(f"  >{k}  ->  {self.cmd_macros[k]}")
-                        dpg.set_value("cmd_input", "")
+                        _refocus()
                         continue
 
                     # query one: '>?f' or '>f?'  (supports digits: f2)
@@ -710,7 +691,7 @@ class CommandDispatcher:
                         k = m.group(1).lower()
                         tgt = self.cmd_macros.get(k)
                         print(f"[>{k}] {tgt}" if tgt else f"No macro bound to '>{k}'.")
-                        dpg.set_value("cmd_input", "")
+                        _refocus()
                         continue
 
                     # invoke: '>f' or '>f2'
@@ -722,11 +703,11 @@ class CommandDispatcher:
                             self.run(tgt)
                         else:
                             print(f"No macro bound to '>{k}'. Use '> <command>' to define.")
-                        dpg.set_value("cmd_input", "")
+                        _refocus()
                         continue
 
-                    print("Macro usage: '>X', '>X?', or '>?'")
-                    dpg.set_value("cmd_input", "")
+                    print("Macro usage: '>X' (run), '>X?' (show), '>?' (list), '>X-' (delete)")
+                    _refocus()
                     continue
 
                 handler = self.handlers.get(key)
@@ -804,7 +785,7 @@ class CommandDispatcher:
                         try:
                             exec(stmt, ns)
                             print(f"Executed: {stmt}")
-                            dpg.set_value("cmd_input","")
+                            _refocus()
                         except Exception as e:
                             print(f"Import failed: {stmt}\n   {e}")
                         continue
@@ -819,30 +800,38 @@ class CommandDispatcher:
                         try:
                             if key == "py":
                                 exec(code, ns)
-                                dpg.set_value("cmd_input", "")
+                                _refocus()
                             else:
                                 result = eval(code, ns)
                                 print(result)
-                                dpg.set_value("cmd_input", "")
+                                _refocus()
                         except Exception as e:
                             print(f"❌ Python error: {e}")
                         continue
 
                     history = getattr(parent, "command_history", [])
-                    matches = [cmd for cmd in reversed(history) if seg in cmd and cmd != seg]
+                    # Prefer exact match only
+                    matches = [cmd for cmd in reversed(history) if cmd.strip() == seg]
+
+                    # If no exact match, optionally allow substring matches ONLY when the candidate
+                    # has no ';' (i.e., it’s a single-segment command). This prevents recalling
+                    # 'await spc;>c' for the sub-segment 'await spc'.
+                    if not matches:
+                        matches = [cmd for cmd in reversed(history)
+                                   if (seg in cmd) and (";" not in cmd) and (cmd != seg)]
+
                     if matches:
                         found = matches[0]
-                        dpg.set_value("cmd_input", found)
-                        dpg.focus_item("cmd_input")
+                        _refocus()
                         print(f"Recalled from history: {found}")
                         ns = self._ensure_exec_ns()
                         try:
                             head = found.lstrip()
                             low = head.lower()
 
-                            # explicit python helpers
+                            # Route explicit Python helpers directly
                             if low.startswith("import ") or low.startswith("from "):
-                                exec(found, ns);
+                                exec(found, ns)
                                 return
                             if low.startswith("py? "):
                                 result = eval(found[3:], ns)
@@ -852,18 +841,16 @@ class CommandDispatcher:
                                 exec(found[3:], ns)
                                 return
 
-                            # everything else: treat as console command (handles 'await', '>', '>>', etc.)
-                            self.run(found, record_history=False)
+                            # For console syntax (await, >, >>, etc.), re-enter the console
+                            # without re-logging to avoid loops.
+                            # self.run(found, record_history=False)
                             return
                         except Exception as e:
                             print(f"❌ Error while executing recalled command: {e}")
                         return
-
             except Exception:
                     traceback.print_exc()
-            # dpg.focus_item("cmd_input")
-            # dpg.focus_item("OPX Window")
-            dpg.set_value("cmd_input", "")
+            _refocus()
 
     def savehistory_on_exit(self):
         try:
@@ -938,49 +925,96 @@ class CommandDispatcher:
 
     def handle_mark(self, arg):
         """
-        Draw a marker on the plot.
+        Draw a marker on the plotImaga plot.
 
         Usage:
-          mark                         -> mark current OPX stage position (µm)
-          mark proem [px] [py]         -> mark a ProEM pixel using LightField calibration
-          mark k | mark g | mark keysight | mark galvo
-                                       -> mark current galvo (kabs) XY position (µm)
+          mark                           -> mark current OPX stage position (µm)
+          mark c | mark center           -> mark the center of the current plot view
+          mark proem [px] [py]           -> mark a ProEM pixel using LightField calibration
+          mark k | mark g | mark b | mark keysight | mark galvo
+                                         -> mark current galvo (kabs) XY position (µm)
+                                         -> b = very big
         """
         try:
-            def _draw_marker(x_um: float, y_um: float, label: str):
+            PLOT_TAG = "plotImaga"
+            X_AXIS_TAG = "plotImaga_X"
+            Y_AXIS_TAG = "plotImaga_Y"
+            DRAW_LAYER_TAG = "plot_draw_layer"
+
+            # ------- helpers -------
+            def _ensure_draw_layer():
+                # Create the draw layer on plotImaga if missing
+                if not dpg.does_item_exist(DRAW_LAYER_TAG):
+                    if not dpg.does_item_exist(PLOT_TAG):
+                        print("mark: plotImaga does not exist.")
+                        return False
+                    dpg.add_draw_layer(parent=PLOT_TAG, tag=DRAW_LAYER_TAG)
+                return True
+
+            def _draw_marker(x_um: float, y_um: float, label: str, size: str = "normal"):
+                if not _ensure_draw_layer():
+                    return
                 tag = "temp_cross_marker"
-                # clear previous
+                # clear previous cross parts if present
                 for s in ("_h_left", "_h_right", "_v_top", "_v_bottom", "_circle"):
                     if dpg.does_item_exist(tag + s):
                         dpg.delete_item(tag + s)
-                if not dpg.does_item_exist("plot_draw_layer"):
-                    dpg.add_draw_layer(parent="plotImaga", tag="plot_draw_layer")
 
-                gap, length = 0.5, 3.0
+                if size == "small":
+                    gap, length, line_t, circ_t = 0.1, 0.5, 0.05, 1.5
+                elif size == "big":
+                    gap, length, line_t, circ_t = 1.0, 28.0, 0.6, 3.5  # very big cross
+                else:  # normal
+                    gap, length, line_t, circ_t = 0.5, 3.0, 0.3, 2.0
+
                 white = (255, 255, 255, 255)
                 black = (0, 0, 0, 255)
+                yellow = (255, 255, 0, 255)
 
-                dpg.draw_line((x_um - length, y_um), (x_um - gap, y_um), color=white, thickness=0.3,
-                              parent="plot_draw_layer", tag=tag + "_h_left")
-                dpg.draw_line((x_um + gap, y_um), (x_um + length, y_um), color=white, thickness=0.3,
-                              parent="plot_draw_layer", tag=tag + "_h_right")
-                dpg.draw_line((x_um, y_um - length), (x_um, y_um - gap), color=white, thickness=0.3,
-                              parent="plot_draw_layer", tag=tag + "_v_top")
-                dpg.draw_line((x_um, y_um + gap), (x_um, y_um + length), color=white, thickness=0.3,
-                              parent="plot_draw_layer", tag=tag + "_v_bottom")
+                dpg.draw_line((x_um - length, y_um), (x_um - gap, y_um), color=white,
+                              thickness=line_t, parent=DRAW_LAYER_TAG, tag=tag + "_h_left")
+                dpg.draw_line((x_um + gap, y_um), (x_um + length, y_um), color=white,
+                              thickness=line_t, parent=DRAW_LAYER_TAG, tag=tag + "_h_right")
+                dpg.draw_line((x_um, y_um - length), (x_um, y_um - gap), color=white,
+                              thickness=line_t, parent=DRAW_LAYER_TAG, tag=tag + "_v_top")
+                dpg.draw_line((x_um, y_um + gap), (x_um, y_um + length), color=white,
+                              thickness=line_t, parent=DRAW_LAYER_TAG, tag=tag + "_v_bottom")
                 dpg.draw_circle(center=(x_um, y_um), radius=length, color=black,
-                                thickness=2, parent="plot_draw_layer", tag=tag + "_circle")
+                                thickness=circ_t, parent=DRAW_LAYER_TAG, tag=tag + "_circle")
+                if size == "big":
+                    dpg.draw_circle(center=(x_um, y_um), radius=length*2, color=yellow,
+                                    thickness=circ_t*2, parent=DRAW_LAYER_TAG, tag=tag + "_yellow_circle")
                 print(f"Marked {label} at X={x_um:.4f} µm, Y={y_um:.4f} µm")
 
+            def _get_axis_limits():
+                """Get current visible ranges of plotImaga axes."""
+                if not (dpg.does_item_exist(X_AXIS_TAG) and dpg.does_item_exist(Y_AXIS_TAG)):
+                    print("mark: plotImaga axes not found (plotImaga_X/plotImaga_Y).")
+                    return None
+                x_min, x_max = dpg.get_axis_limits(X_AXIS_TAG)
+                y_min, y_max = dpg.get_axis_limits(Y_AXIS_TAG)
+                return (x_min, x_max, y_min, y_max)
+
+            # ------- parse -------
             tokens = (arg or "").strip().split()
             kw = tokens[0].lower() if tokens else ""
+
+            # --- Center-of-plot marking ---
+            if kw in ("c", "center", "centre"):
+                lims = _get_axis_limits()
+                if not lims:
+                    return
+                x_min, x_max, y_min, y_max = lims
+                x_um = 0.5 * (x_min + x_max)
+                y_um = 0.5 * (y_min + y_max)
+                _draw_marker(x_um, y_um, "center", size = "small")
+                return
 
             # --- ProEM pixel marking ---
             if kw in ("proem", "px", "pixel"):
                 px = py = None
                 if len(tokens) == 1:
-                    # use stored px/py
-                    pass
+                    pass  # use stored values
                 elif len(tokens) == 3:
                     try:
                         px = int(float(tokens[1]))
@@ -991,8 +1025,7 @@ class CommandDispatcher:
                 else:
                     print("Usage: mark proem  OR  mark proem <px> <py>")
                     return
-
-                self.mark_proem_pixel(px, py)  # this will fallback to stored px/py if None
+                self.mark_proem_pixel(px, py)
                 return
 
             # --- Galvo (kabs) marking ---
@@ -1002,20 +1035,15 @@ class CommandDispatcher:
                 if not gui or not hasattr(gui, "dev"):
                     print("mark k/g: Keysight AWG GUI/device not available.")
                     return
-
                 try:
-                    # Read back actual voltages
                     v1 = float(gui.dev.get_current_voltage(1))
                     v2 = float(gui.dev.get_current_voltage(2))
-
-                    # Calibration / ratios
                     base1 = float(getattr(gui, "base1", 0.0))
                     base2 = float(getattr(gui, "base2", 0.0))
-                    volts_per_um = float(getattr(gui, "volts_per_um", 0.128 / 15))  # fallback same as docs
+                    volts_per_um = float(getattr(gui, "volts_per_um", 0.128 / 15))
                     kx_ratio = float(getattr(gui, "kx_ratio", 3.3))
                     ky_ratio = float(getattr(gui, "ky_ratio", -0.3))
 
-                    # Solve XY (µm) from current voltages relative to baselines
                     dv1 = v1 - base1
                     dv2 = v2 - base2
                     denom = (kx_ratio - ky_ratio)
@@ -1028,16 +1056,18 @@ class CommandDispatcher:
                     x_um = alpha_x_volts / volts_per_um
                     y_um = beta_y_volts / volts_per_um
 
-                    _draw_marker(x_um, y_um, "galvo (kabs)")
+                    size = "small" if kw == "g" else ("big" if kw == "b" else "normal")
+                    _draw_marker(x_um, y_um, "galvo (kabs)", size=size)
                     return
                 except Exception as e:
                     print(f"mark k/g failed: {e}")
                     return
 
-            # --- Legacy: mark current OPX stage XY (µm) ---
+            # --- Default: mark current OPX stage XY (µm) ---
             parent = self.get_parent()
             x_um, y_um = [p * 1e-6 for p in parent.opx.positioner.AxesPositions[:2]]
-            _draw_marker(x_um, y_um, "stage")
+            size = "small" if kw == "g" else ("big" if kw == "b" else "normal")
+            _draw_marker(x_um, y_um, "stage",size=size)
 
         except Exception as e:
             traceback.print_exc()
@@ -4404,16 +4434,129 @@ class CommandDispatcher:
         threading.Thread(target=worker, daemon=True).start()
 
     def handle_ntrack(self, arg):
-        """Get or set N_tracking_search."""
-        p=self.get_parent()
+        """
+        Get or set tracking parameters.
+
+        Usage:
+          ntrack                      -> show N_tracking_search and tracking integration time (ms)
+          ntrack 10                   -> set N_tracking_search = 10
+          ntrack 10 ms                -> set tracking integration time to 10 ms
+          ntrack 250us                -> set tracking integration time to 0.25 ms
+          ntrack 0.5 s                -> set tracking integration time to 500 ms
+          ntrack 1000ms               -> set tracking integration time to 1000 ms
+          ntrack 5 10 ms              -> set N_tracking_search=5 and time=10 ms
+          ntrack 10 ms 5              -> set time=10 ms and N_tracking_search=5
+
+          Example:
+              ntrack 10 10 ms
+              focus 2000
+        """
+        import re, traceback
+        p = self.get_parent()
+        s = (arg or "").strip()
+
+        def _show():
+            try:
+                n = getattr(p.opx, "N_tracking_search", None)
+                t_ms = getattr(p.opx, "tTrackingSignaIntegrationTime", None)
+                n_txt = f"{n}" if n is not None else "unknown"
+                try:
+                    t_txt = f"{float(t_ms):.3f} ms" if t_ms is not None else "unknown"
+                except Exception:
+                    t_txt = f"{t_ms} (units unknown)" if t_ms is not None else "unknown"
+                print(f"N_tracking_search = {n_txt} | Tracking integration time = {t_txt}")
+            except Exception:
+                traceback.print_exc()
+                print("ntrack: failed to read current values.")
+
+        # No args: just display
+        if not s or s.strip() == "?":
+            _show()
+            return
+
+        tokens = s.lower().split()
+        units_set = {"ms", "us", "µs", "s"}
+
+        N_val = None
+        ms_val = None
+
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+
+            # number+unit in one token (e.g., 10ms, 250us, 0.5s)
+            m = re.fullmatch(r"([+-]?\d*\.?\d+)(us|µs|ms|s)", tok)
+            if m:
+                val = float(m.group(1))
+                unit = m.group(2)
+                if unit == "s":
+                    ms_val = val * 1000.0
+                elif unit in ("us", "µs"):
+                    ms_val = val / 1000.0
+                else:
+                    ms_val = val
+                i += 1
+                continue
+
+            # number followed by separate unit (e.g., 10 ms)
+            if re.fullmatch(r"[+-]?\d*\.?\d+", tok) and i + 1 < len(tokens) and tokens[i + 1] in units_set:
+                val = float(tok)
+                unit = tokens[i + 1]
+                if unit == "s":
+                    ms_val = val * 1000.0
+                elif unit in ("us", "µs"):
+                    ms_val = val / 1000.0
+                else:
+                    ms_val = val
+                i += 2
+                continue
+
+            # pure number without unit
+            if re.fullmatch(r"[+-]?\d*\.?\d+", tok):
+                # integers without unit -> N; decimals without unit -> time in ms
+                if "." in tok or "e" in tok or "E" in tokens[i] if i < len(tokens) else False:
+                    ms_val = float(tok)
+                else:
+                    # integer
+                    if N_val is None:
+                        N_val = int(tok)
+                    else:
+                        # if N already set, treat additional bare number as ms
+                        ms_val = float(tok)
+                i += 1
+                continue
+
+            # unknown token (ignore, allows 'plot' or others to coexist harmlessly)
+            i += 1
+
+        # Apply updates (both if provided)
         try:
-            if arg:
-                p.opx.UpdateN_tracking_search(user_data=int(arg))
-            else:
-                print(f"N_tracking_search = {p.opx.N_tracking_search}")
-        except:
+            if N_val is not None:
+                p.opx.UpdateN_tracking_search(user_data=int(N_val))
+                print(f"N_tracking_search set to {int(N_val)}")
+        except Exception:
             traceback.print_exc()
-            print("ntrack failed.")
+            print("ntrack: failed to set N_tracking_search.")
+
+        try:
+            if ms_val is not None:
+                ms_int = int(round(ms_val))
+                # API: Update_tTrackingSignaIntegrationTime(user_data=ms_int[, app_data=None])
+                try:
+                    p.opx.Update_tTrackingSignaIntegrationTime(user_data=ms_int, app_data=None)
+                except TypeError:
+                    p.opx.Update_tTrackingSignaIntegrationTime(user_data=ms_int)
+                # mirror for display if OPX doesn't keep it
+                try:
+                    setattr(p.opx, "tTrackingSignaIntegrationTime", ms_int)
+                except Exception:
+                    pass
+                print(f"Tracking integration time set to {ms_val:.3f} ms")
+        except Exception:
+            traceback.print_exc()
+            print("ntrack: failed to set tracking integration time.")
+
+        _show()
 
     def handle_copy_last_msg(self, arg):
         """Copy the last console message to the clipboard."""
@@ -4465,23 +4608,58 @@ class CommandDispatcher:
             print(f"pulsecount failed: {e}")
 
     def handle_focus(self, arg):
-        """Run FindFocus (channel 2); if arg=='plot', also pop up a Signal vs Z graph."""
+        """
+        Run FindFocus (channel 2).
+        If 'plot' is present, show the Signal vs Z graph.
+        If a number is present (e.g., '150' or '-80'), move SmarAct ch2 by that many
+        nanometers AFTER the focus completes.
+
+        Conversion to steps:
+          value_nm -> value_um = value_nm / 1000
+          steps = value_um * dev.StepsIn1mm / 1e3
+        """
         p = self.get_parent()
-        do_plot = arg.strip().lower() == "plot"
+
+        tokens = (arg or "").strip().split()
+        do_plot = any(t.lower() == "plot" for t in tokens)
+
+        delta_nm = 0.0
+        for t in tokens:
+            try:
+                delta_nm = float(t)
+                break
+            except Exception:
+                pass
 
         def worker():
             try:
-                # 1) Kick off live counting
                 p.opx.btnStartCounterLive()
                 time.sleep(1)
-
-                # 2) Do the focus scan
                 p.opx.FindFocus()
 
-                # 3) Optionally plot
                 if do_plot:
-                    # Directly call the UI method
-                    self._focus_plot(p.opx.coordinate, p.opx.track_X)
+                    try:
+                        self._focus_plot(p.opx.coordinate, p.opx.track_X)
+                    except Exception as e:
+                        print(f"focus plot failed: {e}")
+
+                if delta_nm != 0:
+                    dev = getattr(getattr(p, "smaractGUI", None), "dev", None)
+                    if dev is None:
+                        print("SmarAct device not available for post-focus move.")
+                    else:
+                        try:
+                            value_um = delta_nm / 1000.0
+                            steps_per_mm = getattr(dev, "StepsIn1mm", None)
+                            if steps_per_mm is None:
+                                print("SmarAct dev.StepsIn1mm not available.")
+                                return
+                            rel_steps = int(round(value_um * steps_per_mm / 1e3))
+                            dev.MoveRelative(2, rel_steps)
+                            print(f"Post-focus: moved SmarAct ch2 by {delta_nm} nm -> {rel_steps} steps.")
+                        except Exception as e:
+                            print(f"Post-focus move failed: {e}")
+
             except Exception as e:
                 traceback.print_exc()
                 print(f"focus failed: {e}")
@@ -5556,6 +5734,7 @@ class CommandDispatcher:
           show map clib
           show app
         """
+        import json, os
         sub = (arg or "").strip()
         if not sub:
             print(
@@ -5604,38 +5783,53 @@ class CommandDispatcher:
             print("Usage: show map clib")
             return
 
-        # ----- show hist / history (prints history.txt and macros.json) -----
+        # ----- show hist / history (print + open files, optional suffix) -----
         if key in ("hist", "history"):
-            import json
-            # History
+            suffix = toks[1] if len(toks) >= 2 else ""
+            hist_fn  = f"history_{suffix}.txt" if suffix else "history.txt"
+            macro_fn = f"macros_{suffix}.json" if suffix else "macros.json"
+
+            # Print history
             try:
-                with open("history.txt", encoding="utf-8") as f:
+                with open(hist_fn, encoding="utf-8") as f:
                     lines = [l.rstrip("\n") for l in f]
-                print(f"--- History ({len(lines)} lines) ---")
+                print(f"--- History ({len(lines)} lines) [{hist_fn}] ---")
                 for i, line in enumerate(lines, 1):
                     print(f"{i:4d}  {line}")
             except FileNotFoundError:
-                print("--- History ---")
-                print("No history.txt found.")
+                print(f"--- History ---\nNo {hist_fn} found.")
             except Exception as e:
-                print(f"[show history] Failed to read history.txt: {e}")
+                print(f"[show history] Failed to read {hist_fn}: {e}")
 
-            # Macros
+            # Print macros
             try:
-                with open("macros.json", encoding="utf-8") as mf:
+                with open(macro_fn, encoding="utf-8") as mf:
                     macros = json.load(mf)
             except FileNotFoundError:
                 macros = {}
             except Exception as e:
-                print(f"[show history] Failed to read macros.json: {e}")
+                print(f"[show history] Failed to read {macro_fn}: {e}")
                 macros = {}
 
-            print(f"--- Macros ({len(macros)} entries) ---")
+            print(f"--- Macros ({len(macros)} entries) [{macro_fn}] ---")
             if macros:
                 for k in sorted(macros.keys(), key=lambda s: (s[0], len(s), s)):
                     print(f">{k}  ->  {macros[k]}")
             else:
                 print("No macros defined.")
+
+            # Open the files like other 'show' commands do
+            try:
+                if os.path.exists(hist_fn):
+                    _open_path(os.path.abspath(hist_fn))
+                else:
+                    print(f"[show history] Not found: {hist_fn}")
+                if os.path.exists(macro_fn):
+                    _open_path(os.path.abspath(macro_fn))
+                else:
+                    print(f"[show history] Not found: {macro_fn}")
+            except Exception as e:
+                print(f"[show history] Failed to open files: {e}")
             return
 
 
