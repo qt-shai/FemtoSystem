@@ -1234,10 +1234,13 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.L_KEY: self._toggle_lens,
                 KeyboardKeys.V_KEY: self._paste_clipboard,
                 KeyboardKeys.KEY_1: lambda: self._set_coarse_steps(1, axes=(0, 1, 2)),
-                KeyboardKeys.KEY_2: lambda: self._set_coarse_steps(2, axes=(0, 1)),
+                KeyboardKeys.KEY_2: lambda: self._set_coarse_steps(2, axes=(0, 1, 2)),
                 KeyboardKeys.KEY_3: lambda: self._set_coarse_steps(30, axes=(0, 1, 2)),
-                KeyboardKeys.KEY_4: lambda: self._set_coarse_steps(400, axes=(0, 1)),
-                KeyboardKeys.KEY_5: lambda: self._set_coarse_steps(5, axes=(0, 1)),
+                KeyboardKeys.KEY_4: lambda: (self._set_coarse_steps(400, axes=(0, 1)), self._set_coarse_steps(1, axes=(2,))),
+                KeyboardKeys.KEY_5: lambda: self._set_coarse_steps(5, axes=(0, 1, 2)),
+                KeyboardKeys.KEY_6: lambda: self._set_coarse_steps(600, axes=(0, 1, 2)),
+                KeyboardKeys.KEY_7: lambda: (self._set_coarse_steps(700, axes=(0, 1)), self._set_coarse_steps(1, axes=(2,))),
+                KeyboardKeys.KEY_8: lambda: (self._set_coarse_steps(8, axes=(0, 1)), self._set_coarse_steps(1, axes=(2,))),
                 KeyboardKeys.KEY_0: self._save_and_zero_exposure,
                 KeyboardKeys.OEM_PLUS: self._increase_koff,  # Ctrl+=
                 KeyboardKeys.OEM_MINUS: self._decrease_koff,  # Ctrl+-
@@ -1264,7 +1267,8 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.KEY_0:      self._restore_exposure,                    # Shift+0
                 KeyboardKeys.KEY_1:      lambda: self._set_fine_steps(100, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
                 KeyboardKeys.KEY_2:      lambda: self._set_fine_steps(20, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
-                KeyboardKeys.KEY_5:      lambda: self._set_fine_steps(50, axes=(0, 1, 2)),  # Shift+5 → 50 nm all axes (NEW)
+                KeyboardKeys.KEY_3:      lambda: self._set_fine_steps(300, axes=(0, 1, 2)),  # Shift+5 → 50 nm all axes
+                KeyboardKeys.KEY_5:      lambda: self._set_fine_steps(50, axes=(0, 1, 2)),  # Shift+5 → 50 nm all axes
                 KeyboardKeys.OEM_PLUS:   lambda: self._shift_move_kx(sign=+1),      # Shift+='
                 KeyboardKeys.OEM_MINUS:  lambda: self._shift_move_kx(sign=-1),      # Shift+'-'
                 KeyboardKeys.OEM_6:      lambda: self._shift_move_ky(sign=+1),      # Shift+']'

@@ -113,7 +113,7 @@ class GUI_CLD1011LP():
             # dpg.set_value("cld1011lp Laser Current", cur_txt)
 
             val = self.read_current_mA()
-            cur_txt = "Current ---" if val is None else f"Current {val:.3f} mA"
+            cur_txt = "Current ---" if val is None else f"Current {val:.3f} A"
             dpg.set_value("cld1011lp Laser Current", cur_txt)
 
             # temperature (°C or raw)
