@@ -31,6 +31,14 @@ class ZeluxGUI():
         self.cross_x = 1552
         self.cross_y = 701
 
+        # --- Target generator defaults ---
+        self.target_mode = "gaussian"  # or "soft_disk"
+        self.target_fwhm = 120  # px (for gaussian)
+        self.target_R = 90  # px (for soft_disk radius)
+        self.target_M = 8  # super-gaussian order (edge softness)
+        self.target_out = r"C:\WC\HotSystem\Utils\Desired_image.bmp"
+        self.target_preview = r"C:\WC\HotSystem\Utils\Desired_target_preview.png"
+
         try:
             self.background_image = np.load("zelux_background.npy")
             print("Background image loaded.")
@@ -373,6 +381,14 @@ class ZeluxGUI():
                         dpg.add_checkbox(label="KpSt", tag="keepSt", default_value=False)
                         dpg.add_checkbox(label="Ax", tag="Axis", callback=self.toggle_show_axis, default_value=self.show_axis)
                         # dpg.add_button(label="Rotate 90°", tag="btnRotate", callback=self.rotate_image)
+                        dpg.add_button(label="GS", tag="btnIterateGS", callback=self.StartSLMIterations)
+                        dpg.add_button(label="StopGS", tag="btnStopIter", callback=self.StopSLMIterations)
+                        # --- Target maker controls ---
+                        dpg.add_combo(label="Target", items=["gaussian", "soft_disk"],
+                                      default_value=self.target_mode,
+                                      width=110,
+                                      callback=lambda s, a, u: setattr(self, "target_mode", a))
+
                     with dpg.group(tag="controls_row2", horizontal=True):
                         dpg.add_button(label="Sv", tag="btnSaveProcessedImage", callback=self.SaveProcessedImage)
 
@@ -395,6 +411,11 @@ class ZeluxGUI():
                         dpg.add_button(label="Set +", tag="btnSetCross",
                                        callback=self.set_cross_from_inputs)
 
+                    with dpg.group(horizontal=True):
+                        dpg.add_input_int(label="FWHM(px)", tag="inpFWHM", width=120, default_value=self.target_fwhm)
+                        dpg.add_input_int(label="R(px)", tag="inpR", width=100, default_value=self.target_R)
+                        dpg.add_input_int(label="m", tag="inpM", width=100, default_value=self.target_M)
+                        dpg.add_button(label="Make Desired", tag="btnMakeDesired", callback=self.MakeDesiredImage)
 
         else:
             dpg.add_group(tag="ZeluxControls", parent=self.window_tag, horizontal=False)
@@ -730,3 +751,446 @@ class ZeluxGUI():
         # print(Znew)
 
         return Znew
+
+    def StartSLMIterations(self, sender=None, app_data=None, user_data=None):
+        """Launch GS iterations in a background thread and auto-save (Sv) every round."""
+        if getattr(self, "_iter_th", None) and self._iter_th.is_alive():
+            print("Iteration already running.")
+            return
+        self._iter_stop = False
+        self._iter_th = threading.Thread(target=self._SLMIterationsWorker, daemon=True)
+        self._iter_th.start()
+        print("Started SLM iteration thread.")
+
+    def StopSLMIterations(self, sender=None, app_data=None, user_data=None):
+        """Signal the worker to stop after the current round."""
+        self._iter_stop = True
+        print("Stopping iterations...")
+
+    def _SLMIterationsWorker(self):
+        # --- CONFIG (paths & params you gave) ---
+        CORR_BMP = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp"
+        TARGET_BMP = r"C:\WC\HotSystem\Utils\Desired_image.bmp"
+        OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"  # Point SLMControl3 to this once
+
+        # SLM UI transforms (pixels) — as requested
+        X_SHIFT, Y_SHIFT, ROT_DEG = -17, 114, 0.0
+
+        # Iteration knobs
+        OUTER_ITERS = 10  # rounds (you can change on the fly)
+        INNER_GS = 30  # GS steps per round
+        APOD_SIGMA = 0.16  # edge taper to reduce ringing
+
+        # ---- helpers ----
+        def preprocess_target_to_panel(target_path, panel_wh, x_shift=-17, y_shift=114, rot_deg=0.0):
+            import cv2, numpy as np
+            W, H = panel_wh
+            img = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)  # works for your RGB BMP too
+            if img is None:
+                raise FileNotFoundError(target_path)
+            tgt = cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA).astype(np.float32)
+            if tgt.max() > 0: tgt /= tgt.max()
+
+            # rotation → translation (match your SLM UI)
+            Mrot = cv2.getRotationMatrix2D((W / 2, H / 2), rot_deg, 1.0)
+            tgt = cv2.warpAffine(tgt, Mrot, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
+                                 borderValue=0)
+            Mtran = np.float32([[1, 0, x_shift], [0, 1, y_shift]])
+            tgt = cv2.warpAffine(tgt, Mtran, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
+                                 borderValue=0)
+
+            # mild apodization
+            yy, xx = np.mgrid[0:H, 0:W]
+            x = (xx - W / 2) / (W / 2);
+            y = (yy - H / 2) / (H / 2)
+            r2 = x * x + y * y
+            apod = np.exp(-r2 / (2 * APOD_SIGMA * APOD_SIGMA)).astype(np.float32)
+            tgt *= apod
+            tgt /= (tgt.max() + 1e-8)
+            return tgt
+
+        def phase_to_u8(phase_rad):
+            ph = np.mod(phase_rad, 2 * np.pi)
+            return np.uint8(np.round(ph * (255.0 / (2 * np.pi))))
+
+        def u8_to_phase(u8):
+            return (u8.astype(np.float32) / 255.0) * 2 * np.pi
+
+        def gs_update_relaxed(phase_slm, target_amp, steps=30, beta=0.6):
+            """
+            Relaxed Gerchberg–Saxton (amplitude relaxation beta in [0,1]).
+            beta=1 -> standard GS. 0.5–0.7 typically converges smoother.
+            """
+            H, W = target_amp.shape
+            amp_target = target_amp
+            for _ in range(steps):
+                field_s = np.exp(1j * phase_slm)  # unit amp at SLM
+                field_f = np.fft.fftshift(np.fft.fft2(field_s))  # far-field
+                amp_f = np.abs(field_f)
+                phase_f = np.angle(field_f)
+
+                # relaxed amplitude: move current amplitude toward target
+                amp_new = (1 - beta) * amp_f + beta * amp_target
+
+                field_f_new = amp_new * np.exp(1j * phase_f)
+                field_s_back = np.fft.ifft2(np.fft.ifftshift(field_f_new))
+                phase_slm = np.angle(field_s_back).astype(np.float32)
+            return np.mod(phase_slm, 2 * np.pi)
+
+        def save_phase_with_correction(phase_slm_rad, corr_u8, out_path):
+            phase_out = np.mod(phase_slm_rad + u8_to_phase(corr_u8), 2 * np.pi)
+            ok = cv2.imwrite(out_path, phase_to_u8(phase_out))
+            if not ok:
+                print(f"❌ Failed writing {out_path}")
+
+        import glob, os, cv2, time
+
+        # Folder where Zelux saves images
+        ZELUX_IMG_DIR = r"Q:\QT-Quantum_Optic_Lab\expData\Images"
+
+        def find_latest_zelux(dir_path=ZELUX_IMG_DIR):
+            """Return full path of the newest Zelux image (PNG/BMP)."""
+            patterns = [
+                os.path.join(dir_path, "Zelux_*.png"),
+                os.path.join(dir_path, "Zelux_Image_*.png"),
+                os.path.join(dir_path, "*.png"),
+                os.path.join(dir_path, "*.bmp"),
+            ]
+            files = []
+            for pat in patterns:
+                files.extend(glob.glob(pat))
+            if not files:
+                return None
+            return max(files, key=os.path.getmtime)
+
+        def read_meas_latest():
+            """
+            Load newest Zelux frame as grayscale float [0..1].
+            Crops off a 40 px bottom strip to remove overlay text.
+            """
+            p = find_latest_zelux(ZELUX_IMG_DIR)
+            if not p:
+                return np.zeros((H, W), np.float32)  # H,W are panel size (defined earlier)
+            img = cv2.imread(p, cv2.IMREAD_UNCHANGED)
+            if img is None:
+                return np.zeros((H, W), np.float32)
+            if img.ndim == 3:
+                if img.shape[2] == 4:
+                    img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            img = img.astype(np.float32)
+            if img.max() > 0:
+                img /= img.max()
+            # remove bottom overlay text if present
+            if img.shape[0] > 40:
+                img = img[:-40, :]
+            return img
+
+        def calibrate_steering(phase_slm, corr_u8, out_path, W, H,
+                               dir_img=r"Q:\QT-Quantum_Optic_Lab\expData\Images",
+                               probe_px=10.0, settle_s=0.25, timeout_s=5.0):
+            """
+            Calibrate mapping from commanded far-field shift (in 'spectral pixels') to
+            measured centroid shift (camera pixels). Returns (sx, sy).
+            """
+            import glob, os, time, cv2, numpy as np
+
+            def latest_path():
+                pats = [os.path.join(dir_img, "Zelux_*.png"),
+                        os.path.join(dir_img, "Zelux_Image_*.png"),
+                        os.path.join(dir_img, "*.png"),
+                        os.path.join(dir_img, "*.bmp")]
+                files = []
+                for p in pats: files.extend(glob.glob(p))
+                return max(files, key=os.path.getmtime) if files else None
+
+            def write_phase(ph):
+                ph_out = np.mod(ph + (corr_u8.astype(np.float32) / 255.0) * 2 * np.pi, 2 * np.pi)
+                cv2.imwrite(out_path, np.uint8(np.round(ph_out * (255.0 / (2 * np.pi)))))
+
+            def capture_new_after(old_path):
+                # trigger a new save in Zelux and wait for a newer file
+                try:
+                    new_path = self.SaveProcessedImage()  # auto press "Sv"
+                except Exception:
+                    new_path = None
+                t0 = time.time()
+                while time.time() - t0 < timeout_s:
+                    p = latest_path()
+                    if p and p != old_path and (not new_path or p == new_path):
+                        return p
+                    time.sleep(0.1)
+                return latest_path()
+
+            def read_gray01(p):
+                img = cv2.imread(p, cv2.IMREAD_UNCHANGED)
+                if img is None: return None
+                if img.ndim == 3:
+                    if img.shape[2] == 4:
+                        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                img = img.astype(np.float32)
+                if img.max() > 0: img /= img.max()
+                if img.shape[0] > 40:  # crop overlay text if present
+                    img = img[:-40, :]
+                return img
+
+            def centroid_brightest(img01):
+                g = cv2.GaussianBlur(img01, (0, 0), 2.0)
+                thr = np.quantile(g, 0.70)
+                m = (g >= thr).astype(np.uint8)
+                num, labels = cv2.connectedComponents(m)
+                if num <= 1:
+                    hh, ww = img01.shape
+                    return ww / 2.0, hh / 2.0
+                areas = [(labels == i).sum() for i in range(1, num)]
+                i_max = 1 + int(np.argmax(areas))
+                mask = (labels == i_max).astype(np.float32)
+                s = mask.sum() + 1e-8
+                yy, xx = np.mgrid[0:img01.shape[0], 0:img01.shape[1]]
+                cy = float((yy * mask).sum() / s);
+                cx = float((xx * mask).sum() / s)
+                return cx, cy
+
+            def apply_and_measure(cmdx, cmdy):
+                yy, xx = np.mgrid[0:H, 0:W]
+                ramp = -2 * np.pi * (cmdx * (xx / W) + cmdy * (yy / H))
+                ph = np.mod(phase_slm + ramp.astype(np.float32), 2 * np.pi)
+                old = latest_path()
+                write_phase(ph)
+                time.sleep(settle_s)  # allow SLM app to reload
+                p = capture_new_after(old)
+                img01 = read_gray01(p)
+                if img01 is None:
+                    return W / 2.0, H / 2.0
+                # map centroid into panel coords
+                cx, cy = centroid_brightest(img01)
+                cx *= (W / img01.shape[1]);
+                cy *= (H / img01.shape[0])
+                return cx, cy
+
+            # baseline
+            cx0, cy0 = apply_and_measure(0.0, 0.0)
+
+            # X probe
+            cxp, cyp = apply_and_measure(+probe_px, 0.0)
+            cxm, cym = apply_and_measure(-probe_px, 0.0)
+            dx_meas = (cxp - cxm) / 2.0
+            sx = dx_meas / probe_px  # measured_px per commanded_px (can be negative)
+
+            # Y probe
+            cxp, cyp = apply_and_measure(0.0, +probe_px)
+            cxm, cym = apply_and_measure(0.0, -probe_px)
+            dy_meas = (cyp - cym) / 2.0
+            sy = dy_meas / probe_px
+
+            print(f"[Calib] steering gain: sx={sx:.3f}, sy={sy:.3f}")
+            return sx, sy
+
+        # --- centroid of brightest blob (robust) ---
+        def brightest_centroid(img01):
+            g = cv2.GaussianBlur(img01, (0, 0), 2.0)
+            thr = np.quantile(g, 0.70)  # top ~30% intensities
+            m = (g >= thr).astype(np.uint8)
+            num, labels = cv2.connectedComponents(m)
+            if num <= 1:
+                H, W = g.shape;
+                return W / 2.0, H / 2.0
+            areas = [(labels == i).sum() for i in range(1, num)]
+            i_max = 1 + int(np.argmax(areas))
+            mask = (labels == i_max).astype(np.float32)
+            s = mask.sum() + 1e-8
+            yy, xx = np.mgrid[0:g.shape[0], 0:g.shape[1]]
+            cy = float((yy * mask).sum() / s);
+            cx = float((xx * mask).sum() / s)
+            return cx, cy
+
+        # --- PI steering parameters ---
+        STEER_SIGN_X = +1.0  # flip to -1.0 if movement is inverted in X
+        STEER_SIGN_Y = -1.0  # flip sign if Y is inverted (often -1)
+        Kp = 0.28  # proportional gain (px → px/round)
+        Ki = 0.01  # integral gain (px/frame accumulated)
+        MAX_STEP = 10.0  # clamp per-round command (px)
+
+        # keep integrators on the instance so they persist across rounds
+        if not hasattr(self, "_int_ex"):
+            self._int_ex, self._int_ey = 0.0, 0.0
+
+        # ---- load correction, desired & build target amplitude ----
+        corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+        if corr_u8 is None:
+            print(f"❌ Cannot read correction BMP: {CORR_BMP}")
+            return
+        H, W = corr_u8.shape
+        print(f"Panel (from correction): {W}x{H}")
+
+        tgt_gray = cv2.imread(TARGET_BMP, cv2.IMREAD_GRAYSCALE)
+        if tgt_gray is None:
+            print(f"❌ Cannot read desired image: {TARGET_BMP}")
+            return
+
+        # panel from correction map
+        target_amp = preprocess_target_to_panel(TARGET_BMP, (W, H), x_shift=0, y_shift=0, rot_deg=0.0)
+        cv2.imwrite(r"C:\WC\HotSystem\Utils\Desired_target_preview.png", (target_amp * 255).astype(np.uint8))
+
+        # rotation then translation (match SLM UI)
+        Mrot = cv2.getRotationMatrix2D((W / 2, H / 2), ROT_DEG, 1.0)
+        target = cv2.warpAffine(target_amp, Mrot, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
+                                borderValue=0)
+        Mtran = np.float32([[1, 0, X_SHIFT], [0, 1, Y_SHIFT]])
+        target = cv2.warpAffine(target, Mtran, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
+                                borderValue=0)
+
+        # apodization to reduce ringing
+        yy, xx = np.mgrid[0:H, 0:W]
+        x = (xx - W / 2) / (W / 2)
+        y = (yy - H / 2) / (H / 2)
+        r2 = x * x + y * y
+        apod = np.exp(-r2 / (2 * APOD_SIGMA * APOD_SIGMA)).astype(np.float32)
+        target *= apod
+        target /= (target.max() + 1e-8)
+
+        # ---- init phase & run ----
+        rng = np.random.default_rng(1)
+        phase_slm = rng.uniform(0, 2 * np.pi, size=(H, W)).astype(np.float32)
+
+        sx, sy = calibrate_steering(
+            phase_slm=phase_slm,
+            corr_u8=corr_u8,
+            out_path=OUT_BMP,
+            W=W, H=H,
+            dir_img=ZELUX_IMG_DIR,  # your Zelux folder
+            probe_px=40.0,  # try 8–15 if response is tiny
+            settle_s=0.3,  # allow SLM app to reload
+            timeout_s=6.0
+        )
+        if abs(sx) < 1e-3 or abs(sy) < 1e-3:
+            print("[Calib] WARNING: zero response; check SLM app external mode and paths.")
+
+        # if too small (no response), fall back to 1.0 to avoid divide-by-zero
+        sx = sx if abs(sx) > 1e-3 else 1.0
+        sy = sy if abs(sy) > 1e-3 else 1.0
+        print(f"[Calib] sx={sx:.3f}, sy={sy:.3f}")
+
+        # MSE history
+        self._mse_hist = []
+
+        for outer in range(1, OUTER_ITERS + 1):
+            if getattr(self, "_iter_stop", False):
+                print("Iterations stopped by user.")
+                break
+
+            # 1) write SLM pattern (with correction)
+            save_phase_with_correction(phase_slm, corr_u8, OUT_BMP)
+            print(f"[{outer}/{OUTER_ITERS}] wrote SLM BMP → {OUT_BMP}")
+
+            # small delay to let SLM update optics
+            time.sleep(0.25)
+
+            # 2) auto-press “Sv”: call your existing saver (returns file path)
+            try:
+                snap_path = self.SaveProcessedImage()
+                print(f"   Zelux saved: {snap_path}")
+            except Exception as e:
+                print(f"   ❌ SaveProcessedImage failed: {e}")
+                break
+
+            # 3) quick metric (optional): compare current camera image to target
+            meas = cv2.imread(snap_path, cv2.IMREAD_GRAYSCALE)
+            # after: meas = cv2.imread(snap_path, cv2.IMREAD_GRAYSCALE)
+            sat = (meas >= 250).mean()
+            if sat > 0.003:  # >0.3% pixels near white → likely clipping
+                print("Please decrease laser power to avoid saturation")
+                print("Please decrease laser power to avoid saturation")
+
+
+            if meas is not None:
+                # ----- ROI MSE (reduces background influence) -----
+                ROI = 128  # px; try 96–160
+                cx, cy = int(W / 2), int(H / 2)
+                x0, x1 = max(0, cx - ROI // 2), min(W, cx + ROI // 2)
+                y0, y1 = max(0, cy - ROI // 2), min(H, cy + ROI // 2)
+
+                meas_roi = cv2.resize(meas, (W, H), interpolation=cv2.INTER_AREA)[y0:y1, x0:x1]
+                target_roi = target[y0:y1, x0:x1]
+
+                # normalize each ROI to its own max to avoid exposure drift
+                meas_roi = cv2.GaussianBlur(meas_roi, (0, 0), 1.0)
+                target_roi = cv2.GaussianBlur(target_roi, (0, 0), 1.0)
+                mr = meas_roi / (meas_roi.max() + 1e-8)
+                tr = target_roi / (target_roi.max() + 1e-8)
+                err = float(np.mean((mr - tr) ** 2))
+
+                self._mse_hist.append(err)
+                hist_str = ", ".join(f"{v:.6f}" for v in self._mse_hist)
+                print(f"   MSE history [{len(self._mse_hist)}]: {hist_str}")
+
+
+            # ----- measure centroid error (pixels) -----
+            meas_cx, meas_cy = brightest_centroid(meas)
+
+            # --- calibrated proportional steering with soft limit ---
+            tx, ty = W / 2.0, H / 2.0
+            ex, ey = (tx - meas_cx), (ty - meas_cy)
+
+            Kp = 0.9  # 0.6–1.2
+            SOFT_LIM = 120.0
+
+            eps = 1e-6
+            ux = Kp * (ex / (sx + np.sign(sx) * eps))
+            uy = Kp * (ey / (sy + np.sign(sy) * eps))
+
+            # soft-limit (smoothly approaches ±SOFT_LIM)
+            cmdx = SOFT_LIM * np.tanh(ux / SOFT_LIM)
+            cmdy = SOFT_LIM * np.tanh(uy / SOFT_LIM)
+
+            yy, xx = np.mgrid[0:H, 0:W]
+            ramp = -2 * np.pi * (cmdx * (xx / W) + cmdy * (yy / H))
+            phase_slm = np.mod(phase_slm + ramp.astype(np.float32), 2 * np.pi)
+
+            print(f"   steer: err=({ex:+.2f},{ey:+.2f}) cmd=({cmdx:+.2f},{cmdy:+.2f}) (sx={sx:.3f}, sy={sy:.3f})")
+
+            # 4) inner GS update towards desired amplitude
+            phase_slm = gs_update_relaxed(phase_slm, target_amp=target, steps=INNER_GS, beta=0.6)
+
+        # final write
+        save_phase_with_correction(phase_slm, corr_u8, OUT_BMP)
+        print("Iteration loop finished.")
+
+    def MakeDesiredImage(self, sender=None, app_data=None, user_data=None):
+        import numpy as np, cv2, os
+
+        # Panel size from camera/SLM correction; fall back if unknown
+        try:
+            H = int(self.cam.camera.image_height_pixels)
+            W = int(self.cam.camera.image_width_pixels)
+        except Exception:
+            W, H = 1272, 1024  # your SLM panel
+
+        mode = self.target_mode
+        FWHM = int(dpg.get_value("inpFWHM")) if dpg.does_item_exist("inpFWHM") else self.target_fwhm
+        R = int(dpg.get_value("inpR")) if dpg.does_item_exist("inpR") else self.target_R
+        M = int(dpg.get_value("inpM")) if dpg.does_item_exist("inpM") else self.target_M
+
+        yy, xx = np.mgrid[0:H, 0:W]
+        cx, cy = W / 2.0, H / 2.0
+        x = xx - cx;
+        y = yy - cy
+        r = np.sqrt(x * x + y * y)
+
+        if mode == "gaussian":
+            sigma = FWHM / (2 * np.sqrt(2 * np.log(2)))
+            tgt = np.exp(-(r ** 2) / (2 * sigma ** 2)).astype(np.float32)
+        else:  # soft_disk
+            tgt = np.exp(- (r / float(max(R, 1))) ** max(M, 2)).astype(np.float32)
+
+        # tiny blur to avoid pixelation; normalize
+        tgt = cv2.GaussianBlur(tgt, (0, 0), 0.5)
+        tgt /= (tgt.max() + 1e-8)
+
+        # ensure folder exists, then save BMP + a preview PNG
+        os.makedirs(os.path.dirname(self.target_out), exist_ok=True)
+        cv2.imwrite(self.target_out, (tgt * 255).astype(np.uint8))
+        cv2.imwrite(self.target_preview, (tgt * 255).astype(np.uint8))
+
+        print(f"✅ Desired image written → {self.target_out} (mode={mode}, FWHM={FWHM}, R={R}, M={M})")
