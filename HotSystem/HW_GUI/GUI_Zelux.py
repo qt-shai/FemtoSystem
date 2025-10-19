@@ -3,6 +3,7 @@ import win32clipboard
 
 from ImGuiwrappedMethods import *
 from Common import *
+from Utils.SLM_utils import *
 from HW_wrapper import HW_devices as hw_devices
 from HW_wrapper.Wrapper_MFF_101 import FilterFlipperController
 import os
@@ -30,14 +31,14 @@ class ZeluxGUI():
         self.show_axis = False
         self.cross_x = 1552
         self.cross_y = 701
+        self.autosym_mode = "coarse" # coarse / normal
 
         # --- Target generator defaults ---
         self.target_mode = "gaussian"  # or "soft_disk"
-        self.target_fwhm = 120  # px (for gaussian)
-        self.target_R = 90  # px (for soft_disk radius)
-        self.target_M = 8  # super-gaussian order (edge softness)
-        self.target_out = r"C:\WC\HotSystem\Utils\Desired_image.bmp"
-        self.target_preview = r"C:\WC\HotSystem\Utils\Desired_target_preview.png"
+        self.tgt_sigma_px = 48  # Gaussian / soft_disk size (px std for gaussian; radius for disk)
+        self.tgt_sep_px = 260  # center-to-center separation for multi-spot (px)
+        self.tgt_angle_deg = 90.0  # line angle (deg); 0=horizontal, 90=vertical
+        self.tgt_weights = "1,1,1"  # relative weights; for two_spots use "1,1"
 
         try:
             self.background_image = np.load("zelux_background.npy")
@@ -290,6 +291,120 @@ class ZeluxGUI():
                                   size=14, color=(255, 255, 0, 255),
                                   parent="image_drawlist")
 
+        # === AutoSym 1st-order ROI overlay (closure-safe) ===
+        roi = getattr(self, "autosym_roi", None)
+        if roi:
+            # Image-space size the metric used
+            W_img = float(roi.get("W", 1.0))
+            H_img = float(roi.get("H", 1.0))
+
+            # Current drawlist size
+            disp_w = float(_width)
+            disp_h_val = float(disp_h)  # don't shadow the name 'disp_h'
+
+            # Map IMAGE -> SCREEN. Bind params as defaults to avoid capturing 'roi'.
+            def im2scr(x, y, W=W_img, H=H_img, DW=disp_w, DH=disp_h_val):
+                X = DW * (1.0 - float(x) / W)  # X flipped (your UVs flip X)
+                Y = DH * (1.0 - float(y) / H)  # Y flipped (your UVs flip Y)
+                return X, Y
+
+            # Uniform scale (pixels are square after your resize)
+            sx = disp_w / W_img
+            sy = disp_h_val / H_img
+            s = 0.5 * (sx + sy)
+
+            # ---- centers ----
+            # DC / image center: wedge & annulus are centered HERE (global image center)
+            cx0_img = 0.5 * W_img
+            cy0_img = 0.5 * H_img
+            cx0, cy0 = im2scr(cx0_img, cy0_img)
+
+            # 1st-order centroid: just for the small dot (image coords stored by worker)
+            c1x_img = float(roi.get("cx", cx0_img))
+            c1y_img = float(roi.get("cy", cy0_img))
+            c1x, c1y = im2scr(c1x_img, c1y_img)
+
+            # Radii (defined in image pixels, measured from the image center)
+            rmin = s * float(roi.get("rmin", 40.0))
+            rmax = s * float(roi.get("rmax", 120.0))
+
+            # Annulus
+            dpg.draw_circle(center=(cx0, cy0), radius=rmin,
+                            color=(255, 40, 40, 255), thickness=2, parent="image_drawlist")
+            dpg.draw_circle(center=(cx0, cy0), radius=rmax,
+                            color=(255, 40, 40, 255), thickness=2, parent="image_drawlist")
+
+            # Symmetric wedge about dir_deg (angles are in IMAGE coords, origin = image center)
+            wedge_deg = float(roi.get("wedge_deg", 32.0))
+            dir_deg = float(roi.get("dir_deg", 0.0))
+            half = 0.5 * wedge_deg
+            a0 = np.deg2rad(dir_deg - half)
+            a1 = np.deg2rad(dir_deg + half)
+
+            def ray_endpoint(angle_rad, radius_img,
+                             CX=cx0_img, CY=cy0_img, map_fn=im2scr):
+                x_img = CX + radius_img * np.cos(angle_rad)
+                y_img = CY + radius_img * np.sin(angle_rad)
+                return map_fn(x_img, y_img)
+
+            p0 = ray_endpoint(a0, float(roi.get("rmax", 120.0)))
+            p1 = ray_endpoint(a1, float(roi.get("rmax", 120.0)))
+            q0 = ray_endpoint(a0, float(roi.get("rmin", 40.0)))
+            q1 = ray_endpoint(a1, float(roi.get("rmin", 40.0)))
+
+            # Outer rays + inner ticks
+            dpg.draw_line((cx0, cy0), p0, color=(255, 40, 40, 255), thickness=2, parent="image_drawlist")
+            dpg.draw_line((cx0, cy0), p1, color=(255, 40, 40, 255), thickness=2, parent="image_drawlist")
+            dpg.draw_line(q0, p0, color=(255, 40, 40, 80), thickness=1, parent="image_drawlist")
+            dpg.draw_line(q1, p1, color=(255, 40, 40, 80), thickness=1, parent="image_drawlist")
+
+            # 1st-order centroid marker
+            dpg.draw_circle(center=(c1x, c1y), radius=3.0,
+                            color=(255, 40, 40, 255), fill=(255, 40, 40, 255),
+                            parent="image_drawlist")
+
+            # Candidate debug overlay with labels
+            cands = getattr(self, "autosym_debug_candidates", None)
+            if cands:
+                for c in cands:
+                    X, Y = im2scr(float(c["x"]), float(c["y"]))
+                    rad = max(3.0, float(c.get("r", 6.0)) * s)
+                    chosen = bool(c.get("chosen", False))
+                    col = (0, 255, 0, 255) if chosen else (255, 180, 0, 230)
+                    dpg.draw_circle(center=(X, Y), radius=rad, color=col, thickness=2, parent="image_drawlist")
+                    # Text label: brightness (sum), area, score
+                    lbl = f"I={c.get('sum', 0):.3f}  A={c.get('area', 0):.0f}  S={c.get('score', 0):.2f}"
+                    dpg.draw_text((X + 6, Y - rad - 14), lbl,
+                                  size=14, color=col, parent="image_drawlist")
+        # === /AutoSym ROI overlay ===
+
+        # === Draw DC (yellow cross), independent from ROI ===
+        dc = getattr(self, "autosym_dc", None)
+        if dc and all(k in dc for k in ("x", "y", "W", "H")):
+            W_img = float(dc["W"]);
+            H_img = float(dc["H"])
+            disp_w = float(_width);
+            disp_h_scr = float(disp_h)
+
+            # map image → screen (both axes flipped in UVs)
+            def im2scr(x, y):
+                X = disp_w * (1.0 - float(x) / W_img)
+                Y = disp_h_scr * (1.0 - float(y) / H_img)
+                return X, Y
+
+            dcx, dcy = im2scr(float(dc["x"]), float(dc["y"]))
+
+            L = 40.0  # cross half-length in screen px
+            # subtle black outline for visibility
+            dpg.draw_line((dcx - L, dcy), (dcx + L, dcy), color=(0, 0, 0, 255), thickness=3, parent="image_drawlist")
+            dpg.draw_line((dcx, dcy - L), (dcx, dcy + L), color=(0, 0, 0, 255), thickness=3, parent="image_drawlist")
+            # yellow cross
+            dpg.draw_line((dcx - L, dcy), (dcx + L, dcy), color=(255, 255, 0, 255), thickness=1,
+                          parent="image_drawlist")
+            dpg.draw_line((dcx, dcy - L), (dcx, dcy + L), color=(255, 255, 0, 255), thickness=1,
+                          parent="image_drawlist")
+        # === /DC cross ===
+
     def toggle_show_axis(self, sender=None, app_data=None, user_data=None):
         """
         Callback for the 'Ax' checkbox.
@@ -384,10 +499,13 @@ class ZeluxGUI():
                         dpg.add_button(label="GS", tag="btnIterateGS", callback=self.StartSLMIterations)
                         dpg.add_button(label="StopGS", tag="btnStopIter", callback=self.StopSLMIterations)
                         # --- Target maker controls ---
-                        dpg.add_combo(label="Target", items=["gaussian", "soft_disk"],
-                                      default_value=self.target_mode,
-                                      width=110,
-                                      callback=lambda s, a, u: setattr(self, "target_mode", a))
+                        dpg.add_combo(
+                            label="Target",
+                            items=["gaussian", "soft_disk", "two_spots", "three_spots"],
+                            default_value=getattr(self, "target_mode", "gaussian"),
+                            width=140,
+                            callback=lambda s, a, u: setattr(self, "target_mode", a)
+                        )
 
                     with dpg.group(tag="controls_row2", horizontal=True):
                         dpg.add_button(label="Sv", tag="btnSaveProcessedImage", callback=self.SaveProcessedImage)
@@ -412,10 +530,21 @@ class ZeluxGUI():
                                        callback=self.set_cross_from_inputs)
 
                     with dpg.group(horizontal=True):
-                        dpg.add_input_int(label="FWHM(px)", tag="inpFWHM", width=120, default_value=self.target_fwhm)
-                        dpg.add_input_int(label="R(px)", tag="inpR", width=100, default_value=self.target_R)
-                        dpg.add_input_int(label="m", tag="inpM", width=100, default_value=self.target_M)
-                        dpg.add_button(label="Make Desired", tag="btnMakeDesired", callback=self.MakeDesiredImage)
+                        dpg.add_input_int(label="Sigma/Radius", width=120,
+                                          default_value=self.tgt_sigma_px,
+                                          callback=lambda s, a, u: setattr(self, "tgt_sigma_px", int(a)))
+                        dpg.add_input_int(label="Separation", width=120,
+                                          default_value=self.tgt_sep_px,
+                                          callback=lambda s, a, u: setattr(self, "tgt_sep_px", int(a)))
+                        dpg.add_input_float(label="Angle°", width=120,
+                                            default_value=self.tgt_angle_deg,
+                                            callback=lambda s, a, u: setattr(self, "tgt_angle_deg", float(a)))
+                        dpg.add_input_text(label="Weights", width=120,
+                                           default_value=self.tgt_weights,
+                                           callback=lambda s, a, u: setattr(self, "tgt_weights", a))
+                        dpg.add_button(label="Make Target", callback=self._save_current_target_bitmap)
+                        dpg.add_button(label="AutoSym", tag="btnAutoSym", callback=self.StartAutoSym)
+                        dpg.add_button(label="StopSym", tag="btnStopAutoSym", callback=self.StopAutoSym)
 
         else:
             dpg.add_group(tag="ZeluxControls", parent=self.window_tag, horizontal=False)
@@ -767,39 +896,309 @@ class ZeluxGUI():
         self._iter_stop = True
         print("Stopping iterations...")
 
-    def _SLMIterationsWorker(self):
-        # --- CONFIG (paths & params you gave) ---
+    def _save_current_target_bitmap(self):
+        import cv2, os, numpy as np
         CORR_BMP = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp"
         TARGET_BMP = r"C:\WC\HotSystem\Utils\Desired_image.bmp"
-        OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"  # Point SLMControl3 to this once
 
-        # SLM UI transforms (pixels) — as requested
-        X_SHIFT, Y_SHIFT, ROT_DEG = -17, 114, 0.0
+        corr = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+        if corr is None:
+            print(f"❌ Cannot read correction map: {CORR_BMP}")
+            return
+        H, W = corr.shape
+        mode = getattr(self, "target_mode", "gaussian")
+        tgt = self._build_synth_target(W, H, mode)
+        ok = cv2.imwrite(TARGET_BMP, (np.clip(tgt, 0, 1) * 255).astype(np.uint8))
+        if ok:
+            print(f"✅ Target ({mode}) written to {TARGET_BMP}  | size={W}x{H}")
+        else:
+            print("❌ Failed to write target bitmap")
 
-        # Iteration knobs
-        OUTER_ITERS = 10  # rounds (you can change on the fly)
-        INNER_GS = 30  # GS steps per round
-        APOD_SIGMA = 0.16  # edge taper to reduce ringing
+    def _parse_weights(self, count):
+        try:
+            w = [float(x) for x in self.tgt_weights.replace(";", ",").split(",")]
+        except Exception:
+            w = []
+        if len(w) < count:
+            w = (w + [1.0] * count)[:count]
+        w = np.clip(np.array(w, dtype=np.float32), 1e-6, None)
+        return w / w.sum()
 
-        # ---- helpers ----
-        def preprocess_target_to_panel(target_path, panel_wh, x_shift=-17, y_shift=114, rot_deg=0.0):
+    def _build_synth_target(self, W, H, mode):
+        import numpy as np, cv2
+        yy, xx = np.mgrid[0:H, 0:W]
+        cx, cy = W / 2.0, H / 2.0
+        sig = max(2, int(self.tgt_sigma_px))
+        img = np.zeros((H, W), np.float32)
+
+        if mode == "gaussian":
+            r2 = (xx - cx) ** 2 + (yy - cy) ** 2
+            img = np.exp(-0.5 * r2 / (sig * sig)).astype(np.float32)
+
+        elif mode == "soft_disk":
+            # cosine-edged disk
+            r = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+            core = (r <= sig).astype(np.float32)
+            rim = (r > sig) & (r < 1.2 * sig)
+            img = core.copy()
+            img[rim] = 0.5 * (1 + np.cos(np.pi * (r[rim] - sig) / (0.2 * sig)))
+
+        elif mode in ("two_spots", "three_spots"):
+            n = 2 if mode == "two_spots" else 3
+            w = self._parse_weights(n)
+            sep = float(self.tgt_sep_px)
+            ang = np.deg2rad(float(self.tgt_angle_deg))
+            dx, dy = (sep / 2.0) * np.cos(ang), (sep / 2.0) * np.sin(ang)
+
+            centers = []
+            if n == 2:
+                centers = [(cx - dx, cy - dy), (cx + dx, cy + dy)]
+            else:
+                # 3 spots: one at center, two symmetric
+                centers = [(cx, cy), (cx - dx, cy - dy), (cx + dx, cy + dy)]
+
+            for (ux, uy), ww in zip(centers, w):
+                r2 = (xx - ux) ** 2 + (yy - uy) ** 2
+                spot = np.exp(-0.5 * r2 / (sig * sig)).astype(np.float32)
+                img += ww * spot
+        else:
+            # Fallback to single Gaussian
+            r2 = (xx - cx) ** 2 + (yy - cy) ** 2
+            img = np.exp(-0.5 * r2 / (sig * sig)).astype(np.float32)
+
+        # normalize & very light apodization to suppress ringing
+        if img.max() > 0: img /= img.max()
+        ap_sig = 0.16
+        x = (xx - cx) / (W / 2.0);
+        y = (yy - cy) / (H / 2.0)
+        apod = np.exp(-(x * x + y * y) / (2 * ap_sig * ap_sig)).astype(np.float32)
+        img = (img * apod)
+        img /= (img.max() + 1e-8)
+        return img
+
+    def _write_phase_with_corr(self, phase_core_rad: np.ndarray, corr_u8: np.ndarray,
+                               out_path: str, carrier_cmd=(100.0, 0.0),
+                               steer_cmd=(0.0, 0.0), settle_s: float = 0.35):
+        """
+        Compose final phase:
+            phase_out = wrap( phase_core
+                              + ramp(carrier_cmd + steer_cmd)
+                              + corr_phase )
+        Save as BMP at out_path so the Hamamatsu app can pick it up.
+        """
+        import numpy as np, cv2, time
+        H, W = phase_core_rad.shape
+        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+
+        # convert correction to radians using your converter
+        corr_phase = (corr_u8.astype(np.float32) * (2.0 * np.pi / 255.0)) if corr_u8 is not None else 0.0
+
+        Cx, Cy = carrier_cmd;
+        Sx, Sy = steer_cmd
+        ramp = -2.0 * np.pi * ((Cx + Sx) * (xx / W) + (Cy + Sy) * (yy / H))
+
+        phase_out = np.remainder(phase_core_rad.astype(np.float32) + ramp + corr_phase, 2.0 * np.pi)
+
+        # use your existing phase_to_u8()
+        u8 = phase_to_u8(phase_out)
+        ok = cv2.imwrite(out_path, u8)
+        if not ok:
+            print(f"❌ Failed writing {out_path}")
+        if settle_s and settle_s > 0:
+            time.sleep(settle_s)
+            st = os.stat(OUT_BMP);
+            # print(f"[SLM] wrote {OUT_BMP} size={st.st_size} mtime={st.st_mtime:.3f}")
+
+    def _spot_second_moments(self, img01: np.ndarray, roi_px=220):
+        """Returns (sigma_x, sigma_y, cx, cy) on a bright blob; img01 in [0..1]."""
+        import numpy as np, cv2
+        H, W = img01.shape
+
+        g = cv2.GaussianBlur(img01.astype(np.float32), (0, 0), 1.6)
+        thr = np.quantile(g, 0.85)
+        m = (g >= thr).astype(np.uint8)
+        num, labels = cv2.connectedComponents(m)
+        if num <= 1:
+            cx, cy = W / 2.0, H / 2.0
+        else:
+            areas = [(labels == i).sum() for i in range(1, num)]
+            i_max = 1 + int(np.argmax(areas))
+            mask = (labels == i_max).astype(np.float32)
+            s = mask.sum() + 1e-8
+            yy, xx = np.mgrid[0:H, 0:W]
+            cy = float((yy * mask).sum() / s);
+            cx = float((xx * mask).sum() / s)
+
+        # crop ROI and compute σx, σy
+        x0 = int(max(0, cx - roi_px // 2));
+        x1 = int(min(W, cx + roi_px // 2))
+        y0 = int(max(0, cy - roi_px // 2));
+        y1 = int(min(H, cy + roi_px // 2))
+        patch = g[y0:y1, x0:x1]
+        H2, W2 = patch.shape
+        yy2, xx2 = np.mgrid[0:H2, 0:W2]
+        m0 = float(patch.sum()) + 1e-8
+        mx = float((xx2 * patch).sum() / m0);
+        my = float((yy2 * patch).sum() / m0)
+        sx = float(np.sqrt((((xx2 - mx) ** 2) * patch).sum() / m0))
+        sy = float(np.sqrt((((yy2 - my) ** 2) * patch).sum() / m0))
+        return sx, sy, cx, cy
+
+    def _zernike_minimal(self, W, H, aperture='circle'):
+        """
+        Low-order modes on panel grid: defocus (Z20), astig x/y (Z2m2, Z22), coma x/y (Z3m1, Z31).
+        RMS-normalized under mask so step sizes are comparable.
+        """
+        import numpy as np
+        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+        x = (xx - W / 2) / (W / 2);
+        y = (yy - H / 2) / (H / 2)
+        r = np.sqrt(x * x + y * y);
+        th = np.arctan2(y, x)
+        mask = (r <= 1.0).astype(np.float32) if aperture == 'circle' else np.ones((H, W), np.float32)
+
+        Z = {}
+        Z['Z20'] = mask * (2 * r * r - 1)  # defocus
+        Z['Z2m2'] = mask * (r * r * np.cos(2 * th))  # astig @ 0°
+        Z['Z22'] = mask * (r * r * np.sin(2 * th))  # astig @ 45°
+        Z['Z3m1'] = mask * (r ** 3 * np.cos(th))  # coma x
+        Z['Z31'] = mask * (r ** 3 * np.sin(th))  # coma y
+        for k in Z:
+            a = Z[k];
+            s = float(np.sqrt((a * a * mask).sum()) + 1e-12);
+            Z[k] = a / s
+        return Z
+
+    def _SLMIterationsWorker(self):
+        """
+        Runs GS iterations that:
+          • write an SLM BMP with the phase + correction
+          • trigger a Zelux save (self.SaveProcessedImage)
+          • compute ROI MSE (energy-normalized) + centroid
+          • steer with a soft-limited proportional controller
+          • do relaxed GS updates toward a centered target
+        """
+        # ---------------- CONFIG ----------------
+        CORR_BMP = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp"
+        TARGET_BMP = r"C:\WC\HotSystem\Utils\Desired_image.bmp"
+        OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"
+        CARRIER_CMD = (100.0, 0.0)  # spectral-px offset (try 150–300 each axis)
+
+        OUTER_ITERS = 10  # outer rounds
+        INNER_GS = 40  # GS steps per round (relaxed)
+        BETA_GS = 0.65  # 0.5–0.7 is stable
+        APOD_SIGMA = 0.16  # edge taper for target
+        ROI = 200
+
+        # Steering controller
+        Kp = 0.35  # proportional gain
+        SOFT_LIM = 60.0  # soft limit for commanded spectral px
+        SETTLE_S = 0.45
+
+        CALIB_PATH = r"C:\WC\HotSystem\Utils\slm_calibration.json"
+        FORCE_RECAL = False  # set True if you want to re-measure
+
+        import json
+        from datetime import datetime
+
+        import os, glob, time
+        import numpy as np
+        import cv2
+
+        # --------------- Helpers ----------------
+        def _count_peaks(img01, rel=0.35, min_sep=60, max_peaks=10, debug_path=None):
+            """
+            Count bright spots via non-maximum suppression.
+            - rel: keep pixels > rel * max(img)
+            - min_sep: suppress a disk of this radius around each found peak (px)
+            """
             import cv2, numpy as np
+
+            g = cv2.GaussianBlur(img01.astype(np.float32), (0, 0), 1.2)
+            m = g.max()
+            if m <= 1e-8:
+                return 0
+
+            work = g.copy()
+            peaks = []
+            thr = rel * m
+
+            # simple NMS: repeatedly pick the max and suppress its neighborhood
+            for _ in range(max_peaks):
+                y, x = np.unravel_index(np.argmax(work), work.shape)
+                v = work[y, x]
+                if v < thr:
+                    break
+                peaks.append((x, y, float(v)))
+                cv2.circle(work, (x, y), int(min_sep), 0, -1)
+
+            # optional debug overlay
+            if debug_path is not None and len(peaks):
+                vis = (255 * (g / m)).astype(np.uint8)
+                vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
+                for x, y, _ in peaks:
+                    cv2.circle(vis, (int(x), int(y)), int(min_sep // 2), (0, 255, 0), 2)
+                cv2.imwrite(debug_path, vis)
+
+            return len(peaks)
+
+        def save_calib(path, panel_wh, sx, sy):
             W, H = panel_wh
-            img = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)  # works for your RGB BMP too
+            data = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "panel": {"W": int(W), "H": int(H)},
+                "sx": float(sx),
+                "sy": float(sy)
+            }
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                print(f"[Calib] saved to {path}  (sx={sx:.4f}, sy={sy:.4f})")
+            except Exception as e:
+                print(f"[Calib] ⚠️ failed to save: {e}")
+
+        def load_calib(path, panel_wh):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                W, H = panel_wh
+                if int(data["panel"]["W"]) == int(W) and int(data["panel"]["H"]) == int(H):
+                    sx = float(data["sx"]);
+                    sy = float(data["sy"])
+                    print(f"[Calib] loaded from {path}  (sx={sx:.4f}, sy={sy:.4f})")
+                    return sx, sy
+                else:
+                    print("[Calib] file exists but panel size mismatch; recalibrating.")
+                    return None
+            except FileNotFoundError:
+                return None
+            except Exception as e:
+                print(f"[Calib] ⚠️ could not read {path}: {e}")
+                return None
+
+        def phase_to_u8(phase_rad):
+            ph = np.mod(phase_rad, 2 * np.pi)
+            return np.uint8(np.round(ph * (255.0 / (2 * np.pi))))
+
+        def u8_to_phase(u8):
+            return (u8.astype(np.float32) / 255.0) * 2 * np.pi
+
+        def preprocess_target_to_panel(target_path, panel_wh, x_shift=0, y_shift=0, rot_deg=0.0):
+            """Load grayscale target, resize to panel, (optional) rotate+translate, apodize once."""
+            W, H = panel_wh
+            img = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 raise FileNotFoundError(target_path)
             tgt = cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA).astype(np.float32)
             if tgt.max() > 0: tgt /= tgt.max()
-
-            # rotation → translation (match your SLM UI)
+            # rotation then translation
             Mrot = cv2.getRotationMatrix2D((W / 2, H / 2), rot_deg, 1.0)
-            tgt = cv2.warpAffine(tgt, Mrot, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
-                                 borderValue=0)
+            tgt = cv2.warpAffine(tgt, Mrot, (W, H), flags=cv2.INTER_LINEAR,
+                                 borderMode=cv2.BORDER_CONSTANT, borderValue=0)
             Mtran = np.float32([[1, 0, x_shift], [0, 1, y_shift]])
-            tgt = cv2.warpAffine(tgt, Mtran, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
-                                 borderValue=0)
-
-            # mild apodization
+            tgt = cv2.warpAffine(tgt, Mtran, (W, H), flags=cv2.INTER_LINEAR,
+                                 borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            # apodize once to reduce ringing
             yy, xx = np.mgrid[0:H, 0:W]
             x = (xx - W / 2) / (W / 2);
             y = (yy - H / 2) / (H / 2)
@@ -809,91 +1208,47 @@ class ZeluxGUI():
             tgt /= (tgt.max() + 1e-8)
             return tgt
 
-        def phase_to_u8(phase_rad):
-            ph = np.mod(phase_rad, 2 * np.pi)
-            return np.uint8(np.round(ph * (255.0 / (2 * np.pi))))
-
-        def u8_to_phase(u8):
-            return (u8.astype(np.float32) / 255.0) * 2 * np.pi
-
-        def gs_update_relaxed(phase_slm, target_amp, steps=30, beta=0.6):
-            """
-            Relaxed Gerchberg–Saxton (amplitude relaxation beta in [0,1]).
-            beta=1 -> standard GS. 0.5–0.7 typically converges smoother.
-            """
-            H, W = target_amp.shape
-            amp_target = target_amp
+        def gs_update_relaxed(phase_slm, target_amp, steps=30, beta=0.6, phi_carrier=None):
+            """Relaxed GS with optional carrier (added in SLM plane)."""
+            if phi_carrier is None:
+                phi_carrier = 0.0
             for _ in range(steps):
-                field_s = np.exp(1j * phase_slm)  # unit amp at SLM
-                field_f = np.fft.fftshift(np.fft.fft2(field_s))  # far-field
+                field_s = np.exp(1j * (phase_slm + phi_carrier))  # <-- include carrier
+                field_f = np.fft.fftshift(np.fft.fft2(field_s))
                 amp_f = np.abs(field_f)
                 phase_f = np.angle(field_f)
 
-                # relaxed amplitude: move current amplitude toward target
-                amp_new = (1 - beta) * amp_f + beta * amp_target
-
+                amp_new = (1 - beta) * amp_f + beta * target_amp
                 field_f_new = amp_new * np.exp(1j * phase_f)
+
                 field_s_back = np.fft.ifft2(np.fft.ifftshift(field_f_new))
-                phase_slm = np.angle(field_s_back).astype(np.float32)
+                # remove carrier again to keep phase_slm as the *residual* we optimize
+                phase_slm = np.angle(field_s_back * np.exp(-1j * phi_carrier)).astype(np.float32)
             return np.mod(phase_slm, 2 * np.pi)
 
-        def save_phase_with_correction(phase_slm_rad, corr_u8, out_path):
-            phase_out = np.mod(phase_slm_rad + u8_to_phase(corr_u8), 2 * np.pi)
-            ok = cv2.imwrite(out_path, phase_to_u8(phase_out))
-            if not ok:
-                print(f"❌ Failed writing {out_path}")
-
-        import glob, os, cv2, time
-
-        # Folder where Zelux saves images
-        ZELUX_IMG_DIR = r"Q:\QT-Quantum_Optic_Lab\expData\Images"
-
-        def find_latest_zelux(dir_path=ZELUX_IMG_DIR):
-            """Return full path of the newest Zelux image (PNG/BMP)."""
-            patterns = [
-                os.path.join(dir_path, "Zelux_*.png"),
-                os.path.join(dir_path, "Zelux_Image_*.png"),
-                os.path.join(dir_path, "*.png"),
-                os.path.join(dir_path, "*.bmp"),
-            ]
-            files = []
-            for pat in patterns:
-                files.extend(glob.glob(pat))
-            if not files:
-                return None
-            return max(files, key=os.path.getmtime)
-
-        def read_meas_latest():
-            """
-            Load newest Zelux frame as grayscale float [0..1].
-            Crops off a 40 px bottom strip to remove overlay text.
-            """
-            p = find_latest_zelux(ZELUX_IMG_DIR)
-            if not p:
-                return np.zeros((H, W), np.float32)  # H,W are panel size (defined earlier)
-            img = cv2.imread(p, cv2.IMREAD_UNCHANGED)
-            if img is None:
-                return np.zeros((H, W), np.float32)
-            if img.ndim == 3:
-                if img.shape[2] == 4:
-                    img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            img = img.astype(np.float32)
-            if img.max() > 0:
-                img /= img.max()
-            # remove bottom overlay text if present
-            if img.shape[0] > 40:
-                img = img[:-40, :]
-            return img
+        def brightest_centroid(img01):
+            # noise-robust: light median then gaussian
+            g = cv2.medianBlur((img01 * 255).astype(np.uint8), 3).astype(np.float32) / 255.0
+            g = cv2.GaussianBlur(g, (0, 0), 2.0)
+            thr = np.quantile(g, 0.80)
+            m = (g >= thr).astype(np.uint8)
+            num, labels = cv2.connectedComponents(m)
+            if num <= 1:
+                H, W = g.shape;
+                return W / 2.0, H / 2.0
+            areas = [(labels == i).sum() for i in range(1, num)]
+            i_max = 1 + int(np.argmax(areas))
+            mask = (labels == i_max).astype(np.float32);
+            s = mask.sum() + 1e-8
+            yy, xx = np.mgrid[0:g.shape[0], 0:g.shape[1]]
+            cy = float((yy * mask).sum() / s);
+            cx = float((xx * mask).sum() / s)
+            return cx, cy
 
         def calibrate_steering(phase_slm, corr_u8, out_path, W, H,
                                dir_img=r"Q:\QT-Quantum_Optic_Lab\expData\Images",
-                               probe_px=10.0, settle_s=0.25, timeout_s=5.0):
-            """
-            Calibrate mapping from commanded far-field shift (in 'spectral pixels') to
-            measured centroid shift (camera pixels). Returns (sx, sy).
-            """
-            import glob, os, time, cv2, numpy as np
+                               probe_px=40.0, settle_s=0.3, timeout_s=6.0):
+            """Measure (sx, sy): camera-px per commanded spectral-px (panel units)."""
 
             def latest_path():
                 pats = [os.path.join(dir_img, "Zelux_*.png"),
@@ -905,13 +1260,12 @@ class ZeluxGUI():
                 return max(files, key=os.path.getmtime) if files else None
 
             def write_phase(ph):
-                ph_out = np.mod(ph + (corr_u8.astype(np.float32) / 255.0) * 2 * np.pi, 2 * np.pi)
-                cv2.imwrite(out_path, np.uint8(np.round(ph_out * (255.0 / (2 * np.pi)))))
+                ph_out = np.mod(ph + u8_to_phase(corr_u8), 2 * np.pi)
+                cv2.imwrite(out_path, phase_to_u8(ph_out))
 
             def capture_new_after(old_path):
-                # trigger a new save in Zelux and wait for a newer file
                 try:
-                    new_path = self.SaveProcessedImage()  # auto press "Sv"
+                    new_path = self.SaveProcessedImage()
                 except Exception:
                     new_path = None
                 t0 = time.time()
@@ -926,31 +1280,12 @@ class ZeluxGUI():
                 img = cv2.imread(p, cv2.IMREAD_UNCHANGED)
                 if img is None: return None
                 if img.ndim == 3:
-                    if img.shape[2] == 4:
-                        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                    if img.shape[2] == 4: img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
                 img = img.astype(np.float32)
+                if img.shape[0] > 40: img = img[:-40, :]
                 if img.max() > 0: img /= img.max()
-                if img.shape[0] > 40:  # crop overlay text if present
-                    img = img[:-40, :]
-                return img
-
-            def centroid_brightest(img01):
-                g = cv2.GaussianBlur(img01, (0, 0), 2.0)
-                thr = np.quantile(g, 0.70)
-                m = (g >= thr).astype(np.uint8)
-                num, labels = cv2.connectedComponents(m)
-                if num <= 1:
-                    hh, ww = img01.shape
-                    return ww / 2.0, hh / 2.0
-                areas = [(labels == i).sum() for i in range(1, num)]
-                i_max = 1 + int(np.argmax(areas))
-                mask = (labels == i_max).astype(np.float32)
-                s = mask.sum() + 1e-8
-                yy, xx = np.mgrid[0:img01.shape[0], 0:img01.shape[1]]
-                cy = float((yy * mask).sum() / s);
-                cx = float((xx * mask).sum() / s)
-                return cx, cy
+                return cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA)
 
             def apply_and_measure(cmdx, cmdy):
                 yy, xx = np.mgrid[0:H, 0:W]
@@ -958,65 +1293,29 @@ class ZeluxGUI():
                 ph = np.mod(phase_slm + ramp.astype(np.float32), 2 * np.pi)
                 old = latest_path()
                 write_phase(ph)
-                time.sleep(settle_s)  # allow SLM app to reload
+                time.sleep(settle_s)
                 p = capture_new_after(old)
                 img01 = read_gray01(p)
                 if img01 is None:
                     return W / 2.0, H / 2.0
-                # map centroid into panel coords
-                cx, cy = centroid_brightest(img01)
-                cx *= (W / img01.shape[1]);
-                cy *= (H / img01.shape[0])
-                return cx, cy
+                return brightest_centroid(img01)
 
-            # baseline
-            cx0, cy0 = apply_and_measure(0.0, 0.0)
-
-            # X probe
-            cxp, cyp = apply_and_measure(+probe_px, 0.0)
-            cxm, cym = apply_and_measure(-probe_px, 0.0)
+            # Baseline + symmetric probes per axis
+            _ = apply_and_measure(0.0, 0.0)
+            cxp, _ = apply_and_measure(+probe_px, 0.0)
+            cxm, _ = apply_and_measure(-probe_px, 0.0)
             dx_meas = (cxp - cxm) / 2.0
-            sx = dx_meas / probe_px  # measured_px per commanded_px (can be negative)
+            sx = dx_meas / probe_px
 
-            # Y probe
-            cxp, cyp = apply_and_measure(0.0, +probe_px)
-            cxm, cym = apply_and_measure(0.0, -probe_px)
+            _, cyp = apply_and_measure(0.0, +probe_px)
+            _, cym = apply_and_measure(0.0, -probe_px)
             dy_meas = (cyp - cym) / 2.0
             sy = dy_meas / probe_px
 
             print(f"[Calib] steering gain: sx={sx:.3f}, sy={sy:.3f}")
             return sx, sy
 
-        # --- centroid of brightest blob (robust) ---
-        def brightest_centroid(img01):
-            g = cv2.GaussianBlur(img01, (0, 0), 2.0)
-            thr = np.quantile(g, 0.70)  # top ~30% intensities
-            m = (g >= thr).astype(np.uint8)
-            num, labels = cv2.connectedComponents(m)
-            if num <= 1:
-                H, W = g.shape;
-                return W / 2.0, H / 2.0
-            areas = [(labels == i).sum() for i in range(1, num)]
-            i_max = 1 + int(np.argmax(areas))
-            mask = (labels == i_max).astype(np.float32)
-            s = mask.sum() + 1e-8
-            yy, xx = np.mgrid[0:g.shape[0], 0:g.shape[1]]
-            cy = float((yy * mask).sum() / s);
-            cx = float((xx * mask).sum() / s)
-            return cx, cy
-
-        # --- PI steering parameters ---
-        STEER_SIGN_X = +1.0  # flip to -1.0 if movement is inverted in X
-        STEER_SIGN_Y = -1.0  # flip sign if Y is inverted (often -1)
-        Kp = 0.28  # proportional gain (px → px/round)
-        Ki = 0.01  # integral gain (px/frame accumulated)
-        MAX_STEP = 10.0  # clamp per-round command (px)
-
-        # keep integrators on the instance so they persist across rounds
-        if not hasattr(self, "_int_ex"):
-            self._int_ex, self._int_ey = 0.0, 0.0
-
-        # ---- load correction, desired & build target amplitude ----
+        # --------------- Load maps & target ---------------
         corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
         if corr_u8 is None:
             print(f"❌ Cannot read correction BMP: {CORR_BMP}")
@@ -1024,70 +1323,233 @@ class ZeluxGUI():
         H, W = corr_u8.shape
         print(f"Panel (from correction): {W}x{H}")
 
-        tgt_gray = cv2.imread(TARGET_BMP, cv2.IMREAD_GRAYSCALE)
-        if tgt_gray is None:
-            print(f"❌ Cannot read desired image: {TARGET_BMP}")
-            return
+        def save_phase_with_correction(
+                phase_core_rad: np.ndarray,
+                corr_map,  # uint8 correction map OR float32 phase (rad)
+                out_path: str,
+                carrier_cmd: tuple[float, float] = (0.0, 0.0),  # (Cx, Cy) spectral px
+                steer_cmd: tuple[float, float] = (0.0, 0.0),  # (Sx, Sy) spectral px
+                settle_s: float = 0.45
+        ) -> None:
+            """
+            Compose final phase sent to the SLM:
 
-        # panel from correction map
-        target_amp = preprocess_target_to_panel(TARGET_BMP, (W, H), x_shift=0, y_shift=0, rot_deg=0.0)
-        cv2.imwrite(r"C:\WC\HotSystem\Utils\Desired_target_preview.png", (target_amp * 255).astype(np.uint8))
+                phase_out = wrap( phase_core_rad
+                                  + ramp(carrier_cmd + steer_cmd)
+                                  + corr_phase )
 
-        # rotation then translation (match SLM UI)
-        Mrot = cv2.getRotationMatrix2D((W / 2, H / 2), ROT_DEG, 1.0)
-        target = cv2.warpAffine(target_amp, Mrot, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
-                                borderValue=0)
-        Mtran = np.float32([[1, 0, X_SHIFT], [0, 1, Y_SHIFT]])
-        target = cv2.warpAffine(target, Mtran, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
-                                borderValue=0)
+            - phase_core_rad: the GS-optimized residual phase (no carrier, no correction)
+            - corr_map: uint8 correction BMP *or* float32 phase [rad] of same size
+            - carrier_cmd / steer_cmd are in 'spectral pixels' (panel coords)
+            """
+            # ---- shapes & types ----
+            if phase_core_rad.dtype != np.float32:
+                phase_core = phase_core_rad.astype(np.float32, copy=False)
+            else:
+                phase_core = phase_core_rad
 
-        # apodization to reduce ringing
-        yy, xx = np.mgrid[0:H, 0:W]
-        x = (xx - W / 2) / (W / 2)
-        y = (yy - H / 2) / (H / 2)
-        r2 = x * x + y * y
-        apod = np.exp(-r2 / (2 * APOD_SIGMA * APOD_SIGMA)).astype(np.float32)
-        target *= apod
-        target /= (target.max() + 1e-8)
+            H, W = phase_core.shape
+            yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
 
-        # ---- init phase & run ----
+            # ---- correction phase (accept u8 or phase) ----
+            if corr_map is None:
+                corr_phase = 0.0
+            elif corr_map.dtype == np.uint8:
+                # u8 -> phase in radians
+                corr_phase = (corr_map.astype(np.float32) * (2.0 * np.pi / 255.0))
+            else:
+                # assume already radians
+                corr_phase = corr_map.astype(np.float32, copy=False)
+
+            # ---- ramps (carrier + steering) ----
+            Cx, Cy = carrier_cmd
+            Sx, Sy = steer_cmd
+            # same convention used in calibration and everywhere else:
+            ramp = -2.0 * np.pi * ((Cx + Sx) * (xx / W) + (Cy + Sy) * (yy / H))
+
+            # ---- compose & wrap to [0, 2π) ----
+            phase_out = np.remainder(phase_core + ramp + corr_phase, 2.0 * np.pi)
+
+            # ---- write as 8-bit LUT ----
+            u8 = np.uint8(np.round(phase_out * (255.0 / (2.0 * np.pi))))
+            ok = cv2.imwrite(out_path, u8)
+            if not ok:
+                print(f"❌ Failed writing {out_path}")
+
+            if settle_s and settle_s > 0:
+                time.sleep(settle_s)
+
+        def centroid_first_order(img01, dead_radius=120):
+            import numpy as np, cv2
+            H, W = img01.shape
+            cy0, cx0 = H / 2.0, W / 2.0
+            g = cv2.GaussianBlur(img01.astype(np.float32), (0, 0), 2.0)
+            # mask out the DC region so we track the diffracted order
+            yy, xx = np.mgrid[0:H, 0:W]
+            rr = np.hypot(xx - cx0, yy - cy0)
+            g[rr < dead_radius] = 0.0
+            y, x = np.unravel_index(np.argmax(g), g.shape)
+            return float(x), float(y)
+
+        def write_pure_carrier_and_measure(Cx=200.0, Cy=0.0):
+            """Write ONLY a carrier (plus correction), then report first-order centroid."""
+            import numpy as np, cv2, time
+            # build carrier phase locally (no GS, no steering)
+            yy, xx = np.mgrid[0:H, 0:W]
+            base = np.zeros((H, W), np.float32)
+            ph = np.mod(base - 2 * np.pi * (Cx * (xx / float(W)) + Cy * (yy / float(H))), 2 * np.pi)
+            save_phase_with_correction(ph, corr_u8, OUT_BMP)
+            time.sleep(0.3)  # give SLM app time to reload
+            snap = self.SaveProcessedImage()
+            img = cv2.imread(snap, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                print("[Carrier test] no image");
+                return
+            if img.shape[0] > 40:
+                img = img[:-40, :]  # crop overlay
+            img = cv2.resize(img.astype(np.float32) / max(1.0, float(img.max())), (W, H))
+            c1x, c1y = centroid_first_order(img, dead_radius=120)
+            print(f"[Carrier test] first-order centroid=({c1x:.1f},{c1y:.1f})")
+
+        write_pure_carrier_and_measure(Cx=100.0, Cy=0.0)
+
+        mode = getattr(self, "target_mode", "gaussian")
+        if mode in ("gaussian", "soft_disk", "two_spots", "three_spots"):
+            target_amp = self._build_synth_target(W, H, mode)
+        else:
+            if not os.path.exists(TARGET_BMP):
+                print(f"❌ Desired image not found: {TARGET_BMP}")
+                return
+            target_amp = preprocess_target_to_panel(TARGET_BMP, (W, H), x_shift=0, y_shift=0, rot_deg=0.0)
+
+        # (Optional) write a quick preview
+        try:
+            cv2.imwrite(r"C:\WC\HotSystem\Utils\Desired_target_preview.png",
+                        (target_amp * 255).astype(np.uint8))
+        except Exception:
+            pass
+        target = target_amp  # already apodized & centered per config
+
+        pk = _count_peaks(target)
+        print(f"[Target] peak count guess = {pk}")
+
+        def make_two_spot_support(target_amp, frac=0.55):
+            # keep the brightest ~45% inside each spot as the “forced” region
+            # (works well for soft Gaussians)
+            g = cv2.GaussianBlur(target_amp, (0, 0), 1.0)
+            thr = frac * g.max()
+            S = (g >= thr).astype(np.float32)
+            return S
+
+        S = make_two_spot_support(target_amp)  # same size as panel
+
+        def mraf_update(phase_slm, target_amp, S, steps=30, alpha=0.8, phi_carrier=None):
+            """
+            Mixed-Region Amplitude Freedom:
+              - inside S:  amplitude -> alpha*target + (1-alpha)*current
+              - outside S: amplitude -> current  (free)
+            """
+            if phi_carrier is None:
+                phi_carrier = 0.0
+            for _ in range(steps):
+                field_s = np.exp(1j * (phase_slm + phi_carrier))
+                field_f = np.fft.fftshift(np.fft.fft2(field_s))
+                amp = np.abs(field_f)
+                phase = np.angle(field_f)
+
+                amp_new = amp.copy()
+                amp_new[S > 0] = (1 - alpha) * amp[S > 0] + alpha * target_amp[S > 0]
+
+                field_f_new = amp_new * np.exp(1j * phase)
+                field_s_back = np.fft.ifft2(np.fft.ifftshift(field_f_new))
+
+                # remove carrier to keep 'phase_slm' as residual being optimized
+                phase_slm = np.angle(field_s_back * np.exp(-1j * phi_carrier)).astype(np.float32)
+            return np.mod(phase_slm, 2 * np.pi)
+
+        # --------------- Initialize phase & calibrate ---------------
         rng = np.random.default_rng(1)
         phase_slm = rng.uniform(0, 2 * np.pi, size=(H, W)).astype(np.float32)
 
-        sx, sy = calibrate_steering(
-            phase_slm=phase_slm,
-            corr_u8=corr_u8,
-            out_path=OUT_BMP,
-            W=W, H=H,
-            dir_img=ZELUX_IMG_DIR,  # your Zelux folder
-            probe_px=40.0,  # try 8–15 if response is tiny
-            settle_s=0.3,  # allow SLM app to reload
-            timeout_s=6.0
-        )
-        if abs(sx) < 1e-3 or abs(sy) < 1e-3:
-            print("[Calib] WARNING: zero response; check SLM app external mode and paths.")
+        # ---- calibration: reuse if available ----
+        cal = load_calib(CALIB_PATH, (W, H)) if not FORCE_RECAL else None
+        if cal is None:
+            sx, sy = calibrate_steering(phase_slm, corr_u8, OUT_BMP, W, H,
+                                        probe_px=40.0, settle_s=0.3, timeout_s=6.0)
+            if abs(sx) < 1e-3 or abs(sy) < 1e-3:
+                print("[Calib] WARNING: near-zero response; using gain floors to proceed.")
+            save_calib(CALIB_PATH, (W, H), sx, sy)
+        else:
+            sx, sy = cal
 
-        # if too small (no response), fall back to 1.0 to avoid divide-by-zero
-        sx = sx if abs(sx) > 1e-3 else 1.0
-        sy = sy if abs(sy) > 1e-3 else 1.0
-        print(f"[Calib] sx={sx:.3f}, sy={sy:.3f}")
+        # One test frame with ONLY carrier, zero steer
+        save_phase_with_correction(phase_slm, corr_u8, OUT_BMP, carrier_cmd=CARRIER_CMD, steer_cmd=(0.0, 0.0),
+                                   settle_s=SETTLE_S)
+        p_test = self.SaveProcessedImage()
+        img = cv2.imread(p_test, 0)
+        if img is not None and img.shape[0] > 40: img = img[:-40, :]
+        img = cv2.resize(img.astype(np.float32) / max(1, img.max()), (W, H))
+        cx_car, cy_car = brightest_centroid(img)
+        print(f"[Carrier test] centroid=({cx_car:.1f},{cy_car:.1f})  (should be far from center if carrier works)")
+
+        # after getting sx, sy
+        def _sanity_probe(sign='x', mag=12.0):
+            yy, xx = np.mgrid[0:H, 0:W]
+            if sign == 'x':
+                ramp = -2 * np.pi * ((mag) * (xx / W))
+            else:
+                ramp = -2 * np.pi * ((mag) * (yy / H))
+            ph = np.mod(phase_slm + ramp.astype(np.float32), 2 * np.pi)
+            save_phase_with_correction(ph, corr_u8, OUT_BMP)
+            time.sleep(0.45)
+            p = self.SaveProcessedImage()
+            img = cv2.imread(p, cv2.IMREAD_GRAYSCALE)
+            img = img[:-40, :] if img is not None and img.shape[0] > 40 else img
+            img = cv2.resize(img.astype(np.float32) / max(img.max(), 1), (W, H))
+            cx1, cy1 = brightest_centroid(img)
+            return cx1, cy1
+
+        # baseline centroid
+        p0 = self.SaveProcessedImage()
+        m0 = cv2.resize(cv2.imread(p0, 0)[:-40, :], (W, H)) if p0 else None
+        cx0, cy0 = brightest_centroid((m0.astype(np.float32) / max(m0.max(), 1)))
+
+        # X probe
+        cx1, cy1 = _sanity_probe('x', +12.0)
+        print(f"[Sanity] +X command moved centroid Δx={cx1 - cx0:+.2f} px (Δy={cy1 - cy0:+.2f})")
+
+        # Y probe
+        cx2, cy2 = _sanity_probe('y', +12.0)
+        print(f"[Sanity] +Y command moved centroid Δy={cy2 - cy0:+.2f} px (Δx={cx2 - cx0:+.2f})")
 
         # MSE history
         self._mse_hist = []
+        steer_cmd = (0.0, 0.0)
+        Cx, Cy = CARRIER_CMD
 
+        # build once (panel coords)
+        yy, xx = np.mgrid[0:H, 0:W]
+        phi_carrier = -2 * np.pi * (Cx * (xx / W) + Cy * (yy / H)).astype(np.float32)
+
+        # --------------- Iteration loop ---------------
         for outer in range(1, OUTER_ITERS + 1):
             if getattr(self, "_iter_stop", False):
                 print("Iterations stopped by user.")
                 break
 
-            # 1) write SLM pattern (with correction)
-            save_phase_with_correction(phase_slm, corr_u8, OUT_BMP)
+            # 1) Write SLM pattern with correction
+            save_phase_with_correction(
+                phase_core_rad=phase_slm,
+                corr_map=corr_u8,
+                out_path=OUT_BMP,
+                carrier_cmd=CARRIER_CMD,
+                steer_cmd=steer_cmd,
+                settle_s=SETTLE_S
+            )
             print(f"[{outer}/{OUTER_ITERS}] wrote SLM BMP → {OUT_BMP}")
+            time.sleep(0.25)  # let optics/SLM settle
 
-            # small delay to let SLM update optics
-            time.sleep(0.25)
-
-            # 2) auto-press “Sv”: call your existing saver (returns file path)
+            # 2) Trigger Zelux save
             try:
                 snap_path = self.SaveProcessedImage()
                 print(f"   Zelux saved: {snap_path}")
@@ -1095,102 +1557,900 @@ class ZeluxGUI():
                 print(f"   ❌ SaveProcessedImage failed: {e}")
                 break
 
-            # 3) quick metric (optional): compare current camera image to target
-            meas = cv2.imread(snap_path, cv2.IMREAD_GRAYSCALE)
-            # after: meas = cv2.imread(snap_path, cv2.IMREAD_GRAYSCALE)
-            sat = (meas >= 250).mean()
-            if sat > 0.003:  # >0.3% pixels near white → likely clipping
-                print("Please decrease laser power to avoid saturation")
-                print("Please decrease laser power to avoid saturation")
+            # 3) Read, crop overlay, normalize, resize to panel
+            meas8 = cv2.imread(snap_path, cv2.IMREAD_GRAYSCALE)
+            if meas8 is None:
+                print("   ⚠️ Could not read snapshot; skipping round")
+                continue
+            if meas8.shape[0] > 40:
+                meas8 = meas8[:-40, :]  # crop bottom overlay before resizing
+            meas = meas8.astype(np.float32)
+            if meas.max() > 0: meas /= meas.max()
+            # saturation check (normalized image)
+            sat = float((meas >= 0.98).mean())
+            if sat > 0.003:
+                print("   ⚠️ Bright core clipped; reduce exposure/power")
+            # resize ONCE to panel geometry
+            meas_p = cv2.resize(meas, (W, H), interpolation=cv2.INTER_AREA)
 
+            # 4) ROI MSE (energy-normalized, light blur)
 
-            if meas is not None:
-                # ----- ROI MSE (reduces background influence) -----
-                ROI = 128  # px; try 96–160
-                cx, cy = int(W / 2), int(H / 2)
-                x0, x1 = max(0, cx - ROI // 2), min(W, cx + ROI // 2)
-                y0, y1 = max(0, cy - ROI // 2), min(H, cy + ROI // 2)
+            roi = cv2.dilate(S, np.ones((21, 21), np.uint8))
+            mr = cv2.GaussianBlur(meas_p, (0, 0), 1.0) * roi
+            tr = cv2.GaussianBlur(target, (0, 0), 1.0) * roi
+            mr /= (mr.sum() + 1e-8);  tr /= (tr.sum() + 1e-8)
+            mse = float(np.mean((mr - tr) ** 2))
 
-                meas_roi = cv2.resize(meas, (W, H), interpolation=cv2.INTER_AREA)[y0:y1, x0:x1]
-                target_roi = target[y0:y1, x0:x1]
+            l1 = float(np.mean(np.abs(mr - tr)))
+            # guard PSNR for zero error
+            psnr = (float('inf') if mse <= 1e-20 else -10.0 * np.log10(mse))
+            # NCC (cosine similarity of vectorized ROIs)
+            num = float(np.sum(mr * tr))
+            den = float(np.sqrt(np.sum(mr * mr) * np.sum(tr * tr)) + 1e-12)
+            ncc = num / den
 
-                # normalize each ROI to its own max to avoid exposure drift
-                meas_roi = cv2.GaussianBlur(meas_roi, (0, 0), 1.0)
-                target_roi = cv2.GaussianBlur(target_roi, (0, 0), 1.0)
-                mr = meas_roi / (meas_roi.max() + 1e-8)
-                tr = target_roi / (target_roi.max() + 1e-8)
-                err = float(np.mean((mr - tr) ** 2))
+            # Keep your history (store MSE with high precision)
+            self._mse_hist.append(mse)
+            hist_str = ", ".join(f"{v:.3e}" for v in self._mse_hist)  # scientific notation
+            print(f"   MSE history [{len(self._mse_hist)}]: {hist_str}")
+            print(f"   metrics: MSE={mse:.3e}  L1={l1:.3e}  PSNR={psnr if np.isfinite(psnr) else 'inf'}  NCC={ncc:.6f}")
 
-                self._mse_hist.append(err)
-                hist_str = ", ".join(f"{v:.6f}" for v in self._mse_hist)
-                print(f"   MSE history [{len(self._mse_hist)}]: {hist_str}")
-
-
-            # ----- measure centroid error (pixels) -----
-            meas_cx, meas_cy = brightest_centroid(meas)
-
-            # --- calibrated proportional steering with soft limit ---
+            # 5) Centroid (panel pixels) + steering
+            meas_cx, meas_cy = brightest_centroid(meas_p)
             tx, ty = W / 2.0, H / 2.0
             ex, ey = (tx - meas_cx), (ty - meas_cy)
 
-            Kp = 0.9  # 0.6–1.2
-            SOFT_LIM = 120.0
+            # effective gains (clamped to avoid divide-by-zero)
+            sx_eff = float(np.clip(sx, -0.45, -0.08) if sx < 0 else np.clip(sx, 0.08, 0.45))
+            sy_eff = float(np.clip(sy, -0.45, -0.08) if sy < 0 else np.clip(sy, 0.08, 0.45))
 
-            eps = 1e-6
-            ux = Kp * (ex / (sx + np.sign(sx) * eps))
-            uy = Kp * (ey / (sy + np.sign(sy) * eps))
+            ux = Kp * (ex / sx_eff)  # ← sign handled by sx_eff
+            uy = Kp * (ey / sy_eff)
 
-            # soft-limit (smoothly approaches ±SOFT_LIM)
             cmdx = SOFT_LIM * np.tanh(ux / SOFT_LIM)
             cmdy = SOFT_LIM * np.tanh(uy / SOFT_LIM)
 
+            steer_cmd = (cmdx, cmdy)
+
             yy, xx = np.mgrid[0:H, 0:W]
-            ramp = -2 * np.pi * (cmdx * (xx / W) + cmdy * (yy / H))
+            ramp = -2 * np.pi * (cmdx * (xx / W) + cmdy * (yy / H))  # same formula used during calibration
             phase_slm = np.mod(phase_slm + ramp.astype(np.float32), 2 * np.pi)
 
             print(f"   steer: err=({ex:+.2f},{ey:+.2f}) cmd=({cmdx:+.2f},{cmdy:+.2f}) (sx={sx:.3f}, sy={sy:.3f})")
 
-            # 4) inner GS update towards desired amplitude
-            phase_slm = gs_update_relaxed(phase_slm, target_amp=target, steps=INNER_GS, beta=0.6)
+            # 7) Inner GS update toward the desired amplitude
+            # if INNER_GS > 0:
+            #     phase_slm = gs_update_relaxed(phase_slm, target_amp=target, steps=INNER_GS, beta=BETA_GS, phi_carrier= phi_carrier)
 
-        # final write
-        save_phase_with_correction(phase_slm, corr_u8, OUT_BMP)
+            phase_slm = mraf_update(
+                phase_slm, target_amp=target, S=S,
+                steps=INNER_GS, alpha=0.85, phi_carrier=phi_carrier
+            )
+
+        # Final write
+        save_phase_with_correction(
+            phase_core_rad=phase_slm,
+            corr_map=corr_u8,
+            out_path=OUT_BMP,
+            carrier_cmd=CARRIER_CMD,
+            steer_cmd=steer_cmd,
+            settle_s=SETTLE_S
+        )
         print("Iteration loop finished.")
 
-    def MakeDesiredImage(self, sender=None, app_data=None, user_data=None):
-        import numpy as np, cv2, os
+    def StartAutoSym(self, sender=None, app_data=None, user_data=None):
+        if getattr(self, "_autosym_th", None) and self._autosym_th.is_alive():
+            print("AutoSym already running.");  return
+        self._autosym_stop = False
+        import threading
+        self._autosym_th = threading.Thread(target=self._AutoSymWorker, daemon=True)
+        self._autosym_th.start()
+        print("Started AutoSym thread.")
 
-        # Panel size from camera/SLM correction; fall back if unknown
-        try:
-            H = int(self.cam.camera.image_height_pixels)
-            W = int(self.cam.camera.image_width_pixels)
-        except Exception:
-            W, H = 1272, 1024  # your SLM panel
+    def _principal_moments_roundness(self, g01, roi_px=220, dead_radius=120, prefer_center=None):
+        """
+        Compute |σ1/σ2 - 1| from principal moments (rotation-invariant).
+        - Masks the DC (dead_radius around image center).
+        - If prefer_center=(cx,cy) is given, prioritizes a blob near that location.
+        Returns: E, (sx1, sx2), (cx, cy)
+        """
+        import numpy as np, cv2
+        H, W = g01.shape
+        g = cv2.GaussianBlur(g01.astype(np.float32), (0, 0), 1.6)
 
-        mode = self.target_mode
-        FWHM = int(dpg.get_value("inpFWHM")) if dpg.does_item_exist("inpFWHM") else self.target_fwhm
-        R = int(dpg.get_value("inpR")) if dpg.does_item_exist("inpR") else self.target_R
-        M = int(dpg.get_value("inpM")) if dpg.does_item_exist("inpM") else self.target_M
+        # mask DC (zero-order) so we only consider diffracted orders
+        yy, xx = np.mgrid[0:H, 0:W]
+        cx0, cy0 = W / 2.0, H / 2.0
+        if dead_radius > 0:
+            dc_mask = ((xx - cx0) ** 2 + (yy - cy0) ** 2) < (dead_radius ** 2)
+            g = g.copy()
+            g[dc_mask] = 0.0
+
+        # adaptive threshold & connected components
+        thr = np.quantile(g, 0.85)
+        m = (g >= thr).astype(np.uint8)
+        num, labels = cv2.connectedComponents(m)
+        if num <= 1:
+            # fallback: use global centroid but still mask DC
+            y, x = np.unravel_index(np.argmax(g), g.shape)
+            cx, cy = float(x), float(y)
+        else:
+            # pick blob closest to prefer_center if given; otherwise largest area
+            if prefer_center is not None:
+                px, py = prefer_center
+                best_i, best_d2 = None, 1e18
+                for i in range(1, num):
+                    ys, xs = np.where(labels == i)
+                    if xs.size == 0: continue
+                    cx_i = xs.mean();
+                    cy_i = ys.mean()
+                    d2 = (cx_i - px) ** 2 + (cy_i - py) ** 2
+                    if d2 < best_d2:
+                        best_d2, best_i = d2, i
+                labels_keep = (labels == best_i).astype(np.float32)
+            else:
+                areas = [(labels == i).sum() for i in range(1, num)]
+                best_i = 1 + int(np.argmax(areas))
+                labels_keep = (labels == best_i).astype(np.float32)
+            s = labels_keep.sum() + 1e-8
+            cy = float((yy * labels_keep).sum() / s);
+            cx = float((xx * labels_keep).sum() / s)
+
+        # crop ROI around that centroid
+        x0 = int(max(0, cx - roi_px // 2));
+        x1 = int(min(W, cx + roi_px // 2))
+        y0 = int(max(0, cy - roi_px // 2));
+        y1 = int(min(H, cy + roi_px // 2))
+        patch = g[y0:y1, x0:x1]
+        H2, W2 = patch.shape
+        if H2 < 5 or W2 < 5:
+            return 1.0, (50.0, 50.0), (cx, cy)  # clearly bad
+
+        yy2, xx2 = np.mgrid[0:H2, 0:W2]
+        w = patch / (patch.sum() + 1e-8)
+        mx = float((xx2 * w).sum());
+        my = float((yy2 * w).sum())
+        xz = (xx2 - mx);
+        yz = (yy2 - my)
+        cov_xx = float(((xz * xz) * w).sum())
+        cov_yy = float(((yz * yz) * w).sum())
+        cov_xy = float(((xz * yz) * w).sum())
+        # eigenvalues of covariance => principal variances
+        tr = cov_xx + cov_yy
+        det = cov_xx * cov_yy - cov_xy * cov_xy
+        lam1 = 0.5 * (tr + np.sqrt(max(tr * tr - 4.0 * det, 0.0)))
+        lam2 = 0.5 * (tr - np.sqrt(max(tr * tr - 4.0 * det, 0.0)))
+        s1 = float(np.sqrt(max(lam1, 1e-12)))
+        s2 = float(np.sqrt(max(lam2, 1e-12)))
+        E = abs(s1 / (s2 + 1e-9) - 1.0)
+        return E, (s1, s2), (cx, cy)
+
+    def _roundness_with_wedge(self, g01, center_hint, roi_px=240,
+                              dead_radius=140, rmin=120, rmax=9999,
+                              wedge_deg=30.0, wedge_dir_deg=0.0):
+        """
+        Rotation-invariant roundness in a sector annulus aimed at the first order.
+        Returns: E, (s1,s2), (cx,cy)
+        """
+        import numpy as np, cv2
+        H, W = g01.shape
+        g = cv2.GaussianBlur(g01.astype(np.float32), (0, 0), 1.8)
 
         yy, xx = np.mgrid[0:H, 0:W]
-        cx, cy = W / 2.0, H / 2.0
-        x = xx - cx;
-        y = yy - cy
-        r = np.sqrt(x * x + y * y)
+        cx0, cy0 = W / 2.0, H / 2.0
+        rr = np.hypot(xx - cx0, yy - cy0)
+        ang = np.degrees(np.arctan2(yy - cy0, xx - cx0))  # 0° to the right, +CCW
 
-        if mode == "gaussian":
-            sigma = FWHM / (2 * np.sqrt(2 * np.log(2)))
-            tgt = np.exp(-(r ** 2) / (2 * sigma ** 2)).astype(np.float32)
-        else:  # soft_disk
-            tgt = np.exp(- (r / float(max(R, 1))) ** max(M, 2)).astype(np.float32)
+        # annulus + dead zone
+        mask = (rr >= max(dead_radius, rmin)) & (rr <= rmax)
 
-        # tiny blur to avoid pixelation; normalize
-        tgt = cv2.GaussianBlur(tgt, (0, 0), 0.5)
-        tgt /= (tgt.max() + 1e-8)
+        # wedge around wedge_dir_deg
+        da = ((ang - wedge_dir_deg + 180.0) % 360.0) - 180.0
+        mask &= (np.abs(da) <= (wedge_deg / 2.0))
 
-        # ensure folder exists, then save BMP + a preview PNG
-        os.makedirs(os.path.dirname(self.target_out), exist_ok=True)
-        cv2.imwrite(self.target_out, (tgt * 255).astype(np.uint8))
-        cv2.imwrite(self.target_preview, (tgt * 255).astype(np.uint8))
+        work = g * mask.astype(np.float32)
 
-        print(f"✅ Desired image written → {self.target_out} (mode={mode}, FWHM={FWHM}, R={R}, M={M})")
+        # take centroid in that mask
+        s = work.sum() + 1e-8
+        cy = float((yy * work).sum() / s);
+        cx = float((xx * work).sum() / s)
+
+        # crop ROI around that centroid
+        x0 = int(max(0, cx - roi_px // 2));
+        x1 = int(min(W, cx + roi_px // 2))
+        y0 = int(max(0, cy - roi_px // 2));
+        y1 = int(min(H, cy + roi_px // 2))
+        patch = work[y0:y1, x0:x1]
+        H2, W2 = patch.shape
+        if H2 < 8 or W2 < 8 or patch.max() <= 0:
+            return None, (0.0, 0.0), (cx, cy)
+
+        yy2, xx2 = np.mgrid[0:H2, 0:W2]
+        w = patch / (patch.sum() + 1e-8)
+        mx = float((xx2 * w).sum());
+        my = float((yy2 * w).sum())
+        xz = xx2 - mx;
+        yz = yy2 - my
+        cxx = float((xz * xz * w).sum());
+        cyy = float((yz * yz * w).sum());
+        cxy = float((xz * yz * w).sum())
+        tr = cxx + cyy;
+        det = cxx * cyy - cxy * cxy
+        lam1 = 0.5 * (tr + np.sqrt(max(tr * tr - 4 * det, 0.0)));
+        lam2 = max(1e-12, 0.5 * (tr - np.sqrt(max(tr * tr - 4 * det, 0.0))))
+        s1 = float(np.sqrt(lam1));
+        s2 = float(np.sqrt(lam2))
+        E = abs(s1 / (s2 + 1e-9) - 1.0)
+        return E, (s1, s2), (cx, cy)
+
+    def _astig_mode(self, Z, theta_rad):
+        """Unit-RMS astig at angle theta: cosθ*Z2m2 + sinθ*Z22 (already RMS-normalized Z’s)."""
+        return np.cos(theta_rad) * Z['Z2m2'] + np.sin(theta_rad) * Z['Z22']
+
+    def StopAutoSym(self, sender=None, app_data=None, user_data=None):
+        self._request_stop_and_join()
+        print("Stopping AutoSym...")
+
+    # In ZeluxGUI (the owner of _AutoSymWorker / _FlatTopWorker)
+    def _request_stop_and_join(self, join_timeout=2.0):
+        # Set *both* flags so any worker respects it
+        setattr(self, "_autosym_stop", True)
+        setattr(self, "_flattop_stop", True)
+
+        # If you store the thread on the parent (as shown earlier):
+        t = getattr(self, "_autosym_thread", None)
+        if t and t.is_alive():
+            t.join(timeout=join_timeout)
+            if t.is_alive():
+                print("Stop requested; worker will exit after its current step…")
+            else:
+                print("Worker stopped.")
+        else:
+            print("Stop flag set.")
+
+    def _AutoSymWorker(self):
+        """
+        Minimize ellipticity on the **true 1st diffraction order** (not the DC).
+        Uses polar astigmatism (amplitude + angle) and optionally coma.
+        Locks the metric to the detected 1st order via a wedge/annulus ROI so the
+        DC in the center and other lobes don't confuse the optimizer.
+
+        Side effects:
+          • Writes residual phase BMP to OUT_BMP with a carrier to push orders off DC.
+          • Updates self.autosym_roi with the exact ROI parameters used by the metric,
+            for the UI overlay in UpdateImage().
+        """
+        import time, cv2, numpy as np
+
+        # --- paths / geometry ---
+        CORR_BMP = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp"
+        OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"
+
+        # carrier to push orders away from DC (x, y) in grating periods across aperture
+        CARRIER = tuple(getattr(self, "_autosym_carrier", (100.0, 0.0)))
+
+        self.autosym_iter = 0
+        self.autosym_debug_candidates = None
+        self.autosym_roi = None
+
+        corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+        if corr_u8 is None:
+            print(f"❌ Cannot read correction BMP: {CORR_BMP}")
+            return
+        H, W = corr_u8.shape
+        # Basic DC default = image center (override if you compute a refined DC)
+        self.autosym_dc = {"x": float(W) * 0.5, "y": float(H) * 0.5, "W": float(W), "H": float(H)}
+
+        # Zernike set (your helper)
+        Z = self._zernike_minimal(W, H, aperture='circle')
+
+        # --- parameterization (polar astig + optional coma) ---
+        pars = dict(DEF=0.0, AST_A=0.0, AST_TH=0.0, COMA_X=0.0, COMA_Y=0.0)
+
+        mode = getattr(self, "autosym_mode", "normal").lower()
+        is_coarse = (mode == "coarse")
+        print(f"[AutoSym] start (mode={'COARSE' if is_coarse else 'NORMAL'})")
+
+        # scaling knobs for coarse
+        M_STEP = 2.8 if is_coarse else 1.0  # much larger moves
+        M_CSTOP = 0.14 if is_coarse else 0.06  # early stop target E
+        MAX_IT = 14 if is_coarse else 80  # cap iterations
+        ANNEAL = 0.35 if is_coarse else 0.60  # more aggressive shrink
+        WEDGE_W = 1.4 if is_coarse else 1.0  # a bit wider wedge at start
+
+        # step sizes (+ anneal floors)
+        STEP_DEF, STEP_MIN_DEF = 0.30 * np.pi * M_STEP, 0.02 * np.pi
+        STEP_A, STEP_MIN_A = 0.25 * np.pi * M_STEP, 0.02 * np.pi
+        STEP_TH, STEP_MIN_TH = np.deg2rad(12.0 * M_STEP), np.deg2rad(2.0)
+        STEP_C, STEP_MIN_C = 0.15 * np.pi * M_STEP, 0.03 * np.pi
+
+        def compose(p):
+            ph = (p['DEF'] * Z['Z20']).astype(np.float32)
+            ph += (p['AST_A'] * self._astig_mode(Z, p['AST_TH'])).astype(np.float32)
+            ph += (p['COMA_X'] * Z['Z3m1'] + p['COMA_Y'] * Z['Z31']).astype(np.float32)
+            return np.mod(ph, 2 * np.pi)
+
+        # --- emit "zero residual + carrier" and take a robust probe frame ---
+        self._write_phase_with_corr(np.zeros_like(corr_u8, np.float32), corr_u8, OUT_BMP,
+                                    carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0), settle_s=0.35)
+        time.sleep(0.35)
+
+        def _grab_gray():
+            """Return normalized grayscale (W×H) for metric (cropping any bottom bar)."""
+            h = self.cam.camera.image_height_pixels
+            w = self.cam.camera.image_width_pixels
+            rgba = self.cam.lateset_image_buffer.reshape((h, w, 4))
+            rgb = rgba[:, :, :3].astype(np.float32)
+            if rgb.max() > 0: rgb /= max(1e-6, rgb.max())
+            if rgb.shape[0] > 40:  # crop a possible Zelux status bar
+                rgb = rgb[:-40, :, :]
+            g = cv2.resize(rgb.mean(axis=2), (W, H), interpolation=cv2.INTER_AREA)
+            return g
+
+        # ---------- robust +1 selection with multi-term score ----------
+        g_probe = _grab_gray()
+        g_blur = cv2.GaussianBlur(g_probe, (0, 0), 1.0)
+        g_norm = g_blur / max(1e-6, g_blur.max())
+
+        Hc, Wc = H, W
+        cx, cy = detect_dc_center(g_probe)  # ← use this, not W/2, H/2
+        self.autosym_dc = {"x": cx, "y": cy, "W": float(W), "H": float(H)}
+
+        # Exclude a generous DC disk
+        Rdc = 0.1 * min(W, H)
+        yy, xx = np.mgrid[0:H, 0:W]
+        mask_outside_dc = ((xx - cx) ** 2 + (yy - cy) ** 2) > (Rdc * Rdc)
+
+        vals = g_norm[mask_outside_dc]
+        if vals.size == 0:
+            print("[AutoSym] DC mask swallowed the frame; shrinking Rdc.")
+            Rdc = 0.12 * min(W, H)
+            mask_outside_dc = ((xx - cx) ** 2 + (yy - cy) ** 2) > (Rdc * Rdc)
+            vals = g_norm[mask_outside_dc]
+
+        vmax = float(vals.max()) if vals.size else 0.0
+        p99 = float(np.percentile(vals, 99.0)) if vals.size else 0.0
+        print(f"[AutoSym] outside-DC stats: vmax={vmax:.3f}, p99={p99:.3f}")
+
+        # Try progressively lower thresholds until we get some pixels
+        scales = [0.60, 0.45, 0.35, 0.25, 0.15]
+        mask = None
+        for s in scales:
+            t = max(0.02, p99 * s)  # allow very faint signals
+            cand = (g_norm >= t) & mask_outside_dc
+            npx = int(cand.sum())
+            print(f"[AutoSym] thresh try: t={t:.3f} → {npx} px")
+            if npx >= 20:  # require a small blob of pixels, not specks
+                mask = cand
+                break
+
+        # If still nothing, very weak image — pick the absolute max outside DC
+        if mask is None or mask.sum() == 0:
+            print("[AutoSym] no blobs after relaxed thresholds; falling back to global max outside DC.")
+            prod = g_norm * mask_outside_dc.astype(g_norm.dtype)
+            idx = int(np.argmax(prod))
+            y0, x0 = divmod(idx, Wc)
+            # Create a tiny 3x3 blob around the max so CC sees one component
+            mask = np.zeros_like(g_norm, dtype=np.uint8)
+            y0a, y0b = max(0, y0 - 1), min(H, y0 + 2)
+            x0a, x0b = max(0, x0 - 1), min(W, x0 + 2)
+            mask[y0a:y0b, x0a:x0b] = 1
+
+        num, lab, stats, cents = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+        print(f"[AutoSym] connected components (including background) = {num}")
+
+        cands = []
+        for i in range(1, num):
+            area = stats[i, cv2.CC_STAT_AREA]
+            if area < 10:
+                continue
+            x, y = float(cents[i][0]), float(cents[i][1])  # centroids
+            r = float(np.hypot(x - cx, y - cy))
+            ang = float(np.arctan2(y - cy, x - cx))  # radians
+            s = float((g_norm * (lab == i)).sum())  # brightness proxy (sum)
+            cands.append({"x": x, "y": y, "r": r, "ang": ang, "sum": s, "area": float(area)})
+
+        if not cands:
+            # fallback: brightest pixel outside DC
+            idx = int(np.argmax(g_norm * mask_outside_dc))
+            y0, x0 = divmod(idx, Wc)
+            c1x, c1y = float(x0), float(y0)
+            r_near = float(np.hypot(x0 - cx, y0 - cy))
+            cands = [{"x": c1x, "y": c1y, "r": r_near, "ang": float(np.arctan2(c1y - cy, c1x - cx)),
+                      "sum": float(g_norm[int(c1y), int(c1x)]), "area": 1.0}]
+        else:
+            # >>> EXPECTED SIDE <<<
+            # If your +1 order is on the LEFT of DC (as you said), lock to π radians:
+            # expected_angle = np.pi
+            # If you want this auto from CARRIER, use:
+            expected_angle = 0.0 if CARRIER[0] >= 0 else np.pi
+
+            r_vals = np.array([c["r"] for c in cands])
+            s_vals = np.array([c["sum"] for c in cands])
+            med_r = float(np.median(r_vals[s_vals >= np.median(s_vals)])) if len(cands) > 2 else float(
+                np.median(r_vals))
+
+            # weights
+            w_ang, w_rad, w_y, w_brt = 3.0, 2.0, 1.5, 1.0
+
+            def score(c):
+                # angle closeness: 1 at expected_angle, 0 opposite
+                ang_diff = abs(((c["ang"] - expected_angle + np.pi) % (2 * np.pi)) - np.pi)
+                s_ang = 1.0 - (ang_diff / np.pi)
+
+                # radius closeness: Gaussian around med_r (30% band)
+                s_rad = np.exp(-((c["r"] - med_r) / max(1.0, 0.30 * med_r)) ** 2)
+
+                # same-row preference: Gaussian with 10% of height
+                s_y = np.exp(-((c["y"] - cy) / (0.10 * H + 1e-6)) ** 2)
+
+                # brightness normalized
+                s_brt = c["sum"] / (s_vals.max() + 1e-6)
+                return w_ang * s_ang + w_rad * s_rad + w_y * s_y + w_brt * s_brt
+
+            best_idx = int(np.argmax([score(c) for c in cands]))
+            best = cands[best_idx]
+            c1x, c1y = float(best["x"]), float(best["y"])
+            r_near = float(best["r"])
+
+        first_order_hint = (float(c1x), float(c1y))
+
+        # Save all candidates (image-space) for overlay
+        vis_r = 0.025 * min(W, H)  # cosmetic circle radius for drawing
+        scores = [0.0] * len(cands)
+        try:
+            scores = [score(c) for c in cands]
+        except NameError:
+            pass  # when we took the fallback path (no scoring function)
+
+        # mark chosen index (if scoring existed)
+        chosen_idx = int(np.argmax(scores)) if len(scores) == len(cands) else 0
+
+        # Save ALL candidates for the overlay, with brightness/area/score and chosen flag
+        vis_r = 0.025 * min(W, H)
+        self.autosym_debug_candidates = []
+        for i, c in enumerate(cands):
+            self.autosym_debug_candidates.append({
+                "x": float(c["x"]), "y": float(c["y"]),
+                "r": float(vis_r),
+                "sum": float(c["sum"]),
+                "area": float(c["area"]),
+                "score": float(scores[i]),
+                "chosen": bool(i == best_idx),
+            })
+
+        # Lock wedge direction from DC→+1
+        DIR_LOCK_DEG = float(np.degrees(np.arctan2(c1y - cy, c1x - cx)))
+
+        # Radial gates (keep around the chosen ring)
+        WEDGE_DEG = 36.0
+        WEDGE_DEG = float(WEDGE_DEG) * WEDGE_W
+
+        RMIN = int(max(20, 0.65 * r_near))
+        RMAX = int(min(0.95 * (min(W, H) / 2), 1.35 * r_near))
+        DEAD_RADIUS = int(max(18, 0.50 * r_near))
+        ROI_PX = int(min(min(W, H), 1.50 * r_near))
+
+        first_order_hint = (c1x, c1y)
+
+        def measure_E(update_roi = True):
+            g = _grab_gray()
+            E, (s1, s2), (cx, cy) = self._roundness_with_wedge(
+                g,
+                center_hint=first_order_hint,
+                roi_px=ROI_PX,
+                dead_radius=DEAD_RADIUS,
+                rmin=RMIN, rmax=RMAX,
+                wedge_deg=WEDGE_DEG,
+                wedge_dir_deg=DIR_LOCK_DEG,
+            )
+            if (E is None) or not np.isfinite(E) or (max(s1, s2) > 120.0):
+                return None, s1, s2
+
+            # for the UI overlay (in the same W×H space)
+            if update_roi:
+                self.autosym_roi = {
+                    "cx": float(cx), "cy": float(cy),
+                    "rmin": float(RMIN), "rmax": float(RMAX),
+                    "wedge_deg": float(WEDGE_DEG),
+                    "dir_deg": float(DIR_LOCK_DEG),
+                    "roi_px": float(ROI_PX),
+                    "dead_radius": float(DEAD_RADIUS),
+                    "W": float(W), "H": float(H),
+                }
+            return E, s1, s2
+
+        # --- initialize: write neutral residual (with carrier); get baseline E ---
+        self._write_phase_with_corr(compose(pars), corr_u8, OUT_BMP,
+                                    carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0))
+        time.sleep(0.40)
+
+        bestE, s1, s2 = measure_E()
+        if bestE is None:
+            # widen once and retry using r_near
+            WEDGE_DEG = min(40.0, WEDGE_DEG * 1.6)
+            RMIN = max(20, int(0.35 * r_near))
+            RMAX = min(int(0.98 * min(W, H)), int(1.6 * r_near))
+            ROI_PX = min(int(1.8 * r_near), int(min(W, H)))
+            DEAD_RADIUS = max(20, int(0.30 * r_near))
+            bestE, s1, s2 = measure_E()
+
+        if bestE is None:
+            print("[AutoSym] init metric invalid even after widening; check camera image / wedge.")
+            return
+
+        best = pars.copy()
+        print(f"[AutoSym] init: E={bestE:.4f}  σ1={s1:.2f}  σ2={s2:.2f}")
+
+        stable = 0
+
+        # in coarse mode, don’t enable coma unless things are really not round:
+        use_coma = False
+        if (not use_coma) and (STEP_A <= STEP_MIN_A * 1.1) and (STEP_TH <= STEP_MIN_TH * 1.1) and (
+                bestE > (0.30 if is_coarse else 0.20)
+        ):
+            use_coma = True
+            print("[AutoSym] enabling coma tuning...")
+
+        # ---------------- main loop ----------------
+        for it in range(1, MAX_IT + 1):
+            self.autosym_iter = it  # keep UI in sync
+            update_roi = True
+            if it >= 2:
+                # stop drawing the candidate circles after the 2nd iter
+                self.autosym_debug_candidates = None
+                self.autosym_roi = None
+                update_roi = False
+
+            if getattr(self, "_autosym_stop", False):
+                break
+
+            # candidate moves for this sweep
+            moves = [
+                ('DEF', +STEP_DEF), ('DEF', -STEP_DEF),
+                ('AST_A', +STEP_A), ('AST_A', -STEP_A),
+                ('AST_TH', +STEP_TH), ('AST_TH', -STEP_TH),
+            ]
+            if use_coma:
+                moves += [
+                    ('COMA_X', +STEP_C), ('COMA_X', -STEP_C),
+                    ('COMA_Y', +STEP_C), ('COMA_Y', -STEP_C),
+                ]
+
+            improved = False
+            for name, delta in moves:
+                trial = best.copy()
+                trial[name] += float(delta)
+                if name == 'AST_TH':
+                    # wrap angle to [-π, π] so it doesn't drift
+                    trial['AST_TH'] = ((trial['AST_TH'] + np.pi) % (2 * np.pi)) - np.pi
+
+                self._write_phase_with_corr(compose(trial), corr_u8, OUT_BMP,
+                                            carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0),
+                                            settle_s=0.30)
+                time.sleep(0.12)
+
+                E, s1, s2 = measure_E(update_roi=update_roi)
+                if E is None:
+                    # bad measurement → shrink that step a bit and skip
+                    if name == 'DEF':
+                        STEP_DEF = max(STEP_DEF * 0.6, STEP_MIN_DEF)
+                    elif name == 'AST_A':
+                        STEP_A = max(STEP_A * 0.6, STEP_MIN_A)
+                    elif name == 'AST_TH':
+                        STEP_TH = max(STEP_TH * 0.6, STEP_MIN_TH)
+                    elif name in ('COMA_X', 'COMA_Y'):
+                        STEP_C = max(STEP_C * 0.6, STEP_MIN_C)
+                    continue
+
+                print(f"[AutoSym] it={it:02d} {name}{'+' if delta > 0 else '-'}: "
+                      f"E={E:.4f} (sigma1={s1:.2f}, sigma2={s2:.2f})")
+
+                if E < bestE:
+                    bestE, best = E, trial
+                    improved = True
+
+            if not improved:
+                STEP_DEF = max(STEP_DEF * ANNEAL, STEP_MIN_DEF)
+                STEP_A = max(STEP_A * ANNEAL, STEP_MIN_A)
+                STEP_TH = max(STEP_TH * ANNEAL, STEP_MIN_TH)
+                if use_coma:
+                    STEP_C = max(STEP_C * ANNEAL, STEP_MIN_C)
+
+                msg = (f"[AutoSym] anneal → DEF={STEP_DEF / np.pi:.3f}π  "
+                       f"A={STEP_A / np.pi:.3f}π  TH={np.degrees(STEP_TH):.1f}°")
+                if use_coma:
+                    msg += f"  C={STEP_C / np.pi:.3f}π"
+                msg += f" ; best E={bestE:.4f}"
+                print(msg)
+
+                # unlock coma only after astig/angle steps are small AND E not good enough
+                if (not use_coma) and (STEP_A <= STEP_MIN_A * 1.1) and (STEP_TH <= STEP_MIN_TH * 1.1) and (
+                        bestE > 0.20):
+                    use_coma = True
+                    print("[AutoSym] enabling coma tuning...")
+
+                # after printing anneal msg or after a successful improvement:
+                stable += (bestE < M_CSTOP)
+                if is_coarse and (bestE < M_CSTOP):
+                    print(f"[AutoSym] coarse stop: E={bestE:.4f} < {M_CSTOP:.3f}")
+                    break
+                if not is_coarse and stable >= 3:
+                    print(f"[AutoSym] stopping: stable and round (E={bestE:.4f}).")
+                    break
+
+            else:
+                stable = 0
+
+            # write current best so GUI shows progress
+            self._write_phase_with_corr(compose(best), corr_u8, OUT_BMP,
+                                        carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0))
+
+        # --- final write ---
+        self._write_phase_with_corr(compose(best), corr_u8, OUT_BMP,
+                                    carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0))
+        print(f"[AutoSym] done. best E={bestE:.4f}")
+
+    def _FlatTopWorker(self):
+        """
+        Camera-in-the-loop flat-top generator.
+        Iterates GS and updates the SLM until the measured +1 order spot is uniform
+        (low CV in a circular ROI), then stops.
+
+        Reads parameters from self._flattop_params set by handle_sym():
+          - rfrac, edge, init, more, cv_thr, maxit, seed
+        """
+        import time, cv2, numpy as np
+
+        # --- paths / geometry (same as AutoSym) ---
+        CORR_BMP = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp"
+        OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"
+        # carrier to push orders away from DC (x, y) in grating periods across aperture
+        CARRIER = tuple(getattr(self, "_autosym_carrier", (100.0, 0.0)))
+
+        # ---- parameters from handle_sym() ----
+        params = getattr(self, "_flattop_params", {})
+        R_frac = float(params.get("rfrac", 0.22))
+        roll_frac = float(params.get("edge", 0.06))
+        profile = params.get("profile", "supergauss")
+        order_m = int(params.get("m", 6))
+        init_steps = int(params.get("init", 80))
+        more_steps = int(params.get("more", 15))
+        cv_thr = float(params.get("cv_thr", 0.10))
+        maxit = int(params.get("maxit", 40))
+        seed = params.get("seed", 1)
+
+        # helpers
+        def make_flattop_target(
+                W, H,
+                R_frac=0.32,
+                roll_frac=0.10,
+                profile="supergauss",  # "supergauss" | "raisedcos" | "gauss" | "hard"
+                m=6,  # super-Gaussian order (4–8 typical)
+                center=None,
+                normalize=True
+        ):
+            """
+            Return a W×H float32 target amplitude in [0,1] for a flat-top disk.
+
+            R_frac   : disk radius as fraction of min(W,H)
+            roll_frac: edge roll width as fraction of R (0 → hard edge)
+            profile  : edge roll profile
+                       - "supergauss": exp( -| (r-R)/w |^m )   (default)
+                       - "raisedcos" : cosine ramp over width w (Tukey-like)
+                       - "gauss"     : Gaussian roll about R with width w
+                       - "hard"      : hard edge (Heaviside)
+            m        : super-Gaussian order when profile="supergauss"
+            normalize: if True, renormalize to [0,1]
+            """
+            import numpy as np
+
+            yy, xx = np.mgrid[0:H, 0:W]
+            if center is None:
+                cx, cy = W / 2.0, H / 2.0
+            else:
+                cx, cy = map(float, center)
+
+            r = np.hypot(xx - cx, yy - cy).astype(np.float32)
+
+            R = float(R_frac) * float(min(W, H))
+            R = max(1.0, R)  # guard
+            w = float(roll_frac) * R
+            w = max(1e-6, w)  # avoid div-by-zero in soft profiles
+
+            # Start as a hard top-hat (1 inside R, 0 outside)
+            tgt = (r <= R).astype(np.float32)
+
+            prof = (profile or "supergauss").lower()
+
+            if prof == "hard" or roll_frac <= 0:
+                edge = (r <= R).astype(np.float32)
+
+            elif prof in ("supergauss", "super-gauss", "sgauss", "sg"):
+                # normalized distance through the rim
+                d = (r - R) / w
+                edge = np.exp(-(np.abs(d) ** float(m))).astype(np.float32)
+                # clip so inside is ≈1, outside fades smoothly
+                edge = np.clip(edge, 0.0, 1.0)
+
+            elif prof in ("raisedcos", "cos", "tukey"):
+                # cosine ramp: 1 for r<=R, then 0.5(1+cos(pi*(r-R)/w)) until R+w, then 0
+                edge = np.zeros_like(r, dtype=np.float32)
+                inside = (r <= R)
+                ramp = (r > R) & (r < (R + w))
+                edge[inside] = 1.0
+                edge[ramp] = 0.5 * (1.0 + np.cos(np.pi * (r[ramp] - R) / w))
+
+            elif prof in ("gauss", "gaussian"):
+                # Gaussian roll centered at R with width ~ w
+                d = (r - R) / (w / np.sqrt(2.0))
+                edge = np.exp(-(d ** 2)).astype(np.float32)
+                edge[r <= R] = 1.0
+                edge[r >= (R + 3 * w)] = 0.0  # practical cutoff
+
+            else:
+                # fallback to super-Gaussian
+                d = (r - R) / w
+                edge = np.exp(-(np.abs(d) ** float(m))).astype(np.float32)
+                edge = np.clip(edge, 0.0, 1.0)
+
+            # Prefer the smooth edge outside and hard 1.0 inside
+            tgt = np.maximum(tgt, edge).astype(np.float32)
+
+            if normalize:
+                mn, mx = float(tgt.min()), float(tgt.max())
+                if mx > mn:
+                    tgt = (tgt - mn) / (mx - mn + 1e-8)
+
+            return tgt.astype(np.float32)
+
+        def gs_farfield(target_amp, steps, phase_init=None, rng_seed=1):
+            Ht, Wt = target_amp.shape
+            if phase_init is None:
+                rng = np.random.default_rng(rng_seed)
+                phase = rng.uniform(0, 2 * np.pi, size=(Ht, Wt)).astype(np.float32)
+            else:
+                phase = phase_init.copy()
+            for _ in range(steps):
+                field_s = np.exp(1j * phase)  # unit amp @ SLM
+                field_f = np.fft.fftshift(np.fft.fft2(field_s))
+                phase_f = np.angle(field_f)
+                field_f_new = target_amp * np.exp(1j * phase_f)
+                field_s_back = np.fft.ifft2(np.fft.ifftshift(field_f_new))
+                phase = np.angle(field_s_back).astype(np.float32)
+            return np.mod(phase, 2 * np.pi)
+
+        def grab_gray_to_panel(W, H):
+            h = self.cam.camera.image_height_pixels
+            w = self.cam.camera.image_width_pixels
+            rgba = self.cam.lateset_image_buffer.reshape((h, w, 4))
+            rgb = rgba[:, :, :3].astype(np.float32)
+            if rgb.max() > 0: rgb /= max(1e-6, rgb.max())
+            if rgb.shape[0] > 40:
+                rgb = rgb[:-40, :, :]
+            g = cv2.resize(rgb.mean(axis=2), (W, H), interpolation=cv2.INTER_AREA)
+            return g
+
+        def detect_plus_one(g):
+            """Return centroid (x,y) of nearest bright blob outside DC and its radius from center."""
+            Hc, Wc = g.shape
+            cx, cy = detect_dc_center(g, guess=None, win_frac=0.30)
+            self.autosym_dc = {"x": cx, "y": cy, "W": float(W), "H": float(H)}
+            # exclude DC
+            Rdc = 0.10 * min(Wc, Hc)
+            yy, xx = np.mgrid[0:Hc, 0:Wc]
+            mask_out = ((xx - cx) ** 2 + (yy - cy) ** 2) > (Rdc * Rdc)
+
+            gb = cv2.GaussianBlur(g, (0, 0), 1.0)
+            gn = gb / max(1e-6, gb.max())
+            vals = gn[mask_out]
+            if vals.size == 0:
+                return None
+            p99 = float(np.percentile(vals, 99.0))
+            # relaxed thresholds
+            for s in (0.60, 0.45, 0.30, 0.20):
+                t = max(0.02, p99 * s)
+                m = (gn >= t) & mask_out
+                if int(m.sum()) >= 20:
+                    num, lab, stats, cents = cv2.connectedComponentsWithStats(m.astype(np.uint8), 8)
+                    if num > 1:
+                        cands = []
+                        for i in range(1, num):
+                            area = stats[i, cv2.CC_STAT_AREA]
+                            if area < 10: continue
+                            x, y = float(cents[i][0]), float(cents[i][1])
+                            r = float(np.hypot(x - cx, y - cy))
+                            cands.append((r, x, y))
+                        if cands:
+                            cands.sort(key=lambda t: t[0])
+                            r_near, x1, y1 = cands[0]
+                            return (x1, y1, r_near)
+            # fallback global max
+            prod = gn * mask_out.astype(gn.dtype)
+            idx = int(np.argmax(prod))
+            y0, x0 = divmod(idx, Wc)
+            r0 = float(np.hypot(x0 - cx, y0 - cy))
+            return (float(x0), float(y0), r0)
+
+        def roi_cv(g, cx, cy, radius):
+            """Coefficient of variation inside a circle centered at (cx,cy) with radius."""
+            Hc, Wc = g.shape
+            yy, xx = np.mgrid[0:Hc, 0:Wc]
+            rr = np.hypot(xx - cx, yy - cy)
+            mask = rr <= radius
+            vals = g[mask]
+            if vals.size < 50:
+                return None
+            m = float(vals.mean())
+            s = float(vals.std())
+            return (s / (m + 1e-9), m, s, int(mask.sum()))
+
+        # ---- init correction & target ----
+        corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+        if corr_u8 is None:
+            print(f"❌ FlatTop: cannot read correction BMP: {CORR_BMP}")
+            return
+        H, W = corr_u8.shape
+        # Basic DC default = image center (override if you compute a refined DC)
+        self.autosym_dc = {"x": float(W) * 0.5, "y": float(H) * 0.5, "W": float(W), "H": float(H)}
+
+        target_amp = make_flattop_target(
+            W, H,
+            R_frac=R_frac,
+            roll_frac=roll_frac,
+            profile=profile,
+            m=order_m,
+            center=None,  # or (cx,cy) if you want to center on detected DC
+            normalize=True
+        )
+
+        # ---- initial GS and display with carrier ----
+        phase = gs_farfield(target_amp, steps=init_steps, phase_init=None, rng_seed=seed)
+        self._write_phase_with_corr(phase, corr_u8, OUT_BMP,
+                                    carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0), settle_s=0.0)
+        time.sleep(0.35)
+
+        # ---- find +1 ROI once (radius ~ flat-top radius*panel_scale) ----
+        g0 = grab_gray_to_panel(W, H)
+        det = detect_plus_one(g0)
+        if det is None:
+            print("[FlatTop] Could not detect +1 order; aborting.")
+            return
+        x1, y1, r_near = det
+        # choose a measurement radius slightly smaller than the bright ring thickness
+        meas_r = max(6.0, min(0.40 * r_near, 0.35 * min(W, H)))  # conservative circle
+        print(f"[FlatTop] ROI @ ({x1:.1f},{y1:.1f}) R={meas_r:.1f}")
+
+        # ---- iterate until uniform (low CV) or stop ----
+        best_cv = 1e9
+        for it in range(1, maxit + 1):
+            if getattr(self, "_flattop_stop", False):
+                print("[FlatTop] stop requested.")
+                break
+
+            # measure CV on camera in ROI
+            g = grab_gray_to_panel(W, H)
+            cv_val, mean_val, std_val, npx = roi_cv(g, x1, y1, meas_r)
+            if cv_val is None:
+                print("[FlatTop] ROI too small to measure; increasing radius slightly.")
+                meas_r *= 1.15
+                continue
+
+            best_cv = min(best_cv, cv_val)
+            print(f"[FlatTop] it={it:02d}  CV={cv_val:.4f} (mean={mean_val:.3f}, std={std_val:.3f}, n={npx})")
+
+            # stop condition
+            if cv_val <= cv_thr:
+                print(f"[FlatTop] uniform! CV={cv_val:.4f} ≤ {cv_thr:.3f}.")
+                break
+
+            # do more GS steps from *current* phase and show again
+            phase = gs_farfield(target_amp, steps=more_steps, phase_init=phase, rng_seed=None)
+            self._write_phase_with_corr(phase, corr_u8, OUT_BMP,
+                                        carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0), settle_s=0.0)
+            time.sleep(0.25)
+
+        # final write (already current)
+        self._write_phase_with_corr(phase, corr_u8, OUT_BMP,
+                                    carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0), settle_s=0.0)
+        print(f"[FlatTop] done. best CV={best_cv:.4f}")

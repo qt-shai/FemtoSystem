@@ -320,6 +320,7 @@ class CommandDispatcher:
             "show":              self.handle_show,
             "collapse":          self.handle_collapse,
             "expand":            self.handle_expand,
+            "sym":               self.handle_sym,  # sym start | sym stop | sym status
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -6029,6 +6030,182 @@ class CommandDispatcher:
 
         self.cmd_macros[key] = body
         print(f"Saved macro '>{key}': {body!r}")
+
+    def handle_sym(self, arg: str):
+        """
+        sym start            – launch AutoSym on current ZeluxGUI
+        sym stop             – stop AutoSym/FlatTop worker (best effort)
+        sym status           – show thread/flag status
+        sym reset            – STOP worker and restore OUT_BMP = CORR_BMP
+        sym flattop [opts]   – camera-in-the-loop flat-top until uniform
+          (examples)
+            sym flattop r=0.40 e=0.12
+            sym flattop r=0.45 edge=0.10 init=100 m=20 cv=0.10 n=50 seed=1
+            sym flattop r=0.20 edge=0.22 init=120 m=22 cv=0.08 n=60 !!!
+            sym flattop r=0.18 e=0.05 profile=supergauss m=8 init=100 more=15 cv=0.08 maxit=50 seed=1
+            sym flattop r=0.28 e=0.10 profile=supergauss m=6 init=120 more=20 cv=0.08 maxit=50 seed=1
+            sym flattop r=0.38 e=0.12 profile=supergauss m=6 init=140 more=25 cv=0.08 maxit=60 seed=1
+            sym flattop r=0.45 e=0.14 profile=supergauss m=6 init=180 more=25 cv=0.10 maxit=70 seed=1 !!!
+            sym flattop r=0.32 e=0.12 profile=raisedcos init=140 more=20 cv=0.08 maxit=60 seed=1
+            sym flattop r=0.30 e=0.18 profile=gauss init=120 more=20 cv=0.08 maxit=50 seed=1
+            sym flattop r=0.25 e=0.08 profile=supergauss m=6 init=60 more=10 cv=0.12 maxit=25 seed=1
+            sym flattop r=0.40 e=0.12 profile=raisedcos init=160 more=20 cv=0.08 maxit=60 seed=1
+            sym flattop r=0.30 e=0.10 profile=supergauss m=6 init=120 more=20 cv=0.08 maxit=50 seed=42
+
+        sym carrier X,Y      – set carrier (grating periods across aperture)
+        sym car X,Y          – alias
+        sym c X,Y            – alias
+        """
+        import threading, os, shutil, re, cv2, numpy as np
+
+        p = self.get_parent()
+        tail = (arg or "").strip()
+
+        cam = getattr(p, "cam", None)
+        thr = getattr(p, "_autosym_thread", None)
+        owner = getattr(p, "_autosym_owner", None)
+
+        # --- carrier helpers ---
+        def get_carrier():
+            if cam is None:
+                return (100.0, 0.0)
+            return tuple(getattr(cam, "_autosym_carrier", (100.0, 0.0)))
+
+        def set_carrier(xy):
+            if cam is not None:
+                setattr(cam, "_autosym_carrier", (float(xy[0]), float(xy[1])))
+
+        CORR_BMP = getattr(cam, "AUTOSYM_CORR_BMP",
+                           r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp")
+        OUT_BMP = getattr(cam, "AUTOSYM_OUT_BMP",
+                          r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp")
+
+        # ---- split once into sub/rest (robust to extra spaces) ----
+        toks = tail.split(maxsplit=1)
+        sub = toks[0].lower() if toks else ""
+        rest = toks[1] if len(toks) > 1 else ""
+
+        # ---------- carrier ----------
+        if sub in ("carrier", "car", "c"):
+            s = rest.replace(",", " ").strip()
+            if not s:
+                cx, cy = get_carrier()
+                print(f"carrier = ({cx:.3f}, {cy:.3f})")
+                return
+            parts = [t for t in s.split() if t]
+            if len(parts) < 2:
+                print("Usage: sym carrier X,Y   e.g.  sym carrier 100,0")
+                return
+            try:
+                cx, cy = float(parts[0]), float(parts[1])
+            except ValueError:
+                print("Could not parse carrier numbers. Example: sym car 50.0,3.0")
+                return
+            set_carrier((cx, cy))
+            print(f"carrier set to ({cx:.3f}, {cy:.3f})")
+            return
+
+        # ---------- start / stop / status / reset ----------
+        # (no changes to these branches – keep your existing code)
+
+        # ---------- flattop ----------
+        if sub.startswith("flattop"):
+            if thr and thr.is_alive():
+                print("Another worker is running; use 'sym stop' first.")
+                return
+            if cam is None or not hasattr(cam, "_FlatTopWorker"):
+                print("ZeluxGUI not available or _FlatTopWorker missing.")
+                return
+
+            import re
+
+            def _normalize_aliases(names: str) -> str:
+                """
+                Accept either "a|b|c" or "(a|b|c)" and return "a|b|c".
+                Also strips surrounding whitespace.
+                """
+                names = (names or "").strip()
+                if len(names) >= 2 and names[0] == "(" and names[-1] == ")":
+                    names = names[1:-1].strip()
+                return names
+
+            def opt_float(names: str, default: float):
+                """
+                Match aliases like r|radius|rad and capture a float after '='.
+                Examples matched: r=0.25, radius = .3, rad=-1.0
+                """
+                names = _normalize_aliases(names)
+                num = r"(-?(?:\d+(?:\.\d*)?|\.\d+))"
+                pat = rf"(?<!\w)(?:{names})\s*=\s*{num}"
+                m = re.search(pat, opts, flags=re.IGNORECASE)
+                return float(m.group(1)) if m else default
+
+            def opt_int(names: str, default: int):
+                """
+                Match aliases like m|order and capture an int after '='.
+                Examples matched: m=6, order = 8, m=-2
+                """
+                names = _normalize_aliases(names)
+                num = r"(-?\d+)"
+                pat = rf"(?<!\w)(?:{names})\s*=\s*{num}"
+                m = re.search(pat, opts, flags=re.IGNORECASE)
+                return int(m.group(1)) if m else default
+
+            def opt_str(names: str, default: str):
+                """
+                Match simple word strings after '=' (letters, digits, dash/underscore).
+                Examples: profile=supergauss, prof = raisedcos
+                """
+                names = _normalize_aliases(names)
+                word = r"([A-Za-z0-9_\-]+)"
+                pat = rf"(?<!\w)(?:{names})\s*=\s*{word}"
+                m = re.search(pat, opts, flags=re.IGNORECASE)
+                return m.group(1) if m else default
+
+            # parse options
+            opts = tail[len("flattop"):]
+
+            # ---- inside handle_sym(), in the 'flattop' branch, after: opts = tail[len("flattop"):] ----
+
+            radius_frac = opt_float(r"(r|radius|rad)", 0.22)
+            edge_frac = opt_float(r"(edge|e)", 0.06)
+            init_steps = opt_int(r"(init|i)", 80)
+            more_steps = opt_int(r"(more|m)", 15)
+            cv_thr = opt_float(r"(thr|cv)", 0.10)
+            max_iter = opt_int(r"(maxit|n)", 40)
+            profile_str = opt_str(r"(profile|prof|p)", "supergauss")
+            order_m = opt_int(r"(m|order)", 6)
+
+            # seed supports 'None' or an integer
+            mseed = re.search(r"(?<!\w)seed\s*=\s*(None|-?\d+)", opts, flags=re.IGNORECASE)
+            seed_val = None if (mseed and mseed.group(1).lower() == "none") else (
+                int(mseed.group(1)) if mseed else 1
+            )
+
+            setattr(cam, "_flattop_params", dict(
+                rfrac=radius_frac,
+                edge=edge_frac,
+                init=init_steps,
+                more=more_steps,
+                cv_thr=cv_thr,
+                maxit=max_iter,
+                seed=seed_val,
+                profile=profile_str,
+                m=order_m,
+            ))
+            setattr(cam, "_flattop_stop", False)
+
+            t = threading.Thread(target=cam._FlatTopWorker, name="FlatTop", daemon=True)
+            p._autosym_thread = t
+            p._autosym_owner = cam
+            t.start()
+            print(f"FlatTop started (r={radius_frac:.3f}, edge={edge_frac:.3f}, init={init_steps}, more={more_steps}, "
+                  f"cv_thr={cv_thr:.3f}, maxit={max_iter}, seed={seed_val}, profile={profile_str}, m={order_m})")
+            return
+
+        print("Usage: sym start | sym stop | sym status | sym reset | "
+              "sym carrier X,Y | sym car X,Y | sym c X,Y | "
+              "sym flattop [r=0.22 edge=0.06 init=80 more=15 thr=0.10 maxit=40 seed=1]")
 
 
 # Wrapper function
