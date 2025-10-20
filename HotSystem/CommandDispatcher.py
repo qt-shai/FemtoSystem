@@ -321,6 +321,7 @@ class CommandDispatcher:
             "collapse":          self.handle_collapse,
             "expand":            self.handle_expand,
             "sym":               self.handle_sym,  # sym start | sym stop | sym status
+            "g":                 self.handle_g, # Add a phase grating (carrier) with X,Y periods across the apert
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -6039,18 +6040,19 @@ class CommandDispatcher:
         sym reset            – STOP worker and restore OUT_BMP = CORR_BMP
         sym flattop [opts]   – camera-in-the-loop flat-top until uniform
           (examples)
-            sym flattop r=0.40 e=0.12
-            sym flattop r=0.45 edge=0.10 init=100 m=20 cv=0.10 n=50 seed=1
-            sym flattop r=0.20 edge=0.22 init=120 m=22 cv=0.08 n=60 !!!
-            sym flattop r=0.18 e=0.05 profile=supergauss m=8 init=100 more=15 cv=0.08 maxit=50 seed=1
-            sym flattop r=0.28 e=0.10 profile=supergauss m=6 init=120 more=20 cv=0.08 maxit=50 seed=1
-            sym flattop r=0.38 e=0.12 profile=supergauss m=6 init=140 more=25 cv=0.08 maxit=60 seed=1
+            sym flattop r=0.40 e=0.12 zero !
+            sym flattop r=0.40 e=0.12 !
+            sym flattop r=0.45 edge=0.10 init=100 m=20 cv=0.10 n=50 seed=1 !
+            sym flattop r=0.20 edge=0.22 init=120 m=22 cv=0.08 n=60 ! !!!
+            sym flattop r=0.18 e=0.05 profile=supergauss m=8 init=100 more=15 cv=0.08 maxit=50 seed=1 !
+            sym flattop r=0.28 e=0.10 profile=supergauss m=6 init=120 more=20 cv=0.08 maxit=50 seed=1 !
+            sym flattop r=0.38 e=0.12 profile=supergauss m=6 init=140 more=25 cv=0.08 maxit=60 seed=1 !
             sym flattop r=0.45 e=0.14 profile=supergauss m=6 init=180 more=25 cv=0.10 maxit=70 seed=1 !!!
-            sym flattop r=0.32 e=0.12 profile=raisedcos init=140 more=20 cv=0.08 maxit=60 seed=1
-            sym flattop r=0.30 e=0.18 profile=gauss init=120 more=20 cv=0.08 maxit=50 seed=1
-            sym flattop r=0.25 e=0.08 profile=supergauss m=6 init=60 more=10 cv=0.12 maxit=25 seed=1
-            sym flattop r=0.40 e=0.12 profile=raisedcos init=160 more=20 cv=0.08 maxit=60 seed=1
-            sym flattop r=0.30 e=0.10 profile=supergauss m=6 init=120 more=20 cv=0.08 maxit=50 seed=42
+            sym flattop r=0.32 e=0.12 profile=raisedcos init=140 more=20 cv=0.08 maxit=60 seed=1 !
+            sym flattop r=0.30 e=0.18 profile=gauss init=120 more=20 cv=0.08 maxit=50 seed=1 !
+            sym flattop r=0.25 e=0.08 profile=supergauss m=6 init=60 more=10 cv=0.12 maxit=25 seed=1 !
+            sym flattop r=0.40 e=0.12 profile=raisedcos init=160 more=20 cv=0.08 maxit=60 seed=1 !
+            sym flattop r=0.30 e=0.10 profile=supergauss m=6 init=120 more=20 cv=0.08 maxit=50 seed=42 !
 
         sym carrier X,Y      – set carrier (grating periods across aperture)
         sym car X,Y          – alias
@@ -6068,9 +6070,8 @@ class CommandDispatcher:
         # --- carrier helpers ---
         def get_carrier():
             if cam is None:
-                return (100.0, 0.0)
-            return tuple(getattr(cam, "_autosym_carrier", (100.0, 0.0)))
-
+                return (250.0, 0.0)
+            return tuple(getattr(cam, "_autosym_carrier", (250.0, 0.0)))
         def set_carrier(xy):
             if cam is not None:
                 setattr(cam, "_autosym_carrier", (float(xy[0]), float(xy[1])))
@@ -6105,8 +6106,84 @@ class CommandDispatcher:
             print(f"carrier set to ({cx:.3f}, {cy:.3f})")
             return
 
-        # ---------- start / stop / status / reset ----------
-        # (no changes to these branches – keep your existing code)
+        # ---------- start AutoSym ----------
+        if sub in ("start", "run", "go"):
+            if thr and thr.is_alive():
+                print("AutoSym already running.")
+                return
+            if cam is None or not hasattr(cam, "_AutoSymWorker"):
+                print("ZeluxGUI not available—try 'reload zelux' first.")
+                return
+            setattr(cam, "_autosym_stop", False)
+            t = threading.Thread(target=cam._AutoSymWorker, name="AutoSym", daemon=True)
+            p._autosym_thread = t
+            p._autosym_owner = cam
+            t.start()
+            print("AutoSym started.")
+            return
+
+        # ---------- stop (AutoSym or FlatTop) ----------
+        elif sub in ("stop", "halt", "end"):
+            # Prefer stopping on the actual owner (ZeluxGUI)
+            tgt = owner if owner is not None else cam
+            if tgt is None:
+                print("No Zelux owner to signal.")
+                return
+            # One place sets both flags and joins the thread
+            if hasattr(tgt, "_request_stop_and_join"):
+                tgt._request_stop_and_join(join_timeout=2.0)
+            else:
+                # Fallback (older code paths)
+                setattr(tgt, "_autosym_stop", True)
+                setattr(tgt, "_flattop_stop", True)
+                t = getattr(self.get_parent(), "_autosym_thread", None)
+                if t and t.is_alive():
+                    t.join(timeout=2.0)
+                    if t.is_alive():
+                        print("Stop requested; worker will exit after current step…")
+                    else:
+                        print("Worker stopped.")
+                else:
+                    print("Stop flag set.")
+            return
+
+        # ---------- status ----------
+        if sub in ("status", "stat"):
+            alive = bool(thr and thr.is_alive())
+            cur_car = get_carrier()
+            print(
+                f"Worker running={alive}, "
+                f"autosym_stop={bool(getattr(cam, '_autosym_stop', False)) if cam else None}, "
+                f"flattop_stop={bool(getattr(cam, '_flattop_stop', False)) if cam else None}, "
+                f"carrier=({cur_car[0]:.3f}, {cur_car[1]:.3f})"
+            )
+            return
+
+        # ---------- reset ----------
+        if sub in ("reset", "clear", "flat"):
+            tgt = owner if owner is not None else cam
+            if tgt is not None:
+                setattr(tgt, "_autosym_stop", True)
+                setattr(tgt, "_flattop_stop", True)
+            t = getattr(p, "_autosym_thread", None)
+            if t and t.is_alive():
+                t.join(timeout=1.5)
+
+            try:
+                if os.path.exists(CORR_BMP):
+                    shutil.copy2(CORR_BMP, OUT_BMP)
+                    print(f"sym reset → copied correction map to OUT: {OUT_BMP}")
+                else:
+                    if cam is None or not hasattr(cam, "_write_phase_with_corr"):
+                        print("sym reset: correction BMP not found and Zelux writer unavailable.")
+                        return
+                    corr_u8 = np.zeros((1080, 1920), np.uint8)
+                    cam._write_phase_with_corr(np.zeros_like(corr_u8, np.float32), corr_u8, OUT_BMP,
+                                               carrier_cmd=(0.0, 0.0), steer_cmd=(0.0, 0.0), settle_s=0.0)
+                    print("sym reset → wrote flat phase (fallback) to OUT.")
+            except Exception as e:
+                print(f"sym reset failed: {e}")
+            return
 
         # ---------- flattop ----------
         if sub.startswith("flattop"):
@@ -6128,7 +6205,6 @@ class CommandDispatcher:
                 if len(names) >= 2 and names[0] == "(" and names[-1] == ")":
                     names = names[1:-1].strip()
                 return names
-
             def opt_float(names: str, default: float):
                 """
                 Match aliases like r|radius|rad and capture a float after '='.
@@ -6139,7 +6215,6 @@ class CommandDispatcher:
                 pat = rf"(?<!\w)(?:{names})\s*=\s*{num}"
                 m = re.search(pat, opts, flags=re.IGNORECASE)
                 return float(m.group(1)) if m else default
-
             def opt_int(names: str, default: int):
                 """
                 Match aliases like m|order and capture an int after '='.
@@ -6150,7 +6225,6 @@ class CommandDispatcher:
                 pat = rf"(?<!\w)(?:{names})\s*=\s*{num}"
                 m = re.search(pat, opts, flags=re.IGNORECASE)
                 return int(m.group(1)) if m else default
-
             def opt_str(names: str, default: str):
                 """
                 Match simple word strings after '=' (letters, digits, dash/underscore).
@@ -6164,8 +6238,15 @@ class CommandDispatcher:
 
             # parse options
             opts = tail[len("flattop"):]
+            zero_car = bool(re.search(r"(?<!\w)(zero)(?!\w)", opts, flags=re.IGNORECASE))
 
-            # ---- inside handle_sym(), in the 'flattop' branch, after: opts = tail[len("flattop"):] ----
+            # NEW: detect open-loop flag "!"
+            open_loop = ("!" in opts)
+            if open_loop:
+                # remove all '!' so they don't interfere with regex parsing
+                opts = opts.replace("!", "")
+
+            # ... keep your opt_* helpers as-is ...
 
             radius_frac = opt_float(r"(r|radius|rad)", 0.22)
             edge_frac = opt_float(r"(edge|e)", 0.06)
@@ -6178,9 +6259,7 @@ class CommandDispatcher:
 
             # seed supports 'None' or an integer
             mseed = re.search(r"(?<!\w)seed\s*=\s*(None|-?\d+)", opts, flags=re.IGNORECASE)
-            seed_val = None if (mseed and mseed.group(1).lower() == "none") else (
-                int(mseed.group(1)) if mseed else 1
-            )
+            seed_val = None if (mseed and mseed.group(1).lower() == "none") else (int(mseed.group(1)) if mseed else 1)
 
             setattr(cam, "_flattop_params", dict(
                 rfrac=radius_frac,
@@ -6192,6 +6271,8 @@ class CommandDispatcher:
                 seed=seed_val,
                 profile=profile_str,
                 m=order_m,
+                open_loop=bool(open_loop),
+                zero_carrier=zero_car,
             ))
             setattr(cam, "_flattop_stop", False)
 
@@ -6199,13 +6280,160 @@ class CommandDispatcher:
             p._autosym_thread = t
             p._autosym_owner = cam
             t.start()
-            print(f"FlatTop started (r={radius_frac:.3f}, edge={edge_frac:.3f}, init={init_steps}, more={more_steps}, "
-                  f"cv_thr={cv_thr:.3f}, maxit={max_iter}, seed={seed_val}, profile={profile_str}, m={order_m})")
+            mode_note = " (OPEN-LOOP)" if open_loop else ""
+            print(f"FlatTop started{mode_note} (r={radius_frac:.3f}, edge={edge_frac:.3f}, "
+                  f"init={init_steps}, more={more_steps}, cv_thr={cv_thr:.3f}, "
+                  f"maxit={max_iter}, seed={seed_val}, profile={profile_str}, m={order_m})")
+            return
+
+        # ---------- add carrier to saved zero (zcar / zerocar) ----------
+        if sub in ("zcar", "zerocar", "zeroadd"):
+            import time, glob, os, re, numpy as np, cv2
+
+            ZERO_DIR = r"C:\WC\SLM_bmp\zero_carrier"
+            npys = glob.glob(os.path.join(ZERO_DIR, "*.npy"))
+            if not npys:
+                print(f"No zero-carrier phases found in {ZERO_DIR}. Run 'sym flattop ... zero' first.")
+                return
+            npys.sort(key=os.path.getmtime, reverse=True)
+
+            def _print_list():
+                print(f"Zero files in {ZERO_DIR} (newest first):")
+                for i, pth in enumerate(npys, start=1):
+                    ts = os.path.getmtime(pth)
+                    print(
+                        f"  {i:2d}: {os.path.basename(pth)}  (mtime={time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))})")
+
+            rest_str = (rest or "").strip()
+            if rest_str.lower() == "list":
+                _print_list()
+                return
+
+            # --- 1) Extract carrier at the END of the string: "... X,Y" or "... X Y"
+            mcar = re.search(r"(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)\s*$", rest_str)
+            if not mcar:
+                print("Usage:\n"
+                      "  sym zcar list\n"
+                      "  sym zcar <idx>  X,Y\n"
+                      "  sym zcar name=<substr>  X,Y\n"
+                      "  sym zcar X,Y   (latest)")
+                return
+            cx, cy = float(mcar.group(1)), float(mcar.group(2))
+            # Remove the carrier tail; the remaining text (if any) is the selector
+            sel_part = rest_str[:mcar.start()].strip()
+
+            # --- 2) Optional selector: name=<substr> or leading integer index
+            sel_name = None
+            sel_idx = None
+
+            mname = re.search(r"(?i)\bname\s*=\s*([^\s,]+)", sel_part)
+            if mname:
+                sel_name = mname.group(1)
+            else:
+                mind = re.match(r"\s*(\d+)\s*$", sel_part)  # index must be the whole remaining token
+                if mind:
+                    sel_idx = int(mind.group(1))
+
+            # --- 3) Choose the zero file
+            if sel_name:
+                low = sel_name.lower()
+                chosen = next((p for p in npys if low in os.path.basename(p).lower()), None)
+                if chosen is None:
+                    print(f"No zero file matching name='{sel_name}'. Try 'sym zcar list'.")
+                    return
+            elif sel_idx is not None:
+                if not (1 <= sel_idx <= len(npys)):
+                    print(f"Index out of range (1..{len(npys)}). Try 'sym zcar list'.")
+                    return
+                chosen = npys[sel_idx - 1]
+            else:
+                chosen = npys[0]  # latest by default
+
+            # --- 4) Apply carrier with your writer
+            if cam is None or not hasattr(cam, "_write_phase_with_corr"):
+                print("ZeluxGUI not available or writer missing.")
+                return
+
+            CORR_BMP = getattr(cam, "AUTOSYM_CORR_BMP",
+                               r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp")
+            OUT_BMP = getattr(cam, "AUTOSYM_OUT_BMP",
+                              r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp")
+            corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+            if corr_u8 is None:
+                print(f"Cannot read correction BMP: {CORR_BMP}")
+                return
+
+            phase = np.load(chosen).astype(np.float32)  # radians, pre-correction
+            cam._write_phase_with_corr(phase, corr_u8, OUT_BMP,
+                                       carrier_cmd=(cx, cy), steer_cmd=(0.0, 0.0), settle_s=0.0)
+            print(f"Applied carrier ({cx:.3f},{cy:.3f}) to '{os.path.basename(chosen)}' → {OUT_BMP}")
             return
 
         print("Usage: sym start | sym stop | sym status | sym reset | "
               "sym carrier X,Y | sym car X,Y | sym c X,Y | "
               "sym flattop [r=0.22 edge=0.06 init=80 more=15 thr=0.10 maxit=40 seed=1]")
+
+    def handle_g(self, arg: str):
+        """
+        g [X,Y]
+          Add a phase grating (carrier) with X,Y periods across the aperture,
+          composed through _write_phase_with_corr, and write to OUT_BMP.
+
+          Examples:  g 100,0   |   g 50.3 3   |   g     (defaults to 100,0)
+        """
+        import os, cv2, numpy as np
+
+        p = self.get_parent()
+        cam = getattr(p, "cam", None)
+        if cam is None or not hasattr(cam, "_write_phase_with_corr"):
+            print("g: ZeluxGUI/_write_phase_with_corr not available.")
+            return
+
+        # Parse "g 100,0" / "g 50.3 3" / "g"
+        tail = (arg or "").strip()
+        if tail.startswith("g"):
+            tail = tail[1:].strip()
+        s = tail.replace(",", " ")
+        parts = [t for t in s.split() if t]
+
+        try:
+            cx = float(parts[0]) if len(parts) >= 1 else 100.0
+            cy = float(parts[1]) if len(parts) >= 2 else 0.0
+        except ValueError:
+            print("g: could not parse numbers. Usage: g 100,0  or  g 50.3 3  or  g")
+            return
+
+        # Keep carrier consistent with AutoSym/FlatTop
+        setattr(cam, "_autosym_carrier", (cx, cy))
+
+        # Paths (use same ones as AutoSym/FlatTop, with safe defaults)
+        CORR_BMP = getattr(cam, "AUTOSYM_CORR_BMP",
+                           r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp")
+        OUT_BMP = getattr(cam, "AUTOSYM_OUT_BMP",
+                          r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp")
+
+        # Load correction to size the zero residual
+        corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+        if corr_u8 is None:
+            print(f"g: cannot read correction BMP: {CORR_BMP}")
+            return
+
+        H, W = corr_u8.shape
+        zero_phase = np.zeros((H, W), np.float32)
+
+        # Write: zero residual + requested carrier, no steering
+        try:
+            cam._write_phase_with_corr(
+                zero_phase,  # residual phase = 0
+                corr_u8,  # correction map
+                OUT_BMP,  # destination BMP (watched by SLM app)
+                carrier_cmd=(cx, cy),  # requested grating
+                steer_cmd=(0.0, 0.0),
+                settle_s=0.0
+            )
+            print(f"g: wrote grating with carrier=({cx:.3f}, {cy:.3f}) to {OUT_BMP}")
+        except Exception as e:
+            print(f"g: write failed: {e}")
 
 
 # Wrapper function

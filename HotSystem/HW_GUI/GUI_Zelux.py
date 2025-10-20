@@ -3,12 +3,84 @@ import win32clipboard
 
 from ImGuiwrappedMethods import *
 from Common import *
-from Utils.SLM_utils import *
 from HW_wrapper import HW_devices as hw_devices
 from HW_wrapper.Wrapper_MFF_101 import FilterFlipperController
 import os
 import cv2
 import numpy as np
+
+import time, cv2, numpy as np
+
+def phase_to_u8(phase_rad):
+    ph = np.mod(phase_rad, 2 * np.pi)
+    return np.uint8(np.round(ph * (255.0 / (2 * np.pi))))
+
+def u8_to_phase(u8):
+    return (u8.astype(np.float32) / 255.0) * 2 * np.pi
+
+def detect_dc_center(g, guess=None, win_frac=0.30):
+    """
+    Return (dcx, dcy) in image coords.
+    Assumes DC is a BRIGHT spot.
+    Searches around 'guess' (defaults to image center),
+    then refines with a 5×5 weighted centroid (sub-pixel).
+    """
+    import numpy as np, cv2
+
+    H, W = g.shape[:2]
+    if guess is None:
+        guess = (W * 0.5, H * 0.5)
+    cxg, cyg = map(float, guess)
+
+    # --- search window around guess (clamped) ---
+    rx = int(max(24, win_frac * W * 0.5))
+    ry = int(max(24, win_frac * H * 0.5))
+    x0, x1 = max(0, int(cxg - rx)), min(W, int(cxg + rx))
+    y0, y1 = max(0, int(cyg - ry)), min(H, int(cyg + ry))
+    if (x1 - x0) < 6 or (y1 - y0) < 6:
+        return float(W * 0.5), float(H * 0.5)
+
+    roi = g[y0:y1, x0:x1].astype(np.float32).copy()
+
+    # --- smooth & normalize locally ---
+    roi = cv2.GaussianBlur(roi, (0, 0), 1.2)
+    m, M = float(roi.min()), float(roi.max())
+    if M > m:
+        roi_n = (roi - m) / (M - m + 1e-12)
+    else:
+        return float(W * 0.5), float(H * 0.5)
+
+    # --- coarse BRIGHT peak (DC) ---
+    _, _, _, max_loc = cv2.minMaxLoc(roi_n)  # (x, y) in ROI coords
+    x_coarse, y_coarse = max_loc
+
+    # --- sub-pixel refinement via weighted centroid in 5×5 patch ---
+    x_c = int(np.clip(x_coarse, 2, roi_n.shape[1] - 3))
+    y_c = int(np.clip(y_coarse, 2, roi_n.shape[0] - 3))
+    patch = roi_n[y_c - 2:y_c + 3, x_c - 2:x_c + 3].copy()
+
+    # weights: brighten the peak and square to sharpen
+    patch_w = np.clip(patch - patch.min(), 0.0, None)
+    patch_w **= 2.0
+    s = float(patch_w.sum())
+
+    if s > 1e-12:
+        py, px = np.mgrid[-2:3, -2:3]
+        dx = float((patch_w * px).sum() / s)
+        dy = float((patch_w * py).sum() / s)
+    else:
+        dx = dy = 0.0
+
+    x_sub = x_c + dx
+    y_sub = y_c + dy
+
+    # --- map back to full image and clamp ---
+    dcx = float(np.clip(x0 + x_sub, 0, W - 1))
+    dcy = float(np.clip(y0 + y_sub, 0, H - 1))
+
+    dcx = W * 0.11
+    dcy = H * 0.5
+    return dcx, dcy
 
 class ZeluxGUI():
     def __init__(self):
@@ -977,7 +1049,7 @@ class ZeluxGUI():
         return img
 
     def _write_phase_with_corr(self, phase_core_rad: np.ndarray, corr_u8: np.ndarray,
-                               out_path: str, carrier_cmd=(100.0, 0.0),
+                               out_path: str, carrier_cmd=(250.0, 0.0),
                                steer_cmd=(0.0, 0.0), settle_s: float = 0.35):
         """
         Compose final phase:
@@ -1082,7 +1154,7 @@ class ZeluxGUI():
         CORR_BMP = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp"
         TARGET_BMP = r"C:\WC\HotSystem\Utils\Desired_image.bmp"
         OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"
-        CARRIER_CMD = (100.0, 0.0)  # spectral-px offset (try 150–300 each axis)
+        CARRIER_CMD = (250.0, 0.0)  # spectral-px offset (try 150–300 each axis)
 
         OUTER_ITERS = 10  # outer rounds
         INNER_GS = 40  # GS steps per round (relaxed)
@@ -1411,7 +1483,7 @@ class ZeluxGUI():
             c1x, c1y = centroid_first_order(img, dead_radius=120)
             print(f"[Carrier test] first-order centroid=({c1x:.1f},{c1y:.1f})")
 
-        write_pure_carrier_and_measure(Cx=100.0, Cy=0.0)
+        write_pure_carrier_and_measure(Cx=250.0, Cy=0.0)
 
         mode = getattr(self, "target_mode", "gaussian")
         if mode in ("gaussian", "soft_disk", "two_spots", "three_spots"):
@@ -1827,7 +1899,7 @@ class ZeluxGUI():
         OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"
 
         # carrier to push orders away from DC (x, y) in grating periods across aperture
-        CARRIER = tuple(getattr(self, "_autosym_carrier", (100.0, 0.0)))
+        CARRIER = tuple(getattr(self, "_autosym_carrier", (250.0, 0.0)))
 
         self.autosym_iter = 0
         self.autosym_debug_candidates = None
@@ -2206,7 +2278,7 @@ class ZeluxGUI():
         CORR_BMP = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp"
         OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"
         # carrier to push orders away from DC (x, y) in grating periods across aperture
-        CARRIER = tuple(getattr(self, "_autosym_carrier", (100.0, 0.0)))
+        CARRIER = tuple(getattr(self, "_autosym_carrier", (250.0, 0.0)))
 
         # ---- parameters from handle_sym() ----
         params = getattr(self, "_flattop_params", {})
@@ -2219,6 +2291,10 @@ class ZeluxGUI():
         cv_thr = float(params.get("cv_thr", 0.10))
         maxit = int(params.get("maxit", 40))
         seed = params.get("seed", 1)
+        open_loop = bool(params.get("open_loop", False))
+        zero_carrier = bool(params.get("zero_carrier", False))
+
+        EFFECTIVE_CARRIER = (0.0, 0.0) if zero_carrier else CARRIER
 
         # helpers
         def make_flattop_target(
@@ -2332,42 +2408,54 @@ class ZeluxGUI():
             return g
 
         def detect_plus_one(g):
-            """Return centroid (x,y) of nearest bright blob outside DC and its radius from center."""
-            Hc, Wc = g.shape
-            cx, cy = detect_dc_center(g, guess=None, win_frac=0.30)
-            self.autosym_dc = {"x": cx, "y": cy, "W": float(W), "H": float(H)}
-            # exclude DC
-            Rdc = 0.10 * min(Wc, Hc)
-            yy, xx = np.mgrid[0:Hc, 0:Wc]
-            mask_out = ((xx - cx) ** 2 + (yy - cy) ** 2) > (Rdc * Rdc)
+            """
+            Return centroid (x,y) of the nearest bright blob to the image center
+            (DC is allowed). Also return its radius from the center.
+            """
+            import numpy as np, cv2
 
+            Hc, Wc = g.shape
+            cx, cy = Wc / 2.0, Hc / 2.0
+
+            # (Optional) keep showing the detected DC for the UI cross, but don't exclude it
+            try:
+                dcx, dcy = detect_dc_center(g, guess=(cx, cy), win_frac=0.30)
+            except Exception:
+                dcx, dcy = cx, cy
+            self.autosym_dc = {"x": float(dcx), "y": float(dcy), "W": float(Wc), "H": float(Hc)}
+
+            # Smooth & normalize
             gb = cv2.GaussianBlur(g, (0, 0), 1.0)
             gn = gb / max(1e-6, gb.max())
-            vals = gn[mask_out]
+
+            # Global stats (no DC mask)
+            vals = gn.ravel()
             if vals.size == 0:
                 return None
             p99 = float(np.percentile(vals, 99.0))
-            # relaxed thresholds
+
+            # Build a thresholded mask (progressively relaxed) over the WHOLE frame
             for s in (0.60, 0.45, 0.30, 0.20):
                 t = max(0.02, p99 * s)
-                m = (gn >= t) & mask_out
+                m = (gn >= t)
                 if int(m.sum()) >= 20:
                     num, lab, stats, cents = cv2.connectedComponentsWithStats(m.astype(np.uint8), 8)
                     if num > 1:
                         cands = []
                         for i in range(1, num):
                             area = stats[i, cv2.CC_STAT_AREA]
-                            if area < 10: continue
+                            if area < 10:
+                                continue
                             x, y = float(cents[i][0]), float(cents[i][1])
                             r = float(np.hypot(x - cx, y - cy))
                             cands.append((r, x, y))
                         if cands:
-                            cands.sort(key=lambda t: t[0])
+                            cands.sort(key=lambda t3: t3[0])  # nearest bright blob (could be DC)
                             r_near, x1, y1 = cands[0]
                             return (x1, y1, r_near)
-            # fallback global max
-            prod = gn * mask_out.astype(gn.dtype)
-            idx = int(np.argmax(prod))
+
+            # Fallback: absolute global max (anywhere, including DC)
+            idx = int(np.argmax(gn))
             y0, x0 = divmod(idx, Wc)
             r0 = float(np.hypot(x0 - cx, y0 - cy))
             return (float(x0), float(y0), r0)
@@ -2406,8 +2494,46 @@ class ZeluxGUI():
 
         # ---- initial GS and display with carrier ----
         phase = gs_farfield(target_amp, steps=init_steps, phase_init=None, rng_seed=seed)
+
+        if open_loop:
+            # Do a single long GS run total = init + maxit*more (no camera in the loop)
+            total_more = max(0, int(maxit)) * max(0, int(more_steps))
+            if total_more > 0:
+                phase = gs_farfield(target_amp, steps=total_more, phase_init=phase, rng_seed=None)
+
+            self._write_phase_with_corr(phase, corr_u8, OUT_BMP,
+                                        carrier_cmd=EFFECTIVE_CARRIER , steer_cmd=(0.0, 0.0), settle_s=0.0)
+            print(f"[FlatTop OPEN-LOOP] wrote GS result (steps={init_steps}+{maxit}×{more_steps}).")
+
+            if zero_carrier:
+                import os, time, cv2, numpy as np
+                ZERO_DIR = r"C:\WC\SLM_bmp\zero_carrier"
+                os.makedirs(ZERO_DIR, exist_ok=True)
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                Hh, Ww = phase.shape
+                meta = f"r{R_frac:.3f}_e{roll_frac:.3f}_{profile}_m{order_m}_init{init_steps}_more{more_steps}"
+                base = f"zero_{meta}_{ts}"
+                npy_path = os.path.join(ZERO_DIR, base + ".npy")
+                bmp_path = os.path.join(ZERO_DIR, base + ".bmp")
+
+                # save raw phase (radians, pre-correction); this is what zcar will load
+                np.save(npy_path, phase.astype(np.float32))
+
+                # also drop a preview BMP written with ZERO carrier (so it looks like what you saved)
+                try:
+                    corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+                    if corr_u8 is not None:
+                        # write to bmp_path without disturbing your OUT_BMP
+                        self._write_phase_with_corr(phase.astype(np.float32), corr_u8, bmp_path,
+                                                    carrier_cmd=(0.0, 0.0), steer_cmd=(0.0, 0.0), settle_s=0.0)
+                except Exception:
+                    pass
+                print(f"[FlatTop] zero-carrier phase saved: {npy_path}")
+            return
+
+        # ---- normal closed-loop path below ----
         self._write_phase_with_corr(phase, corr_u8, OUT_BMP,
-                                    carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0), settle_s=0.0)
+                                    carrier_cmd=EFFECTIVE_CARRIER , steer_cmd=(0.0, 0.0), settle_s=0.0)
         time.sleep(0.35)
 
         # ---- find +1 ROI once (radius ~ flat-top radius*panel_scale) ----
@@ -2447,10 +2573,37 @@ class ZeluxGUI():
             # do more GS steps from *current* phase and show again
             phase = gs_farfield(target_amp, steps=more_steps, phase_init=phase, rng_seed=None)
             self._write_phase_with_corr(phase, corr_u8, OUT_BMP,
-                                        carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0), settle_s=0.0)
+                                        carrier_cmd=EFFECTIVE_CARRIER , steer_cmd=(0.0, 0.0), settle_s=0.0)
             time.sleep(0.25)
 
         # final write (already current)
         self._write_phase_with_corr(phase, corr_u8, OUT_BMP,
-                                    carrier_cmd=CARRIER, steer_cmd=(0.0, 0.0), settle_s=0.0)
+                                    carrier_cmd=EFFECTIVE_CARRIER , steer_cmd=(0.0, 0.0), settle_s=0.0)
         print(f"[FlatTop] done. best CV={best_cv:.4f}")
+        # after the final write (or right before return in open_loop path)
+        if zero_carrier:
+            import os, time, cv2, numpy as np
+            ZERO_DIR = r"C:\WC\SLM_bmp\zero_carrier"
+            os.makedirs(ZERO_DIR, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            Hh, Ww = phase.shape
+            meta = f"r{R_frac:.3f}_e{roll_frac:.3f}_{profile}_m{order_m}_init{init_steps}_more{more_steps}"
+            base = f"zero_{meta}_{ts}"
+            npy_path = os.path.join(ZERO_DIR, base + ".npy")
+            bmp_path = os.path.join(ZERO_DIR, base + ".bmp")
+
+            # save raw phase (radians, pre-correction); this is what zcar will load
+            np.save(npy_path, phase.astype(np.float32))
+
+            # also drop a preview BMP written with ZERO carrier (so it looks like what you saved)
+            try:
+                corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+                if corr_u8 is not None:
+                    # write to bmp_path without disturbing your OUT_BMP
+                    self._write_phase_with_corr(phase.astype(np.float32), corr_u8, bmp_path,
+                                                carrier_cmd=(0.0, 0.0), steer_cmd=(0.0, 0.0), settle_s=0.0)
+            except Exception:
+                pass
+
+            print(f"[FlatTop] zero-carrier phase saved: {npy_path}")
+

@@ -52,6 +52,7 @@ import HW_wrapper.HW_devices as hw_devices
 import sys
 from Utils.Common import calculate_z_series
 import numpy as np
+import cv2
 
 # import Outout_to_gui as outout
 from CommandDispatcher import run
@@ -1226,6 +1227,45 @@ class PyGuiOverlay(Layer):
         if self.handle_smaract_controls(key_data_enum, is_coarse):
             return True
 
+        gui = getattr(self, "cam", None)  # <— ZeluxGUI lives here
+
+        # ---------- helper: nudge carrier & write via ZeluxGUI ----------
+        def _nudge_carrier(dx, dy):
+            if gui is None or not hasattr(gui, "_write_phase_with_corr"):
+                print("[g/h] ZeluxGUI (self.cam) not available or writer missing.")
+                return
+
+            # read → bump → persist on ZeluxGUI
+            cx, cy = getattr(gui, "_autosym_carrier", (100.0, 0.0))
+            cx_new, cy_new = float(cx) + float(dx), float(cy) + float(dy)
+            setattr(gui, "_autosym_carrier", (cx_new, cy_new))
+
+            # paths (prefer GUI’s, else fallbacks)
+            CORR_BMP = getattr(gui, "AUTOSYM_CORR_BMP",
+                               r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp")
+            OUT_BMP = getattr(gui, "AUTOSYM_OUT_BMP",
+                              r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp")
+
+            corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+            if corr_u8 is None:
+                print(f"[g/h] cannot read correction BMP: {CORR_BMP}")
+                return
+            H, W = corr_u8.shape
+            zero_phase = np.zeros((H, W), np.float32)
+
+            try:
+                gui._write_phase_with_corr(
+                    zero_phase, corr_u8, OUT_BMP,
+                    carrier_cmd=(cx_new, cy_new),
+                    steer_cmd=(0.0, 0.0),
+                    settle_s=0.0
+                )
+                print(f"[carrier] ({cx:.2f},{cy:.2f}) -> ({cx_new:.2f},{cy_new:.2f})")
+            except Exception as e:
+                print(f"[g/h] write failed: {e}")
+
+        step = 50.0 if is_coarse else 20.0  # coarse = larger nudge
+
         # 2) Ctrl-only commands
         if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:
             ctrl_actions = {
@@ -1250,6 +1290,8 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.Q_KEY: lambda: self._toggle_mff(0),
                 KeyboardKeys.W_KEY: lambda: self._toggle_mff(1),
                 KeyboardKeys.E_KEY: lambda: self._toggle_mff(2),
+                KeyboardKeys.G_KEY: lambda: _nudge_carrier(+step, 0.0),  # Ctrl+G → x += step
+                KeyboardKeys.H_KEY: lambda: _nudge_carrier(-step, 0.0),  # Ctrl+H → x -= step
             }
             action = ctrl_actions.get(key_data_enum)
             if action:
@@ -1276,6 +1318,8 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.OEM_5:      lambda: run("kabs;mark k", record_history=False),     # Shift+'\'
                 KeyboardKeys.K_KEY:      lambda: run("mark k", record_history=False),
                 KeyboardKeys.F_KEY:      lambda: run("fq !", record_history=False),
+                KeyboardKeys.G_KEY:      lambda: _nudge_carrier(0.0, +step),  # Shift+G → y += step
+                KeyboardKeys.H_KEY:      lambda: _nudge_carrier(0.0, -step),  # Shift+H → y -= step
             }
 
             action = shift_actions.get(key_data_enum)
