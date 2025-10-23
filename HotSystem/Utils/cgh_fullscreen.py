@@ -38,8 +38,8 @@ SHIFT_KEY_TO_INDEX = {
 }
 
 # ------- DISPLAY / UI -------
-MONITOR_NUM   = 2     # 1-based Windows “Identify” number of the SLM monitor
-MONITOR_HELP_NUM = 1 if MONITOR_NUM != 1 else 2   # pick 2 if your SLM is #1, etc.
+MONITOR_NUM   = 0     # 1-based Windows “Identify” number of the SLM monitor
+MONITOR_HELP_NUM = 2 if MONITOR_NUM != 2 else 1   # pick 2 if your SLM is #1, etc.
 HELP_WIN_NAME = "SLM – Help & Status"
 WATCH_POLL_MS = 120   # poll interval
 FLIP_H = False
@@ -150,21 +150,51 @@ def next_numbered_path(directory, ext=".bmp"):
             return candidate
         i += 1
 def load_sequence_params(directory):
-    """Return frame_time_ms from l; create with default if missing."""
+    """
+    Read or create sequence_display_parameters.json in `directory`.
+    Returns a dict: {"frame_time_ms": int, "duration_s": float}
+    """
+    import json, os
     os.makedirs(directory, exist_ok=True)
     params_path = os.path.join(directory, "sequence_display_parameters.json")
+    defaults = {"frame_time_ms": 30, "duration_s": 60.0}
+
     if not os.path.exists(params_path):
-        data = {"frame_time_ms": 30}
         with open(params_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        return 30
+            json.dump(defaults, f, indent=2)
+        return defaults.copy()
+
     try:
         with open(params_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        ft = int(data.get("frame_time_ms", 30))
-        return max(1, ft)
+            data = json.load(f) or {}
     except Exception:
-        return 30
+        # recreate if corrupted
+        with open(params_path, "w", encoding="utf-8") as f:
+            json.dump(defaults, f, indent=2)
+        return defaults.copy()
+
+    # ensure keys exist (non-destructive upgrade)
+    changed = False
+    for k, v in defaults.items():
+        if k not in data:
+            data[k] = v
+            changed = True
+    if changed:
+        try:
+            with open(params_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+    # sanitize
+    try:
+        data["frame_time_ms"] = max(1, int(data.get("frame_time_ms", 30)))
+    except Exception:
+        data["frame_time_ms"] = 30
+    try:
+        data["duration_s"] = float(data.get("duration_s", 10.0))
+    except Exception:
+        data["duration_s"] = 10.0
+    return data
 def read_sequence_params_json(dir_path):
     import json
     cfg_path = os.path.join(dir_path, "sequence_display_parameters.json")
@@ -226,39 +256,59 @@ def load_u8_noresize(path):
     if img.dtype != np.uint8:
         img = np.clip(img, 0, 255).astype(np.uint8)
     return img
-def play_sequence_on_window(win_name, panel_wh, flip_h=False, flip_v=False, ignore_keys=None):
+def play_sequence_on_window(win_name, panel_wh, flip_h=False, flip_v=False, ignore_keys=None, duration_s=None):
     """
     Plays BMP frames from INDEX_BMP_DIR with 'xxx[ms]' overlay.
-    Runs forever (no key stops). Keeps the UI responsive via waitKey(1).
+    Runs for `duration_s` seconds; if None, uses duration from JSON.
+    Hot-reloads frame_time_ms and duration_s while playing.
     """
     import time
 
+    if ignore_keys is None:
+        ignore_keys = set()
+
     W, H = panel_wh
-    frame_time_ms = load_sequence_params(INDEX_BMP_DIR)
+    params = load_sequence_params(INDEX_BMP_DIR)
+    frame_time_ms = float(params["frame_time_ms"])
+    json_duration_s = float(params["duration_s"])
+    # decide initial duration
+    if duration_s is None:
+        duration_s = json_duration_s
+
     frames = list_sequence_bmps(INDEX_BMP_DIR)
     if not frames:
         print(f"[Sequence] No *.bmp frames in {INDEX_BMP_DIR}")
         return
 
-    print(f"[Sequence] Playing {len(frames)} frame(s) @ {frame_time_ms} ms each from {INDEX_BMP_DIR} (endless loop)")
+    print(f"[Sequence] Playing {len(frames)} frame(s) @ {int(frame_time_ms)} ms each from {INDEX_BMP_DIR} "
+          f"for {float(duration_s):.1f}s")
 
-    # Ensure window exists (cv2.imshow will also auto-create, but this avoids flicker)
     try:
         cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
     except Exception:
         pass
 
     i = 0
-    next_switch = time.monotonic()  # seconds
-    last_shown_idx = -1
+    t0 = time.monotonic()
+    next_flip = t0
+    last_reload_t = t0  # throttle JSON reloads
 
     while True:
-        # (Optional) if you want hot-reload of frame_time_ms, uncomment this block every ~1s:
-        # if int(time.monotonic()) % 1 == 0:
-        #     frame_time_ms = load_sequence_params(INDEX_BMP_DIR)
-
         now = time.monotonic()
-        if now >= next_switch or i != last_shown_idx:
+
+        # hot-reload JSON ~10 Hz (adjust if you want slower/faster)
+        if now - last_reload_t >= 0.1:
+            p = load_sequence_params(INDEX_BMP_DIR)
+            frame_time_ms = float(p["frame_time_ms"])
+            json_duration_s = float(p["duration_s"])
+            if duration_s is None:
+                duration_s = json_duration_s
+            last_reload_t = now
+
+        if now - t0 >= float(duration_s):
+            break
+
+        if now >= next_flip:
             path = frames[i]
             try:
                 img = load_u8_noresize(path)
@@ -268,19 +318,19 @@ def play_sequence_on_window(win_name, panel_wh, flip_h=False, flip_v=False, igno
                 if flip_h: img_disp = cv2.flip(img_disp, 1)
                 if flip_v: img_disp = cv2.flip(img_disp, 0)
                 cv2.imshow(win_name, img_disp)
-                last_shown_idx = i
-                next_switch = now + max(1, int(frame_time_ms)) / 1000.0
-                i = (i + 1) % len(frames)
             except Exception as e:
                 print(f"[Sequence] Failed to load '{path}': {e}")
-                # Skip this frame quickly
-                next_switch = now + 0.05
-                i = (i + 1) % len(frames)
 
-        # Pump HighGUI so the window repaints and stays interactive.
-        # We ignore the key value and never stop here.
-        _ = cv2.waitKey(1)  # DO NOT check/branch on this
+            i = (i + 1) % len(frames)
+            ft = max(1.0, frame_time_ms) / 1000.0
+            next_flip += ft
+            if next_flip < now:
+                next_flip = now + ft  # catch up if we fell behind
 
+        # keep UI responsive
+        _ = cv2.waitKey(1)
+
+    print("[Sequence] Finished timed playback.")
 def human_bool(b): return "ON" if b else "OFF"
 def build_help_image(state, width=1100, height=680, dpi_scale=10):
     """
@@ -330,6 +380,7 @@ def build_help_image(state, width=1100, height=680, dpi_scale=10):
         "  p ............ Play numbered sequence from INDEX_BMP_DIR",
         "  l ............ Toggle this Help window",
         "  F/H/V ........ Reset flips / Flip Horizontal / Flip Vertical",
+        "  a ............ Save current CGH as 1.bmp in INDEX_BMP_DIR",
         "  Shift+1..9 ... Copy 1.bmp..9.bmp → SAVE_BMP",
         "  Shift+0 ...... Copy 10.bmp → SAVE_BMP",
     ]
@@ -347,14 +398,15 @@ def build_help_image(state, width=1100, height=680, dpi_scale=10):
     status = [
         f"Now ............ {now}",
         f"Mode ........... {mode_str}",
-        f"Flips .......... H={'ON' if state.get('flip_h', False) else 'OFF'}  "
-        f"V={'ON' if state.get('flip_v', False) else 'OFF'}",
+        f"Flips .......... H={'ON' if state.get('flip_h', False) else 'OFF'}  V={'ON' if state.get('flip_v', False) else 'OFF'}",
         f"Panel size ..... {state.get('W', '?')} x {state.get('H', '?')}",
         f"Watch path ..... {os.path.basename(state.get('WATCH_PATH', ''))}",
         f"Last reload .... {state.get('last_reload', '—')}",
         f"Save BMP ....... {os.path.basename(state.get('SAVE_BMP', ''))}",
         f"Index dir ...... {state.get('INDEX_BMP_DIR', '')}",
-        f"Seq frames ..... {state.get('seq_count', '?')}  @ {state.get('frame_time_ms', '?')} ms",
+        f"Seq frames ..... {state.get('seq_total','')}",
+        f"Frame time ..... {state.get('frame_time_ms','')} ms,",
+        f"Duration ....... {state.get('duration_s',''):.1f} s",
         f"SLM monitor .... #{state.get('MONITOR_NUM', '?')}",
         f"Help monitor ... #{state.get('MONITOR_HELP_NUM', '?')}",
     ]
@@ -483,6 +535,11 @@ def main():
         if flip_v: show = cv2.flip(show, 0)
         cv2.imshow(win, show)
 
+        # Get fresh JSON params
+        params = load_sequence_params(INDEX_BMP_DIR)
+        frame_time_ms = int(params.get("frame_time_ms", 30))
+        duration_s = float(params.get("duration_s", 60.0))
+
         if help_visible:
             state = {
                 "external_mode": external_mode,
@@ -495,6 +552,7 @@ def main():
                 "INDEX_BMP_DIR": INDEX_BMP_DIR,
                 "seq_count": len(frames),  # safe: frames is always defined
                 "frame_time_ms": frame_time_ms,  # always defined
+                "duration_s": duration_s,
                 "MONITOR_NUM": MONITOR_NUM,
                 "MONITOR_HELP_NUM": MONITOR_HELP_NUM,
                 # playback extras
@@ -558,7 +616,7 @@ def main():
                 # (Optionally set a timer to advance frames every frame_time_ms)
                 print(f"[Sequence] Playing {len(frames)} frame(s) @ {frame_time_ms} ms each")
                 # Play numbered sequence from INDEX_BMP_DIR with overlayed frame time from JSON.
-                play_sequence_on_window(win, (W, H), flip_h=flip_h, flip_v=flip_v, ignore_keys={ord('l')})
+                play_sequence_on_window(win, (W, H), flip_h=flip_h, flip_v=flip_v, ignore_keys={ord('l')}, duration_s=duration_s)
         elif key == ord('q'):
             # Force return to External listening mode (default)
             external_mode = True
@@ -581,6 +639,16 @@ def main():
                     cv2.destroyWindow(HELP_WIN_NAME)
                 except Exception:
                     pass
+        elif key == ord('a'):
+            # Save current CGH as 1.bmp (overwrite)
+            try:
+                out_path = os.path.join(INDEX_BMP_DIR, "1.bmp")
+                ensure_dir(out_path)
+                ok = cv2.imwrite(out_path, show)  # use `show` to capture flips; use `img_u8` if you prefer raw
+                print(("Saved " + out_path) if ok else "Save failed!")
+            except Exception as e:
+                print(f"[A] Failed to save 1.bmp: {e}")
+
         elif key in SHIFT_KEY_TO_INDEX:
             idx = SHIFT_KEY_TO_INDEX[key]
             try:

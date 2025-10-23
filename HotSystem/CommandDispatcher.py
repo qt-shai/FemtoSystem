@@ -1388,6 +1388,9 @@ class CommandDispatcher:
                 if reverse: cam.StartLive(); print("Camera started."); p.opx.btnStartCounterLive()
                 else:       cam.StopLive();  print("Camera stopped.")
             for flipper in getattr(p, "mff_101_gui", []):
+                if flipper.serial_number[-2:] == '32':
+                    print("Skipping M32 flipper toggle")
+                    continue
                 tag = f"on_off_slider_{flipper.unique_id}"
                 pos = flipper.dev.get_position()
                 if (not reverse and pos==1) or (reverse and pos==2):
@@ -2827,9 +2830,12 @@ class CommandDispatcher:
 
     def _acquire_spectrum_worker(self, arg):
         """Actual spectrum acquisition logic, run in a background thread."""
-        p = self.get_parent()
-        is_st=False
+        import re, os, glob, time, threading
+        from pathlib import Path
+        import pyperclip
 
+        p = self.get_parent()
+        p.hrs_500_gui.dev._exp.Stop()
         # --- SPC done event ---
         evt = getattr(self, "_spc_done_evt", None)
         if not isinstance(evt, threading.Event):
@@ -2837,50 +2843,244 @@ class CommandDispatcher:
             self._spc_done_evt = evt
         evt.clear()
 
-        # --- NEW: special 'st' pre-sequence ---
-        try:
-            tokens = (arg or "").strip().split()
-            is_st = len(tokens) > 0 and tokens[0].lower() == "st"
-            work_tokens = tokens[1:] if is_st else tokens
-            no_preview = "!" in work_tokens
-            rest_arg = " ".join(work_tokens)  # may include '!'
-            rest_arg_clean = " ".join(t for t in work_tokens if t != "!").strip()
+        # -------- parse args --------
+        # Examples:
+        #   ""                       -> st ON, 1 shot, current exposure
+        #   "2.0"                    -> st ON, 1 shot, t=2.0s
+        #   "n=10 t=2 !"             -> st ON, 10 shots, t=2s, no preview
+        #   "nost n=3"               -> st OFF, 3 shots
 
-            if is_st:
-                # 1) set XYZ first
-                try:
-                    self.handle_set_xyz("")  # pass args if you need (e.g., current cursor, etc.)
-                    print("handle_set_xyz done.")
-                except Exception as e:
-                    print(f"handle_set_xyz failed: {e}")
+        # --- Helpers to parse/format/replace Site(x y z) in names ---
+        _SITE_RE = re.compile(r"(?i)Site\s*\(\s*([^\s\)]+)\s+([^\s\)]+)(?:\s+([^\s\)]+))?\s*\)")
 
-                # 2) paste clipboard into expNotes
-                try:
-                    clip = (pyperclip.paste() or "").strip()
-                    if clip:
-                        # set (overwrite) note with clipboard text
-                        self.handle_update_note(clip)
-                        print("Experiment note updated from clipboard.")
-                    else:
-                        print("Clipboard empty — note not updated.")
-                except Exception as e:
-                    print(f"Could not read clipboard / update note: {e}")
-        except Exception as e:
-            print(f"'st' pre-sequence failed: {e}")
-        # --- end NEW ---
+        def _parse_site_from_string(name: str):
+            """
+            Return (x_um, y_um, z_um_or_None, use_comma) if 'Site(...)' found; else None.
+            Accepts decimal comma.
+            """
+            m = _SITE_RE.search(name or "")
+            if not m:
+                return None
+            xs, ys, zs = m.group(1), m.group(2), m.group(3)
+            use_comma = ("," in xs) or ("," in ys) or (zs is not None and "," in zs)
 
-        self.handle_mark(rest_arg_clean)
-        time.sleep(0.1)
+            def _nf(s):
+                return float(str(s).replace(",", ".")) if s is not None else None
 
-        # 0) Try to set exposure time
-        secs_str = rest_arg_clean
+            return (_nf(xs), _nf(ys), _nf(zs) if zs is not None else None, use_comma)
+
+        def _fmt_num(v: float, use_comma: bool) -> str:
+            s = f"{v:.2f}"
+            return s.replace(".", ",") if use_comma else s
+
+        def _replace_or_append_site(name: str, x_um: float, y_um: float, z_um, use_comma: bool) -> str:
+            """
+            Replace existing Site(...) or append ' Site(x y [z])' at the end.
+            Keeps the rest of the filename intact (we operate on the stem you already sanitize).
+            """
+
+            def repl(m):
+                zpart = f" {_fmt_num(z_um, use_comma)}" if z_um is not None else ""
+                return f"Site ({_fmt_num(x_um, use_comma)} {_fmt_num(y_um, use_comma)}{zpart})"
+
+            if _SITE_RE.search(name):
+                return _SITE_RE.sub(repl, name, count=1)
+            # append if missing
+            zpart = f" {_fmt_num(z_um, use_comma)}" if z_um is not None else ""
+            tail = f" Site ({_fmt_num(x_um, use_comma)} {_fmt_num(y_um, use_comma)}{zpart})"
+            # keep below your 100-char sanitize later; we’ll let your truncation handle length
+            return f"{name}{tail}"
+
+        # -------- parse args (unchanged) --------
+        tokens = (arg or "").strip().split()
+
+        def _kv(name, cast, default=None):
+            import re
+            pat = re.compile(rf"(?i)\b{name}\s*=\s*([^\s]+)")
+            for t in tokens:
+                m = pat.match(t)
+                if m:
+                    try:
+                        return cast(m.group(1))
+                    except Exception:
+                        pass
+            return default
+
+        # --- NEW: detect "shift" mode and parse its step (µm) ---
+        shift_mode = False
+        shift_um = 20.0  # default step in micrometers
+        if any(t.lower() == "shift" for t in tokens):
+            shift_mode = True
+            # if a number immediately follows 'shift', use it as µm step
+            for i, t in enumerate(tokens):
+                if t.lower() == "shift":
+                    if i + 1 < len(tokens):
+                        try:
+                            shift_um = float(tokens[i + 1])
+                        except Exception:
+                            pass
+                    break
+
+        shots = _kv("n", int, 1)
+        t_explicit = _kv("t", float, None)
+
+        # keep your “bare float” support
+        bare_time = None
+        for t in tokens:
+            try:
+                bare_time = float(t)
+                break
+            except Exception:
+                pass
+
+        no_preview = any(t == "!" for t in tokens)
+        is_st = not any(t.lower() == "nost" for t in tokens)  # default ST=ON
+
+        def _is_float(s):
+            try:
+                float(s);
+                return True
+            except Exception:
+                return False
+
+        # Clean string for your old "bare float" path, but:
+        #   - remove 'shift' and its numeric so they never become a bare-time
+        rest_arg_clean_for_time = []
+        skip_next_numeric_after_shift = False
+        for t in tokens:
+            tl = t.lower()
+            if skip_next_numeric_after_shift:
+                skip_next_numeric_after_shift = False
+                continue
+            if tl == "shift":
+                skip_next_numeric_after_shift = True
+                continue
+            if t in ("!", "st", "nost") or "=" in t or _is_float(t):
+                continue
+            rest_arg_clean_for_time.append(t)
+        rest_arg_clean_for_time = " ".join(rest_arg_clean_for_time).strip()
+
+        # --- TIME SETTING RULES ---
+        # If in shift mode: DO NOT change integration time unless t=... is provided.
+        # If not in shift mode: keep your original behavior (t=... or bare float).
+        if shift_mode:
+            secs_str = str(t_explicit) if (t_explicit is not None) else ""  # no bare float
+        else:
+            secs_str = str(t_explicit) if (t_explicit is not None) else rest_arg_clean_for_time
+
         if secs_str:
             try:
-                secs = float(secs_str) * 1000
-                p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, secs)
-                print(f"Integration time set to {secs}s")
+                secs_ms = float(secs_str) * 1000.0
+                p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, secs_ms)
+                print(f"Integration time set to {secs_str}s")
             except Exception as e:
                 print(f"Could not set integration time to '{secs_str}': {e}")
+
+        # For later re-assert:
+        if shift_mode:
+            time_s = t_explicit  # None if not given, so we won't touch exposure
+        else:
+            # preserve your original bare-float semantics outside shift mode
+            bare_time = None
+            for t in tokens:
+                try:
+                    bare_time = float(t);
+                    break
+                except Exception:
+                    pass
+            time_s = t_explicit if (t_explicit is not None) else bare_time
+
+        # defaults
+        shots = _kv("n", int, 1)
+        no_preview = any(t == "!" for t in tokens)
+        is_st = not any(t.lower() == "nost" for t in tokens)  # default ST=ON
+
+        # -------- ST pre-sequence (optional but default ON) --------
+        if is_st:
+            try:
+                self.handle_set_xyz("")  # your existing pre-setup
+                print("handle_set_xyz done.")
+            except Exception as e:
+                print(f"handle_set_xyz failed: {e}")
+
+            try:
+                clip = (pyperclip.paste() or "").strip()
+                if clip:
+                    self.handle_update_note(clip)
+                    print("Experiment note updated from clipboard.")
+                else:
+                    print("Clipboard empty — note not updated.")
+            except Exception as e:
+                print(f"Could not read clipboard / update note: {e}")
+
+            # Parse origin Site(...) from clipboard name (used to update coords in shift mode)
+            origin_site = None
+            origin_use_comma = False
+            try:
+                _clip_name = (pyperclip.paste() or "").strip()
+                ps = _parse_site_from_string(_clip_name)
+                if ps:
+                    ox_um, oy_um, oz_um, origin_use_comma = ps
+                    origin_site = (ox_um, oy_um, oz_um)
+            except Exception:
+                pass
+
+        # Use the *cleaned* arg for your mark (drop kvs and !, and NEW: drop 'shift' + its number)
+        def _clean_mark_arg():
+            keep = []
+            skip_next_numeric_after_shift = False
+            for t in tokens:
+                tl = t.lower()
+                if skip_next_numeric_after_shift:
+                    skip_next_numeric_after_shift = False
+                    continue
+                if tl in ("st", "nost") or t == "!" or "=" in t:
+                    continue
+                if tl == "shift":
+                    skip_next_numeric_after_shift = True
+                    continue
+                # skip any lone numeric that could be mistaken for exposure text
+                try:
+                    float(t);
+                    continue
+                except Exception:
+                    pass
+                keep.append(t)
+            return " ".join(keep)
+        rest_arg_clean = _clean_mark_arg()
+        try:
+            self.handle_mark(rest_arg_clean)
+        except Exception:
+            pass
+        time.sleep(0.1)
+
+        # --- helpers for relative positioning to origin ---
+        x_off_um = 0.0
+        y_off_um = 0.0
+
+        def _move_rel(axis, delta_um: float):
+            # axis: "X" or "Y"
+            try:
+                if axis == "X":
+                    self.handle_moveX(f"{delta_um}")
+                elif axis == "Y":
+                    self.handle_moveY(f"{delta_um}")
+                return True
+            except Exception as e:
+                print(f"Relative move {axis} {delta_um}um failed: {e}")
+                return False
+
+        def _back_to_origin():
+            nonlocal x_off_um, y_off_um
+            try:
+                if abs(x_off_um) > 0:
+                    _move_rel("X", -x_off_um)
+                if abs(y_off_um) > 0:
+                    _move_rel("Y", -y_off_um)
+                x_off_um = 0.0
+                y_off_um = 0.0
+            except Exception as e:
+                print(f"Return-to-origin failed: {e}")
 
         # 1) Stop camera & flippers
         try:
@@ -2888,71 +3088,242 @@ class CommandDispatcher:
         except Exception:
             pass
 
-        # 2) Acquire spectrum
-        # if hasattr(p.opx, "spc") and hasattr(p.opx.spc, "acquire_Data") and not self.proEM_mode:
-        #     try:
-        #         p.hrs_500_gui.acquire_callback()
-        #     except Exception as e:
-        #         print(f"acquire_callback failed: {e}")
-        #         return
-        # else:
-        if hasattr(p, "hrs_500_gui"): # and self.proEM_mode: # proEM mode
-            p.hrs_500_gui.dev._exp.Stop()
-            self.handle_set_xyz("")
-            fn=__import__('pyperclip').paste()
-            # Clean clipboard -> base name
-            s = (fn or "").strip().strip('"').strip("'")
-            s = s.replace("\r", "").replace("\n", " ")
-            pt = Path(s)
-            base = pt.stem if pt.suffix else os.path.basename(s)
-            base = re.sub(r'[<>:"/\\|?*]', "_", base)[:120]  # keep it short & legal
-            p.hrs_500_gui.dev.set_filename(base)
-            while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
-                time.sleep(0.1)
-            p.hrs_500_gui.acquire_callback()
-            # p.hrs_500_gui.dev.acquire_Data()
-            time.sleep(0.5)
-            if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
-                p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
-                while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
-                    time.sleep(0.1)
-                if not no_preview and self.proEM_mode:
-                    p.hrs_500_gui.dev._exp.Preview()
-        else:
-            print("Parent OPX or SPC not available.")
+        # Build move plan
+        if shift_mode:
+            shots = 9  # exactly nine frames
+            s = float(shift_um)
 
-        if self.proEM_mode:
-            return
+            # target offsets (X,Y) in µm relative to origin (0,0)
+            # Order: start at origin (0,0), then snake rows across the 3×3 centered on origin.
+            # We include origin only once (first shot).
+            targets = [
+                (0.0, 0.0),  # Shot 1: origin
+                (-s, -s), (0.0, -s), (s, -s),  # Row y = -s, left->right
+                (s, 0.0), (-s, 0.0),  # Row y = 0, right->left (skip origin here)
+                (-s, s), (0.0, s), (s, s),  # Row y = +s, left->right
+            ]
 
-        # 3) Locate saved CSV
-        fp = getattr(p.hrs_500_gui.dev, "last_saved_csv", None)
-        if not fp or not os.path.isfile(fp):
-            save_dir = getattr(p.hrs_500_gui.dev, "save_directory", None)
-            if not save_dir:
-                print("No CSV found to rename.")
-                return
-            matches = glob.glob(os.path.join(save_dir, "*.csv"))
-            if not matches:
-                print("No CSV found to rename.")
-                return
-            fp = max(matches, key=os.path.getmtime)
+            # We will *not* return-to-origin between shots in this mode; only at the very end.
+            # Provide helpers to move to absolute target offsets from current (x_off_um,y_off_um).
+            def _goto_offset_abs(tx_um: float, ty_um: float):
+                nonlocal x_off_um, y_off_um
+                dx = tx_um - x_off_um
+                dy = ty_um - y_off_um
+                if abs(dx) > 0:
+                    _move_rel("X", dx)
+                    x_off_um += dx
+                if abs(dy) > 0:
+                    _move_rel("Y", dy)
+                    y_off_um += dy
 
-        # 4) Rename with notes
-        notes = getattr(p.opx, "expNotes", "")
-        dirname, basename = os.path.split(fp)
-        base, ext = os.path.splitext(basename)
-        if notes:
-            new_name = f"{base}_{notes}{ext}"
-            new_fp = os.path.join(dirname, new_name)
+            # --- Acquire loop (custom path for 9-frame snake) ---
+            for k, (tx, ty) in enumerate(targets, start=1):
+                # Move from current offset to target offset (no back-to-origin here)
+                _goto_offset_abs(tx, ty)
+                if k == 2:
+                    time.sleep(1.0)  # keep your spec: wait 1s after the first move
+
+                # ----- your existing proEM capture block (unchanged) -----
+                if hasattr(p, "hrs_500_gui"):
+                    try:
+                        p.hrs_500_gui.dev._exp.Stop()
+                    except Exception:
+                        pass
+
+                    # Build filename from clipboard + update Site(...) with current offsets
+                    try:
+                        fn = __import__('pyperclip').paste()
+                        sname = (fn or "").strip().strip('"').strip("'")
+                        sname = sname.replace("\r", "").replace("\n", " ")
+                        pt = Path(sname)
+                        base = pt.stem if pt.suffix else os.path.basename(sname)
+                        base = re.sub(r'[<>:"/\\|?*]', "_", base)
+
+                        if origin_site is not None:
+                            ox_um, oy_um, oz_um = origin_site
+                            nx_um = float(ox_um) + float(x_off_um)
+                            ny_um = float(oy_um) + float(y_off_um)
+                            base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
+
+                        if shots > 1:
+                            base = f"{base}_#{k:02d}"
+                        p.hrs_500_gui.dev.set_filename(base[:100])
+                    except Exception:
+                        pass
+
+                    # DO NOT touch exposure unless time_s is set (your rule)
+                    if time_s is not None:
+                        try:
+                            ms = float(time_s) * 1000.0
+                            p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, ms)
+                        except Exception:
+                            pass
+
+                    # wait until not updating, then acquire
+                    try:
+                        while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                            time.sleep(0.05)
+                    except Exception:
+                        pass
+
+                    try:
+                        p.hrs_500_gui.acquire_callback()
+                    except Exception as e:
+                        print(f"acquire_callback failed on shot {k}: {e}")
+                        continue
+
+                    time.sleep(0.4)
+                    try:
+                        if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
+                            p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
+                            while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                                time.sleep(0.05)
+                            if not no_preview and self.proEM_mode:
+                                p.hrs_500_gui.dev._exp.Preview()
+                    except Exception:
+                        pass
+                else:
+                    print("Parent OPX or SPC not available.")
+                    break
+
+            # Return to origin once at the end (required)
             try:
-                os.replace(fp, new_fp)
-                print(f"Renamed SPC file → {new_fp}")
-                pyperclip.copy(new_fp)
-                p.hrs_500_gui.dev.last_saved_csv = new_fp  # Update path
-            except Exception as e:
-                print(f"Failed to rename SPC file: {e}")
+                _back_to_origin()
+            except Exception:
+                pass
 
-        # --- NEW: If in 'st' mode, run "disp tif" at the end ---
+            # Continue your post-display if ST was on
+            if is_st:
+                try:
+                    self.handle_display_slices("tif")
+                    print('Executed: disp tif')
+                except Exception as e:
+                    print(f'Failed to run "disp tif": {e}')
+
+            run("wait 2000;a")
+            try:
+                self._spc_done_evt.set()
+                print("SPC finished (9-frame snake).")
+            except Exception:
+                pass
+
+            return  # <<< IMPORTANT: we handled the whole flow for the 9-frame mode
+
+        # 2) Acquire loop
+        # proEM behavior is kept as in your original code-path.
+        for k in range(1, int(max(1, shots)) + 1):
+
+            if hasattr(p, "hrs_500_gui"):  # proEM path supported
+                try:
+                    p.hrs_500_gui.dev._exp.Stop()
+                except Exception:
+                    pass
+
+                # Optional: refresh XYZ each shot if you want; currently leave as once before
+                try:
+                    # Set a filename stem from clipboard, safe characters only
+                    fn = __import__('pyperclip').paste()
+                    s = (fn or "").strip().strip('"').strip("'")
+                    s = s.replace("\r", "").replace("\n", " ")
+                    pt = Path(s)
+                    base = pt.stem if pt.suffix else os.path.basename(s)
+                    # add shot index to ensure uniqueness when SW reuses names
+                    base = re.sub(r'[<>:"/\\|?*]', "_", base)[:100]
+
+                    # --- NEW: if shift_mode and we know the origin Site(...), update coords for this shot
+                    if shift_mode and origin_site is not None:
+                        try:
+                            ox_um, oy_um, oz_um = origin_site
+                            # current offset relative to origin, set earlier by the move we just made
+                            nx_um = float(ox_um) + float(x_off_um)
+                            ny_um = float(oy_um) + float(y_off_um)
+                            base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
+                        except Exception as _e:
+                            # fallback: keep base as-is if anything goes wrong
+                            pass
+
+                    if shots > 1:
+                        base = f"{base}_#{k:02d}"
+
+                    p.hrs_500_gui.dev.set_filename(base)
+                except Exception:
+                    pass
+
+                # if exposure provided, re-assert it (some SDKs reset)
+                if time_s is not None:
+                    try:
+                        ms = float(time_s) * 1000.0
+                        p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, ms)
+                    except Exception:
+                        pass
+
+                # wait until not updating, then acquire
+                try:
+                    while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                        time.sleep(0.05)
+                except Exception:
+                    pass
+
+                try:
+                    p.hrs_500_gui.acquire_callback()
+                except Exception as e:
+                    print(f"acquire_callback failed on shot {k}: {e}")
+                    continue
+
+                time.sleep(0.4)
+                try:
+                    if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
+                        # restore default preview exposure if desired by you
+                        p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
+                        while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                            time.sleep(0.05)
+                        if not no_preview and self.proEM_mode:
+                            p.hrs_500_gui.dev._exp.Preview()
+                except Exception:
+                    pass
+            else:
+                print("Parent OPX or SPC not available.")
+                break
+
+            # If not in proEM_mode, rename CSV now (per shot)
+            if not self.proEM_mode:
+                # 3) Locate saved CSV for this shot
+                fp = getattr(p.hrs_500_gui.dev, "last_saved_csv", None)
+                if not fp or not os.path.isfile(fp):
+                    save_dir = getattr(p.hrs_500_gui.dev, "save_directory", None)
+                    if not save_dir:
+                        print("No CSV found to rename.")
+                        continue
+                    matches = glob.glob(os.path.join(save_dir, "*.csv"))
+                    if not matches:
+                        print("No CSV found to rename.")
+                        continue
+                    fp = max(matches, key=os.path.getmtime)
+
+                # # 4) Rename with notes
+                # notes = getattr(p.opx, "expNotes", "")
+                # dirname, basename = os.path.split(fp)
+                # base, ext = os.path.splitext(basename)
+                # if notes:
+                #     new_name = f"{base}_{notes}{ext}"
+                #     new_fp = os.path.join(dirname, new_name)
+                #     try:
+                #         os.replace(fp, new_fp)
+                #         print(f"[{k}/{shots}] Renamed SPC file → {new_fp}")
+                #         pyperclip.copy(new_fp)
+                #         p.hrs_500_gui.dev.last_saved_csv = new_fp  # update path
+                #     except Exception as e:
+                #         print(f"[{k}/{shots}] Failed to rename SPC file: {e}")
+                # else:
+                #     print(f"[{k}/{shots}] Saved: {fp}")
+
+        # Ensure we end at the original position
+        try:
+            _back_to_origin()
+        except Exception:
+            pass
+
+        # Optional post-display when ST mode was used
         if is_st:
             try:
                 self.handle_display_slices("tif")
@@ -3607,6 +3978,8 @@ class CommandDispatcher:
         - Use 'disp tif' to display the latest TIFF saved by LightField.
         """
         from pathlib import Path
+        import cv2
+        import numpy as np
         def _resolve_existing_scan_file(fn: str, move_subfolder_tag: str = "MoveSubfolderInput") -> str | None:
             """
             Try to resolve an existing scan file:
@@ -3799,6 +4172,154 @@ class CommandDispatcher:
                 except Exception as e:
                     print(f"Failed to parse Alt Text metadata: {e}")
                     return
+
+            # --- helpers for site-averaging series like:  "Site (...)_#10 21-10-2025 17_04_00.tif"
+            import re
+            def _find_latest_numbered_tif(roots):
+                # newest .tif anywhere under roots that has pattern _#NN (NN two digits)
+                cands = []
+                for root in roots:
+                    if not root.exists():
+                        continue
+                    try:
+                        for m in root.rglob("*.tif"):
+                            if re.search(r"_#\d{2}\b", m.name):
+                                cands.append(m)
+                        for m in root.rglob("*.tiff"):
+                            if re.search(r"_#\d{2}\b", m.name):
+                                cands.append(m)
+                    except Exception:
+                        pass
+                if not cands:
+                    return None
+                cands.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                return cands[0]
+
+            def _series_from_latest(latest: "Path"):
+                """
+                From 'Prefix_#NN rest.tif', build the full series with same 'Prefix_' (before _#)
+                Return sorted ascending by # (01..NN)
+                """
+                name = latest.name
+                m = re.search(r"^(.*)_#(\d{2})\b", name)
+                if not m:
+                    return []
+                prefix = m.group(1)  # everything before _#NN
+                folder = latest.parent
+                series = []
+                for p in folder.glob("*.tif"):
+                    if p.name.startswith(prefix + "_#") and re.search(r"_#\d{2}\b", p.name):
+                        series.append(p)
+                for p in folder.glob("*.tiff"):
+                    if p.name.startswith(prefix + "_#") and re.search(r"_#\d{2}\b", p.name):
+                        series.append(p)
+
+                # sort by their NN number
+                def _num(pth):
+                    mm = re.search(r"_#(\d{2})\b", pth.name)
+                    return int(mm.group(1)) if mm else -1
+
+                series.sort(key=_num)  # 01..NN
+                return series
+
+            def _imread_16(path_str):
+                # Prefer tifffile if present to preserve dtype; else fallback to cv2
+                try:
+                    import tifffile as tiff
+                    arr = tiff.imread(str(path_str))
+                    return arr
+                except Exception:
+                    img = cv2.imread(str(path_str), cv2.IMREAD_UNCHANGED)
+                    return img
+
+            def _imwrite_16(path_str, img):
+                try:
+                    import tifffile as tiff
+                    tiff.imwrite(str(path_str), img)
+                    return True
+                except Exception:
+                    return cv2.imwrite(str(path_str), img)
+
+            # ---------- NEW: disp avg / siteavg ----------
+            if arg_clean in ("avg", "siteavg"):
+                roots = [
+                    Path(r"C:\Users\Femto\Work Folders\Documents\LightField"),
+                    Path(r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer"),
+                ]
+                latest = _find_latest_numbered_tif(roots)
+                if latest is None:
+                    print("No numbered TIF (pattern *_#NN*.tif) found in the search roots.")
+                    return
+                series = _series_from_latest(latest)
+                if not series:
+                    print(f"No series found for prefix of: {latest.name}")
+                    return
+
+                print(f"Found series of {len(series)} image(s) for: {latest.name}")
+
+                first = _imread_16(series[0])
+                if first is None:
+                    print(f"Failed to read: {series[0]}")
+                    return
+
+                # ------------------------
+                # siteavg = plain mean
+                # avg     = pairwise abs-diff mean to suppress DC
+                # ------------------------
+                if arg_clean == "siteavg":
+                    acc = np.zeros_like(first, dtype=np.float64)
+                    used = 0
+                    for pth in series:
+                        im = _imread_16(pth)
+                        if im is None or im.shape != first.shape:
+                            print(f"Skipping (shape mismatch): {pth.name}")
+                            continue
+                        acc += im.astype(np.float64)
+                        used += 1
+                    if used == 0:
+                        print("No usable frames to average.")
+                        return
+                    out = acc / float(used)
+                    out_name = re.sub(r"_#\d{2}\b.*$", "", latest.name) + "_AVG.tif"
+                else:
+                    # arg_clean == "avg" → pairwise abs-diff
+                    diffsum = np.zeros_like(first, dtype=np.float64)
+                    pairs = 0
+                    for k in range(0, len(series) - 1, 2):
+                        im1 = _imread_16(series[k])
+                        im2 = _imread_16(series[k + 1])
+                        if (im1 is None) or (im2 is None) or (im1.shape != first.shape) or (im2.shape != first.shape):
+                            print(
+                                f"Skipping pair #{k // 2 + 1} (missing/shape mismatch): {series[k].name} / {series[k + 1].name}")
+                            continue
+                        # absolute difference to remove common DC pedestal
+                        d = np.abs(im2.astype(np.float64) - im1.astype(np.float64))
+                        diffsum += d
+                        pairs += 1
+
+                    if pairs == 0:
+                        print("No valid pairs for DC-suppressed averaging (need at least two frames).")
+                        return
+
+                    out = diffsum / float(pairs)
+                    out_name = re.sub(r"_#\d{2}\b.*$", "", latest.name) + "_AVGDIFF.tif"
+
+                # Convert back to a displayable dtype
+                if first.dtype == np.uint16:
+                    out = np.clip(np.rint(out), 0, 65535).astype(np.uint16)
+                elif first.dtype == np.uint8:
+                    out = np.clip(np.rint(out), 0, 255).astype(np.uint8)
+                else:
+                    # keep float if it was float
+                    out = out.astype(first.dtype, copy=False)
+
+                out_path = latest.parent / out_name
+                if _imwrite_16(out_path, out):
+                    print(f"Average written: {out_path}")
+                    subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", str(out_path)])
+                else:
+                    print(f"Failed to write avg TIF: {out_path}")
+                return
 
             # ---------- Pattern search: e.g. "*16_47_54.tif" or "scan123" ----------
             # If the arg isn't one of the known keywords, treat it as a filename pattern
@@ -6053,10 +6574,18 @@ class CommandDispatcher:
             sym flattop r=0.25 e=0.08 profile=supergauss m=6 init=60 more=10 cv=0.12 maxit=25 seed=1 !
             sym flattop r=0.40 e=0.12 profile=raisedcos init=160 more=20 cv=0.08 maxit=60 seed=1 !
             sym flattop r=0.30 e=0.10 profile=supergauss m=6 init=120 more=20 cv=0.08 maxit=50 seed=42 !
-
+            For small spot
+            sym flattop r=0.16 e=0.05 profile=supergauss m=10 init=140 more=25 cv=0.08 maxit=60 seed=1 zero !
+            sym flattop r=0.18 e=0.06 profile=supergauss m=8 init=140 more=25 cv=0.10 maxit=60 seed=1 zero !
         sym carrier X,Y      – set carrier (grating periods across aperture)
         sym car X,Y          – alias
         sym c X,Y            – alias
+
+        sym dc
+        sym dc list
+        sym dc 3 --> uses index 3 from the list
+        sym dc name=r0.32 vort=2 cb=12 k0=0.03 apod=0.22
+        sym dc k0=0.00 cb=0 vort=0 apod=0 demean=1 (only mean-remove)
         """
         import threading, os, shutil, re, cv2, numpy as np
 
@@ -6291,25 +6820,55 @@ class CommandDispatcher:
             import time, glob, os, re, numpy as np, cv2
 
             ZERO_DIR = r"C:\WC\SLM_bmp\zero_carrier"
-            npys = glob.glob(os.path.join(ZERO_DIR, "*.npy"))
-            if not npys:
-                print(f"No zero-carrier phases found in {ZERO_DIR}. Run 'sym flattop ... zero' first.")
-                return
-            npys.sort(key=os.path.getmtime, reverse=True)
 
-            def _print_list():
+            def _list_zero_files():
+                os.makedirs(ZERO_DIR, exist_ok=True)
+                paths = glob.glob(os.path.join(ZERO_DIR, "*.npy")) + \
+                        glob.glob(os.path.join(ZERO_DIR, "*.bmp"))
+                # newest first
+                paths.sort(key=os.path.getmtime, reverse=True)
+                return paths
+
+            def _print_list(paths):
                 print(f"Zero files in {ZERO_DIR} (newest first):")
-                for i, pth in enumerate(npys, start=1):
+                for i, pth in enumerate(paths, start=1):
                     ts = os.path.getmtime(pth)
-                    print(
-                        f"  {i:2d}: {os.path.basename(pth)}  (mtime={time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))})")
+                    print(f"  {i:2d}: {os.path.basename(pth)}  "
+                          f"({time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))})")
+
+            def _load_phase(path):
+                # return phase float32 radians
+                if path.lower().endswith(".npy"):
+                    ph = np.load(path).astype(np.float32)
+                    return np.mod(ph, 2*np.pi).astype(np.float32)
+                # bmp fallback (was written with zero carrier)
+                u8 = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+                if u8 is None:
+                    raise FileNotFoundError(path)
+                if u8.ndim == 3:
+                    if u8.shape[2] == 4:
+                        u8 = cv2.cvtColor(u8, cv2.COLOR_BGRA2GRAY)
+                    else:
+                        u8 = cv2.cvtColor(u8, cv2.COLOR_BGR2GRAY)
+                u8 = np.clip(u8, 0, 255).astype(np.uint8)
+                return (u8.astype(np.float32) * (2*np.pi/255.0)).astype(np.float32)
+
+            paths = _list_zero_files()
+            if not paths:
+                print(f"No zero-carrier files found in {ZERO_DIR}. Run 'sym flattop ... zero' or 'sym dc' first.")
+                return
 
             rest_str = (rest or "").strip()
             if rest_str.lower() == "list":
-                _print_list()
+                _print_list(paths)
+                print("Usage:\n"
+                      "  sym zcar list\n"
+                      "  sym zcar <idx>  X,Y\n"
+                      "  sym zcar name=<substr>  X,Y\n"
+                      "  sym zcar X,Y   (latest)")
                 return
 
-            # --- 1) Extract carrier at the END of the string: "... X,Y" or "... X Y"
+            # 1) parse the carrier at the end: "... X,Y" or "... X Y"
             mcar = re.search(r"(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)\s*$", rest_str)
             if not mcar:
                 print("Usage:\n"
@@ -6319,37 +6878,35 @@ class CommandDispatcher:
                       "  sym zcar X,Y   (latest)")
                 return
             cx, cy = float(mcar.group(1)), float(mcar.group(2))
-            # Remove the carrier tail; the remaining text (if any) is the selector
             sel_part = rest_str[:mcar.start()].strip()
 
-            # --- 2) Optional selector: name=<substr> or leading integer index
-            sel_name = None
-            sel_idx = None
-
-            mname = re.search(r"(?i)\bname\s*=\s*([^\s,]+)", sel_part)
-            if mname:
-                sel_name = mname.group(1)
+            # 2) selector: index or name=<substr>
+            chosen = None
+            if sel_part:
+                mname = re.search(r"(?i)\bname\s*=\s*([^\s,]+)", sel_part)
+                if mname:
+                    subname = mname.group(1).lower()
+                    for p in paths:
+                        if subname in os.path.basename(p).lower():
+                            chosen = p
+                            break
+                    if chosen is None:
+                        print(f"No zero file matching name='{subname}'. Try 'sym zcar list'.")
+                        return
+                else:
+                    mind = re.match(r"\s*(\d+)\s*$", sel_part)
+                    if mind:
+                        idx = int(mind.group(1))
+                        if not (1 <= idx <= len(paths)):
+                            print(f"Index out of range (1..{len(paths)}). Try 'sym zcar list'.")
+                            return
+                        chosen = paths[idx - 1]
+                    else:
+                        print("Could not parse selector. Use an index or name=<substr> before X,Y.")
+                        return
             else:
-                mind = re.match(r"\s*(\d+)\s*$", sel_part)  # index must be the whole remaining token
-                if mind:
-                    sel_idx = int(mind.group(1))
+                chosen = paths[0]  # latest by default
 
-            # --- 3) Choose the zero file
-            if sel_name:
-                low = sel_name.lower()
-                chosen = next((p for p in npys if low in os.path.basename(p).lower()), None)
-                if chosen is None:
-                    print(f"No zero file matching name='{sel_name}'. Try 'sym zcar list'.")
-                    return
-            elif sel_idx is not None:
-                if not (1 <= sel_idx <= len(npys)):
-                    print(f"Index out of range (1..{len(npys)}). Try 'sym zcar list'.")
-                    return
-                chosen = npys[sel_idx - 1]
-            else:
-                chosen = npys[0]  # latest by default
-
-            # --- 4) Apply carrier with your writer
             if cam is None or not hasattr(cam, "_write_phase_with_corr"):
                 print("ZeluxGUI not available or writer missing.")
                 return
@@ -6357,17 +6914,195 @@ class CommandDispatcher:
             CORR_BMP = getattr(cam, "AUTOSYM_CORR_BMP",
                                r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp")
             OUT_BMP = getattr(cam, "AUTOSYM_OUT_BMP",
-                              r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp")
+                               r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp")
             corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
             if corr_u8 is None:
                 print(f"Cannot read correction BMP: {CORR_BMP}")
                 return
 
-            phase = np.load(chosen).astype(np.float32)  # radians, pre-correction
+            try:
+                phase = _load_phase(chosen)
+            except Exception as e:
+                print(f"Failed to load '{chosen}': {e}")
+                return
+
             cam._write_phase_with_corr(phase, corr_u8, OUT_BMP,
                                        carrier_cmd=(cx, cy), steer_cmd=(0.0, 0.0), settle_s=0.0)
             print(f"Applied carrier ({cx:.3f},{cy:.3f}) to '{os.path.basename(chosen)}' → {OUT_BMP}")
             return
+
+        # ---------- DC killer on a saved zero-carrier phase ----------
+        if sub == "dc":
+            import re, glob, time, numpy as np, cv2, os
+
+            ZERO_DIR = r"C:\WC\SLM_bmp\zero_carrier"
+            CORR_BMP = getattr(cam, "AUTOSYM_CORR_BMP",
+                               r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu disk\LCOS-SLM_Control_software_LSH0905586\corrections\CAL_LSH0905586_532nm.bmp")
+            OUT_BMP  = getattr(cam, "AUTOSYM_OUT_BMP",
+                               r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp")
+
+            def list_zero_candidates():
+                os.makedirs(ZERO_DIR, exist_ok=True)
+                # prefer .npy (raw phase), fall back to .bmp previews
+                npys = sorted(glob.glob(os.path.join(ZERO_DIR, "*.npy")), key=os.path.getmtime)
+                bmps = sorted(glob.glob(os.path.join(ZERO_DIR, "*.bmp")), key=os.path.getmtime)
+                return npys, bmps
+
+            def load_phase_from(path):
+                """Return phase (float32 radians), H,W."""
+                if path.lower().endswith(".npy"):
+                    ph = np.load(path).astype(np.float32)
+                    return np.mod(ph, 2*np.pi).astype(np.float32)
+                # .bmp fallback: interpret as *written* phase with ZERO carrier (already corr-applied)
+                u8 = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+                if u8 is None:
+                    raise FileNotFoundError(path)
+                if u8.ndim == 3:
+                    if u8.shape[2] == 4: u8 = cv2.cvtColor(u8, cv2.COLOR_BGRA2GRAY)
+                    else:                u8 = cv2.cvtColor(u8, cv2.COLOR_BGR2GRAY)
+                u8 = np.clip(u8, 0, 255).astype(np.uint8)
+                # interpret grayscale as 0..2π
+                return (u8.astype(np.float32) * (2*np.pi/255.0)).astype(np.float32)
+
+            # --- opts parsing (like your flattop) ---
+            opts = rest
+            def opt_float(names, default):
+                names = names.strip()[1:-1] if names and names[0]=='(' and names[-1]==')' else names
+                m = re.search(rf"(?<!\w)(?:{names})\s*=\s*(-?(?:\d+(?:\.\d*)?|\.\d+))", opts, flags=re.I)
+                return float(m.group(1)) if m else default
+            def opt_int(names, default):
+                names = names.strip()[1:-1] if names and names[0]=='(' and names[-1]==')' else names
+                m = re.search(rf"(?<!\w)(?:{names})\s*=\s*(-?\d+)", opts, flags=re.I)
+                return int(m.group(1)) if m else default
+            def opt_bool(name, default):
+                m = re.search(rf"(?<!\w){name}\s*=\s*(0|1|true|false)", opts, flags=re.I)
+                if not m: return default
+                v = m.group(1).lower()
+                return v in ("1","true","t","yes","y")
+
+            # defaults
+            k0_frac = opt_float("(k0|kzero)", 0.02)   # dark disk radius in k-space, as fraction of min(W,H)
+            cb_tile = opt_int("(cb|checker)", 16)      # pixels; 0 disables
+            vort    = opt_int("(vort|l)", 1)          # vortex charge; 0 disables
+            apod    = opt_float("(apod|sigma)", 0.18) # relative (0..~0.4); 0 disables
+            demean  = opt_bool("demean", True)        # complex-mean removal
+
+            # subcommands: list / choose by index / name filter
+            if rest.strip().lower().startswith("list"):
+                npys, bmps = list_zero_candidates()
+                if not (npys or bmps):
+                    print(f"No zero-carrier files in {ZERO_DIR}")
+                    return
+                print("Zero-carrier files (newest last):")
+                idx = 1
+                for p in npys + bmps:
+                    ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(p)))
+                    print(f"  [{idx:2d}] {os.path.basename(p)}   {ts}")
+                    idx += 1
+                print("Usage:\n  sym dc <idx> [opts]\n  sym dc name=<substr> [opts]\n  sym dc [opts]  (latest)")
+                return
+
+            # pick source
+            src_path = None
+            m_idx = re.match(r"\s*(\d+)\b", rest.strip())
+            m_name = re.search(r"name\s*=\s*([A-Za-z0-9_\-\.]+)", rest, flags=re.I)
+            npys, bmps = list_zero_candidates()
+            cand = (npys + bmps)
+            if not cand:
+                print(f"No zero-carrier files in {ZERO_DIR}")
+                return
+
+            if m_idx:
+                i = int(m_idx.group(1))
+                if not (1 <= i <= len(cand)):
+                    print(f"Index out of range (1..{len(cand)})")
+                    return
+                src_path = cand[i-1]
+            elif m_name:
+                subname = m_name.group(1).lower()
+                matches = [p for p in cand if subname in os.path.basename(p).lower()]
+                if not matches:
+                    print(f"No zero-carrier matches for '{subname}'")
+                    return
+                src_path = matches[-1]  # newest match
+            else:
+                src_path = cand[-1]     # latest
+
+            try:
+                phase = load_phase_from(src_path)
+            except Exception as e:
+                print(f"Failed to load zero-carrier: {e}")
+                return
+
+            H, W = phase.shape
+            # --- DC-kill pipeline ---
+            field = np.exp(1j*phase)
+
+            # (1) k-space dark disk
+            if k0_frac and k0_frac > 0:
+                F = np.fft.fftshift(np.fft.fft2(field))
+                yy, xx = np.mgrid[0:H, 0:W]
+                cx, cy = W/2.0, H/2.0
+                r = np.hypot(xx-cx, yy-cy)
+                R0 = max(1.0, k0_frac * min(W, H))  # pixels
+                F[r <= R0] = 0
+                field = np.fft.ifft2(np.fft.ifftshift(F))
+
+            # (2) π checkerboard
+            if cb_tile and cb_tile > 0:
+                yy, xx = np.mgrid[0:H, 0:W]
+                mask = ((xx//cb_tile + yy//cb_tile) % 2).astype(np.float32)
+                cb = np.exp(1j * (np.pi * mask))
+                field = field * cb
+
+            # (3) small vortex bias
+            if vort and vort != 0:
+                yy, xx = np.mgrid[0:H, 0:W]
+                ang = np.arctan2(yy - H/2.0, xx - W/2.0)
+                field = field * np.exp(1j * vort * ang)
+
+            # (4) gentle apodization
+            if apod and apod > 0:
+                yy, xx = np.mgrid[0:H, 0:W]
+                x = (xx - W/2.0) / (W/2.0)
+                y = (yy - H/2.0) / (H/2.0)
+                r2 = x*x + y*y
+                win = np.exp(-r2 / (2.0 * (apod**2))).astype(np.float32)
+                field = field * win
+
+            # (5) complex-mean removal
+            if demean:
+                field = field - field.mean()
+
+            phase_out = np.angle(field).astype(np.float32)
+
+            # write to OUT_BMP using correction and ZERO carrier
+            corr_u8 = cv2.imread(CORR_BMP, cv2.IMREAD_GRAYSCALE)
+            if corr_u8 is None:
+                print(f"Could not read CORR_BMP: {CORR_BMP}")
+                return
+
+            # ZERO carrier here; you can add carrier later with zcar if desired
+            cam._write_phase_with_corr(phase_out, corr_u8, OUT_BMP,
+                                       carrier_cmd=(0.0, 0.0), steer_cmd=(0.0, 0.0), settle_s=0.0)
+
+            # Save artifacts in ZERO_DIR (timestamped)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            base = os.path.splitext(os.path.basename(src_path))[0]
+            tag = f"dc_k0{float(k0_frac):.3f}_cb{int(cb_tile)}_v{int(vort)}_a{float(apod):.2f}_dm{int(bool(demean))}"
+            npy_out = os.path.join(ZERO_DIR, f"{base}__{tag}__{ts}.npy")
+            bmp_out = os.path.join(ZERO_DIR, f"{base}__{tag}__{ts}.bmp")
+            try:
+                np.save(npy_out, phase_out.astype(np.float32))
+                cam._write_phase_with_corr(phase_out, corr_u8, bmp_out,
+                                           carrier_cmd=(0.0, 0.0), steer_cmd=(0.0, 0.0), settle_s=0.0)
+            except Exception as e:
+                print(f"Saved OUT_BMP, but cache save failed: {e}")
+
+            print(f"[dc] Applied DC-kill to '{os.path.basename(src_path)}' → OUT_BMP and '{os.path.basename(bmp_out)}'")
+            print(f"     opts: k0={k0_frac:.3f}, cb={cb_tile}, vort={vort}, apod={apod:.2f}, demean={int(bool(demean))}")
+            return
+
 
         print("Usage: sym start | sym stop | sym status | sym reset | "
               "sym carrier X,Y | sym car X,Y | sym c X,Y | "

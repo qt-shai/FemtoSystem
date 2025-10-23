@@ -138,6 +138,9 @@ class GUI_HRS500():
         self.data = self.dev.acquire_Data()
         # sp = LightFieldSpectrometer(self.dev)
         # self.data = sp.load_experiment()
+        if self.data is None:
+            return
+
         self.data = np.asarray(self.data, dtype = float)
         self.data = self.data[self.data[:,0].argsort()]
 
@@ -174,6 +177,7 @@ class GUI_HRS500():
         # 4) optionally fit axes to new data
         dpg.fit_axis_data(f"x_axi_{self.prefix}")
         dpg.fit_axis_data(f"y_axis_{self.prefix}")
+
         # ─── rename the plot window to the filename ───
         try:
             # If your device stored the last file path:
@@ -203,7 +207,7 @@ class GUI_HRS500():
             else:
                 dpg.set_item_label(f"graphXY_{self.prefix}", "Spectrum")
         except Exception as e:
-            print(f"Could not update plot label to filename: {e}")
+            print(f"Cou`ld not update plot label to filename: {e}")
 
     def load_callback(self):
         #file_path = "C:\\Users\\ice\\Work Folders\\Documents\\LightField\\Experiments\\Experiment2.lfe"
