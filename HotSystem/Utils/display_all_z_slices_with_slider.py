@@ -40,10 +40,15 @@ except ImportError:
         root = Tk(); root.withdraw()
         return filedialog.askopenfilename(filetypes=filetypes)
 
-PIXEL_SIZE_UM = 0.074  # µm per pixel
-CONNECT_SHIFT_UM = 15  # hard-coded stage step (µm)
+PIXEL_SIZE_UM = 0.0735  # µm per pixel
+CONNECT_SHIFT_UM = 5  # hard-coded stage step (µm)
 CIRCLE_RADIUS_UM = 25.0       # current stitching radius
-FEATHER_WIDTH_UM = 6.0        # soft edge width; 0 = hard edge
+FEATHER_WIDTH_UM = 3.0        # soft edge width; 0 = hard edge
+# Crop box in pixels: (y0, y1, x0, x1)  — inclusive/exclusive like NumPy slicing
+CROP_PIXELS = (260, 800, 300, 800)   # <- tweak these to your needs
+
+# For connect +X 2,3,6,1,7,8
+# For connect +Y 2,3,4,6,1,5
 
 # stash last connect inputs so we can rebuild without re-picking files
 CONNECT_STATE = {
@@ -153,6 +158,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
             def _parse_site_center_from_name(name: str):
                 # Match Site (<x> <y> <z>) where decimals use commas
+                import re
                 m = re.search(r"Site\s*\(\s*([^\s\)]+)\s+([^\s\)]+)\s+([^\s\)]+)\s*\)", name)
                 if not m:
                     return None
@@ -218,6 +224,95 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     Z_ = np.linspace(z.min(), z.max(), Nz) * 1e-6
 
     # --- Helpers ---
+    import re
+
+    _SHOT_RE = re.compile(r'_#(\d{2})(?!\d)')  # captures 2-digit shot number
+
+    # mapping from shot → (dx_um, dy_um) relative to *center* (origin)
+    # NOTE: dy is +s for +Y (up in world), filenames already encode sign.
+    SHOT_TO_OFFSET = {
+        1: (0, 0),  # O
+        2: (-1, -1),  # DL
+        3: (0, -1),  # D
+        4: (1, -1),  # DR
+        5: (1, 0),  # R
+        6: (-1, 0),  # L
+        7: (-1, 1),  # UL
+        8: (0, 1),  # U
+        9: (1, 1),  # UR
+    }
+
+    def _shot_num_from_name(name: str) -> int | None:
+        m = _SHOT_RE.search(name)
+        if not m: return None
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+
+    def place_figure_top(fig=None, x_px=None, y_px=0, relx=0.5, topmost=False):
+        import matplotlib.pyplot as plt, time
+        fig = fig or plt.gcf()
+        mgr = plt.get_current_fig_manager()
+
+        # Force a layout so sizes are known
+        try:
+            fig.canvas.draw()
+            plt.pause(0.01)
+        except Exception:
+            pass
+
+        # --- TkAgg ---
+        try:
+            win = mgr.window  # Tk root for this figure
+            # compute x if not given: center horizontally
+            sw = win.winfo_screenwidth()
+            sh = win.winfo_screenheight()
+            if x_px is None:
+                win.update_idletasks()
+                w = win.winfo_width()
+                if not w: w = int(fig.get_figwidth() * fig.dpi)
+                x_px = max(0, (sw - w) // 2)
+
+            if topmost:
+                try:
+                    win.wm_attributes('-topmost', 1)
+                except Exception:
+                    pass
+
+            # Apply now and once again after idle (some WMs nudge it)
+            geom = f"+{int(x_px)}+{int(y_px)}"
+            win.wm_geometry(geom)
+            win.update_idletasks()
+            win.after(10, lambda: win.wm_geometry(geom))
+            return
+        except Exception:
+            pass
+
+        # --- Qt5/Qt6 ---
+        try:
+            win = mgr.window
+            # figure width in pixels
+            w = int(fig.get_figwidth() * fig.dpi)
+            # center horizontally if not provided
+            scr = win.screen().availableGeometry()
+            if x_px is None:
+                x_px = max(0, scr.x() + (scr.width() - w) // 2)
+            win.move(int(x_px), int(y_px))
+            # Some Qt styles move after show; nudge again shortly after
+            fig.canvas.draw()
+            plt.pause(0.01)
+            win.move(int(x_px), int(y_px))
+            if topmost:
+                try:
+                    win.setWindowFlag(win.window().windowFlags() | 0x00040000)  # Qt.WindowStaysOnTopHint
+                    win.show()
+                except Exception:
+                    pass
+            return
+        except Exception:
+            pass
+
     def open_files_dialog(filetypes):
         try:
             # Tkinter multi-select
@@ -595,6 +690,71 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         # push fresh dataset (this resets processing caches & updates view)
         _switch_to_2d_dataset(mosaic)  # uses current PIXEL_SIZE_UM
 
+    def _build_connect_plus_y_mosaic_from_paths(origin_path: str, plus_y_path: str):
+        # load
+        img0 = _tif_to_2d(origin_path).astype(np.float64)
+        imgy = _tif_to_2d(plus_y_path).astype(np.float64)
+        if imgy.shape != img0.shape:
+            imgy = _resize_like(imgy, img0.shape)
+
+        H, W = img0.shape
+
+        # coords from names
+        def _nf(s):
+            return float(str(s).replace(",", "."))
+
+        c0 = _parse_site_center_from_name(os.path.basename(origin_path))
+        cy = _parse_site_center_from_name(os.path.basename(plus_y_path))
+        if not c0 or not cy:
+            raise RuntimeError("Missing Site(...) in filenames for +Y stitch.")
+        cx0_um, cy0_um = _nf(c0[0]), _nf(c0[1])
+        cxy_um = (_nf(cy[0]), _nf(cy[1]))
+
+        # pixel scale (allow per-axis if you use PIXEL_STATE; fallback to PIXEL_SIZE_UM)
+        try:
+            px_um_x = float(PIXEL_STATE.get("um_per_px_x", PIXEL_SIZE_UM))
+            px_um_y = float(PIXEL_STATE.get("um_per_px_y", PIXEL_SIZE_UM))
+        except Exception:
+            px_um_x = px_um_y = float(PIXEL_SIZE_UM)
+
+        px_per_um_x = 1.0 / px_um_x
+        px_per_um_y = 1.0 / px_um_y
+
+        # offsets from filename coords (world → pixels)
+        dx_um = cxy_um[0] - cx0_um
+        dy_um = cxy_um[1] - cy0_um
+        dx_px = int(round(dx_um * px_per_um_x))
+        dy_px = int(round(dy_um * px_per_um_y))  # +µm Y → +rows (down)
+
+        # canvas
+        min_top = min(0, dy_px)
+        max_top = max(0, dy_px)
+        min_left = min(0, dx_px)
+        max_left = max(0, dx_px)
+        Hc = (max_top - min_top) + H
+        Wc = (max_left - min_left) + W
+        canvas = np.zeros((Hc, Wc), dtype=np.float64)
+        counts = np.zeros((Hc, Wc), dtype=np.float64)
+
+        # place & average
+        _place_on_canvas(canvas, counts, img0, -min_top, -min_left)
+        _place_on_canvas(canvas, counts, imgy, dy_px - min_top, dx_px - min_left)
+        mosaic = canvas
+        m = counts > 0
+        mosaic[m] = canvas[m] / counts[m]
+
+        # show as 2D dataset and set world extents centered on origin coords
+        _switch_to_2d_dataset(mosaic)
+        xmin = cx0_um - (Wc * px_um_x) / 2.0
+        xmax = cx0_um + (Wc * px_um_x) / 2.0
+        ymin = cy0_um - (Hc * px_um_y) / 2.0
+        ymax = cy0_um + (Hc * px_um_y) / 2.0
+        im_xy.set_extent([xmin, xmax, ymin, ymax])
+        ax_xy.set_xlabel("X (µm)");
+        ax_xy.set_ylabel("Y (µm)")
+        ax_xy.set_title(f"XY @ Site({cx0_um:.2f}, {cy0_um:.2f}) µm  (origin + +Y)")
+        fig.canvas.draw_idle()
+
     # ===== Calibration (flat-field) — hard-coded path =====
     CALIB_TIF_PATH = r"C:\WC\SLM_bmp\Calib\Averaged_calibration.tif"
 
@@ -755,7 +915,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         fig.canvas.draw_idle()
 
     # --- ADD: flip state + helper ---
-    flip_state = {"ud": False, "lr": False}
+    flip_state = {"ud": True, "lr": False}
 
     def _maybe_flip(a2d: np.ndarray) -> np.ndarray:
         """Flip up/down and/or left/right for display if toggles are on."""
@@ -990,17 +1150,19 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     # ----------------  Pixel size slider (µm/px)  ----------------
     # remembers the most recent connect +X selection
+    # remembers the most recent connect +X / +Y selections
     _last_connect_px = {"active": False, "origin_path": None, "plus_x_path": None}
+    _last_connect_py = {"active": False, "origin_path": None, "plus_y_path": None}
+    _last_connect_view = {"mode": None}  # "plus_x" or "plus_y"
 
     ax_pix = plt.axes((btn_x_slider, 0.16, 0.1, 0.03))  # x,y,w,h — adjust if it overlaps
     # clamp initial to [0.20, 1.00]
     try:
         _pix_init = float(PIXEL_SIZE_UM)
     except Exception:
-        _pix_init = 0.20
-    _pix_init = max(0.20, min(1.00, _pix_init))
+        _pix_init = 0.074
 
-    slider_pix = Slider(ax_pix, 'px (µm)', 0.01, 0.08, valinit=_pix_init, valstep=0.001)
+    slider_pix = Slider(ax_pix, 'px (µm)', 0.06, 0.08, valinit=_pix_init, valstep=0.0001, valfmt='%.4f')
 
     def _on_pixel_size_change(val):
         """Update global PIXEL_SIZE_UM and rescale axes/extents for 2D-switched datasets."""
@@ -1012,18 +1174,22 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         except Exception:
             return
 
-        # after updating PIXEL_SIZE_UM
+        # If a connect view is active, rebuild it FRESH (no accumulation)
         try:
-            if _last_connect_px.get("active") and _last_connect_px.get("origin_path") and _last_connect_px.get(
-                    "plus_x_path"):
-                _build_connect_plus_x_mosaic_from_paths(
-                    _last_connect_px["origin_path"],
-                    _last_connect_px["plus_x_path"]
+            if _last_connect_view.get("mode") == "plus_y" and _last_connect_py.get("active"):
+                _build_connect_plus_y_mosaic_from_paths(
+                    _last_connect_py["origin_path"], _last_connect_py["plus_y_path"]
                 )
-                print(f"Rebuilt connect +X (fresh) with px={PIXEL_SIZE_UM:.2f} µm/px.")
-                return  # fresh redraw already handled
+                print(f"Rebuilt connect +Y (fresh) with px={PIXEL_SIZE_UM:.4f} µm/px.")
+                return
+            if _last_connect_view.get("mode") == "plus_x" and _last_connect_px.get("active"):
+                _build_connect_plus_x_mosaic_from_paths(
+                    _last_connect_px["origin_path"], _last_connect_px["plus_x_path"]
+                )
+                print(f"Rebuilt connect +X (fresh) with px={PIXEL_SIZE_UM:.4f} µm/px.")
+                return
         except Exception:
-            # if anything fails, fall through to your normal extent-rescale path
+            # fall through to generic rescale if rebuild fails
             pass
 
         # Only live-rescale displays that were created with _switch_to_2d_dataset (mosaics/averages).
@@ -1629,6 +1795,61 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 return
             origin_path = os.path.abspath(origin_path)
 
+            # --- NEW: infer true origin (center) from the selected shot number ---
+            name_sel = os.path.basename(origin_path)
+            shot = _shot_num_from_name(name_sel)
+            if shot in SHOT_TO_OFFSET and shot != 1:
+                try:
+                    # coords of the selected file
+                    c_sel = _parse_site_center_from_name(name_sel)
+                    if c_sel:
+                        xs, ys, _zs = float(str(c_sel[0]).replace(',', '.')), float(str(c_sel[1]).replace(',', '.')), \
+                        c_sel[2]
+                        dxs, dys = SHOT_TO_OFFSET[shot]
+                        s = float(CONNECT_SHIFT_UM)
+
+                        # center coords = selected - offset (because shot coords are offset from center)
+                        cx0_um = xs - dxs * s
+                        cy0_um = ys - dys * s
+
+                        print(
+                            f"Using inferred center from shot #{shot}: ({cx0_um:.2f}, {cy0_um:.2f}) instead of the selected file.")
+
+                        # Try to swap to a matching _#01 file with those coords (if it exists)
+                        folder = os.path.dirname(origin_path)
+                        candidates = [f for f in os.listdir(folder) if f.lower().endswith(('.tif', '.tiff'))]
+
+                        # decimal-comma tolerant match
+                        def _nf(s):
+                            return float(str(s).replace(',', '.'))
+
+                        found_center = None
+                        for f in candidates:
+                            c = _parse_site_center_from_name(f)
+                            sh = _shot_num_from_name(f)
+                            if not c or sh != 1:
+                                continue
+                            if abs(_nf(c[0]) - cx0_um) < 1e-6 and abs(_nf(c[1]) - cy0_um) < 1e-6:
+                                found_center = os.path.join(folder, f)
+                                break
+
+                        if found_center:
+                            origin_path = os.path.abspath(found_center)
+                            print(f"Center file found: {os.path.basename(origin_path)}")
+                        else:
+                            # Keep the computed center for expectations later; handlers below may re-parse from origin_path,
+                            # so stash these to override (if you already compute cx0_um/cy0_um later, just reuse these values).
+                            # A simple way: set a local override variable via closure or reassign after parsing.
+                            pass
+
+                        # You likely parse ctr0 again below; consider overriding it:
+                        ctr0 = (cx0_um, cy0_um, c_sel[2] if c_sel and len(c_sel) > 2 else 0.0)
+
+                    else:
+                        print(f"⚠️ Could not parse Site(...) in selected filename; skipping shot-based centering.")
+                except Exception as _e:
+                    print(f"⚠️ Shot-based centering failed: {_e}")
+
             # 2) Parse origin coords
             ctr0 = _parse_site_center_from_name(os.path.basename(origin_path))
             if not ctr0:
@@ -1647,6 +1868,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                     coord_map[xy] = os.path.abspath(p)
 
             s = CONNECT_SHIFT_UM  # hard-coded step (µm)
+
             target_plus_x = (cx0_um + s, cy0_um)
             plus_x_path = coord_map.get(target_plus_x, None)
 
@@ -1694,6 +1916,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             _last_connect_px["active"] = True
             _last_connect_px["origin_path"] = origin_path
             _last_connect_px["plus_x_path"] = plus_x_path
+            _last_connect_view["mode"] = "plus_x"
 
             _build_connect_plus_x_mosaic_from_paths(origin_path, plus_x_path)
             print(f"✅ Connected origin + +X ({CONNECT_SHIFT_UM:.1f} µm); slider will rebuild fresh.")
@@ -1702,6 +1925,182 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             print(f"❌ connect +X failed: {e}")
 
     btn_connect_px.on_clicked(_connect_plus_x_handler)
+
+    # ----------------  Connect only +Y to origin  ----------------
+    ax_connect_py = plt.axes(btn_rect)
+    btn_connect_py = Button(ax_connect_py, 'connect +Y')
+    btn_rect = shift_rect(btn_rect)  # place it right below "load tif"
+
+    def _connect_plus_y_handler(_evt=None):
+        try:
+            # 1) Pick ONLY the origin frame
+            origin_path = _pick_origin_tif()
+            if not origin_path:
+                print("Canceled.")
+                return
+            origin_path = os.path.abspath(origin_path)
+
+            # --- NEW: infer true origin (center) from the selected shot number ---
+            name_sel = os.path.basename(origin_path)
+            shot = _shot_num_from_name(name_sel)
+            if shot in SHOT_TO_OFFSET and shot != 1:
+                try:
+                    # coords of the selected file
+                    c_sel = _parse_site_center_from_name(name_sel)
+                    if c_sel:
+                        xs, ys, _zs = float(str(c_sel[0]).replace(',', '.')), float(str(c_sel[1]).replace(',', '.')), \
+                        c_sel[2]
+                        dxs, dys = SHOT_TO_OFFSET[shot]
+                        s = float(CONNECT_SHIFT_UM)
+
+                        # center coords = selected - offset (because shot coords are offset from center)
+                        cx0_um = xs - dxs * s
+                        cy0_um = ys - dys * s
+
+                        print(
+                            f"Using inferred center from shot #{shot}: ({cx0_um:.2f}, {cy0_um:.2f}) instead of the selected file.")
+
+                        # Try to swap to a matching _#01 file with those coords (if it exists)
+                        folder = os.path.dirname(origin_path)
+                        candidates = [f for f in os.listdir(folder) if f.lower().endswith(('.tif', '.tiff'))]
+
+                        # decimal-comma tolerant match
+                        def _nf(s):
+                            return float(str(s).replace(',', '.'))
+
+                        found_center = None
+                        for f in candidates:
+                            c = _parse_site_center_from_name(f)
+                            sh = _shot_num_from_name(f)
+                            if not c or sh != 1:
+                                continue
+                            if abs(_nf(c[0]) - cx0_um) < 1e-6 and abs(_nf(c[1]) - cy0_um) < 1e-6:
+                                found_center = os.path.join(folder, f)
+                                break
+
+                        if found_center:
+                            origin_path = os.path.abspath(found_center)
+                            print(f"Center file found: {os.path.basename(origin_path)}")
+                        else:
+                            # Keep the computed center for expectations later; handlers below may re-parse from origin_path,
+                            # so stash these to override (if you already compute cx0_um/cy0_um later, just reuse these values).
+                            # A simple way: set a local override variable via closure or reassign after parsing.
+                            pass
+
+                        # You likely parse ctr0 again below; consider overriding it:
+                        ctr0 = (cx0_um, cy0_um, c_sel[2] if c_sel and len(c_sel) > 2 else 0.0)
+
+                    else:
+                        print(f"⚠️ Could not parse Site(...) in selected filename; skipping shot-based centering.")
+                except Exception as _e:
+                    print(f"⚠️ Shot-based centering failed: {_e}")
+
+            # 2) Parse origin coords
+            ctr0 = _parse_site_center_from_name(os.path.basename(origin_path))
+            if not ctr0:
+                print("❌ Origin filename missing 'Site(x y z)'.")
+                return
+            cx0_um = float(str(ctr0[0]).replace(",", "."))
+            cy0_um = float(str(ctr0[1]).replace(",", "."))
+
+            # 3) Locate the +Y neighbor in the same folder (exact filename coords)
+            folder = os.path.dirname(origin_path)
+            all_tifs = [os.path.join(folder, f)
+                        for f in os.listdir(folder)
+                        if f.lower().endswith((".tif", ".tiff"))]
+
+            def _coord_from_name_local(p):
+                c = _parse_site_center_from_name(os.path.basename(p))
+                return None if not c else (float(str(c[0]).replace(",", ".")),
+                                           float(str(c[1]).replace(",", ".")))
+
+            coord_map = {}
+            for p in all_tifs:
+                xy = _coord_from_name_local(p)
+                if xy:
+                    coord_map[xy] = os.path.abspath(p)
+
+            s = CONNECT_SHIFT_UM  # µm
+
+            target_plus_y = (cx0_um, cy0_um + s)
+            plus_y_path = coord_map.get(target_plus_y, None)
+            if not plus_y_path:
+                print(f"❌ +Y neighbor not found at ({target_plus_y[0]:.6f}, {target_plus_y[1]:.6f}) µm.")
+                return
+
+            # 4) Load both; resize +Y to origin shape if needed
+            img0 = _tif_to_2d(origin_path).astype(np.float64)
+            imgy = _tif_to_2d(plus_y_path).astype(np.float64)
+            if imgy.shape != img0.shape:
+                imgy = _resize_like(imgy, img0.shape)
+
+            H, W = img0.shape
+            try:
+                px_per_um_x = 1.0 / float(PIXEL_STATE.get("um_per_px_x", PIXEL_SIZE_UM))
+                px_per_um_y = 1.0 / float(PIXEL_STATE.get("um_per_px_y", PIXEL_SIZE_UM))
+            except Exception:
+                px_per_um_x = px_per_um_y = 10.0  # fallback: 0.1 µm/px
+
+            # 5) Pixel offsets (+Y in µm → positive rows/down in pixels)
+            dx_um = 0.0
+            dy_um = s
+            dx_px = int(round(dx_um * px_per_um_x))
+            dy_px = int(round(dy_um * px_per_um_y))  # +µm Y → +pixels down
+
+            # 6) Canvas that fits both
+            min_top = min(0, dy_px)
+            max_top = max(0, dy_px)
+            min_left = min(0, dx_px)
+            max_left = max(0, dx_px)
+            Hc = (max_top - min_top) + H
+            Wc = (max_left - min_left) + W
+
+            canvas = np.zeros((Hc, Wc), dtype=np.float64)
+            counts = np.zeros((Hc, Wc), dtype=np.float64)
+
+            # 7) Place origin and +Y (average overlaps)
+            _place_on_canvas(canvas, counts, img0, -min_top, -min_left)
+            _place_on_canvas(canvas, counts, imgy, dy_px - min_top, dx_px - min_left)
+
+            mosaic = canvas
+            m = counts > 0
+            mosaic[m] = canvas[m] / counts[m]
+
+            # Show mosaic using your existing helper
+            _switch_to_2d_dataset(mosaic)
+
+            # World-coordinate extent centered on origin coords
+            try:
+                px_um_x = float(PIXEL_STATE.get("um_per_px_x", PIXEL_SIZE_UM))
+                px_um_y = float(PIXEL_STATE.get("um_per_px_y", PIXEL_SIZE_UM))
+            except Exception:
+                px_um_x = px_um_y = float(PIXEL_SIZE_UM)
+
+            xmin = cx0_um - (Wc * px_um_x) / 2.0
+            xmax = cx0_um + (Wc * px_um_x) / 2.0
+            ymin = cy0_um - (Hc * px_um_y) / 2.0
+            ymax = cy0_um + (Hc * px_um_y) / 2.0
+
+            try:
+                im_xy.set_extent([xmin, xmax, ymin, ymax])
+                ax_xy.set_xlabel("X (µm)")
+                ax_xy.set_ylabel("Y (µm)")
+                ax_xy.set_title(f"XY @ Site({cx0_um:.2f}, {cy0_um:.2f}) µm  (origin + +Y)")
+                fig.canvas.draw_idle()
+            except Exception:
+                pass
+
+            _last_connect_py["active"] = True
+            _last_connect_py["origin_path"] = origin_path
+            _last_connect_py["plus_y_path"] = plus_y_path
+            _last_connect_view["mode"] = "plus_y"
+
+            print(f"✅ Connected origin + +Y ({CONNECT_SHIFT_UM:.1f} µm).")
+
+        except Exception as e:
+            print(f"❌ connect +Y failed: {e}")
+
+    btn_connect_py.on_clicked(_connect_plus_y_handler)
 
     # ----------------    Connect shifts (stitch 5 frames)    ----------------
 
@@ -1868,14 +2267,85 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         except Exception:
             return None
 
+    def _find_nearby(coord_map, x_um, y_um, tol_um=0.02):
+        """Return path whose (x,y) is within tol_um of (x_um,y_um); else None."""
+        for (xx, yy), p in coord_map.items():
+            if abs(xx - x_um) <= tol_um and abs(yy - y_um) <= tol_um:
+                return p
+        return None
+
     def _connect_shifts_handler(_evt=None):
         try:
+            # 0) Start clean (avoid stale center/path from previous runs)
+            CONNECT_STATE.update({
+                "imgs": None, "offsets": None,
+                "Hc": None, "Wc": None,
+                "min_top": None, "min_left": None,
+                "um_per_px_x": None, "um_per_px_y": None,
+                "center_xy_um": None,
+            })
+
             # 1) Pick ONLY the origin frame (#1)
             origin_path = _pick_origin_tif()
             if not origin_path:
                 print("Canceled.")
                 return
             origin_path = os.path.abspath(origin_path)
+
+            # --- NEW: infer true origin (center) from the selected shot number ---
+            name_sel = os.path.basename(origin_path)
+            shot = _shot_num_from_name(name_sel)
+            if shot in SHOT_TO_OFFSET and shot != 1:
+                try:
+                    # coords of the selected file
+                    c_sel = _parse_site_center_from_name(name_sel)
+                    if c_sel:
+                        xs, ys, _zs = float(str(c_sel[0]).replace(',', '.')), float(str(c_sel[1]).replace(',', '.')), \
+                        c_sel[2]
+                        dxs, dys = SHOT_TO_OFFSET[shot]
+                        s = float(CONNECT_SHIFT_UM)
+
+                        # center coords = selected - offset (because shot coords are offset from center)
+                        cx0_um = xs - dxs * s
+                        cy0_um = ys - dys * s
+
+                        print(
+                            f"Using inferred center from shot #{shot}: ({cx0_um:.2f}, {cy0_um:.2f}) instead of the selected file.")
+
+                        # Try to swap to a matching _#01 file with those coords (if it exists)
+                        folder = os.path.dirname(origin_path)
+                        candidates = [f for f in os.listdir(folder) if f.lower().endswith(('.tif', '.tiff'))]
+
+                        # decimal-comma tolerant match
+                        def _nf(s):
+                            return float(str(s).replace(',', '.'))
+
+                        found_center = None
+                        for f in candidates:
+                            c = _parse_site_center_from_name(f)
+                            sh = _shot_num_from_name(f)
+                            if not c or sh != 1:
+                                continue
+                            if abs(_nf(c[0]) - cx0_um) < 1e-6 and abs(_nf(c[1]) - cy0_um) < 1e-6:
+                                found_center = os.path.join(folder, f)
+                                break
+
+                        if found_center:
+                            origin_path = os.path.abspath(found_center)
+                            print(f"Center file found: {os.path.basename(origin_path)}")
+                        else:
+                            # Keep the computed center for expectations later; handlers below may re-parse from origin_path,
+                            # so stash these to override (if you already compute cx0_um/cy0_um later, just reuse these values).
+                            # A simple way: set a local override variable via closure or reassign after parsing.
+                            pass
+
+                        # You likely parse ctr0 again below; consider overriding it:
+                        ctr0 = (cx0_um, cy0_um, c_sel[2] if c_sel and len(c_sel) > 2 else 0.0)
+
+                    else:
+                        print(f"⚠️ Could not parse Site(...) in selected filename; skipping shot-based centering.")
+                except Exception as _e:
+                    print(f"⚠️ Shot-based centering failed: {_e}")
 
             # 2) Parse origin coords from filename
             ctr0 = _parse_site_center_from_name(os.path.basename(origin_path))
@@ -2039,6 +2509,36 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 "um_per_px_y": um_per_px_y,
                 "center_xy_um": (cx0_um, cy0_um),
             })
+
+            # --- Update Max I slider + display clim after stitching ---
+            try:
+                # Use the currently displayed (processed) data
+                vmin_new = float(np.nanmin(I_view))
+                vmax_new = float(np.nanmax(I_view))
+            except Exception:
+                # Fallback to raw mosaic if needed
+                vmin_new = float(np.nanmin(mosaic))
+                vmax_new = float(np.nanmax(mosaic))
+
+            # Update slider range and set to the new max
+            try:
+                if 'slider_max' in globals() and slider_max is not None:
+                    if hasattr(slider_max, "valmin"): slider_max.valmin = vmin_new
+                    if hasattr(slider_max, "valmax"): slider_max.valmax = vmax_new
+                    slider_max.set_val(vmax_new)
+            except Exception:
+                pass
+
+            # Apply clim to all images that exist
+            try:
+                im_xy.set_clim(vmin_new, vmax_new)
+                if Nz > 1:
+                    im_xz.set_clim(vmin_new, vmax_new)
+                    im_yz.set_clim(vmin_new, vmax_new)
+            except Exception:
+                pass
+
+            fig.canvas.draw_idle()
 
             print(f"✅ Connected frames using exact filename coordinates; canvas {Hc}×{Wc} px.")
         except Exception as e:
@@ -2271,7 +2771,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     # ----------------    Flip Up/Down toggle button    ----------------
     ax_flipud = plt.axes(btn_rect)
-    btn_flipud = Button(ax_flipud, 'flip UD off')
+    btn_flipud = Button(ax_flipud, 'flip UD on')
 
     def _toggle_flipud(_event):
         flip_state["ud"] = not flip_state["ud"]
@@ -2608,7 +3108,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     btn_preset2.on_clicked(_apply_preset2)
     btn_rect = shift_rect(btn_rect)
-    btn_rect = shift_rect(btn_rect)
 
     # ----------------    Radio Buttons (Column 2)   ----------------
     colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis',
@@ -2641,10 +3140,12 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     NUDGE_STEP = 0.02  # move by 2% of figure per click
     # Place the arrows at the bottom-left control strip
-    ax_up = plt.axes((btn_rect[0]+0.015, btn_rect[1],0.015, 0.03))
-    ax_left = plt.axes((btn_rect[0], btn_rect[1]-0.03,0.015, 0.03))
-    ax_down = plt.axes((btn_rect[0]+0.015, btn_rect[1]-0.06,0.015, 0.03))
-    ax_right = plt.axes((btn_rect[0]+0.03, btn_rect[1]-0.03, 0.015, 0.03))
+    ax_up = plt.axes((btn_rect_col2[0]+0.015, btn_rect_col2[1],0.015, 0.03))
+    ax_left = plt.axes((btn_rect_col2[0], btn_rect_col2[1]-0.03,0.015, 0.03))
+    ax_down = plt.axes((btn_rect_col2[0]+0.015, btn_rect_col2[1]-0.06,0.015, 0.03))
+    ax_right = plt.axes((btn_rect_col2[0]+0.03, btn_rect_col2[1]-0.03, 0.015, 0.03))
+
+    btn_rect_col2 = shift_rect2(btn_rect_col2,dy=-0.11)
 
     btn_up = Button(ax_up, '↑')
     btn_left = Button(ax_left, '←')
@@ -2763,6 +3264,108 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     btn_load_tif.on_clicked(_handle_load_tif)
 
+    # ----------------  Crop (Column 2, below 'load tif')  ----------------
+    ax_crop = plt.axes(btn_rect_col2)
+    btn_crop = Button(ax_crop, 'crop')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    def _handle_crop(_evt=None):
+        nonlocal I_raw_cube, I_view, Nx, Ny, Nz, X_, Y_, Z_, extent_xy, extent_xz, extent_yz, z_idx, x_idx, y_idx, _is_switched_2d
+        try:
+            y0, y1, x0, x1 = CROP_PIXELS
+            # clamp & validate
+            H, W = I_raw_cube.shape[-2], I_raw_cube.shape[-1]
+            y0 = max(0, min(H - 1, int(y0)));
+            y1 = max(y0 + 1, min(H, int(y1)))
+            x0 = max(0, min(W - 1, int(x0)));
+            x1 = max(x0 + 1, min(W, int(x1)))
+
+            # slice every Z the same way
+            if I_raw_cube.ndim == 3:
+                I_raw_cube = I_raw_cube[:, y0:y1, x0:x1]
+            else:  # safety (should always be Nz×Ny×Nx)
+                I_raw_cube = I_raw_cube
+
+            # recompute sizes
+            Nz, Ny, Nx = I_raw_cube.shape
+
+            # invalidate processing caches
+            try:
+                flatten_state["cube"] = None
+            except Exception:
+                pass
+            try:
+                aggr_state["cube"] = None
+                aggr_state["computed_sigma"] = None
+            except Exception:
+                pass
+
+            # rebuild axes centered using current pixel size
+            px = float(PIXEL_SIZE_UM)
+            X_ = (np.arange(Nx) - (Nx - 1) / 2.0) * px
+            Y_ = (np.arange(Ny) - (Ny - 1) / 2.0) * px
+            # keep same Z_ as before if available, else zeros
+            try:
+                Z_ = Z_ if Z_.size == Nz else np.linspace(0, 0, Nz)
+            except Exception:
+                Z_ = np.linspace(0, 0, Nz)
+
+            # refresh view buffer and images (no clim change)
+            I_view = np.log10(I_raw_cube + EPS) if log_scale else I_raw_cube
+
+            # --- Update Max I slider + display clim after crop ---
+            vmin_new = float(np.nanmin(I_view))
+            vmax_new = float(np.nanmax(I_view))
+
+            # Update the slider range and value
+            try:
+                if hasattr(slider_max, "valmin"): slider_max.valmin = vmin_new
+                if hasattr(slider_max, "valmax"): slider_max.valmax = vmax_new
+                # Set slider to the new max so its UI reflects current image
+                slider_max.set_val(vmax_new)
+            except Exception:
+                pass
+
+            # Apply new clim to all displayed images
+            try:
+                im_xy.set_clim(vmin_new, vmax_new)
+                if Nz > 1:
+                    im_xz.set_clim(vmin_new, vmax_new)
+                    im_yz.set_clim(vmin_new, vmax_new)
+            except Exception:
+                pass
+
+            # update extents
+            extent_xy = [X_[0], X_[-1], Y_[0], Y_[-1]]
+            extent_xz = [X_[0], X_[-1], Z_[0], Z_[-1]] if Nz > 1 else extent_xy
+            extent_yz = [Y_[0], Y_[-1], Z_[0], Z_[-1]] if Nz > 1 else extent_xy
+
+            im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
+            im_xy.set_extent(extent_xy)
+            ax_xy.set_title(f"XY @ Z={Z_[z_idx]:.2f} µm")
+            ax_xy.set_xlabel("X (µm)");
+            ax_xy.set_ylabel("Y (µm)")
+
+            if Nz > 1:
+                im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
+                im_xz.set_extent(extent_xz)
+                ax_xz.set_title(f"XZ @ Y={Y_[y_idx]:.2f} µm")
+
+                im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
+                im_yz.set_extent(extent_yz)
+                ax_yz.set_title(f"YZ @ X={X_[x_idx]:.2f} µm")
+
+            fig.canvas.draw_idle()
+            print(f"✅ Cropped to (y:{y0}:{y1}, x:{x0}:{x1}) → shape {I_raw_cube.shape[-2]}×{I_raw_cube.shape[-1]} px.")
+
+            # mark as switched 2D dataset layout if Nz==1 for consistent rescaling
+            _is_switched_2d = (Nz == 1)
+
+        except Exception as e:
+            print(f"❌ crop failed: {e}")
+
+    btn_crop.on_clicked(_handle_crop)
+
     def _make_map_with_cross(x_um: float, y_um: float, map_path: str = MAP_IMAGE_PATH) -> str | None:
         """
         Open map.jpg, draw a cross at (x_um, y_um) in world microns, save to a temp PNG.
@@ -2877,6 +3480,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     def _parse_float(s):
         # accept decimal comma
         return float(str(s).replace(",", "."))
+
+    place_figure_top(fig)  # appear higher on the monitor
 
     try:
         while plt.fignum_exists(fig.number):

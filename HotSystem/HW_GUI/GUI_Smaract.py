@@ -341,6 +341,38 @@ class GUI_smaract():
         except Exception as e:
             print(f"Error loading window positions and sizes: {e}")
 
+    def _get_rot_deg_from_ch2(self) -> float:
+        """Read ch2 ABS field (µm) and treat its numeric value as degrees of in-plane rotation."""
+        try:
+            return float(dpg.get_value(f"{self.prefix}_ch2_Cset"))
+        except Exception:
+            return float(self.last_z_value or 0.0)
+
+    def _uv_rotated(self):
+        """
+        Return (U,V) rotated in the XY plane by +theta (deg), where theta comes from ch2.
+        Keeps the Z components unchanged.
+        Falls back to current U/V if base vectors aren't saved yet.
+        """
+        import math
+        theta = math.radians(self._get_rot_deg_from_ch2())
+        c, s = math.cos(theta), math.sin(theta)
+
+        # Prefer base (unrotated) vectors if we have them; else use current
+        U0 = getattr(self.dev, "U_base", getattr(self.dev, "U", [1, 0, 0]))
+        V0 = getattr(self.dev, "V_base", getattr(self.dev, "V", [0, 1, 0]))
+
+        Ux, Uy, Uz = float(U0[0]), float(U0[1]), float(U0[2])
+        Vx, Vy, Vz = float(V0[0]), float(V0[1]), float(V0[2])
+
+        # 2D rotation in XY plane
+        Ux_r, Uy_r = (c * Ux - s * Uy), (s * Ux + c * Uy)
+        Vx_r, Vy_r = (c * Vx - s * Vy), (s * Vx + c * Vy)
+
+        U_rot = [Ux_r, Uy_r, Uz]
+        V_rot = [Vx_r, Vy_r, Vz]
+        return U_rot, V_rot
+
     def ipt_large_step(self,app_data,user_data):
         ch=int(app_data[6])        
         self.dev.AxesKeyBoardLargeStep[ch]=int(user_data*self.dev.StepsIn1mm/1e3)
@@ -459,6 +491,9 @@ class GUI_smaract():
             print(f"Please log at least three points prior to calculating u & v")
             return
         self.dev.calc_uv()
+        # Save pristine (unrotated) copies
+        self.dev.U_base = list(self.dev.U)
+        self.dev.V_base = list(self.dev.V)
 
     def cmb_device_selector(self, app_data, item):
         self.selectedDevice = item
@@ -490,18 +525,21 @@ class GUI_smaract():
             direction = float(direction)
 
             value1 = float(dpg.get_value(f"{self.prefix}_ch{ch}_Cset"))
-
             if not is_coarse:
-                value1 = value1 / 10
+                value1 = value1 / 10.0
 
             steps = int(direction * value1 / 1e3 * self.dev.StepsIn1mm)
-            amount = [self.dev.U[i] * steps for i in range(3)] if ch == 0 else [self.dev.V[i] * steps for i in range(3)]
-            print(amount)
+
+            # <<< NEW: use rotated U/V based on ch2 angle >>>
+            U_rot, V_rot = self._uv_rotated()
+            vec = U_rot if ch == 0 else V_rot
+
+            amount = [vec[i] * steps for i in range(3)]
+            print(f"UV move (ch={ch}) angle={self._get_rot_deg_from_ch2():.3f}° amount={amount}")
 
             for channel in range(3):
                 if not self.simulation:
                     self.dev.MoveRelative(channel, int(amount[channel]))
-
         except Exception as e:
             print(f"An error occurred: {e}")
 

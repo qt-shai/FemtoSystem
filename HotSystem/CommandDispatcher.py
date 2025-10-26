@@ -2908,7 +2908,7 @@ class CommandDispatcher:
 
         # --- NEW: detect "shift" mode and parse its step (µm) ---
         shift_mode = False
-        shift_um = 20.0  # default step in micrometers
+        shift_um = 5.0  # default step in micrometers
         if any(t.lower() == "shift" for t in tokens):
             shift_mode = True
             # if a number immediately follows 'shift', use it as µm step
