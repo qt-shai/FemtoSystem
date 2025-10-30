@@ -50,7 +50,7 @@ class Keysight33500B(SerialDevice):
         """
         if channel not in [1, 2]:
             raise ValueError("Channel must be 1 or 2.")
-        valid_waveforms = ["SINE", "SQUARE", "TRIANGLE", "RAMP", "NOISE"]
+        valid_waveforms = ["SINE", "SQUARE", "TRIANGLE", "RAMP", "NOISE","DC"]
         if waveform_type not in valid_waveforms:
             raise ValueError(f"Invalid waveform type: {waveform_type}. Must be one of {valid_waveforms}")
         command = f"source{channel}:FUNC {waveform_type}"
@@ -66,8 +66,8 @@ class Keysight33500B(SerialDevice):
         """
         if channel not in [1, 2]:
             raise ValueError("Channel must be 1 or 2.")
-        if not 20 <= frequency <= 20e6:
-            raise ValueError("Frequency must be between 20 Hz and 20 MHz.")
+        # if not 20 <= frequency <= 20e6:
+        #     raise ValueError("Frequency must be between 20 Hz and 20 MHz.")
         command = f"source{channel}:FREQ {frequency}"
         self._send_command(command)
         self.frequency = frequency

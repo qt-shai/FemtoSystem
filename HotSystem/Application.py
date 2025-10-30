@@ -1279,8 +1279,8 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.KEY_4: lambda: (self._set_coarse_steps(400, axes=(0, 1)), self._set_coarse_steps(1, axes=(2,))),
                 KeyboardKeys.KEY_5: lambda: self._set_coarse_steps(5, axes=(0, 1, 2)),
                 KeyboardKeys.KEY_6: lambda: self._set_coarse_steps(600, axes=(0, 1, 2)),
-                KeyboardKeys.KEY_7: lambda: (self._set_coarse_steps(70, axes=(0, 1)), self._set_coarse_steps(1, axes=(2,))),
-                KeyboardKeys.KEY_8: lambda: (self._set_coarse_steps(80, axes=(0, 1)), self._set_coarse_steps(1, axes=(2,))),
+                KeyboardKeys.KEY_7: lambda: (self._set_coarse_steps(70, axes=(0, 1))),
+                KeyboardKeys.KEY_8: lambda: (self._set_coarse_steps(80, axes=(0, 1))),
                 KeyboardKeys.KEY_0: self._save_and_zero_exposure,
                 KeyboardKeys.OEM_PLUS: self._increase_koff,  # Ctrl+=
                 KeyboardKeys.OEM_MINUS: self._decrease_koff,  # Ctrl+-

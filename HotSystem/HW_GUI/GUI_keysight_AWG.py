@@ -28,9 +28,9 @@ class GUIKeysight33500B:
         self.volts_per_um_y = -9600e-6
 
         # self.base1 = 0.7319
-        self.base1 = 0.7234
+        self.base1 = 0
         # self.base2 = -0.5159
-        self.base2 = -0.5017
+        self.base2 = 0
 
         self.xy_step = 0.002
         self.kx_ratio = 3.3
@@ -138,6 +138,91 @@ class GUIKeysight33500B:
                                 format='%.1f', width=100, callback=self.validate_frequency_input)
             dpg.add_button(label="Set Frequency", callback=self.btn_set_frequency)
             dpg.bind_item_theme(dpg.last_item(), theme)
+            # --- NEW: number of lines for raster (slow axis frequency = fast / lines) ---
+            dpg.add_text("Lines")
+            dpg.add_input_int(default_value=128, min_value=1, min_clamped=True,
+                              tag=f"Lines_{self.unique_id}", width=100)
+
+            # --- NEW: generate ramps (CH1 fast, CH2 slow) ---
+            dpg.add_button(label="Gen Ramps", callback=self.btn_gen_ramps)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+
+    def btn_gen_ramps(self, sender=None, app_data=None):
+        """
+        Generate a raster scan:
+          - CH1: fast symmetric triangle around base1 at Frequency & Amplitude from GUI
+          - CH2: slow saw/ramp around base2 with frequency = fast_freq / lines
+        Uses single 'Amplitude' field for both channels. Offsets = base1/base2.
+        """
+        try:
+            # Read GUI values
+            fast_freq = float(dpg.get_value(f"Frequency_{self.unique_id}"))
+            amp_vpp = float(dpg.get_value(f"Amplitude_{self.unique_id}"))
+            lines = int(dpg.get_value(f"Lines_{self.unique_id}"))
+            lines = max(1, lines)
+
+            # Compute slow frequency
+            slow_freq = fast_freq / lines
+
+            # Cache + set/restore current selected channel to avoid side-effects
+            prev_ch = getattr(self.dev, "channel", 1)
+
+            # ---------------- CH1 (FAST) : TRIANGLE around base1 ----------------
+            try:
+                # If your wrapper's set_waveform_type applies to self.dev.channel,
+                # switch the active channel first:
+                self.dev.channel = 1
+                self.dev.set_waveform_type("TRIANGLE")
+            except Exception:
+                # If your wrapper supported per-channel type, you'd call it here.
+                pass
+
+            self.dev.set_frequency(fast_freq, channel=1)
+            self.dev.set_amplitude(amp_vpp, channel=1)
+            # Center around base1 (DC offset)
+            self.dev.set_offset(self.base1, channel=1)
+            # Symmetric triangle → duty 50%
+            try:
+                self.dev.set_duty_cycle(50.0, channel=1)
+            except Exception:
+                pass
+            self.dev.set_output_state(True, channel=1)
+
+            # ---------------- CH2 (SLOW) : RAMP/Saw around base2 ----------------
+            try:
+                self.dev.channel = 2
+                self.dev.set_waveform_type("RAMP")  # sawtooth
+            except Exception:
+                pass
+
+            self.dev.set_frequency(slow_freq, channel=2)
+            self.dev.set_amplitude(amp_vpp, channel=2)
+            self.dev.set_offset(self.base2, channel=2)
+            # Optional: a standard sawtooth usually uses 50% duty = symmetric rise/fall.
+            # If you want a classic 'ramp up / quick return', you can change duty here.
+            try:
+                self.dev.set_duty_cycle(50.0, channel=2)
+            except Exception:
+                pass
+            self.dev.set_output_state(True, channel=2)
+
+            # Restore previous channel selection in the GUI/device
+            try:
+                self.dev.channel = prev_ch
+            except Exception:
+                pass
+
+            # Reflect some info back to the readonly text box
+            summary = (f"Gen Ramps:\n"
+                       f"  CH1 fast: TRIANGLE, f={fast_freq:.6g} Hz, A={amp_vpp:.3f} Vpp, offset={self.base1:.4f} V\n"
+                       f"  CH2 slow: RAMP,     f={slow_freq:.6g} Hz, A={amp_vpp:.3f} Vpp, offset={self.base2:.4f} V\n"
+                       f"  lines={lines}")
+            dpg.set_value(f"CurrentParams_{self.unique_id}", summary)
+            print(summary)
+
+        except Exception as e:
+            print(f"Error generating ramps: {e}")
+            traceback.print_exc()
 
     def cb_select_channel(self, sender, app_data):
         """

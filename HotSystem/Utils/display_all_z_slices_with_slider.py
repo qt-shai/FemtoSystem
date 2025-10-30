@@ -20,6 +20,7 @@ import tempfile
 import io
 from PIL import Image
 import win32clipboard
+import imageio.v3 as iio  # needs imageio-ffmpeg installed
 
 # --- NEW: prefer tifffile for scientific TIFFs, fallback to imageio ---
 try:
@@ -87,6 +88,125 @@ PRESET1_FLIP_UD = False
 PRESET1_FLIP_LR = True
 
 OUTSIDE_MARGIN_PX = 50  # padding when cross falls outside map image
+
+# --- top-level helpers for CLI "multicalib" mode (no viewer needed) ---
+
+def _resize_to_shape_numpy(img: np.ndarray, ny: int, nx: int) -> np.ndarray:
+    """Bilinear resize (numpy-only) to (ny, nx)."""
+    if img.shape == (ny, nx):
+        return img
+    y_old, x_old = img.shape
+    x_old_coords = np.linspace(0, 1, x_old)
+    x_new_coords = np.linspace(0, 1, nx)
+    tmp = np.apply_along_axis(lambda row: np.interp(x_new_coords, x_old_coords, row), 1, img)
+    y_old_coords = np.linspace(0, 1, y_old)
+    y_new_coords = np.linspace(0, 1, ny)
+    return np.apply_along_axis(lambda col: np.interp(y_new_coords, y_old_coords, col), 0, tmp)
+
+def _read_tif_2d(path: str) -> np.ndarray:
+    """Read TIFF and return a 2D float64 image (RGB→gray, multipage→mean)."""
+    try:
+        import tifffile as tiff
+        arr = tiff.imread(path)
+    except Exception:
+        try:
+            import imageio.v3 as iio
+            arr = iio.imread(path, index=None)
+        except Exception as e:
+            raise RuntimeError("Need tifffile or imageio.v3 to read TIFFs") from e
+    a = np.asarray(arr, dtype=np.float64)
+    a = np.squeeze(a)
+    if a.ndim == 3 and a.shape[-1] in (3, 4):
+        a = a[..., :3].mean(axis=-1)
+    if a.ndim == 3:
+        a = a.mean(axis=0)
+    if a.ndim != 2:
+        raise ValueError(f"Unexpected TIFF shape for {os.path.basename(path)}: {a.shape}")
+    return a
+
+def _save_tif_u16(path: str, img2d_u16: np.ndarray) -> None:
+    try:
+        import tifffile as tiff
+        tiff.imwrite(path, img2d_u16)
+    except Exception:
+        import imageio.v3 as iio
+        iio.imwrite(path, img2d_u16, plugin="TIFF")
+
+def _to_u16(a: np.ndarray, vmin=None, vmax=None) -> np.ndarray:
+    a = np.asarray(a, dtype=np.float64)
+    if vmin is None or vmax is None:
+        vmin = float(np.nanmin(a))
+        vmax = float(np.nanmax(a))
+    if not np.isfinite(vmin): vmin = 0.0
+    if not np.isfinite(vmax) or vmax <= vmin: vmax = vmin + 1.0
+    a = (a - vmin) / (vmax - vmin)
+    a = np.clip(a, 0.0, 1.0)
+    return (a * 65535.0 + 0.5).astype(np.uint16)
+
+def _next_save_path(base_path: str) -> str:
+    folder, name = os.path.split(base_path)
+    stem, _ = os.path.splitext(name)
+    candidate = os.path.join(folder, f"{stem}_edited.tif")
+    if not os.path.exists(candidate):
+        return candidate
+    i = 2
+    while True:
+        cand = os.path.join(folder, f"{stem}_edited({i}).tif")
+        if not os.path.exists(cand):
+            return cand
+        i += 1
+
+def run_multicalib_cli(calib_path: str | None = None):
+    """
+    Batch-apply calibration to multiple TIFFs and exit. Mirrors the 'apply multiple calib' button.
+    """
+    # 1) calibration path (use the same default you hard-coded in the viewer)
+    if calib_path is None:
+        calib_path = r"C:\WC\SLM_bmp\Calib\Averaged_calibration.tif"
+    if not os.path.isfile(calib_path):
+        print(f"❌ Calibration TIFF not found:\n{calib_path}")
+        return
+
+    # 2) choose files
+    try:
+        from tkinter import Tk, filedialog
+        root = Tk(); root.withdraw()
+        paths = filedialog.askopenfilenames(title="Select TIFFs to calibrate", filetypes=[("TIFF Files", "*.tif *.tiff")])
+        try: root.destroy()
+        except Exception: pass
+    except Exception:
+        print("❌ Could not open file dialog.")
+        return
+
+    if not paths:
+        print("No files selected.")
+        return
+
+    # 3) load calibration as 2D and normalize to median=1
+    Cal = _read_tif_2d(calib_path)
+    pos = Cal[Cal > 0]
+    ref = float(np.median(pos)) if pos.size else float(np.mean(Cal))
+    if not np.isfinite(ref) or ref <= 0: ref = 1.0
+    Cal = Cal / ref
+    Cal = np.clip(Cal, 1e-3, None)  # avoid divide-by-zero
+
+    ok = fail = 0
+    for p in paths:
+        try:
+            img = _read_tif_2d(p)
+            Ny, Nx = img.shape
+            cal = _resize_to_shape_numpy(Cal, Ny, Nx)
+            corrected = img / cal
+            out = _to_u16(corrected)  # scale to full dynamic range of each image
+            save_path = _next_save_path(p)
+            _save_tif_u16(save_path, out)
+            print(f"✅ {os.path.basename(p)} → {os.path.basename(save_path)}")
+            ok += 1
+        except Exception as e:
+            print(f"❌ Failed on {os.path.basename(p)}: {e}")
+            fail += 1
+
+    print(f"Batch complete: {ok} saved, {fail} failed.")
 
 
 def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, data=None):
@@ -950,7 +1070,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     if Nz > 1:
         fig, (ax_xy, ax_xz, ax_yz) = plt.subplots(1, 3, figsize=(24, 6))
     else:
-        fig, ax_xy = plt.subplots(1, 1, figsize=(24, 12))
+        fig, ax_xy = plt.subplots(1, 1, figsize=(30, 14)) # FIGURE SIZE
         ax_xz = ax_yz = None
 
     file_name_only = os.path.basename(filepath)
@@ -3366,6 +3486,1246 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     btn_crop.on_clicked(_handle_crop)
 
+    # --- Button: Max I → 65000 ---
+    ax_max65k = plt.axes(btn_rect_col2)
+    btn_max65k = Button(ax_max65k, 'MaxI 65k')
+
+    def _set_maxI_65k(_evt=None):
+        target = 65000.0
+
+        # Keep the slider's bounds compatible and move the knob
+        try:
+            if hasattr(slider_max, "valmax") and target > slider_max.valmax:
+                slider_max.valmax = target
+            if hasattr(slider_max, "valmin") and minI < slider_max.valmin:
+                slider_max.valmin = minI
+            slider_max.set_val(target)
+        except Exception:
+            pass
+
+        # Apply clim immediately so the image updates even if slider callbacks are delayed
+        try:
+            im_xy.set_clim(minI, target)
+            if Nz > 1:
+                im_xz.set_clim(minI, target)
+                im_yz.set_clim(minI, target)
+        except Exception:
+            pass
+
+        # If you have a text box for Max (txt_max), sync it too
+        try:
+            txt_max.set_val(f"{target:.0f}")
+        except Exception:
+            pass
+
+        fig.canvas.draw_idle()
+        print("Max I set to 65000.")
+
+    btn_max65k.on_clicked(_set_maxI_65k)
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    # ----------------  Connect multiple (batch whole folder)  ----------------
+    ax_connect_multi = plt.axes(btn_rect_col2)
+    btn_connect_multi = Button(ax_connect_multi, 'connect multiple')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    def _select_folder() -> str | None:
+        try:
+            from tkinter import Tk, filedialog
+            root = Tk();
+            root.withdraw()
+            path = filedialog.askdirectory(title="Select folder with #01-#09 TIFFs")
+            try:
+                root.destroy()
+            except Exception:
+                pass
+            return path or None
+        except Exception:
+            return None
+
+    def _round_key(x: float, digits: int = 6) -> float:
+        # avoid tiny FP drift when grouping centers
+        return round(float(x), digits)
+
+    def _infer_center_from_file(path: str, s_um: float) -> tuple[float, float] | None:
+        """
+        From filename like ...Site(x y z)_#NN.tif, infer the true center coords by
+        subtracting the known shot offset (±s in µm) from the file's Site(x,y).
+        For #01, offset is (0,0) so we get the same coords.
+        """
+        name = os.path.basename(path)
+        ctr = _parse_site_center_from_name(name)
+        shot = _shot_num_from_name(name)
+        if not ctr or not shot or shot not in SHOT_TO_OFFSET:
+            return None
+        x_um = float(str(ctr[0]).replace(",", "."))
+        y_um = float(str(ctr[1]).replace(",", "."))
+        dxs, dys = SHOT_TO_OFFSET[shot]  # -1..+1 steps
+        cx = x_um - dxs * s_um
+        cy = y_um - dys * s_um
+        return (cx, cy)
+
+    def _shots_complete(d: dict[int, str]) -> bool:
+        return all(k in d for k in range(1, 10))
+
+    def _save_connected_name(origin_path: str) -> str:
+        """
+        Save next to the origin (#01) file. Prefer replacing '_#01' → '_connected';
+        otherwise append '_connected' before extension. Avoid collisions.
+        """
+        folder, name = os.path.split(origin_path)
+        stem, ext = os.path.splitext(name)
+        import re
+        out_stem = re.sub(r"_#\d{2}$", "_connected", stem)
+        if out_stem == stem:
+            out_stem = f"{stem}_connected"
+        candidate = os.path.join(folder, out_stem + ".tif")
+        if not os.path.exists(candidate):
+            return candidate
+        i = 2
+        while True:
+            cand = os.path.join(folder, f"{out_stem}({i}).tif")
+            if not os.path.exists(cand):
+                return cand
+            i += 1
+
+    def _connect_set_and_save(shots: dict[int, str], center_xy_um: tuple[float, float]):
+        """
+        Build a feathered circular mosaic for a complete 3×3 set (shots 1..9),
+        then save a 16-bit TIFF using current pixel size and display mapping.
+        """
+        # Load all 9 images, resize to #01 shape
+        p_origin = shots[1]
+        img0 = _tif_to_2d(p_origin).astype(np.float64)
+        H, W = img0.shape
+
+        imgs = {1: img0}
+        for n in range(2, 10):
+            im = _tif_to_2d(shots[n]).astype(np.float64)
+            if im.shape != (H, W):
+                im = _resize_like(im, (H, W))
+            imgs[n] = im
+
+        # Pixel scale
+        try:
+            um_per_px_x = float(PIXEL_SIZE_UM)
+            um_per_px_y = float(PIXEL_SIZE_UM)
+        except Exception:
+            um_per_px_x = um_per_px_y = 0.1  # safe fallback
+
+        px_per_um_x = 1.0 / um_per_px_x
+        px_per_um_y = 1.0 / um_per_px_y
+
+        # Compute offsets from filenames (exact world coords)
+        cx0_um, cy0_um = center_xy_um
+        offsets = []  # [(dy_px, dx_px, img)]
+        TOL_UM = 1e-3
+
+        def _coord_from_name_local(p):
+            c = _parse_site_center_from_name(os.path.basename(p))
+            if not c: return None
+            return float(str(c[0]).replace(",", ".")), float(str(c[1]).replace(",", "."))
+
+        for n in range(1, 10):
+            p = shots[n]
+            x_um, y_um = _coord_from_name_local(p)
+            dx_um = x_um - cx0_um
+            dy_um = y_um - cy0_um
+            if abs(dx_um) < TOL_UM: dx_um = 0.0
+            if abs(dy_um) < TOL_UM: dy_um = 0.0
+            dx_px = int(round(dx_um * px_per_um_x))
+            dy_px = int(round(dy_um * px_per_um_y))  # +µm Y → +rows down
+            offsets.append((dy_px, dx_px, imgs[n], p))
+
+        # Canvas extents
+        min_top = min(0, *(dy for dy, dx, im, p in offsets))
+        max_top = max(0, *(dy for dy, dx, im, p in offsets))
+        min_left = min(0, *(dx for dy, dx, im, p in offsets))
+        max_left = max(0, *(dx for dy, dx, im, p in offsets))
+        Hc = (max_top - min_top) + H
+        Wc = (max_left - min_left) + W
+
+        # Feathered circular placement (your “remove stitching circles” logic)
+        canvas = np.zeros((Hc, Wc), dtype=np.float64)
+        wsum = np.zeros((Hc, Wc), dtype=np.float64)
+        for dy, dx, im, p in offsets:
+            _place_on_canvas_circ_feather(
+                canvas, wsum, im,
+                dy - min_top, dx - min_left,
+                um_per_px_x, um_per_px_y,
+                CIRCLE_RADIUS_UM, FEATHER_WIDTH_UM
+            )
+        mosaic = np.zeros_like(canvas)
+        m = wsum > 0
+        mosaic[m] = canvas[m] / wsum[m]
+
+        # Save next to origin with “_connected”
+        out_u16 = _to_uint16_for_save(mosaic)  # use data min/max for full range
+        save_path = _save_connected_name(p_origin)
+        _save_tif2d(out_u16, save_path)
+        print(f"   → saved '{os.path.basename(save_path)}'  ({Wc}×{Hc}px)")
+
+    def _connect_multiple_handler(_evt=None):
+        try:
+            folder = _select_folder()
+            if not folder:
+                print("Canceled.")
+                return
+            print(f"Scanning: {folder}")
+
+            # Gather TIFFs
+            files = [os.path.join(folder, f) for f in os.listdir(folder)
+                     if f.lower().endswith((".tif", ".tiff"))]
+            if not files:
+                print("No TIFF files found.")
+                return
+
+            s_um = float(CONNECT_SHIFT_UM)
+
+            # Group by inferred center, collect per-shot files
+            groups: dict[tuple[float, float], dict[int, str]] = {}
+            for p in files:
+                ctr = _infer_center_from_file(p, s_um)  # None if no Site(...) or shot tag
+                if ctr is None:
+                    continue
+                cx, cy = (_round_key(ctr[0]), _round_key(ctr[1]))
+                shot = _shot_num_from_name(os.path.basename(p))
+                if not shot:
+                    continue
+                shots = groups.setdefault((cx, cy), {})
+                shots[shot] = p
+
+            # Process complete sets
+            total = len(groups)
+            done = fail = 0
+            for (cx, cy), shots in sorted(groups.items()):
+                label = f"Site({cx:.6f} {cy:.6f})"
+                if not _shots_complete(shots):
+                    missing = sorted(set(range(1, 10)) - set(shots.keys()))
+                    print(f"Skipping {label}: missing shots {missing}")
+                    continue
+                print(f"Connecting {label} ...")
+                try:
+                    _connect_set_and_save(shots, (cx, cy))
+                    done += 1
+                except Exception as e:
+                    print(f"   ❌ failed: {e}")
+                    fail += 1
+
+            print(f"Batch complete: {done} saved, {fail} failed, {total} site(s) scanned.")
+
+        except Exception as e:
+            print(f"❌ connect multiple failed: {e}")
+
+    btn_connect_multi.on_clicked(_connect_multiple_handler)
+
+    # ----------------  Multiple add+map  ----------------
+    ax_addppt_map_multi = plt.axes(btn_rect_col2)
+    btn_addppt_map_multi = Button(ax_addppt_map_multi, 'multiple add+map')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    def _handle_multiple_add2ppt_map(_evt=None):
+        try:
+            # Choose multiple files
+            paths = open_files_dialog([("TIFF Files", "*.tif *.tiff"), ("All Files", "*.*")])
+            if not paths:
+                print("No files selected.")
+                return
+
+            # Get (or create) a running PowerPoint
+            pythoncom.CoInitialize()
+            ppt = win32com.client.Dispatch("PowerPoint.Application")
+            if ppt.Presentations.Count == 0:
+                print("No PowerPoint presentations are open.")
+                return
+            pres = ppt.ActivePresentation
+            slide_w = pres.PageSetup.SlideWidth
+            slide_h = pres.PageSetup.SlideHeight
+
+            # Common placement for the small map
+            map_w = slide_w * 0.25
+            map_h = slide_h * 0.25
+            margin = 20
+
+            for pth in paths:
+                try:
+                    pth = os.path.abspath(pth)
+                    fname = os.path.basename(pth)
+
+                    # 1) Load the TIFF as a single-slice dataset into the viewer
+                    try:
+                        img2d = _tif_to_2d(pth).astype(np.float64)
+                        _switch_to_2d_dataset(img2d)
+                        try:
+                            ax_xy.set_title(fname)
+                        except Exception:
+                            pass
+                        fig.canvas.draw_idle()
+                    except Exception as e:
+                        print(f"⚠️ Skipping (load failed) {fname}: {e}")
+                        continue
+
+                    # 2) Copy main axes with colorbar to clipboard
+                    copy_main_axes_to_clipboard()
+
+                    # 3) Create a new slide and paste the scan snapshot
+                    new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)  # ppLayoutBlank = 12
+                    ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
+
+                    img = ImageGrab.grabclipboard()
+                    if not isinstance(img, Image.Image):
+                        print(f"⚠️ Clipboard does not contain an image for {fname}.")
+                        continue
+
+                    shapes = new_slide.Shapes.Paste()
+                    if shapes.Count > 0:
+                        shape = shapes[0]
+                        shape.AlternativeText = json.dumps({"filename": pth}, separators=(",", ":"))
+
+                        # Title with filename at the top
+                        title_shape = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40,
+                                                                  50)  # msoTextOrientationHorizontal=1
+                        tr = title_shape.TextFrame.TextRange
+                        tr.Text = fname
+                        tr.ParagraphFormat.Alignment = 2  # ppAlignCenter
+                        tr.Font.Bold = True
+                        tr.Font.Size = 28
+                        try:
+                            title_shape.Fill.Visible = 0
+                            title_shape.Line.Visible = 0
+                        except Exception:
+                            pass
+
+                    # 4) Parse coordinates from filename and draw cross on map
+                    center_um = _parse_site_center_from_name(fname)
+                    if center_um is None:
+                        print(f"⚠️ No Site(...) coords in '{fname}'; added slide without map.")
+                        continue
+
+                    cx_um, cy_um, _cz_um = center_um
+                    tmp_map_path = _make_map_with_cross(cx_um, cy_um, MAP_IMAGE_PATH)
+                    if tmp_map_path is None:
+                        print(f"⚠️ Map not available; added slide for {fname} without map.")
+                        continue
+
+                    # 5) Insert the small map (top-right)
+                    left = slide_w - map_w - margin
+                    top = margin
+                    pic = new_slide.Shapes.AddPicture(
+                        FileName=tmp_map_path, LinkToFile=False, SaveWithDocument=True,
+                        Left=left, Top=top, Width=map_w, Height=map_h
+                    )
+                    pic.AlternativeText = json.dumps(
+                        {"type": "site-map", "x_um": float(cx_um), "y_um": float(cy_um), "source": MAP_IMAGE_PATH},
+                        separators=(",", ":")
+                    )
+
+                    print(
+                        f"Added slide #{new_slide.SlideIndex} for {fname} with map cross at ({cx_um:.1f}, {cy_um:.1f}) µm.")
+
+                except Exception as e:
+                    print(f"❌ Failed on {os.path.basename(pth)}: {e}")
+
+        except Exception as e:
+            print(f"❌ multiple add+map failed: {e}")
+
+    btn_addppt_map_multi.on_clicked(_handle_multiple_add2ppt_map)
+
+    # ---------------- Button: multiple crop (batch) ----------------
+    ax_multicrop = plt.axes(btn_rect_col2)
+    btn_multicrop = Button(ax_multicrop, 'multiple crop')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    def _handle_multiple_crop(_evt=None):
+        try:
+            paths = open_files_dialog([("TIFF Files", "*.tif *.tiff")])
+            if not paths:
+                print("No files selected.")
+                return
+
+            # read desired crop box from global
+            y0, y1, x0, x1 = CROP_PIXELS
+            ok, fail = 0, 0
+
+            for path in paths:
+                try:
+                    # load as 2D float64 (RGB→gray, multipage→mean)
+                    img2d = _tif_to_2d(path).astype(np.float64)
+
+                    H, W = img2d.shape
+                    yy0 = max(0, min(H - 1, int(y0)))
+                    yy1 = max(yy0 + 1, min(H, int(y1)))
+                    xx0 = max(0, min(W - 1, int(x0)))
+                    xx1 = max(xx0 + 1, min(W, int(x1)))
+
+                    crop2d = img2d[yy0:yy1, xx0:xx1]
+
+                    # save as uint16 using per-image min/max to keep dynamic range
+                    out_u16 = _to_uint16_for_save(crop2d)
+
+                    folder, name = os.path.split(path)
+                    stem, _ = os.path.splitext(name)
+                    save_path = os.path.join(folder, f"{stem}_crop.tif")
+
+                    # avoid overwrite by auto-increment
+                    i = 2
+                    while os.path.exists(save_path):
+                        save_path = os.path.join(folder, f"{stem}_crop({i}).tif")
+                        i += 1
+
+                    _save_tif2d(out_u16, save_path)
+                    print(f"✅ Cropped → {os.path.basename(save_path)}")
+                    ok += 1
+                except Exception as e:
+                    print(f"❌ Failed on {os.path.basename(path)}: {e}")
+                    fail += 1
+
+            print(f"Batch crop complete: {ok} saved, {fail} failed.")
+
+        except Exception as e:
+            print(f"❌ multiple crop failed: {e}")
+
+    btn_multicrop.on_clicked(_handle_multiple_crop)
+
+    # --- Button: line plot (choose two points → profile) ---
+    ax_lineplot = plt.axes(btn_rect_col2)
+    btn_lineplot = Button(ax_lineplot, 'line plot')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    # --- Line-plot state (enclosing function scope) ---
+    _line_artists = []  # drawn artists on ax_xy
+    _line_clicks_data = []  # [(xµm, yµm), (xµm, yµm)]
+    _linepick_cid = None
+
+    def _clear_line_artists():
+        for a in list(_line_artists):
+            try:
+                a.remove()
+            except Exception:
+                pass
+        _line_artists.clear()
+        plt.gcf().canvas.draw_idle()
+
+    def _enable_line_pick(_evt=None):
+        nonlocal _linepick_cid, _line_clicks_data
+        _clear_line_artists()
+        _line_clicks_data = []
+        if _linepick_cid is not None:
+            fig.canvas.mpl_disconnect(_linepick_cid)
+        _linepick_cid = fig.canvas.mpl_connect('button_press_event', _on_linepick_click)
+        print("Line selection: left-click two points inside the XY image (right-click to cancel).")
+
+    def _disable_line_pick():
+        nonlocal _linepick_cid
+        if _linepick_cid is not None:
+            try:
+                fig.canvas.mpl_disconnect(_linepick_cid)
+            except Exception:
+                pass
+            _linepick_cid = None
+
+    def _data_to_pixel(x_um, y_um):
+        """Map data coords (µm) → array indices (xpix, ypix)."""
+        xmin, xmax, ymin, ymax = im_xy.get_extent()
+        arr = np.asarray(im_xy.get_array())
+        Ny, Nx = arr.shape[-2], arr.shape[-1]
+        xpix = (x_um - xmin) * (Nx - 1) / max(1e-12, (xmax - xmin))
+        ypix = (y_um - ymin) * (Ny - 1) / max(1e-12, (ymax - ymin))
+        return xpix, ypix, arr
+
+    def _on_lineplot_button(event=None):
+        _enable_line_pick()
+
+    def _on_linepick_click(event):
+        # cancel on right-click or click outside the image
+        if event.button != 1 or event.inaxes is not ax_xy:
+            if event.button != 1:  # right-click cancels
+                _disable_line_pick()
+                print("Line selection cancelled.")
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+
+        # draw a point marker in data coords (µm)
+        pt = ax_xy.plot(event.xdata, event.ydata, 'o', ms=8, mfc='none', mew=2)[0]
+        _line_artists.append(pt)
+        _line_clicks_data.append((float(event.xdata), float(event.ydata)))
+
+        # once we have 2 points, draw line and build profile
+        if len(_line_clicks_data) == 2:
+            (x0, y0), (x1, y1) = _line_clicks_data
+            ln = ax_xy.plot([x0, x1], [y0, y1], '-', lw=2)[0]
+            _line_artists.append(ln)
+            fig.canvas.draw_idle()
+            _disable_line_pick()
+            _finish_line_profile((x0, y0), (x1, y1))
+
+    def _finish_line_profile(p0_um, p1_um):
+        """Compute intensity profile between two data points (µm) and plot."""
+        # convert to pixel space and sample
+        x0p, y0p, arr = _data_to_pixel(*p0_um)
+        x1p, y1p, _ = _data_to_pixel(*p1_um)
+        L = int(max(2, np.hypot(x1p - x0p, y1p - y0p)))  # ~1 sample per pixel
+        xs = np.linspace(x0p, x1p, L)
+        ys = np.linspace(y0p, y1p, L)
+        prof = _bilinear_profile_array(arr, xs, ys)  # uses current displayed data
+
+        # reuse (or create) a profile axes
+        ax_profile = None
+        for ax in fig.axes:
+            if getattr(ax, "_is_profile_axes", False):
+                ax_profile = ax
+                break
+        _profile_rect = [0.23, 0.78, 0.18, 0.16]
+        if ax_profile is None:
+            ax_profile = fig.add_axes(_profile_rect)
+            ax_profile._is_profile_axes = True
+        else:
+            ax_profile.set_position(_profile_rect)
+        ax_profile.set_anchor('NW')
+        ax_profile.clear()
+        ax_profile.plot(np.arange(L), prof)
+        ax_profile.set_title("Line Profile")
+        ax_profile.set_xlabel("Distance (px)")
+        ax_profile.set_ylabel("Intensity (a.u.)")
+        fig.canvas.draw_idle()
+
+        # save the two picked points (in µm) next to the image file if known
+        try:
+            import time, json, os
+            folder, stem = ".", "line_points"
+            if 'filepath' in locals() and filepath:
+                folder, name = os.path.split(filepath)
+                stem, _ = os.path.splitext(name)
+            record = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "image_path": filepath if 'filepath' in locals() else None,
+                "points_um": [{"x": p0_um[0], "y": p0_um[1]}, {"x": p1_um[0], "y": p1_um[1]}]
+            }
+            json_path = os.path.join(folder, f"{stem}_line.json")
+            if os.path.exists(json_path):
+                try:
+                    with open(json_path, "r") as f:
+                        old = json.load(f)
+                except Exception:
+                    old = []
+                if isinstance(old, list):
+                    old.append(record)
+                else:
+                    old = [old, record]
+                data_to_write = old
+            else:
+                data_to_write = [record]
+            with open(json_path, "w") as f:
+                json.dump(data_to_write, f, indent=2)
+            print(f"Saved line points → {os.path.basename(json_path)}")
+        except Exception as e:
+            print(f"Warning: failed to save line JSON: {e}")
+
+    def _bilinear_profile_array(img2d, xs_pix, ys_pix):
+        """Bilinear sample of 2D array at fractional (x,y) pixel coords."""
+        H, W = img2d.shape[:2]
+        xs = np.asarray(xs_pix);
+        ys = np.asarray(ys_pix)
+        x0 = np.clip(np.floor(xs).astype(int), 0, W - 1);
+        x1 = np.clip(x0 + 1, 0, W - 1)
+        y0 = np.clip(np.floor(ys).astype(int), 0, H - 1);
+        y1 = np.clip(y0 + 1, 0, H - 1)
+        dx = xs - x0;
+        dy = ys - y0
+        Ia = img2d[y0, x0];
+        Ib = img2d[y0, x1];
+        Ic = img2d[y1, x0];
+        Id = img2d[y1, x1]
+        top = Ia * (1 - dx) + Ib * dx
+        bot = Ic * (1 - dx) + Id * dx
+        return top * (1 - dy) + bot * dy
+
+    btn_lineplot.on_clicked(_on_lineplot_button)
+
+    # --- Button: 8 line plots ---
+    ax_lp8 = plt.axes(btn_rect_col2)
+    btn_lp8 = Button(ax_lp8, '8 line plots')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    # --- 8 line plots state ---
+    _lp8_clicks = []  # will hold 4 points: top(p0,p1), bottom(p2,p3)
+    _lp8_cid = None
+    _lp8_axes = []  # small profile axes (8 of them)
+    _lp8_artists = []  # temporary markers/lines drawn on ax_img
+
+    def _lp8_get_image_and_converters():
+        """Return (im, d2p) where:
+           im  = the AxesImage shown on ax_img
+           d2p = function (x_data, y_data) -> (x_pix, y_pix) for sampling
+        """
+        im = None
+        for _im in ax_xy.get_images():
+            im = _im
+            break
+        if im is None:
+            return None, None
+
+        x0, x1, y0, y1 = im.get_extent()
+        arr = np.asarray(im.get_array())
+        H, W = arr.shape[:2]
+        # origin is 'upper' by default in imshow; flip_y if so
+        try:
+            origin = im.origin
+        except Exception:
+            origin = im.get_origin()
+        flip_y = (origin != 'lower')
+
+        sx = (W - 1) / (x1 - x0)
+        sy = (H - 1) / (y1 - y0)
+
+        def d2p(x, y):
+            ix = (x - x0) * sx
+            iy = (y - y0) * sy
+            if flip_y:
+                iy = (H - 1) - iy
+            return ix, iy
+
+        return im, d2p
+
+    def _get_img2d_for_profile():
+        """Return the current 2D image slice used for profiles (same as line plot)."""
+        try:
+            C = _current_processed_cube_no_log()
+            img = C[z_idx] if C.ndim == 3 else C
+        except Exception:
+            img = I_view[z_idx] if I_view.ndim == 3 else I_view
+        return np.asarray(_maybe_flip(_smooth2d(img)), dtype=float)
+
+    def _um_to_px(xs_um, ys_um, extent, img_shape):
+        """Map data coords (µm) from ax_xy to pixel indices of img2d."""
+        xmin, xmax, ymin, ymax = extent
+        H, W = img_shape
+        xs = (np.asarray(xs_um) - xmin) / max(1e-12, (xmax - xmin)) * (W - 1)
+        ys = (np.asarray(ys_um) - ymin) / max(1e-12, (ymax - ymin)) * (H - 1)
+        return xs, ys
+
+    if '_bilinear_profile' not in globals():
+        def _bilinear_profile(img, xs, ys):
+            H, W = img.shape[:2]
+            xs = np.asarray(xs);
+            ys = np.asarray(ys)
+            x0 = np.clip(np.floor(xs).astype(int), 0, W - 1)
+            x1 = np.clip(x0 + 1, 0, W - 1)
+            y0 = np.clip(np.floor(ys).astype(int), 0, H - 1)
+            y1 = np.clip(y0 + 1, 0, H - 1)
+            dx = xs - x0;
+            dy = ys - y0
+            Ia = img[y0, x0];
+            Ib = img[y0, x1];
+            Ic = img[y1, x0];
+            Id = img[y1, x1]
+            top = Ia * (1 - dx) + Ib * dx
+            bot = Ic * (1 - dx) + Id * dx
+            return top * (1 - dy) + bot * dy
+
+    def _lp8_current_img2d():
+        """Return the 2D image currently shown in ax_xy, matching your display pipeline."""
+        try:
+            C = _current_processed_cube_no_log()  # already defined in this file
+        except Exception:
+            # Fallback to the view buffer
+            a = I_view[z_idx] if I_view.ndim == 3 else I_view
+            try:
+                return _maybe_flip(_smooth2d(a))
+            except Exception:
+                return a
+
+        img = C[z_idx] if C.ndim == 3 else C
+        try:
+            return _maybe_flip(_smooth2d(img))
+        except Exception:
+            return img
+
+    def _get_bilinear_profile_func():
+        fn = globals().get("_bilinear_profile", None)
+        if callable(fn):
+            return fn
+
+        # fallback local implementation
+        def _bilinear_profile_local(img, xs, ys):
+            H, W = img.shape[:2]
+            xs = np.asarray(xs)
+            ys = np.asarray(ys)
+            x0 = np.clip(np.floor(xs).astype(int), 0, W - 1)
+            x1 = np.clip(x0 + 1, 0, W - 1)
+            y0 = np.clip(np.floor(ys).astype(int), 0, H - 1)
+            y1 = np.clip(y0 + 1, 0, H - 1)
+            dx = xs - x0
+            dy = ys - y0
+            Ia = img[y0, x0]
+            Ib = img[y0, x1]
+            Ic = img[y1, x0]
+            Id = img[y1, x1]
+            top = Ia * (1 - dx) + Ib * dx
+            bot = Ic * (1 - dx) + Id * dx
+            return top * (1 - dy) + bot * dy
+
+        return _bilinear_profile_local
+
+    def _get_img_axes():
+        """
+        Return the axes that shows the main image.
+        Tries common globals, then scans the figure for an axes with an image.
+        """
+        # common global names you may already use in this file
+        for name in ("ax_img", "ax_xy", "ax_main", "ax"):
+            ax = globals().get(name, None)
+            if ax is not None and hasattr(ax, "images") and len(ax.images) > 0:
+                return ax
+        # scan figure for an axes that actually contains an image
+        fig = plt.gcf()
+        for ax in fig.axes:
+            if getattr(ax, "_is_main_image_axes", False):
+                return ax
+            if hasattr(ax, "images") and len(ax.images) > 0:
+                return ax
+        return None
+
+    def _lp8_ensure_state():
+        global _lp8_clicks, _lp8_cid, _lp8_axes, _lp8_artists
+        if '_lp8_clicks' not in globals(): _lp8_clicks = []
+        if '_lp8_cid' not in globals(): _lp8_cid = None
+        if '_lp8_axes' not in globals(): _lp8_axes = []
+        if '_lp8_artists' not in globals(): _lp8_artists = []
+
+    def _on_lp8_button(event=None):
+        _lp8_ensure_state()
+        _lp8_enable_pick()
+
+    def _lp8_enable_pick():
+        _lp8_ensure_state()
+        global _lp8_cid, _lp8_clicks, _lp8_artists
+        _lp8_clicks = []
+        # clear any previous temp artists
+        for a in list(_lp8_artists):
+            try:
+                a.remove()
+            except Exception:
+                pass
+        _lp8_artists.clear()
+
+        # (re)connect click handler
+        fig = plt.gcf()
+        if _lp8_cid is not None:
+            try:
+                fig.canvas.mpl_disconnect(_lp8_cid)
+            except Exception:
+                pass
+            _lp8_cid = None
+        _lp8_cid = fig.canvas.mpl_connect('button_press_event', _lp8_on_click)
+        print("8 line plots: click two points on TOP waveguide, then two on BOTTOM.")
+
+    def _lp8_disable_pick():
+        global _lp8_cid
+        if _lp8_cid is not None:
+            try:
+                plt.gcf().canvas.mpl_disconnect(_lp8_cid)
+            except Exception:
+                pass
+            _lp8_cid = None
+
+    def _lp8_on_click(event):
+        global _lp8_clicks, _lp8_artists
+        if event.inaxes != ax_xy or event.button != 1:
+            return
+        x, y = float(event.xdata), float(event.ydata)
+        _lp8_clicks.append((x, y))
+        _lp8_artists.append(ax_xy.plot(x, y, 'o', ms=7, mfc='none', mew=2)[0])
+        # visual feedback
+        ax_xy.plot(x, y, 'o', ms=6, mfc='none', mew=1)
+        plt.gcf().canvas.draw_idle()
+
+        if len(_lp8_clicks) == 2:
+            _lp8_artists.append(ax_xy.plot(
+                [_lp8_clicks[0][0], _lp8_clicks[1][0]],
+                [_lp8_clicks[0][1], _lp8_clicks[1][1]], '-', lw=2
+            )[0])
+            plt.gcf().canvas.draw_idle()
+            print("Now pick two points on the BOTTOM waveguide.")
+
+        if len(_lp8_clicks) == 4:
+            _lp8_disable_pick()
+            _lp8_run_profiles(_lp8_clicks)
+
+    def _lp8_run_profiles(pts):
+        """Create 8 interpolated line profiles between the two chosen lines."""
+        fig = plt.gcf()
+        global _lp8_axes
+        # —— NEW: get the displayed 2D image like the line-plot does
+        try:
+            img2d = np.asarray(im_xy.get_array())
+        except Exception:
+            img2d = None
+        if img2d is None:
+            try:
+                img2d = _maybe_flip(_smooth2d(I_view[z_idx]))
+            except Exception:
+                print("8 line plots: image array (img2d) not found.")
+                return
+
+        (x0t, y0t), (x1t, y1t), (x0b, y0b), (x1b, y1b) = pts
+        # 8 lines: t ∈ {0,1/7,...,1}; 1=top, 8=bottom
+        ts = [i / 7 for i in range(8)]
+        pairs = [((x0t + (x0b - x0t) * t, y0t + (y0b - y0t) * t),
+                  (x1t + (x1b - x1t) * t, y1t + (y1b - y1t) * t)) for t in ts]
+
+        # Draw the 8 lines on the image (thin overlays)
+        for (p0, p1) in pairs:
+            ax_xy.plot([p0[0], p1[0]], [p0[1], p1[1]], '-', lw=1)
+
+        _make_lp8_axes()  # axes already arranged in one column earlier
+        if len(_lp8_axes) != 8:
+            print(f"8 line plots: expected 8 axes, found {len(_lp8_axes)}; aborting.")
+            return
+
+        # 3) Provide the same bilinear sampler if not already present
+        if '_bilinear_profile' not in globals():
+            def _bilinear_profile(img, xs, ys):
+                H, W = img.shape[:2]
+                xs = np.asarray(xs)
+                ys = np.asarray(ys)
+                x0 = np.clip(np.floor(xs).astype(int), 0, W - 1)
+                x1 = np.clip(x0 + 1, 0, W - 1)
+                y0 = np.clip(np.floor(ys).astype(int), 0, H - 1)
+                y1 = np.clip(y0 + 1, 0, H - 1)
+                dx = xs - x0
+                dy = ys - y0
+                Ia = img[y0, x0]
+                Ib = img[y0, x1]
+                Ic = img[y1, x0]
+                Id = img[y1, x1]
+                top = Ia * (1 - dx) + Ib * dx
+                bot = Ic * (1 - dx) + Id * dx
+                return top * (1 - dy) + bot * dy
+
+        # Get image + converters and array for sampling
+        im, d2p = _lp8_get_image_and_converters()
+        if im is None or d2p is None:
+            print("8 line plots: image array (img2d) not found.")
+            return
+        img2d = np.asarray(im.get_array())
+
+        for i, ((xa, ya), (xb, yb)) in enumerate(pairs):
+            # convert data->pixel for sampling
+            ix0, iy0 = d2p(xa, ya)
+            ix1, iy1 = d2p(xb, yb)
+
+            L = int(np.hypot(ix1 - ix0, iy1 - iy0)) + 1
+            xs_pix = np.linspace(ix0, ix1, L)
+            ys_pix = np.linspace(iy0, iy1, L)
+            prof = _bilinear_profile(img2d, xs_pix, ys_pix)
+
+            axp = _lp8_axes[i]
+            axp.clear()
+            axp.plot(np.arange(L), prof)
+            axp.set_title(f"Line {i + 1}, y-{ya:.2f}", fontsize=8)
+            axp.set_xlabel("px", fontsize=8)
+            axp.set_ylabel("I", fontsize=8)
+            axp.tick_params(labelsize=8)
+
+        fig.canvas.draw_idle()
+        _lp8_save_points(pts)
+
+    def _lp8_layout_rects():
+        """Positions for 8 small axes in a single column at left-top."""
+        left, top = 0.17, 0.92  # figure coords
+        w, h = 0.18, 0.08
+        gap = 0.03
+        rects = []
+        for i in range(8):
+            bottom = top - (i + 1) * h - i * gap
+            rects.append([left, bottom, w, h])
+        return rects
+
+    def _make_lp8_axes():
+        """Always recreate 8 profile axes laid out by _lp8_layout_rects()."""
+        global _lp8_axes
+        fig = plt.gcf()
+        # remove any existing lp8 axes
+        for ax in list(fig.axes):
+            if getattr(ax, "_is_lp8", False):
+                try:
+                    ax.remove()
+                except Exception:
+                    pass
+
+        rects = _lp8_layout_rects()
+        _lp8_axes = []
+        for i, rect in enumerate(rects):
+            ax = fig.add_axes(rect)
+            ax._is_lp8 = True
+            ax._lp8_index = i
+            ax.set_title(f"Line {i + 1}", fontsize=8)
+            ax.tick_params(labelsize=8)
+            _lp8_axes.append(ax)
+
+    def _lp8_save_points(pts):
+        """Save the 4 chosen points (top two, bottom two) to JSON next to the image."""
+        import json, time
+        (x0t, y0t), (x1t, y1t), (x0b, y0b), (x1b, y1b) = pts
+
+        # decide target path
+        folder, stem = ".", "lp8_points"
+        try:
+            folder, name = os.path.split(CURRENT_IMAGE_PATH)  # if tracked elsewhere in your script
+            stem, _ = os.path.splitext(name)
+        except Exception:
+            pass
+        json_path = os.path.join(folder, f"{stem}_lp8.json")
+
+        record = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "image_path": (CURRENT_IMAGE_PATH if 'CURRENT_IMAGE_PATH' in globals() else None),
+            "top_points": [{"x": x0t, "y": y0t}, {"x": x1t, "y": y1t}],
+            "bottom_points": [{"x": x0b, "y": y0b}, {"x": x1b, "y": y1b}],
+        }
+
+        # append to file (keep a list history)
+        try:
+            if os.path.exists(json_path):
+                with open(json_path, "r") as f:
+                    old = json.load(f)
+                if isinstance(old, list):
+                    old.append(record)
+                    data_to_write = old
+                else:
+                    data_to_write = [old, record]
+            else:
+                data_to_write = [record]
+
+            with open(json_path, "w") as f:
+                json.dump(data_to_write, f, indent=2)
+            print(f"Saved 4 points → {os.path.basename(json_path)}")
+        except Exception as e:
+            print(f"Warning: failed to save lp8 JSON: {e}")
+
+    # wire the button
+    btn_lp8.on_clicked(_on_lp8_button)
+
+    # --- Button: apply 8 profiles (from JSON) ---
+    ax_lp8_apply = plt.axes(btn_rect_col2)
+    btn_lp8_apply = Button(ax_lp8_apply, 'apply 8 profiles')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    def _lp8_ensure_state():
+        global _lp8_clicks, _lp8_cid, _lp8_axes, _lp8_artists
+        if '_lp8_clicks' not in globals(): _lp8_clicks = []
+        if '_lp8_cid' not in globals(): _lp8_cid = None
+        if '_lp8_axes' not in globals(): _lp8_axes = []
+        if '_lp8_artists' not in globals(): _lp8_artists = []
+
+    def _on_lp8_apply_button(event=None):
+        _lp8_apply_from_json()
+
+    def _lp8_apply_from_json():
+        _lp8_ensure_state()
+        global _lp8_artists
+        import os, json
+
+        # derive the same JSON path used in _lp8_save_points(...)
+        try:
+            folder, name = os.path.split(CURRENT_IMAGE_PATH)
+            stem, _ = os.path.splitext(name)
+        except Exception:
+            folder, stem = ".", "lp8_points"
+        json_path = os.path.join(folder, f"{stem}_lp8.json")
+
+        if not os.path.exists(json_path):
+            print(f"apply 8 profiles: JSON not found: {json_path}")
+            return
+
+        try:
+            with open(json_path, "r") as f:
+                data = json.load(f)
+            rec = data[-1] if isinstance(data, list) else data
+            if "top_points" in rec and "bottom_points" in rec:
+                tp, bp = rec["top_points"], rec["bottom_points"]
+                pts = [(tp[0]["x"], tp[0]["y"]),
+                       (tp[1]["x"], tp[1]["y"]),
+                       (bp[0]["x"], bp[0]["y"]),
+                       (bp[1]["x"], bp[1]["y"])]
+            elif "points" in rec and len(rec["points"]) >= 4:  # backward compat
+                p = rec["points"]
+                pts = [(p[0]["x"], p[0]["y"]), (p[1]["x"], p[1]["y"]),
+                       (p[2]["x"], p[2]["y"]), (p[3]["x"], p[3]["y"])]
+            else:
+                print("apply 8 profiles: JSON missing 4 points.")
+                return
+        except Exception as e:
+            print(f"apply 8 profiles: failed to read JSON: {e}")
+            return
+
+        # clear overlays and draw using saved points
+        for a in list(_lp8_artists):
+            try:
+                a.remove()
+            except Exception:
+                pass
+        _lp8_artists.clear()
+
+        print("apply 8 profiles: using saved points.")
+        _lp8_run_profiles(pts)
+
+    # wire the button
+    btn_lp8_apply.on_clicked(_on_lp8_apply_button)
+
+    # --- Button: view frames (multi-page TIFF) ---
+    ax_view_frames = plt.axes(btn_rect_col2)
+    btn_view_frames = Button(ax_view_frames, 'view frames')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+    _movie_fps = 15  # default FPS for saved movie
+
+    def _handle_view_frames(_evt=None):
+        # pick a .tif/.tiff
+        try:
+            from tkinter import Tk, filedialog
+            root = Tk()
+            root.withdraw()
+            path = filedialog.askopenfilename(
+                title="Select multi-frame TIFF",
+                filetypes=[("TIFF Files", "*.tif *.tiff")])
+            try:
+                root.destroy()
+            except Exception:
+                pass
+        except Exception:
+            print("Could not open file dialog.");
+            return
+        if not path:
+            print("Canceled.");
+            return
+
+        # read stack (Z,Y,X)
+        try:
+            try:
+                import tifffile as tiff
+                stack = tiff.imread(path)
+            except Exception:
+                import imageio.v3 as iio
+                stack = iio.imread(path, index=None)
+            arr = np.asarray(stack, dtype=np.float64)
+        except Exception as e:
+            print(f"Failed to read TIFF: {e}");
+            return
+
+        arr = np.squeeze(arr)
+        # RGB(A) → gray
+        if arr.ndim == 4 and arr.shape[-1] in (3, 4):
+            arr = arr[..., :3].mean(axis=-1)
+        # If single frame, just show and exit
+        if arr.ndim == 2:
+            figV, axV = plt.subplots(1, 1, figsize=(12, 10))
+            imV = axV.imshow(arr, origin='lower', aspect='equal')
+            axV.set_title(f"{os.path.basename(path)} (single frame)")
+            figV.colorbar(imV, ax=axV, label="a.u.")
+            plt.show(block=False)
+            return
+        if arr.ndim != 3:
+            print(f"Unexpected TIFF shape: {arr.shape}");
+            return
+
+        Z, H, W = arr.shape
+        figV, axV = plt.subplots(1, 1, figsize=(10, 7))
+        plt.subplots_adjust(bottom=0.12)
+        imV = axV.imshow(arr[0], origin='lower', aspect='equal')
+        cbarV = figV.colorbar(imV, ax=axV, label="a.u.")
+        axV.set_title(f"{os.path.basename(path)} — frame 1 / {Z}")
+
+        # slider
+        from matplotlib.widgets import Slider
+        axVz = plt.axes([0.15, 0.04, 0.7, 0.03])
+        sVz = Slider(axVz, 'frame', 1, Z, valinit=1, valstep=1)
+        vmin, vmax = float(np.nanmin(arr)), float(np.nanmax(arr))
+        imV.set_clim(vmin, vmax)
+
+        def _upd(_):
+            k = int(sVz.val) - 1
+            imV.set_data(arr[k])
+            axV.set_title(f"{os.path.basename(path)} — frame {k + 1} / {Z}")
+            figV.canvas.draw_idle()
+
+        sVz_cid = sVz.on_changed(_upd)
+
+        # keyboard ←/→
+        def _on_key(ev):
+            if ev.key == 'right':
+                sVz.set_val(min(Z, sVz.val + 1))
+            elif ev.key == 'left':
+                sVz.set_val(max(1, sVz.val - 1))
+
+        figV.canvas.mpl_connect('key_press_event', _on_key)
+
+        # --- Normalize frames by reference point (small circle) ---
+        from matplotlib.widgets import Button
+        # Bigger button at top-left of the viewer figure (figure coords)
+        axBtnRef = figV.add_axes([0.02, 0.94, 0.16, 0.05])  # left, bottom, w, h
+        btnPickRef = Button(axBtnRef, 'Pick Ref (R)')
+
+        # keep originals & working copy
+        arr0 = arr.copy()  # original stack
+        arrN = arr.copy()  # normalized stack (displayed)
+        sVz_cid = None  # holds the slider on_changed connection id
+
+        ref_artist = None
+        pick_cid = None
+        ref_radius = 5  # pixels (circle radius)
+
+        def _apply_norm_at(xc, yc):
+            """Normalize each frame so mean in a small circle around (xc,yc) matches frame 1."""
+            nonlocal arrN
+            H, W = arr0.shape[1], arr0.shape[2]
+            yy, xx = np.ogrid[:H, :W]
+            mask = (xx - xc) ** 2 + (yy - yc) ** 2 <= (ref_radius ** 2)
+
+            # target = mean of frame 0 within mask
+            with np.errstate(invalid='ignore'):
+                target = float(np.nanmean(arr0[0][mask]))
+            if not np.isfinite(target) or target == 0:
+                print("Normalization skipped: invalid target intensity.")
+                return
+
+            arrN = np.empty_like(arr0, dtype=float)
+            for k in range(arr0.shape[0]):
+                with np.errstate(invalid='ignore'):
+                    m = float(np.nanmean(arr0[k][mask]))
+                scale = (target / m) if (np.isfinite(m) and m != 0) else 1.0
+                arrN[k] = arr0[k] * scale
+
+            # refresh current frame view and color scale using normalized stack
+            kcur = int(sVz.val) - 1
+            imV.set_data(arrN[kcur])
+            vminN, vmaxN = float(np.nanmin(arrN)), float(np.nanmax(arrN))
+            imV.set_clim(vminN, vmaxN)
+            cbarV.update_normal(imV)
+            figV.canvas.draw_idle()
+            print(f"Applied normalization at ({xc:.1f}, {yc:.1f}) with r={ref_radius}px.")
+
+        def _on_pick_click(ev):
+            nonlocal ref_artist, pick_cid
+            nonlocal sVz_cid
+
+            if ev.inaxes != axV or ev.button != 1:
+                return
+            xc, yc = float(ev.xdata), float(ev.ydata)
+
+            # draw/replace a small circle marker
+            try:
+                if ref_artist is not None:
+                    ref_artist.remove()
+            except Exception:
+                pass
+            th = np.linspace(0, 2 * np.pi, 100)
+            xs = xc + ref_radius * np.cos(th)
+            ys = yc + ref_radius * np.sin(th)
+            ref_artist, = axV.plot(xs, ys, '-', lw=1.5)
+            figV.canvas.draw_idle()
+
+            # disconnect pick mode and apply normalization
+            if pick_cid is not None:
+                figV.canvas.mpl_disconnect(pick_cid)
+                pick_cid = None
+            _apply_norm_at(xc, yc)
+
+            # make slider show normalized frames from now on
+            def _upd_norm(_):
+                k = int(sVz.val) - 1
+                imV.set_data(arrN[k])
+                axV.set_title(f"{os.path.basename(path)} — frame {k + 1} / {Z}")
+                figV.canvas.draw_idle()
+
+            try:
+                if sVz_cid is not None:
+                    sVz.disconnect(sVz_cid)
+            except Exception:
+                pass
+            sVz.on_changed(_upd_norm)
+
+        def _start_pick_ref(_evt=None):
+            nonlocal pick_cid
+            # connect one-shot click picker
+            if pick_cid is not None:
+                try:
+                    figV.canvas.mpl_disconnect(pick_cid)
+                except Exception:
+                    pass
+                pick_cid = None
+            pick_cid = figV.canvas.mpl_connect('button_press_event', _on_pick_click)
+            print("Click a point to define the normalization reference (small circle).")
+
+        btnPickRef.on_clicked(_start_pick_ref)
+
+        # --- add: top-left small button to save movie ---
+        ax_save_movie = plt.axes([0.01, 0.92, 0.10, 0.05])  # top-left
+        btn_save_movie = Button(ax_save_movie, 'Save Movie (M)')
+
+        def _save_normalized_movie():
+            try:
+                # choose which stack to save
+                stack = None
+                if 'norm_stack' in globals() and norm_stack is not None:
+                    stack = norm_stack
+                elif 'img_stack' in globals() and img_stack is not None:
+                    stack = img_stack
+                else:
+                    print("Save Movie: no stack available.")
+                    return
+
+                # get display scaling from current image
+                if 'im_obj' in globals() and im_obj is not None:
+                    vmin, vmax = im_obj.get_clim()
+                else:
+                    vmin, vmax = float(np.nanmin(stack)), float(np.nanmax(stack))
+                if vmax <= vmin:
+                    vmax = vmin + 1.0
+
+                # uint8 frames using current display range
+                def to_u8(frame):
+                    f = (frame - vmin) / (vmax - vmin)
+                    f = np.clip(f, 0, 1)
+                    return (f * 255).astype(np.uint8)
+
+                frames_u8 = [to_u8(f) for f in stack]
+
+                # output path
+                folder, stem = ".", "movie"
+                try:
+                    folder, name = os.path.split(CURRENT_IMAGE_PATH)
+                    stem, _ = os.path.splitext(name)
+                except Exception:
+                    pass
+                out_path = os.path.join(folder, f"{stem}_normalized.mp4")
+
+                # write mp4
+                iio.imwrite(out_path, frames_u8, fps=_movie_fps, codec="h264", quality=8)
+                print(f"Saved movie → {out_path}  (fps={_movie_fps})")
+            except Exception as e:
+                print(f"Save Movie: failed → {e}")
+
+        btn_save_movie.on_clicked(lambda evt: _save_normalized_movie())
+
+        # extend existing handler:
+        def _on_key(event):
+            k = (event.key or "").lower()
+            if k == 'r':
+                _begin_pick_reference()  # your existing function
+            elif k == 'm':
+                _save_normalized_movie()
+
+        figV.canvas.mpl_connect('key_press_event', _on_key)
+
+        plt.show(block=False)
+
+    btn_view_frames.on_clicked(_handle_view_frames)
+
+
+    ######
+
     def _make_map_with_cross(x_um: float, y_um: float, map_path: str = MAP_IMAGE_PATH) -> str | None:
         """
         Open map.jpg, draw a cross at (x_um, y_um) in world microns, save to a temp PNG.
@@ -3506,8 +4866,17 @@ if __name__ == "__main__":
     parser.add_argument("--vmin", type=float, default=None, help="Lower display limit")
     parser.add_argument("--vmax", type=float, default=None, help="Upper display limit")
     parser.add_argument("--log", action="store_true", help="Use log-scale display")
+    parser.add_argument("--multicalib", action="store_true",
+                        help="Open a file picker and apply calibration to multiple TIFFs, then exit.")
+    parser.add_argument("--calib", default=None,
+                        help="Optional override for calibration TIFF path (used with --multicalib).")
 
     args = parser.parse_args()
+
+    # NEW: headless batch-calibration mode
+    if args.multicalib:
+        run_multicalib_cli(calib_path=args.calib)
+        sys.exit(0)
 
     # TIFF logic is handled inside display_all_z_slices
     display_all_z_slices(

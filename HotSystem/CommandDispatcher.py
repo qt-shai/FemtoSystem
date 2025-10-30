@@ -175,8 +175,13 @@ class CommandDispatcher:
     def __init__(self):
         # Map command verbs to handler methods
         # self.proEM_mode = True
+        self._last_cmd = None
         self._last_fq_idx = None
+        self._cgh_proc = None  # track the fullscreen CGH process
         self.proEM_mode = False
+        self._coup_thread = None
+        self._coup_abort_evt = threading.Event()
+        self._coup_active_evt = threading.Event()  # optional: mark active
         self.default_graph_size = (None, None)
         self.handlers = {
             # simple commands
@@ -322,6 +327,11 @@ class CommandDispatcher:
             "expand":            self.handle_expand,
             "sym":               self.handle_sym,  # sym start | sym stop | sym status
             "g":                 self.handle_g, # Add a phase grating (carrier) with X,Y periods across the apert
+            "coupx":             self.handle_coupx,
+            "coupy":             self.handle_coupy,
+            "coup":              self.handle_coup,
+            "cgh":               self.handle_cgh,
+            "n":                 self.handle_negative,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -534,6 +544,26 @@ class CommandDispatcher:
 
         cmd_line = command.strip()
         if not cmd_line:
+            _refocus()
+            return
+
+        # --- NEW: "1" repeats the last command line (entire pipeline) ---
+        if cmd_line == "1":
+            history = getattr(parent, "command_history", [])
+            # Find the last non-empty, non-"1" entry (skip this very call too)
+            found = None
+            for prev in reversed(history):
+                prev_s = (prev or "").strip()
+                if prev_s and prev_s != "1":
+                    found = prev_s
+                    break
+            if not found:
+                print("No previous command to repeat.")
+                _refocus()
+                return
+            print(f"[repeat] {found}")
+            # Re-run it without re-adding to history (avoids infinite loops)
+            self.run(found, record_history=False)
             _refocus()
             return
 
@@ -854,6 +884,9 @@ class CommandDispatcher:
                     traceback.print_exc()
             _refocus()
 
+        if record_history:
+            self._last_cmd = cmd_line
+
     def savehistory_on_exit(self):
         try:
             self.handle_save_history()
@@ -862,6 +895,36 @@ class CommandDispatcher:
             print(f"Failed to save history on exit: {e}")
 
     # --- Handlers (methods) ---
+    def _invert_numeric_args(self, cmd: str) -> str:
+        """
+        Negate every standalone numeric token in 'cmd'.
+        Keeps decimal comma and original decimal precision when possible.
+        """
+        num_pat = re.compile(r'(?<![\w.])([+\-]?\d+(?:[.,]\d+)?)(?![\w.])')
+
+        def repl(m):
+            s = m.group(1)
+            use_comma = (',' in s)
+            # parse
+            try:
+                v = float(s.replace(',', '.'))
+            except Exception:
+                return s  # leave unchanged if somehow unparsable
+            v = -v  # invert sign
+
+            # preserve integer/decimal formatting
+            if ('.' not in s) and (',' not in s):
+                out = str(int(round(v)))
+            else:
+                # keep original number of decimals
+                decs = len(s.split(',' if use_comma else '.')[1])
+                out = f"{v:.{decs}f}"
+            if use_comma:
+                out = out.replace('.', ',')
+            return out
+
+        return num_pat.sub(repl, cmd)
+
     def handle_close_qm(self, arg):
         """Close all Quantum Machines (QM).  Usage: 'close qm' or 'qmm'"""
         try:
@@ -1559,6 +1622,8 @@ class CommandDispatcher:
             Examples
             --------
               reload keys
+              reload mattise
+              reload wlm / wavemeter
               reload zelux
               reload femto
               reload opx
@@ -1637,6 +1702,14 @@ class CommandDispatcher:
               • Attempts to reuse HW_devices().CLD1011LP; if missing, tries to (re)create it.
               • Deletes old GUI by window tag (no DeleteMainWindow), then creates GUI_CLD1011LP(simulation=<device.simulation or False>).
               • Re-adds "CLD1011LP_button", restores geometry, tracks as active.
+
+            mattise, matisse
+              • Reloads HW_GUI.GUI_Matisse and recreates GUIMatisse with hw_devices.HW_devices().matisse_device.
+              • Preserves window geometry and rebuilds "MATTISE_button".
+
+            wavemeter, wlm
+              • Reloads HW_GUI.GUI_Wavemeter and recreates GUIWavemeter with hw_devices.HW_devices().wavemeter.
+              • Preserves window geometry and rebuilds "WAVEMETER_button".
 
             disp, display_slices, zslider, zslice
               • Reloads Utils.display_all_z_slices_with_slider and rebinds:
@@ -1736,6 +1809,98 @@ class CommandDispatcher:
                     mff_gui = GUI_MFF(serial_number=flipper.serial_no, device=flipper)
                     p.mff_101_gui.append(mff_gui)
                 print("Reloaded HW_GUI.GUI_Zelux and recreated ZeluxGUI.")
+                return
+
+            # === MATTISE GUI ===
+            if name in ("mattise", "matisse"):
+                import HW_GUI.GUI_mattise as gui_Matisse
+                import importlib
+                importlib.reload(gui_Matisse)
+
+                # preserve geometry if exists
+                pos, size = [60, 60], [900, 500]
+                old = getattr(p, "mattise_gui", None)
+                if old:
+                    try:
+                        pos = dpg.get_item_pos(old.window_tag)
+                        size = dpg.get_item_rect_size(old.window_tag)
+                        # safest is to delete window tag (some GUIs don’t implement DeleteMainWindow)
+                        dpg.delete_item(old.window_tag)
+                    except Exception as e:
+                        print(f"Old MATTISE GUI removal failed: {e}")
+
+                # (re)create device and GUI
+                devs = hw_devices.HW_devices()
+                device = getattr(devs, "matisse_device", None)
+                sim = bool(getattr(old, "simulation", False)) if old else bool(getattr(device, "simulation", False))
+
+                p.mattise_gui = gui_Matisse.GUIMatisse(device=device, simulation=sim)
+
+                # rebuild bring-window button
+                if dpg.does_item_exist("MATTISE_button"):
+                    dpg.delete_item("MATTISE_button")
+                p.create_bring_window_button(
+                    p.mattise_gui.window_tag, button_label="MATTISE",
+                    tag="MATTISE_button", parent="focus_group"
+                )
+                p.active_instrument_list.append(p.mattise_gui.window_tag)
+
+                # restore geometry
+                try:
+                    dpg.set_item_pos(p.mattise_gui.window_tag, pos)
+                    dpg.set_item_width(p.mattise_gui.window_tag, size[0])
+                    dpg.set_item_height(p.mattise_gui.window_tag, size[1])
+                except Exception:
+                    pass
+
+                print("Reloaded HW_GUI.GUI_Matisse and recreated GUIMatisse.")
+                return
+
+            # === WAVEMETER GUI ===
+            if name in ("wavemeter", "wlm"):
+                import HW_GUI.GUI_Wavemeter as gui_WLM
+                import importlib
+                importlib.reload(gui_WLM)
+
+                # preserve geometry if exists
+                pos, size = [60, 60], [900, 420]
+                old = getattr(p, "wlm_gui", None)
+                if old:
+                    try:
+                        pos = dpg.get_item_pos(old.window_tag)
+                        size = dpg.get_item_rect_size(old.window_tag)
+                        dpg.delete_item(old.window_tag)
+                    except Exception as e:
+                        print(f"Old WAVEMETER GUI removal failed: {e}")
+
+                devs = hw_devices.HW_devices()
+                device = getattr(devs, "wavemeter", None)
+                sim = bool(getattr(old, "simulation", False)) if old else bool(getattr(device, "simulation", False))
+
+                # Some builds require an Instruments enum; try to pass it if available.
+                try:
+                    from HW_wrapper.HW_devices import Instruments
+                    p.wlm_gui = gui_WLM.GUIWavemeter(device=device, instrument=Instruments.WAVEMETER, simulation=sim)
+                except Exception:
+                    # fallback without instrument arg
+                    p.wlm_gui = gui_WLM.GUIWavemeter(device=device, simulation=sim)
+
+                if dpg.does_item_exist("WAVEMETER_button"):
+                    dpg.delete_item("WAVEMETER_button")
+                p.create_bring_window_button(
+                    p.wlm_gui.window_tag, button_label="WAVEMETER",
+                    tag="WAVEMETER_button", parent="focus_group"
+                )
+                p.active_instrument_list.append(p.wlm_gui.window_tag)
+
+                try:
+                    dpg.set_item_pos(p.wlm_gui.window_tag, pos)
+                    dpg.set_item_width(p.wlm_gui.window_tag, size[0])
+                    dpg.set_item_height(p.wlm_gui.window_tag, size[1])
+                except Exception:
+                    pass
+
+                print("Reloaded HW_GUI.GUI_Wavemeter and recreated GUIWavemeter.")
                 return
 
             # === Femto GUI ===
@@ -2825,7 +2990,16 @@ class CommandDispatcher:
           • Last saved CSV is renamed with experiment note appended.
           • New file path is copied to clipboard after acquisition.
         """
+        import threading
+
         run("cn")
+
+        # --- make sure the event exists and running flag is set ---
+        if not isinstance(getattr(self, "_spc_done_evt", None), __import__("threading").Event):
+            self._spc_done_evt = threading.Event()
+        self._spc_done_evt.clear()
+        self._spc_running = True  # <— NEW: running flag
+
         threading.Thread(target=self._acquire_spectrum_worker, args=(arg,), daemon=True).start()
 
     def _acquire_spectrum_worker(self, arg):
@@ -3192,18 +3366,24 @@ class CommandDispatcher:
             except Exception:
                 pass
 
-            # Continue your post-display if ST was on
-            if is_st:
-                try:
-                    self.handle_display_slices("tif")
-                    print('Executed: disp tif')
-                except Exception as e:
-                    print(f'Failed to run "disp tif": {e}')
-
-            run("wait 2000;a")
+            # # Continue your post-display if ST was on
+            # if is_st:
+            #     try:
+            #         self.handle_display_slices("tif")
+            #         print('Executed: disp tif')
+            #     except Exception as e:
+            #         print(f'Failed to run "disp tif": {e}')
+            #
+            # run("wait 2000;a")
+            # try:
+            #     self._spc_done_evt.set()
+            #     print("SPC finished (9-frame snake).")
+            # except Exception:
+            #     pass
             try:
+                self._spc_running = False  # <— NEW: clear running
                 self._spc_done_evt.set()
-                print("SPC finished (9-frame snake).")
+                print("SPC finished.")
             except Exception:
                 pass
 
@@ -3323,16 +3503,17 @@ class CommandDispatcher:
         except Exception:
             pass
 
-        # Optional post-display when ST mode was used
-        if is_st:
-            try:
-                self.handle_display_slices("tif")
-                print('Executed: disp tif')
-            except Exception as e:
-                print(f'Failed to run "disp tif": {e}')
-
-        run("wait 2000;a")
+        # # Optional post-display when ST mode was used
+        # if is_st:
+        #     try:
+        #         self.handle_display_slices("tif")
+        #         print('Executed: disp tif')
+        #     except Exception as e:
+        #         print(f'Failed to run "disp tif": {e}')
+        #
+        # run("wait 2000;a")
         try:
+            self._spc_running = False  # <— NEW: clear running
             self._spc_done_evt.set()
             print("SPC finished.")
         except Exception:
@@ -7169,6 +7350,397 @@ class CommandDispatcher:
             print(f"g: wrote grating with carrier=({cx:.3f}, {cy:.3f}) to {OUT_BMP}")
         except Exception as e:
             print(f"g: write failed: {e}")
+
+    def handle_coupx(self, *args):
+        """Move along U by N coupons."""
+        n = int(args[0]) if args and str(args[0]).strip() else 1
+        return self._coupon_move(axis="u", n=n)
+
+    def handle_coupy(self, *args):
+        """Move along V by N coupons."""
+        n = int(args[0]) if args and str(args[0]).strip() else 1
+        return self._coupon_move(axis="v", n=n)
+
+    def _coupon_move(self, axis: str, n: int):
+        """
+        axis: 'u' -> ch0 (U axis, 80 µm per coupon)
+              'v' -> ch1 (V axis, 70 µm per coupon)
+        n: coupon count (sign sets direction).
+        """
+        # --- find the GUI_Smaract instance ---
+        gui = getattr(self.get_parent(), "smaractGUI", None)
+        if gui is None:
+            print("Smaract GUI not available (expected at parent.smaractGUI or parent.cam)")
+            return False
+
+        # Per-axis coupon size (µm)
+        COUPON_U_UM = 80.0  # X/U
+        COUPON_V_UM = 70.0  # Y/V
+
+        axis = axis.lower()
+        if axis not in ("u", "v"):
+            print(f"Unknown axis '{axis}', expected 'u' or 'v'.")
+            return False
+
+        ch = 0 if axis == "u" else 1
+        coupon_um = COUPON_U_UM if axis == "u" else COUPON_V_UM
+
+        # direction & magnitude
+        direction = +1.0 if n >= 0 else -1.0
+        mag_um = coupon_um * abs(n)
+
+        dpg.set_value(f"{gui.prefix}_ch2_Cset", 2.5)
+
+        # set widget value so move_uv picks it up as if you typed it
+
+        wid = f"{gui.prefix}_ch{ch}_Cset"
+        dpg.set_value(wid, float(mag_um))
+
+
+        # call the existing handler (coarse=True)
+        try:
+            gui.move_uv(sender=None, app_data=None, user_data=(ch, direction, True))
+            print(
+                f"coupon move: axis={axis.upper()} ch={ch} n={n} → {mag_um:.1f} µm (per-coupon={coupon_um:.1f}), dir={int(direction)}")
+            return True
+        except Exception as e:
+            print(f"coupon move failed: {e}")
+            return False
+
+    def _get_spc_handles(self):
+        """Best-effort grab of (evt, running_flag_ref, exp_obj) for waiting."""
+        # CommandDispatcher -> parent -> hrs_500_gui.dev._exp
+        parent = self.get_parent()
+        # evt/running live on the object that owns handle_acquire_spectrum (often self)
+        # Try self-first, then parent.
+        owner = self
+        evt = getattr(owner, "_spc_done_evt", None)
+        running = getattr(owner, "_spc_running", None)
+        if not isinstance(evt, threading.Event):
+            owner = parent if parent is not None else self
+            evt = getattr(owner, "_spc_done_evt", None)
+            running = getattr(owner, "_spc_running", None)
+
+        exp = None
+        try:
+            p = self.get_parent()
+            exp = getattr(getattr(getattr(p, "hrs_500_gui", None), "dev", None), "_exp", None)
+        except Exception:
+            pass
+        return evt if isinstance(evt, threading.Event) else None, owner, exp
+
+    def _wait_spc_done(self, min_quiet_ms=600, hard_timeout_s=900):
+        """
+        Wait until SPC is done using multiple signals:
+          1) _spc_running becomes False (if available)
+          2) _spc_done_evt is set (if available)
+          3) _exp.IsUpdating == False continuously for min_quiet_ms
+        """
+        evt, owner, exp = self._get_spc_handles()
+        t0 = time.time()
+        quiet_start = None
+
+        def _is_updating():
+            try:
+                return bool(getattr(exp, "IsUpdating", False))
+            except Exception:
+                return False
+
+        while True:
+            # Hard timeout guard
+            if hard_timeout_s is not None and (time.time() - t0) > hard_timeout_s:
+                print("[wait] timed out; proceeding anyway.")
+                return False
+
+            # Check event
+            if evt is not None and evt.is_set():
+                # still enforce a brief quiet window to be safe
+                if not _is_updating():
+                    if quiet_start is None:
+                        quiet_start = time.time()
+                    if (time.time() - quiet_start) * 1000 >= min_quiet_ms:
+                        return True
+                else:
+                    quiet_start = None
+
+            # Check running flag
+            running = getattr(owner, "_spc_running", None)
+            if running is False:
+                # again, enforce quiet
+                if not _is_updating():
+                    if quiet_start is None:
+                        quiet_start = time.time()
+                    if (time.time() - quiet_start) * 1000 >= min_quiet_ms:
+                        return True
+                else:
+                    quiet_start = None
+
+            # If we have no signals at all, fall back to watching IsUpdating only
+            if evt is None and running is None:
+                if not _is_updating():
+                    if quiet_start is None:
+                        quiet_start = time.time()
+                    if (time.time() - quiet_start) * 1000 >= min_quiet_ms:
+                        return True
+                else:
+                    quiet_start = None
+
+            time.sleep(0.05)
+
+    def handle_coup(self, *args):
+        """
+        coup loop                -> run coupon scan (uses 'spc shift')
+        coup loop noshift        -> run coupon scan (uses plain 'spc')
+        coup loop plain          -> same as noshift
+        coup loop1               -> alias for noshift
+        coup stop                -> request cancellation
+        coup status              -> print running/idle
+        """
+        import threading
+
+        # --- ensure events exist (compat with _coup_abort_evt / _coup_cancel) ---
+        if not hasattr(self, "_coup_active_evt") or not isinstance(getattr(self, "_coup_active_evt"), threading.Event):
+            self._coup_active_evt = threading.Event()
+        if not hasattr(self, "_coup_abort_evt") or not isinstance(getattr(self, "_coup_abort_evt"), threading.Event):
+            self._coup_abort_evt = threading.Event()
+        if not hasattr(self, "_coup_cancel") or not isinstance(getattr(self, "_coup_cancel"), threading.Event):
+            self._coup_cancel = threading.Event()
+
+        if not args:
+            print("Usage: coup [loop|loop noshift|loop1|stop|status]")
+            return False
+
+        sub = str(args[0]).lower().strip()
+
+        if sub == "status":
+            print("[coup] running" if self._coup_active_evt.is_set() else "[coup] idle")
+            return True
+
+        if sub == "stop":
+            # signal all known cancel flags
+            try:
+                self._coup_abort_evt.set()
+            except Exception:
+                pass
+            try:
+                self._coup_cancel.set()
+            except Exception:
+                pass
+
+            # try to stop an in-flight SPC so waits unblock quickly
+            try:
+                p = self.get_parent()
+                exp = getattr(getattr(getattr(p, "hrs_500_gui", None), "dev", None), "_exp", None)
+                if exp:
+                    try:
+                        exp.Stop()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            print("[coup] stop requested.")
+            return True
+
+        if sub == "loop":
+            # parse optional mode token
+            mode = str(args[1]).lower().strip() if len(args) > 1 else ""
+            use_shift = not (mode in ("noshift", "plain"))
+        elif sub == "loop1":
+            use_shift = False  # alias: loop without shift
+        else:
+            print("Usage: coup [loop|loop noshift|loop1|stop|status]")
+            return False
+
+        if self._coup_active_evt.is_set():
+            print("[coup] already running.")
+            return False
+
+        # clear cancel flags and launch
+        try:
+            self._coup_abort_evt.clear()
+        except Exception:
+            pass
+        try:
+            self._coup_cancel.clear()
+        except Exception:
+            pass
+
+        self._coup_thread = threading.Thread(
+            target=self._coup_loop_worker,
+            kwargs={"use_shift": use_shift},
+            daemon=True
+        )
+        self._coup_thread.start()
+        print(
+            f"[coup] loop started in background (mode={'shift' if use_shift else 'plain'}; use 'coup stop' to cancel).")
+        return True
+
+    def _wait_spc_done_or_abort(self, poll_ms=100, hard_timeout_s=120):
+        """
+        Wait until SPC thread signals done OR a stop is requested OR timeout.
+        Assumes your SPC sets self._spc_done_evt (Event) as in your code.
+        """
+        evt = getattr(self, "_spc_done_evt", None)
+        if not isinstance(evt, threading.Event):
+            # fallback: short sleep loop that can still be aborted
+            t0 = time.time()
+            while (time.time() - t0) < hard_timeout_s:
+                if self._coup_abort_evt.is_set(): return False
+                time.sleep(poll_ms / 1000.0)
+            return False
+
+        t0 = time.time()
+        while (time.time() - t0) < hard_timeout_s:
+            if self._coup_abort_evt.is_set(): return False
+            if evt.wait(timeout=poll_ms / 1000.0):  # finished
+                return True
+        return False
+
+    def _run_one_cmd(self, cmd: str) -> bool:
+        if self._coup_abort_evt.is_set():
+            print(f"[coup] aborted before '{cmd}'")
+            return False
+
+        try:
+            run(cmd, record_history=False)
+        except Exception as e:
+            print(f"[coup] step failed '{cmd}': {e}")
+            return False
+
+        # if it was 'spc shift' we must wait until acquisition finishes (but remain cancellable)
+        toks = cmd.strip().lower().split()
+        if toks and toks[0] == "spc" and "shift" in toks[1:]:
+            print("[coup] waiting for 'spc shift' to finish… (use 'coup stop' to cancel)")
+            ok = self._wait_spc_done_or_abort()
+            if not ok:
+                print("[coup] stop/timeout during 'spc shift' wait.")
+                return False
+        return True
+
+    def _coup_loop_worker(self, use_shift: bool = True):
+        self._coup_active_evt.set()
+        try:
+            spc_cmd = "spc shift" if use_shift else ""
+
+            steps = [
+                spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
+                spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
+                spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
+                spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupy 3", "movex 140;movey 5.5"
+            ]
+
+            for cmd in steps:
+                if not self._run_one_cmd(cmd):
+                    print("[coup] loop stopped.")
+                    return
+            self.handle_stop_scan("")
+            print("[coup] loop complete.")
+        finally:
+            self._coup_active_evt.clear()
+
+    def _resolve_cgh_utils_path(self, override: str | None = None) -> Path | None:
+        """Locate cgh_fullscreen.py inside a Utils folder (or use explicit override)."""
+        if override:
+            p = Path(override)
+            return p if p.exists() else None
+
+        here = Path(__file__).resolve().parent
+        candidates = [
+            here / "Utils" / "cgh_fullscreen.py",  # same folder -> Utils
+            here.parent / "Utils" / "cgh_fullscreen.py",  # parent -> Utils
+            Path.cwd() / "Utils" / "cgh_fullscreen.py",  # CWD -> Utils
+        ]
+        for p in candidates:
+            if p.exists():
+                return p
+        return None
+
+    def handle_cgh(self, *args):
+        """
+        Usage:
+          cgh                    # run Utils/cgh_fullscreen.py detached
+          cgh --kill             # stop the previously launched process
+          cgh --path <file.py>   # run a specific script instead
+          cgh -- <extra args>    # pass extra args to the script after '--'
+        """
+        args = list(args)
+
+        # kill
+        if args and str(args[0]).lower() == "--kill":
+            if getattr(self, "_cgh_proc", None) and self._cgh_proc.poll() is None:
+                try:
+                    self._cgh_proc.terminate()
+                    print("[cgh] sent terminate to fullscreen CGH process.")
+                except Exception as e:
+                    print(f"[cgh] terminate failed: {e}")
+                finally:
+                    self._cgh_proc = None
+            else:
+                print("[cgh] no running fullscreen CGH process.")
+            return True
+
+        # optional --path and extra args after --
+        override = None
+        extra = []
+        if args[:1] == ["--path"] and len(args) >= 2:
+            override = args[1]
+            args = args[2:]
+        if "--" in args:
+            idx = args.index("--")
+            extra = args[idx + 1:]
+            args = args[:idx]
+
+        script_path = self._resolve_cgh_utils_path(override)
+        if not script_path:
+            print("[cgh] could not find Utils/cgh_fullscreen.py (use 'cgh --path <file.py>')")
+            return False
+
+        # detached spawn
+        creationflags = 0
+        startupinfo = None
+        if os.name == "nt":
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+        cmd = [sys.executable, "-u", str(script_path), *extra]
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(script_path.parent),
+                creationflags=creationflags,
+                startupinfo=startupinfo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            self._cgh_proc = proc
+            print(f"[cgh] launched: {cmd}  (pid={proc.pid})")
+            return True
+        except Exception as e:
+            print(f"[cgh] launch failed: {e}")
+            return False
+
+    def handle_negative(self, *args):
+        """
+        Repeat the last command with all numeric arguments sign-inverted.
+        Example: 'movex 3;movey -5' -> 'movex -3;movey 5'
+        """
+        last = getattr(self, "_last_cmd", "") or getattr(self, "_last_seq", "")
+        if not last.strip():
+            print("No last command to invert.")
+            return False
+
+        inv = self._invert_numeric_args(last)
+        try:
+            run(inv, record_history=True)
+            # make the inverted version the new "last" so '1' repeats what was just done
+            self._last_cmd = inv
+            print(f"[2] ran: {inv}")
+            return True
+        except Exception as e:
+            print(f"[2] failed: {e}")
+            return False
 
 
 # Wrapper function
