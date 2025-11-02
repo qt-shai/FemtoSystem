@@ -97,10 +97,10 @@ class GUIMatisse:
                           callback=self.btn_set_thin_etalon_ctl_status, width=100)
 
     def create_bifi_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_bifi_{self.unique_id}", width=120):
+        with dpg.group(horizontal=False, tag=f"column_bifi_{self.unique_id}", width=200):
             dpg.add_text("Birefringent Filter Motor")
             dpg.add_text("Position:", tag=f"BifiPosition_{self.unique_id}")
-            dpg.add_input_int(default_value=0, tag=f"BifiMoveTo_{self.unique_id}", width=100)
+            dpg.add_input_int(default_value=76000, tag=f"BifiMoveTo_{self.unique_id}", width=180)
             dpg.add_button(label="Move", callback=self.btn_move_bifi)
             dpg.bind_item_theme(dpg.last_item(), theme)
             dpg.add_button(label="Stop", callback=self.btn_stop_bifi)
@@ -293,7 +293,7 @@ class GUIMatisse:
         self.dev.set_scan_position(value)
 
     def connect(self):
-        try:
+        try: #USB0::0x17E7::0x0105::24-24-10::INSTR
             self.dev.connect()
             print("Connected to Sirah Matisse")
             if self.dev.is_connected:

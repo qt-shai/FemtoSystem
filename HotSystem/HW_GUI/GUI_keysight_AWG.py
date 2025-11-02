@@ -53,7 +53,7 @@ class GUIKeysight33500B:
                 self.create_waveform_controls(self.red_button_theme)
 
                 self.create_frequency_controls(self.red_button_theme)
-                self.create_amplitude_controls(self.red_button_theme)
+
                 self.create_duty_cycle_controls(self.red_button_theme)
                 self.create_phase_controls(self.red_button_theme)
                 self.create_trigger_controls(self.red_button_theme)
@@ -118,10 +118,10 @@ class GUIKeysight33500B:
             )
 
     def create_waveform_controls(self, theme):
-        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=180):
+        with dpg.group(horizontal=False, tag=f"column_waveform_{self.unique_id}", width=220):
             dpg.add_text("Waveform")
-            dpg.add_combo(["SINE", "SQUARE", "TRIANGLE", "RAMP", "NOISE"], default_value="SINE",
-                          tag=f"WaveformType_{self.unique_id}", width=100)
+            dpg.add_combo(["SINE", "SQUARE", "TRIANGLE", "RAMP", "NOISE","DC"], default_value="SINE",
+                          tag=f"WaveformType_{self.unique_id}", width=220)
             dpg.add_button(label="Set Waveform", callback=self.btn_set_waveform)
             dpg.bind_item_theme(dpg.last_item(), theme)
              # ─── New “Get Current Parameters” row ───
@@ -146,6 +146,8 @@ class GUIKeysight33500B:
             # --- NEW: generate ramps (CH1 fast, CH2 slow) ---
             dpg.add_button(label="Gen Ramps", callback=self.btn_gen_ramps)
             dpg.bind_item_theme(dpg.last_item(), theme)
+
+            self.create_amplitude_controls(self.red_button_theme)
 
     def btn_gen_ramps(self, sender=None, app_data=None):
         """
@@ -172,7 +174,7 @@ class GUIKeysight33500B:
                 # If your wrapper's set_waveform_type applies to self.dev.channel,
                 # switch the active channel first:
                 self.dev.channel = 1
-                self.dev.set_waveform_type("TRIANGLE")
+                self.dev.set_waveform_type("TRIANGLE",channel=1)
             except Exception:
                 # If your wrapper supported per-channel type, you'd call it here.
                 pass
@@ -191,7 +193,7 @@ class GUIKeysight33500B:
             # ---------------- CH2 (SLOW) : RAMP/Saw around base2 ----------------
             try:
                 self.dev.channel = 2
-                self.dev.set_waveform_type("RAMP")  # sawtooth
+                self.dev.set_waveform_type("RAMP",channel=2)  # sawtooth
             except Exception:
                 pass
 
@@ -257,35 +259,33 @@ class GUIKeysight33500B:
             self.create_output_controls(self.red_button_theme)
 
             # ─── Channel selector ───
-            dpg.add_text("Channel:")
-            dpg.add_radio_button(
-                items=["1", "2"],
-                default_value=str(self._saved_channel),
-                tag=f"ChannelSelect_{self.unique_id}",
-                horizontal=True,
-                callback=self.cb_select_channel,
+            with dpg.group(horizontal=True):
+                dpg.add_text("Ch: ")
+                dpg.add_radio_button(
+                    items=["1", "2"],
+                    default_value=str(self._saved_channel),
+                    tag=f"ChannelSelect_{self.unique_id}",
+                    horizontal=True,
+                    callback=self.cb_select_channel,
+                )
+            dpg.add_input_float(
+                default_value=self.volts_per_um*1e6,  # Default value for volts_per_um
+                tag=f"mVoltsPerUm_{self.unique_id}",
+                step=0.01,
+                format='%.1f',
+                label="uV/um",
+                callback=lambda sender, app_data: setattr(self, 'volts_per_um', app_data*1e-6)  # Set self.volts_per_um with the input value
             )
-            with dpg.group(horizontal=True):
-                dpg.add_text("uV/um:")
-                volts_input = dpg.add_input_float(
-                    default_value=self.volts_per_um*1e6,  # Default value for volts_per_um
-                    tag=f"mVoltsPerUm_{self.unique_id}",
-                    step=0.01,
-                    format='%.3f',
-                    callback=lambda sender, app_data: setattr(self, 'volts_per_um', app_data*1e-6)  # Set self.volts_per_um with the input value
-                )
-            with dpg.group(horizontal=True):
-                dpg.add_text("Step:")
-                dpg.add_input_float(
-                    default_value=2,  # Default value for volts_per_um
-                    tag=f"XY_step_{self.unique_id}",
-                    step=0.01,
-                    format='%.3f',
-                    callback=lambda sender, app_data: setattr(self, 'xy_step', app_data * 1e-3)
-                    # Set self.volts_per_um with the input value
-                )
+            dpg.add_input_float(
+                default_value=2,  # Default value for volts_per_um
+                label="steps",
+                tag=f"XY_step_{self.unique_id}",
+                step=0.01,
+                format='%.1f',
+                callback=lambda sender, app_data: setattr(self, 'xy_step', app_data * 1e-3)
+                # Set self.volts_per_um with the input value
+            )
             dpg.add_button(label="Set Lxy", callback=self.btn_set_offset)
-
 
     def create_duty_cycle_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_duty_cycle_{self.unique_id}", width=200):
@@ -395,7 +395,8 @@ class GUIKeysight33500B:
         Set the waveform type.
         """
         waveform_type = dpg.get_value(f"WaveformType_{self.unique_id}")
-        self.dev.set_waveform_type(waveform_type)
+        ch = int(dpg.get_value(f"ChannelSelect_{self.unique_id}"))
+        self.dev.set_waveform_type(waveform_type,channel=ch)
 
     def btn_get_current_parameters(self, sender=None, app_data=None):
         """

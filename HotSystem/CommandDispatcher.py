@@ -121,6 +121,8 @@ WRAP_MAP = {
     "hrs":     ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
     "hrs500":  ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
     "hrs_500": ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
+    "wave":    ("wrapper_wavemeter", r"HW_GUI\wrapper_wavemeter.py"),
+    "wavemeter":    ("wrapper_wavemeter", r"HW_GUI\wrapper_wavemeter.py"),
 }
 
 class DualOutput:
@@ -332,6 +334,8 @@ class CommandDispatcher:
             "coup":              self.handle_coup,
             "cgh":               self.handle_cgh,
             "n":                 self.handle_negative,
+            "wv":                self.handle_wv,
+            "wave":              self.handle_wv,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -2983,6 +2987,9 @@ class CommandDispatcher:
           spc <time_s>      Acquire with integration time in seconds.
           spc st            Run 'set XYZ' + paste clipboard into experiment notes, then acquire.
           spc st <time_s>   Same as 'st' but sets exposure time.
+          spc fname=<name>  Override filename *stem* (quotes allowed). Example:
+            spc fname="My sample 01"
+            spc st fname='Run A' t=2 n=3
 
         Notes:
           • Exposure time is given in seconds (float).
@@ -3080,6 +3087,26 @@ class CommandDispatcher:
                         pass
             return default
 
+        def _kvq(name: str):  # new
+            import re  # new
+            pat = re.compile(rf'(?is)\b{name}\s*=\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s]+))')  # new
+            m = pat.search(arg or "")  # new
+            if not m:  # new
+                return None  # new
+            return m.group(1) or m.group(2) or m.group(3)  # new
+            # new
+
+        def _sanitize_name(s: str) -> str:  # new
+            import re, os  # new
+            s = (s or "").strip().strip('"').strip("'")  # new
+            s = s.replace("\r", "").replace("\n", " ")  # new
+            base = os.path.basename(s)  # new
+            base, _ext = os.path.splitext(base)  # new
+            base = re.sub(r'[<>:"/\\|?*]', "_", base)  # new
+            return base[:100]  # new
+
+        forced_fname = _kvq("fname")  # new
+
         # --- NEW: detect "shift" mode and parse its step (µm) ---
         shift_mode = False
         shift_um = 5.0  # default step in micrometers
@@ -3158,7 +3185,7 @@ class CommandDispatcher:
             bare_time = None
             for t in tokens:
                 try:
-                    bare_time = float(t);
+                    bare_time = float(t)
                     break
                 except Exception:
                     pass
@@ -3306,10 +3333,13 @@ class CommandDispatcher:
 
                     # Build filename from clipboard + update Site(...) with current offsets
                     try:
+                        if forced_fname:  # new
+                            base = _sanitize_name(forced_fname)
+
                         fn = __import__('pyperclip').paste()
                         sname = (fn or "").strip().strip('"').strip("'")
                         sname = sname.replace("\r", "").replace("\n", " ")
-                        pt = Path(sname)
+                        pt = Path(sname + base)
                         base = pt.stem if pt.suffix else os.path.basename(sname)
                         base = re.sub(r'[<>:"/\\|?*]', "_", base)
 
@@ -3409,6 +3439,8 @@ class CommandDispatcher:
                     base = pt.stem if pt.suffix else os.path.basename(s)
                     # add shot index to ensure uniqueness when SW reuses names
                     base = re.sub(r'[<>:"/\\|?*]', "_", base)[:100]
+                    if forced_fname:
+                        base = base + " " + _sanitize_name(forced_fname)
 
                     # --- NEW: if shift_mode and we know the origin Site(...), update coords for this shot
                     if shift_mode and origin_site is not None:
@@ -3454,7 +3486,7 @@ class CommandDispatcher:
                 try:
                     if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
                         # restore default preview exposure if desired by you
-                        p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
+                        p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 3000.0)
                         while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
                             time.sleep(0.05)
                         if not no_preview and self.proEM_mode:
@@ -6437,17 +6469,25 @@ class CommandDispatcher:
           show wrap <cld|zelux|cob|smaract|hrs>
           show map clib
           show app
+          show wave
         """
         import json, os
         sub = (arg or "").strip()
         if not sub:
             print(
-                "Usage: show config | show cmd | show <opx|disp|awg|cld|cob|femto|hrs|kdc|smaract|zelux|app> | show wrap <cld|zelux|cob|smaract|hrs> | show map clib")
+                "Usage: show config | show cmd | show <opx|disp|awg|cld|cob|femto|hrs|kdc|smaract|zelux|wave|app> | show wrap <cld|zelux|cob|smaract|hrs|wave> | show map clib")
             return
 
         toks = sub.split()
         key = toks[0].lower()
         base_dir = _dispatcher_base_dir(self)
+
+        if key in ("wave", "wavemeter"):
+            try:
+                _open_path(os.path.join(base_dir, r"HW_GUI\GUI_wavemeter.py"))
+            except Exception as e:
+                print(f"[show wave] Failed to open wavemeter GUI: {e}")
+            return
 
         # ----- show config -----
         if key == "config":
@@ -6469,7 +6509,7 @@ class CommandDispatcher:
         # ----- show wrap <name> -----
         if key == "wrap":
             if len(toks) < 2:
-                print("Usage: show wrap <cld|zelux|cob|smaract>")
+                print("Usage: show wrap <cld|zelux|cob|smaract|wave>")
                 return
             which = toks[1].lower()
             if which not in WRAP_MAP:
@@ -6535,7 +6575,6 @@ class CommandDispatcher:
             except Exception as e:
                 print(f"[show history] Failed to open files: {e}")
             return
-
 
         # ----- simple mapped opens (GUIs / app) -----
         for aliases, (mod_name, fallback_rel) in SHOW_MAP.items():
@@ -7495,8 +7534,9 @@ class CommandDispatcher:
         coup loop1               -> alias for noshift
         coup stop                -> request cancellation
         coup status              -> print running/idle
+        coup <steps.txt>         -> run steps from a text file (one command per line; ';' splits)
         """
-        import threading
+        import threading, os
 
         # --- ensure events exist (compat with _coup_abort_evt / _coup_cancel) ---
         if not hasattr(self, "_coup_active_evt") or not isinstance(getattr(self, "_coup_active_evt"), threading.Event):
@@ -7507,7 +7547,7 @@ class CommandDispatcher:
             self._coup_cancel = threading.Event()
 
         if not args:
-            print("Usage: coup [loop|loop noshift|loop1|stop|status]")
+            print("Usage: coup [loop|loop noshift|loop1|stop|status|<steps.txt>]")
             return False
 
         sub = str(args[0]).lower().strip()
@@ -7541,6 +7581,43 @@ class CommandDispatcher:
             print("[coup] stop requested.")
             return True
 
+        # file-driven mode: coup <steps.txt>
+        # accept .txt/.cmd/.lst/.seq files; strip quotes; check existence
+        cand_path = sub.strip('"').strip("'")
+        if any(cand_path.lower().endswith(ext) for ext in (".txt", ".cmd", ".lst", ".seq")) and os.path.isfile(
+                cand_path):
+            if self._coup_active_evt.is_set():
+                print("[coup] already running.")
+                return False
+
+            # clear cancel flags and launch
+            try:
+                self._coup_abort_evt.clear()
+            except Exception:
+                pass
+            try:
+                self._coup_cancel.clear()
+            except Exception:
+                pass
+
+            try:
+                steps = self._parse_coup_steps_file(cand_path)
+                if not steps:
+                    print(f"[coup] no runnable steps found in '{cand_path}'.")
+                    return False
+            except Exception as e:
+                print(f"[coup] failed to read steps file '{cand_path}': {e}")
+                return False
+
+            self._coup_thread = threading.Thread(
+                target=self._coup_loop_from_steps,
+                kwargs={"steps": steps, "wait_for_spc": True},
+                daemon=True
+            )
+            self._coup_thread.start()
+            print(f"[coup] steps from '{cand_path}' started in background (use 'coup stop' to cancel).")
+            return True
+
         if sub == "loop":
             # parse optional mode token
             mode = str(args[1]).lower().strip() if len(args) > 1 else ""
@@ -7566,7 +7643,7 @@ class CommandDispatcher:
             pass
 
         self._coup_thread = threading.Thread(
-            target=self._coup_loop_worker,
+            target=self._coup_loop_from_steps,
             kwargs={"use_shift": use_shift},
             daemon=True
         )
@@ -7574,6 +7651,31 @@ class CommandDispatcher:
         print(
             f"[coup] loop started in background (mode={'shift' if use_shift else 'plain'}; use 'coup stop' to cancel).")
         return True
+
+    def _parse_coup_steps_file(self, path: str):
+        """
+        Read a steps file and return a flat list of commands.
+        - Lines starting with '#' or '//' are comments.
+        - Inline comments after '#' or '//' are stripped.
+        - ';' splits multiple commands on one line.
+        - Blank/whitespace-only lines are ignored.
+        """
+        steps = []
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line:
+                    continue
+                # strip inline comments
+                for tok in ("#", "//"):
+                    if tok in line:
+                        line = line.split(tok, 1)[0].strip()
+                if not line:
+                    continue
+                # split multi-commands on a line
+                parts = [p.strip() for p in line.split(";") if p.strip()]
+                steps.extend(parts)
+        return steps
 
     def _wait_spc_done_or_abort(self, poll_ms=100, hard_timeout_s=120):
         """
@@ -7617,22 +7719,30 @@ class CommandDispatcher:
                 return False
         return True
 
-    def _coup_loop_worker(self, use_shift: bool = True):
+    def _coup_loop_from_steps(self, use_shift: bool = True, steps: str = "", wait_for_spc: bool = True):
         self._coup_active_evt.set()
         try:
             spc_cmd = "spc shift" if use_shift else ""
 
-            steps = [
-                spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
-                spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
-                spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
-                spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupy 3", "movex 140;movey 5.5"
-            ]
+            # steps = [
+            #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
+            #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
+            #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
+            #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupy 3", "movex 140;movey 5.5"
+            # ]
 
             for cmd in steps:
                 if not self._run_one_cmd(cmd):
                     print("[coup] loop stopped.")
                     return
+                # time.sleep(3)
+                toks = cmd.strip().lower().split()
+                if wait_for_spc and toks and toks[0] == "spc":
+                    print("[coup] waiting for 'spc' to finish…")
+                    ok = self._wait_spc_done_or_abort()
+                    if not ok:
+                        print("[coup] stop/timeout during 'spc' wait.")
+                        return
             self.handle_stop_scan("")
             print("[coup] loop complete.")
         finally:
@@ -7741,6 +7851,212 @@ class CommandDispatcher:
         except Exception as e:
             print(f"[2] failed: {e}")
             return False
+
+    def handle_wv(self, *args):
+        """
+            wv ?         -> print current wavelength (nm)
+            wave ?       -> same as above
+            wv bifi move [pos] -> move BIFI to optional [pos] and execute move
+            wv bifi up             -> lower BIFI by 100; if |Δλ|>0.1 nm, lower another 100
+        """
+        import time
+        # Normalize args like the rest of your handlers do
+        arg = " ".join(a for a in args if isinstance(a, str)).strip()
+        toks = arg.split()
+        p = self.get_parent()
+
+        # ---- wavelength query ----
+        if arg in ("", "?"):
+            lam_nm = p.wlm_gui._dev.get_wavelength() * 1e9
+            print(f"Wavelength: {lam_nm:.3f} nm")
+            return
+
+        # ---- bifi move ----
+        if len(toks) >= 2 and toks[0].lower() == "bifi" and toks[1].lower() == "move":
+            # Optional numeric position: wv bifi move 123
+            if len(toks) >= 3:
+                try:
+                    pos = int(float(toks[2]))
+                    dpg.set_value(f"BifiMoveTo_{p.mattise_gui.unique_id}", pos)
+                except Exception as e:
+                    print(f"[wv bifi move] Ignoring invalid position '{toks[2]}': {e}")
+            p.mattise_gui.btn_move_bifi()
+            print("[wv] BIFI move commanded.")
+            return
+
+        # ---- move max (go to fixed position 67000) ----
+        if len(toks) == 2 and toks[0].lower() == "move" and toks[1].lower() == "max":
+            try:
+                mat_gui = getattr(p, "matisse_gui", None) or getattr(p, "mattise_gui", None)
+                if mat_gui is None:
+                    print("[wv move max] Matisse GUI not available.")
+                    return
+                target = 67000
+                dpg.set_value(f"BifiMoveTo_{mat_gui.unique_id}", int(target))
+                mat_gui.btn_move_bifi()
+                print(f"[wv] Moved to {target}.")
+            except Exception as e:
+                print(f"[wv move max] Failed: {e}")
+            return
+
+        # ---- bifi up save (iterate -50 until |Δλ| >= 0.1 nm, then spc fname="<λ>") ----
+        if len(toks) >= 3 and toks[0].lower() == "bifi" and toks[1].lower() == "up" and toks[2].lower() == "save":
+            import time
+            try:
+                mat_gui = getattr(p, "matisse_gui", None) or getattr(p, "mattise_gui", None)
+                if mat_gui is None:
+                    print("[wv bifi up save] Matisse GUI not available.")
+                    return
+
+                # Optional iterations: wv bifi up save 5
+                try:
+                    max_iters = int(toks[3]) if len(toks) >= 4 else 3
+                    if max_iters < 1:
+                        max_iters = 1
+                except Exception:
+                    max_iters = 3
+
+                step_units = 50  # device units per iteration
+                th_total_nm = 0.1  # stop when total |Δλ| >= 0.1 nm
+                settle_s = 0.5  # settle time between moves
+
+                # Baseline wavelength (nm)
+                lam0 = p.wlm_gui._dev.get_wavelength() * 1e9
+
+                # Helper: get current BIFI position
+                def _get_bifi_pos():
+                    if hasattr(mat_gui.dev, "get_bifi_position"):
+                        try:
+                            return float(mat_gui.dev.get_bifi_position())
+                        except Exception:
+                            pass
+                    try:
+                        return float(dpg.get_value(f"BifiMoveTo_{mat_gui.unique_id}"))
+                    except Exception:
+                        return 0.0
+
+                curr_pos = _get_bifi_pos()
+                reached_threshold = False
+
+                for i in range(1, max_iters + 1):
+                    target = curr_pos - step_units
+                    dpg.set_value(f"BifiMoveTo_{mat_gui.unique_id}", int(target))
+                    mat_gui.btn_move_bifi()
+
+                    time.sleep(settle_s)
+
+                    lam = p.wlm_gui._dev.get_wavelength() * 1e9
+                    dlam_total = abs(lam - lam0)
+                    print(f"[wv bifi up save] iter {i}: pos {curr_pos:.0f} -> {target:.0f}, "
+                          f"λ={lam:.3f} nm |Δλ_total|={dlam_total:.3f} nm")
+
+                    curr_pos = target
+                    if dlam_total >= th_total_nm:
+                        print(f"[wv bifi up save] Reached total Δλ ≥ {th_total_nm:.3f} nm; stopping.")
+                        reached_threshold = True
+                        break
+
+                # Final wavelength and save
+                lam_final = p.wlm_gui._dev.get_wavelength() * 1e9
+                fname = f"{lam_final:.3f}".replace(".", ",")
+
+                print(f'[wv bifi up save] Saving with fname="{fname}"')
+                try:
+                    run(f'spc fname="{fname}"')
+                except Exception as e:
+                    print(f"[wv bifi up save] Failed to run spc: {e}")
+
+                if not reached_threshold:
+                    print("[wv bifi up save] Done. Total threshold not reached (saved anyway).")
+
+            except Exception as e:
+                print(f"[wv bifi up save] Failed: {e}")
+            return
+
+        # ---- bifi up (lower position by 100, check Δλ, maybe lower another 100) ----
+        if len(toks) >= 2 and toks[0].lower() == "bifi" and toks[1].lower() == "up":
+            try:
+                mat_gui = getattr(p, "matisse_gui", None) or getattr(p, "mattise_gui", None)
+                if mat_gui is None:
+                    print("[wv bifi up] Matisse GUI not available.")
+                    return
+
+                # Optional iterations: wv bifi up 5
+                try:
+                    max_iters = int(toks[2]) if len(toks) >= 3 else 3
+                    if max_iters < 1:
+                        max_iters = 1
+                except Exception:
+                    max_iters = 3
+
+                step_units = 50  # move amount per iteration (device units)
+                th_total_nm = 0.1  # stop when |λ - λ0| >= this
+                settle_s = 0.5
+
+                # Baseline wavelength (nm)
+                lam0 = p.wlm_gui._dev.get_wavelength() * 1e9
+
+                # Helper: get current BIFI position
+                def _get_bifi_pos():
+                    if hasattr(mat_gui.dev, "get_bifi_position"):
+                        try:
+                            return float(mat_gui.dev.get_bifi_position())
+                        except Exception:
+                            pass
+                    try:
+                        return float(dpg.get_value(f"BifiMoveTo_{mat_gui.unique_id}"))
+                    except Exception:
+                        return 0.0
+
+                curr_pos = _get_bifi_pos()
+                prev_lam = lam0
+                reached_threshold = False
+
+                for i in range(1, max_iters + 1):
+                    target = curr_pos - step_units
+                    dpg.set_value(f"BifiMoveTo_{mat_gui.unique_id}", int(target))
+                    mat_gui.btn_move_bifi()
+
+                    time.sleep(settle_s)  # brief settle
+
+                    lam = p.wlm_gui._dev.get_wavelength() * 1e9
+                    dlam_total = abs(lam - lam0)
+                    dlam_step = abs(lam - prev_lam)
+                    print(f"[wv bifi up] iter {i}: pos {curr_pos:.0f} -> {target:.0f}, "
+                          f"λ={lam:.3f} nm |dlambda_total|={dlam_total:.3f} nm")
+
+                    curr_pos = target
+                    # stop if total change meets threshold
+                    if dlam_total >= th_total_nm:
+                        print(f"[wv bifi up] Reached total dlambda ≥ {th_total_nm:.3f} nm; stopping.")
+                        reached_threshold = True
+                        break
+
+                    prev_lam = lam
+
+                if not reached_threshold:
+                    print("[wv bifi up] Done. Total threshold not reached or early stop triggered.")
+
+            except Exception as e:
+                print(f"[wv bifi up] Failed: {e}")
+            return
+
+        # ---- bifi min (go to fixed position 84000) ----
+        if len(toks) == 2 and toks[0].lower() == "bifi" and toks[1].lower() == "min":
+            try:
+                mat_gui = getattr(p, "matisse_gui", None) or getattr(p, "mattise_gui", None)
+                if mat_gui is None:
+                    print("[wv bifi min] Matisse GUI not available.")
+                    return
+                target = 84000
+                dpg.set_value(f"BifiMoveTo_{mat_gui.unique_id}", int(target))
+                mat_gui.btn_move_bifi()
+                print(f"[wv] BIFI moved to {target}.")
+            except Exception as e:
+                print(f"[wv bifi min] Failed: {e}")
+            return
+
+        print("Usage: wv ?  |  wave ?  |  wv bifi move [pos]")
 
 
 # Wrapper function

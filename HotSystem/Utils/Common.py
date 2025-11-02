@@ -3,24 +3,27 @@ from abc import ABC
 from typing import Any, Callable, Generic, TypeVar, Optional
 
 from numpy import ndarray
+import logging.handlers
+import threading
 
 T = TypeVar('T')
 import serial
 from serial.tools import list_ports
 import math
 import tkinter as tk
-import csv
+from abc import abstractmethod
 from tkinter import filedialog
 import numpy as np
 import pandas as pd
 from abc import ABC
-from typing import Tuple, Union, List, Optional, Generic, Any, Callable, TypeVar
+from typing import Tuple, Union, List, Optional, Generic, Any, Callable, TypeVar, Final
 from matplotlib import pyplot as plt
 import os
 import dearpygui.dearpygui as dpg
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 
+_logger: Final = logging.getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -567,6 +570,122 @@ class ObservableField(Generic[T], ObserverInterface):
         self._value = value
         self.notify_observers(value)
 
+"""
+Generic, fault-tolerant mix-in that adds periodic background polling to any class.
+
+Sub-classes must implement the protected ``_poll()`` method; everything
+else—thread management, error back-off, clean shutdown—is provided.
+
+Example
+-------
+>>> class MySensor(PeriodicUpdateMixin):
+...     def __init__(self):
+...         super().__init__(polling_rate=5)      # 5 Hz
+...         self.temperature = ObservableField(0.0)
+...
+...     def _poll(self) -> None:                  # one sampling step
+...         self.temperature.set(read_from_hw())
+
+>>> sensor = MySensor()
+>>> sensor.start_updates()
+"""
+
+class PeriodicUpdateMixin(ABC):
+    """
+    Mixin that supplies:
+
+    * ``start_updates()`` / ``stop_updates()`` API
+    * Thread-safe life-cycle handling
+    * Automatic error back-off and restart
+
+    Sub-classes **must** override ``_poll()``.
+    """
+
+    # Reasonable default settings
+    _DEFAULT_RATE_HZ: Final[float] = 2.0
+    _MAX_CONSEC_ERRORS: Final[int] = 5          # stop after too many failures
+    _BACKOFF_SEC: Final[float] = 2.0            # sleep after an error burst
+
+    def __init__(self, polling_rate: float | None = None) -> None:
+        if polling_rate is None:
+            polling_rate = self._DEFAULT_RATE_HZ
+        if polling_rate <= 0:
+            raise ValueError("polling_rate must be positive")
+        self._polling_rate: float = float(polling_rate)
+        self._stop_event: threading.Event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def start_updates(self) -> None:
+        """Launch the background polling thread (idempotent)."""
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            name=f"{self.__class__.__name__}-Poller",
+            daemon=True,
+        )
+        self._thread.start()
+        _logger.debug("Started update thread")
+
+    def stop_updates(self, join: bool = True, timeout: float | None = None) -> None:
+        """Request thread shutdown; optionally block until it finishes."""
+        self._stop_event.set()
+        if join and self._thread:
+            self._thread.join(timeout=timeout)
+        _logger.debug("Stopped update thread")
+
+    @property
+    def updates_running(self) -> bool:
+        """Return ``True`` iff the polling thread is alive."""
+        return bool(self._thread and self._thread.is_alive())
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+    def _run_loop(self) -> None:  # noqa: D401  (imperative name preferred)
+        """Background thread target."""
+        wait_s: float = 1.0 / self._polling_rate
+        consecutive_errors: int = 0
+
+        while not self._stop_event.is_set():
+            try:
+                self._poll()
+                consecutive_errors = 0
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                consecutive_errors += 1
+                _logger.error(
+                    "%s::_poll() raised %s (%s)  [consecutive=%d]",
+                    self.__class__.__name__,
+                    type(exc).__name__,
+                    exc,
+                    consecutive_errors,
+                )
+                if consecutive_errors >= self._MAX_CONSEC_ERRORS:
+                    _logger.critical(
+                        "Too many consecutive errors – tearing down polling thread"
+                    )
+                    break
+                time.sleep(self._BACKOFF_SEC)
+                continue
+
+            time.sleep(wait_s)
+
+        _logger.info("%s polling loop exited", self.__class__.__name__)
+
+    # ------------------------------------------------------------------
+    # Abstract – must be implemented by user class
+    # ------------------------------------------------------------------
+    @abstractmethod
+    def _poll(self) -> None:  # pragma: no cover
+        """One sampling cycle.  Called by the internal thread."""
+
+def add_dpg_line_series(x_vec: List, y_vec: List , label: str, parent:str,  tag: str):
+    if not dpg.does_item_exist(tag):
+        dpg.add_line_series(x=x_vec, y=y_vec, label=label, parent=parent, tag=tag)
 def is_within_bounds(value: float, bounds: tuple[float, float]) -> bool:
     """
     Checks if a given value is within the specified bounds.

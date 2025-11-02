@@ -871,9 +871,9 @@ class PyGuiOverlay(Layer):
                     dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
                 elif instrument == Instruments.WAVEMETER:
-                    self.wlm_gui = GUIWavemeter(device=hw_devices.HW_devices().wavemeter, instrument=instrument, simulation=device.simulation)
-                    self.create_bring_window_button(self.wlm_gui.window_tag, button_label="WAVEMETER",
-                                                    tag="WAVEMETER_button", parent="focus_group")
+                    self.wlm_gui = GUIWavemeter(device=hw_devices.HW_devices().wavemeter, instrument=instrument)
+                    # self.create_bring_window_button(self.wlm_gui.window_tag, button_label="WAVEMETER",
+                    #                                 tag="WAVEMETER_button", parent="focus_group")
                     dpg.set_item_pos(self.mattise_gui.window_tag, [20, y_offset])
                     y_offset += dpg.get_item_height(self.mattise_gui.window_tag) + vertical_spacing
 

@@ -56,7 +56,8 @@ class SirahMatisse:
         if self.simulation:
             return
         try:
-            self.dev = Sirah.Matisse.SirahMatisse(self.addr, use_mc_server=self.use_mc_server)
+            self.addr = 'USB0::0x17E7::0x0105::24-24-10::INSTR'
+            self.dev = Sirah.Matisse.SirahMatisse(self.addr, use_mc_server=False)
             self.get_id()
             print(f"Connected to Sirah Matisse at {self.addr}")
         except Exception as e:

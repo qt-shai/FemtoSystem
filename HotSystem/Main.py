@@ -4,10 +4,17 @@ Entry point to our SW
 
 import os
 
-from imgui import create_context
+import HW_wrapper.HW_devices
+
+HW_wrapper.HW_devices.HW_devices()
+if HW_wrapper.HW_devices.HW_devices().wavemeter:
+    wavemeter = HW_wrapper.HW_devices.HW_devices().wavemeter
+    try:
+        wavemeter.connect()
+    except Exception as e:
+        print(f"Failed to connect to wavemeter: {e}")
 
 from Application import Application_singletone,PyGuiOverlay,ImGuiOverlay
-# from Application import Application_singletone,PyGuiOverlay
 import warnings
 
 # Suppress VISA termination warning
