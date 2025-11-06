@@ -3057,13 +3057,39 @@ class CommandDispatcher:
             spc fname="My sample 01"
             spc st fname='Run A' t=2 n=3
 
+          spc note <text>  Remember a note; it will be appended to every filename until cleared.
+          spc note clear   Clear the persistent note.
+
         Notes:
           • Exposure time is given in seconds (float).
           • 'st' = run handle_set_xyz first, then use clipboard text as experiment note.
           • Last saved CSV is renamed with experiment note appended.
           • New file path is copied to clipboard after acquisition.
         """
-        import threading
+        import threading,re
+
+        # --- NEW: support "spc note <text>" to persist a note across acquisitions ---
+        _arg = (arg or "").strip()
+        if _arg.lower().startswith("note"):
+            # Accept: spc note Hello world
+            #         spc note "Quoted note"
+            #         spc note 'Quoted note'
+            #         spc note clear
+            note_raw = _arg[4:].strip()
+            # strip surrounding quotes if present
+            if (len(note_raw) >= 2) and ((note_raw[0] == note_raw[-1]) and note_raw[0] in ("'", '"')):
+                note_raw = note_raw[1:-1].strip()
+
+            if note_raw.lower() in ("", "clear", "none", "off"):
+                setattr(self, "_spc_note", None)
+                print("SPC note cleared.")
+            else:
+                # sanitize slightly to avoid forbidden filename chars later
+                safe = re.sub(r'[<>:"/\\|?*]', "_", note_raw).strip()
+                setattr(self, "_spc_note", safe if safe else None)
+                print(f"SPC note set to: {getattr(self, '_spc_note', '')!r}")
+            return
+        # --- end NEW ---
 
         run("cn")
 
@@ -3090,7 +3116,7 @@ class CommandDispatcher:
             _raw_tokens = _raw_tokens[1:]  # strip 'hrs'  # NEW
             arg = " ".join(_raw_tokens)  # pass the remaining args downstream  # NEW
         target_gui = getattr(p, "proem_gui", None) if not _use_hrs else getattr(p, "hrs_500_gui", None)  # NEW
-        if target_gui is None:  # NEW
+        if target_gui is None:
             target_gui = getattr(p, "hrs_500_gui", None)  # fallback if ProEM missing  # NEW
         if target_gui is None:  # NEW
             print("No spectrometer GUI available (neither ProEM nor HRS).")  # NEW
@@ -3160,6 +3186,18 @@ class CommandDispatcher:
             tail = f" Site ({_fmt_num(x_um, use_comma)} {_fmt_num(y_um, use_comma)}{zpart})"
             # keep below your 100-char sanitize later; we’ll let your truncation handle length
             return f"{name}{tail}"
+
+        # --- NEW: helper to append persistent note to filename stem ---
+        def _append_persistent_note(base: str) -> str:
+            import re
+            note = getattr(self, "_spc_note", None)
+            if not note:
+                return base
+            # safe & concise; final length still bounded by your set_filename slicing
+            note_safe = re.sub(r'[<>:"/\\|?*]', "_", str(note)).strip()
+            if not note_safe:
+                return base
+            return f"{base} {note_safe}"
 
         # -------- parse args (unchanged) --------
         tokens = (arg or "").strip().split()
@@ -3433,6 +3471,8 @@ class CommandDispatcher:
                         base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
 
                     base = f"{base} #{k}"
+                    # --- NEW: append persistent note (if any) ---
+                    base = _append_persistent_note(base)
 
                     dev.set_filename(base[:100])
                 except Exception:
@@ -3533,6 +3573,9 @@ class CommandDispatcher:
 
                 if shots > 1:
                     base = f"{base}_#{k:02d}"
+
+                # --- NEW: append persistent note (if any) ---
+                base = _append_persistent_note(base)
 
                 dev.set_filename(base)
             except Exception:
@@ -7681,7 +7724,6 @@ class CommandDispatcher:
         z_value = pos[2] * 1e-6
         return x_value, y_value, z_value
 
-
     def handle_coup(self, *args):
         """
         coup stop                -> request cancellation
@@ -8072,7 +8114,20 @@ class CommandDispatcher:
             return False
 
         # if it was 'spc shift' we must wait until acquisition finishes (but remain cancellable)
+        # --- NEW: if this was "spc note ...", signal immediate completion
         toks = cmd.strip().lower().split()
+        if toks and toks[0] == "spc" and len(toks) >= 2 and toks[1] == "note":
+            try:
+                import threading
+                evt = getattr(self, "_spc_done_evt", None)
+                if not isinstance(evt, threading.Event):
+                    self._spc_done_evt = threading.Event()
+                    evt = self._spc_done_evt
+                evt.set()
+            except Exception:
+                pass
+            return True
+
         if toks and toks[0] == "spc" and "shift" in toks[1:]:
             print("[coup] waiting for 'spc shift' to finish… (use 'coup stop' to cancel)")
             ok = self._wait_spc_done_or_abort()
@@ -8097,7 +8152,8 @@ class CommandDispatcher:
                     return
                 # time.sleep(3)
                 line = cmd.strip().lower()
-                if wait_for_spc and re.search(r"\b(spc|save)\b", line):
+                # --- NEW: don't wait on "spc note ..."
+                if wait_for_spc and re.search(r"\b(spc|save)\b", line) and not re.search(r"\bspc\s+note\b", line):
                     print("[coup] waiting for 'spc' to finish…")
                     time.sleep(3)
                     ok = self._wait_spc_done_or_abort()

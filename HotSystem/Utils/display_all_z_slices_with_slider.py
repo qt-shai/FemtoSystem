@@ -20,6 +20,7 @@ import tempfile
 import io
 from PIL import Image
 import win32clipboard
+from matplotlib.patches import Polygon
 import imageio.v3 as iio  # needs imageio-ffmpeg installed
 
 # --- NEW: prefer tifffile for scientific TIFFs, fallback to imageio ---
@@ -48,6 +49,7 @@ FEATHER_WIDTH_UM = 3.0        # soft edge width; 0 = hard edge
 # Crop box in pixels: (y0, y1, x0, x1)  — inclusive/exclusive like NumPy slicing
 CROP_PIXELS = (260, 800, 300, 800)   # <- tweak these to your needs
 PROFILE_STATE = {"points_um": None}
+PROFILE_TEMPLATE = {"d0_um": None, "d1_um": None}  # tuples (dx, dy)
 
 # For connect +X 2,3,6,1,7,8
 # For connect +Y 2,3,4,6,1,5
@@ -3801,15 +3803,232 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         new_im = ax_xy.imshow(img2d, extent=extent, origin="upper")
         globals()["im_xy"] = new_im
 
+    # global store for relative template
+    PROFILE_TEMPLATE = globals().get("PROFILE_TEMPLATE", {})
+
+    def set_profile_template_from_points(p0_um, p1_um, center_um):
+        """
+        Save a relative line template (d0_um, d1_um) in µm offsets from center_um.
+        p0_um, p1_um, center_um are all absolute world coords (µm).
+        """
+        global PROFILE_TEMPLATE
+        try:
+            print(f"[TEMPLATE:SET] center_um={center_um}, p0_um={p0_um}, p1_um={p1_um}")
+            cx, cy = float(center_um[0]), float(center_um[1])
+            d0 = (float(p0_um[0] - cx), float(p0_um[1] - cy))
+            d1 = (float(p1_um[0] - cx), float(p1_um[1] - cy))
+            PROFILE_TEMPLATE["d0_um"] = d0
+            PROFILE_TEMPLATE["d1_um"] = d1
+            print(f"[TEMPLATE:SET] Saved relative template: d0_um={d0}, d1_um={d1}")
+            return True
+        except Exception as e:
+            print(f"[TEMPLATE:SET] Failed: {e}")
+            return False
+
+    # --- DEBUG TOOLS ---
+    DEBUG_ADD_MAP = True
+
+    def _dbg(msg):
+        if DEBUG_ADD_MAP:
+            print(msg)
+
+    def _log_axes_state(ax, label="ax_xy"):
+        try:
+            xlim = ax.get_xlim();
+            ylim = ax.get_ylim()
+            _dbg(f"[{label}] xlim={xlim}, ylim={ylim}, images={len(ax.images)}, patches={len(ax.patches)}")
+        except Exception as e:
+            print(f"[{label}] state log failed: {e}")
+
+    # --- Coerce a "point-like" value to (float, float), with strong logs ---
+    def _coerce_pt(val, name="point"):
+        import math, numpy as np
+        _dbg(f"[COERCE] {name} raw={repr(val)} (type={type(val)})")
+        if val is None:
+            raise ValueError(f"{name} is None")
+
+        # Accept tuple / list / numpy array-like with length >=2
+        if hasattr(val, "__len__") and len(val) >= 2:
+            x, y = val[0], val[1]
+        else:
+            raise ValueError(f"{name} is not a 2-sequence")
+
+        # Convert str → float if needed
+        try:
+            x = float(x)
+            y = float(y)
+        except Exception as e:
+            raise ValueError(f"{name} cannot be cast to floats: {e}")
+
+        # Check finiteness
+        if not (math.isfinite(x) and math.isfinite(y)):
+            raise ValueError(f"{name} has non-finite coords: ({x}, {y})")
+
+        _dbg(f"[COERCE] {name} -> ({x}, {y})")
+        return (x, y)
+
+    from matplotlib.transforms import Bbox
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    def export_main_axes_snapshot(ax, *, mappable=None, cbar_ax_or_cb=None, dpi=220, fname=None,
+                                  font_scale=4.0):
+        fig = ax.figure
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+
+        # --- remember things we’ll change ---
+        # Ax title + (optional) suptitle
+        old_title_text = ax.get_title()
+        old_suptitle_obj = getattr(fig, "_suptitle", None)
+
+        # current font sizes (we’ll multiply by font_scale)
+        old_xlab_fs = ax.xaxis.label.get_size()
+        old_ylab_fs = ax.yaxis.label.get_size()
+        old_xtick_fs = [t.get_size() for t in ax.get_xticklabels()]
+        old_ytick_fs = [t.get_size() for t in ax.get_yticklabels()]
+
+        hidden_profile_axes = []
+        tmp_cbar = None
+        tmp_cax = None
+        cax = None
+        hidden_other_cb_axes = []
+
+        try:
+            # 0) Hide inset profile axes (we only want the main image)
+            for a in fig.axes:
+                if getattr(a, "_is_profile_axes", False) and a.get_visible():
+                    hidden_profile_axes.append(a)
+                    a.set_visible(False)
+
+            # 1) Remove any titles from the main image
+            ax.set_title("")  # axes title off
+            if old_suptitle_obj is not None:  # fig-level title off
+                old_suptitle_obj.set_visible(False)
+
+                # --- NEW: detect and hide pre-existing (small) colorbars near ax ---
+                try:
+                    ax_box = ax.get_position(fig)
+                    for a in list(fig.axes):
+                        if a is ax:
+                            continue
+                        # treat as "colorbar-like" if skinny and adjacent on the right of ax
+                        pb = a.get_position(fig)
+                        skinny = (pb.width < ax_box.width * 0.25)  # narrow vs main axes
+                        right_of_ax = pb.x0 >= ax_box.x1 - 0.02
+
+                        if skinny and right_of_ax and a.get_visible():
+                            hidden_other_cb_axes.append(a)
+                            a.set_visible(False)
+                except Exception:
+                    pass
+
+            # 2) Ensure we have a colorbar
+            if cbar_ax_or_cb is not None:
+                if hasattr(cbar_ax_or_cb, "ax"):
+                    cax = cbar_ax_or_cb.ax
+                elif hasattr(cbar_ax_or_cb, "get_tightbbox"):
+                    cax = cbar_ax_or_cb
+                if getattr(cax, "figure", None) is not fig:
+                    cax = None
+            if cax is None and mappable is not None:
+                from mpl_toolkits.axes_grid1 import make_axes_locatable
+                div = make_axes_locatable(ax)
+                tmp_cax = div.append_axes("right", size="3%", pad=0.06)
+                tmp_cbar = fig.colorbar(mappable, cax=tmp_cax)
+                cax = tmp_cax
+
+            # 3) Enlarge fonts (~4×)
+            ax.xaxis.label.set_size(old_xlab_fs * font_scale)
+            ax.yaxis.label.set_size(old_ylab_fs * font_scale)
+            for i, t in enumerate(ax.get_xticklabels()):
+                t.set_size((old_xtick_fs[i] if i < len(old_xtick_fs) else t.get_size()) * font_scale)
+            for i, t in enumerate(ax.get_yticklabels()):
+                t.set_size((old_ytick_fs[i] if i < len(old_ytick_fs) else t.get_size()) * font_scale)
+
+            # Colorbar tick/label sizes
+            if cax is not None:
+                # tick labels
+                for t in cax.get_yticklabels():
+                    t.set_size(t.get_size() * font_scale)
+                # label (if present)
+                try:
+                    cb = tmp_cbar if tmp_cbar is not None else cax.colorbar
+                    if cb is not None and cb.ax is cax and cb.label is not None:
+                        cb.ax.set_ylabel(cb.label.get_text(), fontsize=cb.ax.yaxis.label.get_size() * font_scale)
+                except Exception:
+                    pass
+
+            # 4) Save tight bbox around axes (+ colorbar), small padding
+            from matplotlib.transforms import Bbox
+            boxes = [ax.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted())]
+            if cax is not None:
+                boxes.append(cax.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted()))
+            bbox = Bbox.union(boxes)
+            pad = 6.0 / float(dpi)
+            from matplotlib.transforms import Bbox as _B
+            bbox = _B.from_extents(bbox.x0 - pad, bbox.y0 - pad, bbox.x1 + pad, bbox.y1 + pad)
+
+            import os, tempfile
+            if not fname:
+                fname = os.path.join(tempfile.gettempdir(), "ppt_snapshot.png")
+            fig.savefig(fname, dpi=dpi, bbox_inches=bbox, facecolor=fig.get_facecolor())
+            print(f"[SNAPSHOT] wrote {fname} (dpi={dpi}, font_scale={font_scale})")
+            return fname
+
+        except Exception as e:
+            print(f"[SNAPSHOT] failed: {e}")
+            return None
+
+        finally:
+            # restore titles
+            try:
+                ax.set_title(old_title_text)
+            except Exception:
+                pass
+            if old_suptitle_obj is not None:
+                try:
+                    old_suptitle_obj.set_visible(True)
+                except Exception:
+                    pass
+
+            # restore inset axes
+            for a in hidden_profile_axes:
+                try:
+                    a.set_visible(True)
+                except Exception:
+                    pass
+
+            # restore fonts
+            try:
+                ax.xaxis.label.set_size(old_xlab_fs)
+                ax.yaxis.label.set_size(old_ylab_fs)
+                for i, t in enumerate(ax.get_xticklabels()):
+                    if i < len(old_xtick_fs): t.set_size(old_xtick_fs[i])
+                for i, t in enumerate(ax.get_yticklabels()):
+                    if i < len(old_ytick_fs): t.set_size(old_ytick_fs[i])
+            except Exception:
+                pass
+
+            for a in hidden_other_cb_axes:
+                try:
+                    a.set_visible(True)
+                except Exception:
+                    pass
+
+            # remove temp colorbar/axes
+            try:
+                if tmp_cbar is not None: tmp_cbar.remove()
+                if tmp_cax is not None: tmp_cax.remove()
+            except Exception:
+                pass
+
     def _handle_multiple_add2ppt_map(_evt=None):
         try:
-            # Choose multiple files
             paths = open_files_dialog([("TIFF Files", "*.tif *.tiff"), ("All Files", "*.*")])
             if not paths:
                 print("No files selected.")
                 return
 
-            # Get (or create) a running PowerPoint
             pythoncom.CoInitialize()
             ppt = win32com.client.Dispatch("PowerPoint.Application")
             if ppt.Presentations.Count == 0:
@@ -3819,19 +4038,87 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             slide_w = pres.PageSetup.SlideWidth
             slide_h = pres.PageSetup.SlideHeight
 
-            # Common placement for the small map
             map_w = slide_w * 0.25
             map_h = slide_h * 0.25
             margin = 20
+
+            # --- ADD this helper once (e.g., near your other PPT helpers) ---
+            def _fit_shape_keep_aspect(shape, *, left, top, max_w, max_h):
+                """
+                Resize and place a PowerPoint shape to fit inside (max_w x max_h) box,
+                preserving aspect ratio (no distortion).
+                """
+                try:
+                    shape.LockAspectRatio = -1  # msoTrue
+                except Exception:
+                    pass
+
+                try:
+                    w, h = float(shape.Width), float(shape.Height)
+                    if w <= 0 or h <= 0:
+                        print("[FIT] invalid shape size; skipping resize")
+                        return
+
+                    scale = min(max_w / w, max_h / h)
+                    shape.Width = w * scale
+                    shape.Height = h * scale
+                    shape.Left = left
+                    shape.Top = top
+                    print(f"[FIT] placed W={shape.Width:.1f} H={shape.Height:.1f} "
+                          f"at L={shape.Left:.1f}, T={shape.Top:.1f}")
+                except Exception as e:
+                    print(f"[FIT] resize failed: {e}")
+
+            def _draw_end_triangles(ax, p0, p1, *, size_pt=180, face='y', edge='k', lw=1.0, rotate_deg=27.0):
+                """
+                Draw start/end triangles with fixed *screen* size so they appear in PPT.
+                Uses oriented scatter markers (3-vertex polygon), rotated slightly for visibility.
+                Returns (m0, m1) PathCollections.
+                """
+                x0, y0 = float(p0[0]), float(p0[1])
+                x1, y1 = float(p1[0]), float(p1[1])
+                dx, dy = (x1 - x0), (y1 - y0)
+                ang_deg = np.degrees(np.arctan2(dy, dx))
+
+                # small extra rotation to make the markers pop and avoid aliasing along the line
+                m0 = ax.scatter([x0], [y0],
+                                s=size_pt, marker=(3, 0, ang_deg + rotate_deg),
+                                facecolor=face, edgecolor=edge, linewidths=lw,
+                                zorder=1000, clip_on=True)
+                m1 = ax.scatter([x1], [y1],
+                                s=size_pt, marker=(3, 0, ang_deg + 180.0 - rotate_deg),
+                                facecolor=face, edgecolor=edge, linewidths=lw,
+                                zorder=1000, clip_on=True)
+
+                for coll in (m0, m1):
+                    try:
+                        coll.set_rasterized(False)
+                        coll._is_profile_marker = True
+                    except Exception:
+                        pass
+
+                try:
+                    ax.figure.canvas.draw_idle()
+                except Exception:
+                    pass
+
+                span = (dx ** 2 + dy ** 2) ** 0.5
+                print(f"[TRI] scatter triangles added: size_pt={size_pt}, angle={ang_deg:.1f}°, "
+                      f"offset={rotate_deg:.1f}°, span={span:.2f} µm")
+                return m0, m1
+
+            _dbg(f"[INIT] slides={pres.Slides.Count}, slide_w={slide_w}, slide_h={slide_h}")
 
             for pth in paths:
                 try:
                     pth = os.path.abspath(pth)
                     fname = os.path.basename(pth)
+                    _dbg(f"\n=== Processing: {fname} ===")
 
-                    # 1) Load the TIFF as a single-slice dataset into the viewer
+                    # ---------- Load TIFF into viewer ----------
                     try:
                         img2d = _tif_to_2d(pth).astype(np.float64)
+                        _dbg(f"[LOAD] img2d shape={getattr(img2d, 'shape', None)} dtype={img2d.dtype}")
                         _switch_to_2d_dataset(img2d)
                         try:
                             ax_xy.set_title(fname)
@@ -3842,66 +4129,48 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                         print(f"⚠️ Skipping (load failed) {fname}: {e}")
                         continue
 
-                    # --- Display in correct µm coordinates (no text overlay) ---
+                    # ---------- World coords ----------
+                    center_um = None
                     try:
-                        # 1) Parse Site(...) center from filename
                         center_um = _parse_site_center_from_name(fname)
+                        globals()["LAST_CENTER_UM"] = center_um
+                        print(f"[CENTER] LAST_CENTER_UM set to {center_um}")
+                        _dbg(f"[CENTER] parsed center_um={center_um}")
 
                         if center_um is not None:
-                            cx_um, cy_um, _cz_um = center_um
-
-                            # 2) Pull calibration (prefer existing globals/attrs; else fallback 1.0)
-                            # Try common places you may already use in your codebase:
-                            um_per_px_x = PIXEL_SIZE_UM
-                            um_per_px_y = PIXEL_SIZE_UM
-                            try:
-                                # e.g., microscope or viewer state
-                                um_per_px_x = globals().get("um_per_px_x", PIXEL_SIZE_UM)
-                                um_per_px_y = globals().get("um_per_px_y", PIXEL_SIZE_UM)
-                            except Exception:
-                                pass
-
-                            # Safe fallback
-                            if not um_per_px_x: um_per_px_x = 1.0
-                            if not um_per_px_y: um_per_px_y = 1.0
-
-                            # 3) Compute world-coordinate extent so (cx, cy) is at the image center
+                            cx_um, cy_um, _ = center_um
+                            um_per_px_x = globals().get("um_per_px_x", PIXEL_SIZE_UM) or 1.0
+                            um_per_px_y = globals().get("um_per_px_y", PIXEL_SIZE_UM) or 1.0
                             H, W = img2d.shape[:2]
                             half_w_um = (W * um_per_px_x) * 0.5
                             half_h_um = (H * um_per_px_y) * 0.5
-
-                            x0 = cx_um - half_w_um
-                            x1 = cx_um + half_w_um
-                            y0 = cy_um - half_h_um
-                            y1 = cy_um + half_h_um
-
+                            x0, x1 = cx_um - half_w_um, cx_um + half_w_um
+                            y0, y1 = cy_um - half_h_um, cy_um + half_h_um
+                            _dbg(f"[EXTENT] x=({x0:.2f},{x1:.2f}) y=({y0:.2f},{y1:.2f})")
                             _set_xy_extent(ax_xy, img2d, x0, x1, y0, y1)
-                            # Optional: label axes in µm (no overlay text)
                             try:
                                 ax_xy.set_xlabel("x (µm)")
                                 ax_xy.set_ylabel("y (µm)")
                             except Exception:
                                 pass
+                            ax_xy.set_xlim(x0, x1);
+                            ax_xy.set_ylim(y0, y1);
+                            ax_xy.autoscale(False)
+                            _log_axes_state(ax_xy, "ax_after_extent")
+                        else:
+                            _dbg("[CENTER] center_um is None; skipping extent/template mapping")
                     except Exception as e:
                         print(f"⚠️ Could not set world coords for {fname}: {e}")
 
-
-
-                    # --- NEW: flatten++ before copying to PPT ---
+                    # ---------- flatten++ (optional) ----------
                     try:
-                        # use the UI slider if available; otherwise a sensible default
                         sigma_bg = float(slider_sigma_bg.val) if 'slider_sigma_bg' in globals() else 20.0
-
-                        # turn on aggressive flatten and rebuild the display buffer
                         nonlocal I_view
                         aggr_state["on"] = True
                         aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
                         aggr_state["computed_sigma"] = sigma_bg
-
                         C = aggr_state["cube"]
                         I_view = np.log10(C + EPS) if log_scale else C
-
-                        # refresh the XY image without touching clim/cmap
                         im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
                         if Nz > 1:
                             im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
@@ -3911,93 +4180,177 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                         except Exception:
                             pass
                         fig.canvas.draw_idle()
-                        print(f"✅ flatten++ applied (σ_bg={sigma_bg:.0f}) for {fname}")
+                        _dbg(f"[FLATTEN++] sigma_bg={sigma_bg}")
                     except Exception as e:
                         print(f"⚠️ flatten++ failed for {fname}: {e} (continuing without)")
 
-                    # 2) Copy main axes with colorbar to clipboard
-                    copy_main_axes_to_clipboard()
+                    # ---------- triangles from template (relative to center) ----------
+                    pts_abs = None
+                    try:
+                        t = globals().get("PROFILE_TEMPLATE", None)
+                        _dbg(f"[TEMPLATE] PROFILE_TEMPLATE present={bool(t)}; keys={list(t.keys()) if t else None}")
+                        if not center_um:
+                            _dbg("[TEMPLATE] center_um is None → cannot map relative offsets; skipping triangles")
+                        elif not t:
+                            _dbg("[TEMPLATE] PROFILE_TEMPLATE missing; skipping triangles")
+                        else:
+                            d0 = _coerce_pt(t.get("d0_um", None), "d0_um")
+                            d1 = _coerce_pt(t.get("d1_um", None), "d1_um")
+                            cx_um, cy_um, _ = center_um
+                            p0 = (float(cx_um + d0[0]), float(cy_um + d0[1]))
+                            p1 = (float(cx_um + d1[0]), float(cy_um + d1[1]))
+                            pts_abs = (p0, p1)
+                            _dbg(f"[PTS_ABS] p0={p0}, p1={p1}")
+                            before = len(ax_xy.patches)
+                            tri0, tri1 = _draw_end_triangles(ax_xy, p0, p1, face='y', edge='k', lw=1.0)
 
-                    # 3) Create a new slide and paste the scan snapshot
-                    new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)  # ppLayoutBlank = 12
+                            tri0.set_zorder(100)
+                            tri1.set_zorder(100)
+                            tri0.set_visible(True)
+                            tri1.set_visible(True)
+                            _dbg(f"[TRIANGLES] patches before={before} after={len(ax_xy.patches)}")
+                    except Exception as e:
+                        print(f"⚠️ Could not apply cross-section template: {e}")
+
+                    # Ensure triangles are drawn
+                    try:
+                        fig.canvas.draw()
+                        fig.canvas.flush_events()
+                        _log_axes_state(ax_xy, "ax_before_clipboard")
+                    except Exception:
+                        pass
+
+                    # ---------- Create the slide FIRST ----------
+                    new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)  # ppLayoutBlank
                     ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
 
-                    img = ImageGrab.grabclipboard()
-                    if not isinstance(img, Image.Image):
-                        print(f"⚠️ Clipboard does not contain an image for {fname}.")
-                        continue
+                    # ----- MAIN IMAGE INSERT: PNG snapshot (robust; includes scatter triangles) -----
+                    main_shape = None
 
-                    shapes = new_slide.Shapes.Paste()
-                    if shapes.Count > 0:
-                        shape = shapes[0]
-                        shape.AlternativeText = json.dumps({"filename": pth}, separators=(",", ":"))
+                    png_path = export_main_axes_snapshot(
+                        ax_xy,
+                        mappable=im_xy,  # provide the image artist
+                        cbar_ax_or_cb=None,  # force a single, big colorbar
+                        dpi=220,
+                        font_scale=4.0
+                    )
 
-                        # Title with filename at the top
-                        title_shape = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40,
-                                                                  50)  # msoTextOrientationHorizontal=1
+                    if png_path and os.path.exists(png_path):
+                        try:
+                            # Left column ~0.68 slide width, keep aspect
+                            target_w = slide_w * 0.68
+                            left, top = 40, 90
+                            shp = new_slide.Shapes.AddPicture(
+                                FileName=png_path, LinkToFile=False, SaveWithDocument=True,
+                                Left=left, Top=top, Width=target_w, Height=-1
+                            )
+                            shp.LockAspectRatio = -1
+                            main_shape = shp
+                            print(
+                                f"[PASTE] PNG inserted W={shp.Width:.1f} H={shp.Height:.1f} L={shp.Left:.1f} T={shp.Top:.1f}")
+                        except Exception as e:
+                            print(f"[PASTE] PNG AddPicture failed: {e}")
+
+                    # After obtaining `main_shape` (either from clipboard or AddPicture)
+                    if main_shape is not None:
+                        # Left column box (example numbers—use your existing margins)
+                        box_left = 40
+                        box_top = 90
+                        box_w = slide_w * 0.68  # ~2/3 slide width
+                        box_h = slide_h * 0.80  # leave room for title
+                        _fit_shape_keep_aspect(main_shape, left=box_left, top=box_top, max_w=box_w, max_h=box_h)
+
+                    # Final sanity; if snapshot failed, fall back once to clipboard (best effort)
+                    if main_shape is None:
+                        try:
+                            print("[PASTE] snapshot missing; trying clipboard fallback")
+                            fig.canvas.draw()
+                            copy_main_axes_to_clipboard()
+                            shapes = new_slide.Shapes.Paste()
+                            # normalize your ShapeRange/list here if you use a helper
+                            main_shape = shapes[0] if getattr(shapes, "Count", 0) else None
+                            print(f"[PASTE] clipboard fallback, shape={'ok' if main_shape else 'none'}")
+                        except Exception as e:
+                            print(f"[PASTE] clipboard fallback failed: {e}")
+
+                    if main_shape is None:
+                        print("⚠️ No main image inserted (both PNG and clipboard failed).")
+                    else:
+                        try:
+                            main_shape.AlternativeText = json.dumps({"filename": pth}, separators=(",", ":"))
+                        except Exception as e:
+                            print(f"[ALT] set AlternativeText failed: {e}")
+
+                    # ---------- Title ----------
+                    try:
+                        title_shape = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40, 50)
                         tr = title_shape.TextFrame.TextRange
                         tr.Text = fname
-                        tr.ParagraphFormat.Alignment = 2  # ppAlignCenter
+                        tr.ParagraphFormat.Alignment = 2
                         tr.Font.Bold = True
                         tr.Font.Size = 28
                         try:
-                            title_shape.Fill.Visible = 0
-                            title_shape.Line.Visible = 0
+                            title_shape.Fill.Visible = 0; title_shape.Line.Visible = 0
                         except Exception:
                             pass
+                    except Exception as e:
+                        print(f"[TITLE] failed: {e}")
 
-                    # 4) Parse coordinates from filename and draw cross on map
-
-                    cx_um, cy_um, _cz_um = center_um
-                    tmp_map_path = _make_map_with_cross(cx_um, cy_um, MAP_IMAGE_PATH)
-                    if tmp_map_path is None:
-                        print(f"⚠️ Map not available; added slide for {fname} without map.")
-                        continue
-
-                    # 5) Insert the small map (top-right)
-                    left = slide_w - map_w - margin
-                    top = margin
-                    pic = new_slide.Shapes.AddPicture(
-                        FileName=tmp_map_path, LinkToFile=False, SaveWithDocument=True,
-                        Left=left, Top=top, Width=map_w, Height=map_h
-                    )
-
-                    # --- NEW: add cross-section plot if a line was chosen earlier ---
+                    # ---------- Small map ----------
                     try:
-                        pts = PROFILE_STATE.get("points_um", None)
-                        if pts and len(pts) == 2:
-                            prof_png = _make_profile_png_for_current(pts)
+                        cx_um, cy_um, _cz_um = center_um if center_um else (0.0, 0.0, 0.0)
+                        tmp_map_path = _make_map_with_cross(cx_um, cy_um, MAP_IMAGE_PATH)
+                        _dbg(f"[MAP] tmp_map_path={tmp_map_path}")
+                        if tmp_map_path:
+                            left = slide_w - map_w - margin
+                            top = margin
+                            pic = new_slide.Shapes.AddPicture(
+                                FileName=tmp_map_path, LinkToFile=False, SaveWithDocument=True,
+                                Left=left, Top=top, Width=map_w, Height=map_h
+                            )
+                            try:
+                                pic.AlternativeText = json.dumps(
+                                    {"type": "site-map", "x_um": float(cx_um), "y_um": float(cy_um),
+                                     "source": MAP_IMAGE_PATH},
+                                    separators=(",", ":")
+                                )
+                            except Exception:
+                                pass
+                        else:
+                            print("⚠️ Map not available; continuing without map.")
+                    except Exception as e:
+                        print(f"[MAP] failed: {e}")
+
+                    # ---------- Cross-section plot (if we had pts_abs) ----------
+                    try:
+                        if pts_abs:
+                            _dbg(f"[PROFILE] calling _make_profile_png_for_current with pts_abs={pts_abs}")
+                            prof_png = _make_profile_png_for_current(pts_abs)
+                            _dbg(f"[PROFILE] returned prof_png={prof_png}")
                             if prof_png:
-                                # place the profile under the map thumbnail (same right margin)
                                 prof_w = map_w
-                                prof_h = map_h * 0.9  # a bit shorter than the map box
-                                prof_left = left
-                                prof_top = top + map_h + 10  # small gap under the map
-                                new_slide.Shapes.AddPicture(
+                                prof_h = map_h * 0.9
+                                prof_left = slide_w - map_w - margin
+                                prof_top = margin + map_h + 10
+                                shp = new_slide.Shapes.AddPicture(
                                     FileName=prof_png, LinkToFile=False, SaveWithDocument=True,
                                     Left=prof_left, Top=prof_top, Width=prof_w, Height=prof_h
                                 )
-                                # (Optional) tag it
                                 try:
-                                    new_slide.Shapes[new_slide.Shapes.Count].AlternativeText = json.dumps(
+                                    shp.AlternativeText = json.dumps(
                                         {"type": "cross-section",
-                                         "p0_um": {"x": float(pts[0][0]), "y": float(pts[0][1])},
-                                         "p1_um": {"x": float(pts[1][0]), "y": float(pts[1][1])}},
+                                         "p0_um": {"x": float(pts_abs[0][0]), "y": float(pts_abs[0][1])},
+                                         "p1_um": {"x": float(pts_abs[1][0]), "y": float(pts_abs[1][1])}},
                                         separators=(",", ":")
                                     )
                                 except Exception:
                                     pass
                             else:
-                                print("⚠️ Cross-section not added (render failed).")
+                                print("⚠️ Cross-section not added (render failed or None path).")
                         else:
-                            print("ℹ️ No saved cross-section; skipping profile for this slide.")
+                            print("ℹ️ No cross-section template; skipping profile for this slide.")
                     except Exception as e:
                         print(f"⚠️ Could not add cross-section image: {e}")
-
-                    pic.AlternativeText = json.dumps(
-                        {"type": "site-map", "x_um": float(cx_um), "y_um": float(cy_um), "source": MAP_IMAGE_PATH},
-                        separators=(",", ":")
-                    )
 
                     print(
                         f"Added slide #{new_slide.SlideIndex} for {fname} with map cross at ({cx_um:.1f}, {cy_um:.1f}) µm.")
@@ -4007,6 +4360,27 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         except Exception as e:
             print(f"❌ multiple add+map failed: {e}")
+
+        # ---------- Close the app after finishing ----------
+        try:
+            _dbg("[CLOSE] closing figures and root…")
+            try:
+                import matplotlib.pyplot as _plt
+                _plt.close('all')
+            except Exception:
+                pass
+            if 'root' in globals() and root:
+                try:
+                    root.after(100, root.destroy)
+                except Exception:
+                    pass
+            import sys
+            try:
+                sys.exit(0)
+            except SystemExit:
+                pass
+        except Exception as e:
+            print(f"⚠️ Could not close app cleanly: {e}")
 
     btn_addppt_map_multi.on_clicked(_handle_multiple_add2ppt_map)
 
@@ -4181,7 +4555,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 "image_path": filepath if 'filepath' in locals() else None,
                 "points_um": [{"x": p0_um[0], "y": p0_um[1]}, {"x": p1_um[0], "y": p1_um[1]}]
             }
-            json_path = os.path.join(folder, f"{stem}_line.json")
+            json_path = os.path.join(folder, "line.json")
             if os.path.exists(json_path):
                 try:
                     with open(json_path, "r") as f:
@@ -4200,11 +4574,29 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             print(f"Saved line points → {os.path.basename(json_path)}")
             # Remember the chosen line (in µm) for later use by multiple add+map
             try:
+                # Prefer the parsed center from filename to ensure the same frame-of-reference
+                center_um_for_template = globals().get("LAST_CENTER_UM", None)
+
+                if center_um_for_template is None:
+                    # Fallback: compute center from current axes
+                    x0, x1 = ax_xy.get_xlim()
+                    y0, y1 = ax_xy.get_ylim()
+                    center_um_for_template = (0.5 * (x0 + x1), 0.5 * (y0 + y1), 0.0)
+                    print(f"[TEMPLATE:FALLBACK] Using axes center {center_um_for_template} for template")
+
+                ok = set_profile_template_from_points(p0_um, p1_um, center_um_for_template)
+                if not ok:
+                    print("[TEMPLATE] set_profile_template_from_points failed; template not saved.")
+                else:
+                    print("[TEMPLATE] set_profile_template_from_points OK; template ready for add+map.")
+
                 PROFILE_STATE["points_um"] = [tuple(p0_um), tuple(p1_um)]
                 print(f"Saved cross-section for add+map multiple: "
                       f"({p0_um[0]:.3f},{p0_um[1]:.3f}) → ({p1_um[0]:.3f},{p1_um[1]:.3f}) µm")
+
             except Exception as _e:
                 print(f"Warning: could not store cross-section: {_e}")
+
 
         except Exception as e:
             print(f"Warning: failed to save line JSON: {e}")
