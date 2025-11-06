@@ -85,8 +85,8 @@ class Keysight33500B(SerialDevice):
         """
         if channel not in [1, 2]:
             raise ValueError("Channel must be 1 or 2.")
-        if not 0.01 <= amplitude <= 10:
-            raise ValueError("Amplitude must be between 0.01 Vpp and 10 Vpp.")
+        # if not 0.01 <= amplitude <= 10:
+        #     raise ValueError("Amplitude must be between 0.01 Vpp and 10 Vpp.")
         command = f"source{channel}:voltage {amplitude}"
         self._send_command(command)
         time.sleep(0.1)

@@ -53,6 +53,7 @@ from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
 # Paste as pic: Alt + H V U
 
 CONFIG_PATH = r"C:\WC\HotSystem\SystemConfig\xml_configs\system_info.xml"
+DEFAULT_COUP_DIR = r"c:\WC\HotSystem\Utils\macro"
 
 def _dispatcher_base_dir(self) -> str:
     """Folder of CommandDispatcher.py (works even if module path is indirect)."""
@@ -336,6 +337,7 @@ class CommandDispatcher:
             "n":                 self.handle_negative,
             "wv":                self.handle_wv,
             "wave":              self.handle_wv,
+            "plot":              self.handle_plot, # show spectrum
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -2020,66 +2022,118 @@ class CommandDispatcher:
                 print("Reloaded HW_GUI.GUI_Smaract and recreated GUI_smaract.")
                 return
 
-            # === HRS_500 GUI with ProEM experiment ===
+            # === Dedicated PROEM GUI (separate instance in its own file) ===
             if name in ("hrs proem", "hrs_proem", "hrsproem", "proem"):
-                import HW_GUI.GUI_HRS_500 as gui_HRS500
-                importlib.reload(gui_HRS500)
+                import HW_GUI.GUI_PROEM as gui_PROEM
+                importlib.reload(gui_PROEM)
 
-                PROEM_LFE = r"C:\Users\Femto\Work Folders\Documents\LightField\Experiments\ProEM_shai.lfe"
+                PROEM_LFE = gui_PROEM.GUI_PROEM.DEFAULT_LFE  # keep single source of truth
 
-                # Try to preserve the current window position/size if it exists
-                pos, size = [60, 60], [1200, 800]
-                if hasattr(p, "hrs_500_gui") and p.hrs_500_gui:
-                    try:
-                        pos = dpg.get_item_pos(p.hrs_500_gui.window_tag)
-                        size = dpg.get_item_rect_size(p.hrs_500_gui.window_tag)
-                        p.hrs_500_gui.DeleteMainWindow()
-                    except Exception as e:
-                        print(f"Old HRS_500 GUI removal failed (ProEM): {e}")
-
-                # (Re)create the LightField spectrometer specifically with the ProEM experiment
+                # Create a brand-new ProEM device (do NOT overwrite devs.hrs_500)
                 try:
                     devs = hw_devices.HW_devices()
-
-                    # Cleanly disconnect the existing device if possible
-                    try:
-                        if getattr(devs, "hrs_500", None) and hasattr(devs.hrs_500, "disconnect"):
-                            devs.hrs_500.disconnect()
-                    except Exception as e:
-                        print(f"Warning: could not disconnect previous HRS_500 device: {e}")
-
-                    # New instance with the ProEM experiment path
-                    devs.hrs_500 = LightFieldSpectrometer(
-                        visible=True,
-                        file_path=PROEM_LFE
-                    )
-                    devs.hrs_500.connect()
+                    device_proem = LightFieldSpectrometer(visible=True, file_path=PROEM_LFE)
+                    device_proem.connect()
                 except Exception as e:
-                    print(f"Failed to initialize HRS_500 with ProEM experiment: {e}")
+                    print(f"Failed to initialize ProEM spectrometer: {e}")
                     raise
 
-                # Rebuild the GUI using the (re)initialized device
-                p.hrs_500_gui = gui_HRS500.GUI_HRS500(devs.hrs_500)
+                # If a previous ProEM GUI exists, offset the new window a bit
+                pos = [100, 100]
+                size = [1200, 800]
+                old_proem = getattr(p, "proem_gui", None)
+                if old_proem:
+                    try:
+                        lp = dpg.get_item_pos(old_proem.window_tag)
+                        pos = [lp[0] + 40, lp[1] + 40]
+                    except Exception:
+                        pass
 
-                # Rebuild the “bring window” button
-                if dpg.does_item_exist("HRS_500_button"):
-                    dpg.delete_item("HRS_500_button")
+                # Create the dedicated ProEM GUI
+                p.proem_gui = gui_PROEM.GUI_PROEM(device_proem, prefix="proem", title="ProEM Camera")
+
+                # Bring-window button (distinct tag)
+                if dpg.does_item_exist("PROEM_button"):
+                    dpg.delete_item("PROEM_button")
                 p.create_bring_window_button(
-                    p.hrs_500_gui.window_tag, button_label="Spectrometer (ProEM)",
-                    tag="HRS_500_button", parent="focus_group"
+                    p.proem_gui.window_tag,
+                    button_label="PROEM",
+                    tag="PROEM_button",
+                    parent="focus_group"
                 )
+                p.active_instrument_list.append(p.proem_gui.window_tag)
 
-                # Track as active instrument and restore geometry
-                p.active_instrument_list.append(p.hrs_500_gui.window_tag)
+                # Place & size
                 try:
-                    dpg.set_item_pos(p.hrs_500_gui.window_tag, pos)
-                    dpg.set_item_width(p.hrs_500_gui.window_tag, size[0])
-                    dpg.set_item_height(p.hrs_500_gui.window_tag, size[1])
+                    dpg.set_item_pos(p.proem_gui.window_tag, pos)
+                    dpg.set_item_width(p.proem_gui.window_tag, size[0])
+                    dpg.set_item_height(p.proem_gui.window_tag, size[1])
                 except Exception:
                     pass
 
-                print("Reloaded HW_GUI.GUI_HRS500 with ProEM experiment and recreated Spectrometer GUI.")
+                print("Loaded NEW GUI_PROEM (separate ProEM GUI).")
                 return
+
+            # # === OLD!!!!!!!  HRS_500 GUI with ProEM experiment ===
+            # if name in ("hrs proem", "hrs_proem", "hrsproem", "proem"):
+            #     import HW_GUI.GUI_HRS_500 as gui_HRS500
+            #     importlib.reload(gui_HRS500)
+            #
+            #     PROEM_LFE = r"C:\Users\Femto\Work Folders\Documents\LightField\Experiments\ProEM_shai.lfe"
+            #
+            #     # Try to preserve the current window position/size if it exists
+            #     pos, size = [60, 60], [1200, 800]
+            #     if hasattr(p, "hrs_500_gui") and p.hrs_500_gui:
+            #         try:
+            #             pos = dpg.get_item_pos(p.hrs_500_gui.window_tag)
+            #             size = dpg.get_item_rect_size(p.hrs_500_gui.window_tag)
+            #             p.hrs_500_gui.DeleteMainWindow()
+            #         except Exception as e:
+            #             print(f"Old HRS_500 GUI removal failed (ProEM): {e}")
+            #
+            #     # (Re)create the LightField spectrometer specifically with the ProEM experiment
+            #     try:
+            #         devs = hw_devices.HW_devices()
+            #
+            #         # Cleanly disconnect the existing device if possible
+            #         try:
+            #             if getattr(devs, "hrs_500", None) and hasattr(devs.hrs_500, "disconnect"):
+            #                 devs.hrs_500.disconnect()
+            #         except Exception as e:
+            #             print(f"Warning: could not disconnect previous HRS_500 device: {e}")
+            #
+            #         # New instance with the ProEM experiment path
+            #         devs.hrs_500 = LightFieldSpectrometer(
+            #             visible=True,
+            #             file_path=PROEM_LFE
+            #         )
+            #         devs.hrs_500.connect()
+            #     except Exception as e:
+            #         print(f"Failed to initialize HRS_500 with ProEM experiment: {e}")
+            #         raise
+            #
+            #     # Rebuild the GUI using the (re)initialized device
+            #     p.hrs_500_gui = gui_HRS500.GUI_HRS500(devs.hrs_500)
+            #
+            #     # Rebuild the “bring window” button
+            #     if dpg.does_item_exist("HRS_500_button"):
+            #         dpg.delete_item("HRS_500_button")
+            #     p.create_bring_window_button(
+            #         p.hrs_500_gui.window_tag, button_label="Spectrometer (ProEM)",
+            #         tag="HRS_500_button", parent="focus_group"
+            #     )
+            #
+            #     # Track as active instrument and restore geometry
+            #     p.active_instrument_list.append(p.hrs_500_gui.window_tag)
+            #     try:
+            #         dpg.set_item_pos(p.hrs_500_gui.window_tag, pos)
+            #         dpg.set_item_width(p.hrs_500_gui.window_tag, size[0])
+            #         dpg.set_item_height(p.hrs_500_gui.window_tag, size[1])
+            #     except Exception:
+            #         pass
+            #
+            #     print("Reloaded HW_GUI.GUI_HRS500 with ProEM experiment and recreated Spectrometer GUI.")
+            #     return
 
             # === HRS_500 GUI ===
             if name in ("hrs", "hrs500", "hrs_500"):
@@ -2088,15 +2142,27 @@ class CommandDispatcher:
 
                 EXP3_LFE = r"C:\Users\Femto\Work Folders\Documents\LightField\Experiments\Experiment3.lfe"
 
-                # Try to preserve the current window position/size if it exists
-                pos, size = [60, 60], [1200, 800]
-                if hasattr(p, "hrs_500_gui") and p.hrs_500_gui:
+                # Find a free GUI slot without overriding existing ones (after 'reload proem', etc.)
+                gui_slots = ["hrs_500_gui", "hrs_500_gui2", "hrs_500_gui3", "hrs_500_gui4"]
+                free_slot = None
+                for s in gui_slots:
+                    if not hasattr(p, s) or getattr(p, s) is None:
+                        free_slot = s
+                        break
+                if free_slot is None:
+                    print("Max HRS_500 GUI instances reached.")
+                    return
+
+                # Pick geometry: if we already have an instance, offset new window a bit
+                base_pos, base_size = [60, 60], [1200, 800]
+                existing_guis = [getattr(p, s) for s in gui_slots if hasattr(p, s) and getattr(p, s)]
+                if existing_guis:
                     try:
-                        pos = dpg.get_item_pos(p.hrs_500_gui.window_tag)
-                        size = dpg.get_item_rect_size(p.hrs_500_gui.window_tag)
-                        p.hrs_500_gui.DeleteMainWindow()
-                    except Exception as e:
-                        print(f"Old HRS_500 GUI removal failed: {e}")
+                        last = existing_guis[-1]
+                        lp = dpg.get_item_pos(last.window_tag)
+                        base_pos = [lp[0] + 40, lp[1] + 40]
+                    except Exception:
+                        pass
 
                 # (Re)create the LightField spectrometer with the Experiment3.lfe
                 try:
@@ -3016,7 +3082,30 @@ class CommandDispatcher:
         import pyperclip
 
         p = self.get_parent()
-        p.hrs_500_gui.dev._exp.Stop()
+
+        # --- choose target spectrometer GUI (default: PROEM; override with leading 'hrs') ---  # NEW
+        _raw_tokens = (arg or "").strip().split()  # NEW
+        _use_hrs = bool(_raw_tokens and _raw_tokens[0].lower() == "hrs")  # NEW
+        if _use_hrs:  # NEW
+            _raw_tokens = _raw_tokens[1:]  # strip 'hrs'  # NEW
+            arg = " ".join(_raw_tokens)  # pass the remaining args downstream  # NEW
+        target_gui = getattr(p, "proem_gui", None) if not _use_hrs else getattr(p, "hrs_500_gui", None)  # NEW
+        if target_gui is None:  # NEW
+            target_gui = getattr(p, "hrs_500_gui", None)  # fallback if ProEM missing  # NEW
+        if target_gui is None:  # NEW
+            print("No spectrometer GUI available (neither ProEM nor HRS).")  # NEW
+            return  # NEW
+
+        dev = getattr(target_gui, "dev", None)  # NEW
+        if dev is None:  # NEW
+            print("Target spectrometer device is not available.")  # NEW
+            return  # NEW
+
+        try:  # NEW
+            dev._exp.Stop()  # NEW
+        except Exception:  # NEW
+            pass  # NEW
+
         # --- SPC done event ---
         evt = getattr(self, "_spc_done_evt", None)
         if not isinstance(evt, threading.Event):
@@ -3172,7 +3261,7 @@ class CommandDispatcher:
         if secs_str:
             try:
                 secs_ms = float(secs_str) * 1000.0
-                p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, secs_ms)
+                dev.set_value(CameraSettings.ShutterTimingExposureTime, secs_ms)
                 print(f"Integration time set to {secs_str}s")
             except Exception as e:
                 print(f"Could not set integration time to '{secs_str}': {e}")
@@ -3325,70 +3414,62 @@ class CommandDispatcher:
                     time.sleep(1.0)  # keep your spec: wait 1s after the first move
 
                 # ----- your existing proEM capture block (unchanged) -----
-                if hasattr(p, "hrs_500_gui"):
+                dev._exp.Stop()
+
+                # Build filename from clipboard + update Site(...) with current offsets
+                try:
+                    if forced_fname:  # new
+                        base = _sanitize_name(forced_fname)
+                    else:
+                        clip_raw = (pyperclip.paste() or "").strip().strip('"').strip("'")
+                        clip_raw = clip_raw.replace("\r", "").replace("\n", " ")
+                        # drop any extension from clipboard text and sanitize
+                        base = _sanitize_name(Path(clip_raw).stem or os.path.basename(clip_raw))
+
+                    if origin_site is not None:
+                        ox_um, oy_um, oz_um = origin_site
+                        nx_um = float(ox_um) + float(x_off_um)
+                        ny_um = float(oy_um) + float(y_off_um)
+                        base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
+
+                    base = f"{base} #{k}"
+
+                    dev.set_filename(base[:100])
+                except Exception:
+                    pass
+
+                # DO NOT touch exposure unless time_s is set (your rule)
+                if time_s is not None:
                     try:
-                        p.hrs_500_gui.dev._exp.Stop()
+                        ms = float(time_s) * 1000.0
+                        dev.set_value(CameraSettings.ShutterTimingExposureTime, ms)
                     except Exception:
                         pass
 
-                    # Build filename from clipboard + update Site(...) with current offsets
-                    try:
-                        if forced_fname:  # new
-                            base = _sanitize_name(forced_fname)
+                # wait until not updating, then acquire
+                try:
+                    while getattr(dev._exp, "IsUpdating", False):
+                        time.sleep(0.05)
+                except Exception:
+                    pass
 
-                        fn = __import__('pyperclip').paste()
-                        sname = (fn or "").strip().strip('"').strip("'")
-                        sname = sname.replace("\r", "").replace("\n", " ")
-                        pt = Path(sname + base)
-                        base = pt.stem if pt.suffix else os.path.basename(sname)
-                        base = re.sub(r'[<>:"/\\|?*]', "_", base)
+                try:
+                    target_gui.acquire_callback()
+                except Exception as e:
+                    print(f"acquire_callback failed on shot {k}: {e}")
+                    continue
 
-                        if origin_site is not None:
-                            ox_um, oy_um, oz_um = origin_site
-                            nx_um = float(ox_um) + float(x_off_um)
-                            ny_um = float(oy_um) + float(y_off_um)
-                            base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
-
-                        if shots > 1:
-                            base = f"{base}_#{k:02d}"
-                        p.hrs_500_gui.dev.set_filename(base[:100])
-                    except Exception:
-                        pass
-
-                    # DO NOT touch exposure unless time_s is set (your rule)
-                    if time_s is not None:
-                        try:
-                            ms = float(time_s) * 1000.0
-                            p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, ms)
-                        except Exception:
-                            pass
-
-                    # wait until not updating, then acquire
-                    try:
-                        while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                time.sleep(0.4)
+                try:
+                    if getattr(dev._exp, "IsReadyToRun", True):
+                        p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 3000.0)
+                        while getattr(dev._exp, "IsUpdating", False):
                             time.sleep(0.05)
-                    except Exception:
-                        pass
+                        if not no_preview and self.proEM_mode:
+                            dev._exp.Preview()
+                except Exception:
+                    pass
 
-                    try:
-                        p.hrs_500_gui.acquire_callback()
-                    except Exception as e:
-                        print(f"acquire_callback failed on shot {k}: {e}")
-                        continue
-
-                    time.sleep(0.4)
-                    try:
-                        if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
-                            p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
-                            while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
-                                time.sleep(0.05)
-                            if not no_preview and self.proEM_mode:
-                                p.hrs_500_gui.dev._exp.Preview()
-                    except Exception:
-                        pass
-                else:
-                    print("Parent OPX or SPC not available.")
-                    break
 
             # Return to origin once at the end (required)
             try:
@@ -3423,86 +3504,80 @@ class CommandDispatcher:
         # proEM behavior is kept as in your original code-path.
         for k in range(1, int(max(1, shots)) + 1):
 
-            if hasattr(p, "hrs_500_gui"):  # proEM path supported
-                try:
-                    p.hrs_500_gui.dev._exp.Stop()
-                except Exception:
-                    pass
+            dev._exp.Stop()
 
-                # Optional: refresh XYZ each shot if you want; currently leave as once before
-                try:
-                    # Set a filename stem from clipboard, safe characters only
-                    fn = __import__('pyperclip').paste()
-                    s = (fn or "").strip().strip('"').strip("'")
-                    s = s.replace("\r", "").replace("\n", " ")
-                    pt = Path(s)
-                    base = pt.stem if pt.suffix else os.path.basename(s)
-                    # add shot index to ensure uniqueness when SW reuses names
-                    base = re.sub(r'[<>:"/\\|?*]', "_", base)[:100]
-                    if forced_fname:
-                        base = base + " " + _sanitize_name(forced_fname)
+            # Optional: refresh XYZ each shot if you want; currently leave as once before
+            try:
+                # Set a filename stem from clipboard, safe characters only
+                fn = __import__('pyperclip').paste()
+                s = (fn or "").strip().strip('"').strip("'")
+                s = s.replace("\r", "").replace("\n", " ")
+                pt = Path(s)
+                base = pt.stem if pt.suffix else os.path.basename(s)
+                # add shot index to ensure uniqueness when SW reuses names
+                base = re.sub(r'[<>:"/\\|?*]', "_", base)[:100]
+                if forced_fname:
+                    base = base + " " + _sanitize_name(forced_fname)
 
-                    # --- NEW: if shift_mode and we know the origin Site(...), update coords for this shot
-                    if shift_mode and origin_site is not None:
-                        try:
-                            ox_um, oy_um, oz_um = origin_site
-                            # current offset relative to origin, set earlier by the move we just made
-                            nx_um = float(ox_um) + float(x_off_um)
-                            ny_um = float(oy_um) + float(y_off_um)
-                            base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
-                        except Exception as _e:
-                            # fallback: keep base as-is if anything goes wrong
-                            pass
-
-                    if shots > 1:
-                        base = f"{base}_#{k:02d}"
-
-                    p.hrs_500_gui.dev.set_filename(base)
-                except Exception:
-                    pass
-
-                # if exposure provided, re-assert it (some SDKs reset)
-                if time_s is not None:
+                # --- NEW: if shift_mode and we know the origin Site(...), update coords for this shot
+                if shift_mode and origin_site is not None:
                     try:
-                        ms = float(time_s) * 1000.0
-                        p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, ms)
-                    except Exception:
+                        ox_um, oy_um, oz_um = origin_site
+                        # current offset relative to origin, set earlier by the move we just made
+                        nx_um = float(ox_um) + float(x_off_um)
+                        ny_um = float(oy_um) + float(y_off_um)
+                        base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
+                    except Exception as _e:
+                        # fallback: keep base as-is if anything goes wrong
                         pass
 
-                # wait until not updating, then acquire
+                if shots > 1:
+                    base = f"{base}_#{k:02d}"
+
+                dev.set_filename(base)
+            except Exception:
+                pass
+
+            # if exposure provided, re-assert it (some SDKs reset)
+            if time_s is not None:
                 try:
-                    while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
+                    ms = float(time_s) * 1000.0
+                    dev.set_value(CameraSettings.ShutterTimingExposureTime, ms)
+                except Exception:
+                    pass
+
+            # wait until not updating, then acquire
+            try:
+                while getattr(dev._exp, "IsUpdating", False):
+                    time.sleep(0.05)
+            except Exception:
+                pass
+
+            try:
+                target_gui.acquire_callback()
+            except Exception as e:
+                print(f"acquire_callback failed on shot {k}: {e}")
+                continue
+
+            time.sleep(0.4)
+            try:
+                if getattr(dev._exp, "IsReadyToRun", True):
+                    # restore default preview exposure if desired by you
+                    dev.set_value(CameraSettings.ShutterTimingExposureTime, 3000.0)
+                    while getattr(dev._exp, "IsUpdating", False):
                         time.sleep(0.05)
-                except Exception:
-                    pass
+                    if not no_preview and self.proEM_mode:
+                        dev._exp.Preview()
+            except Exception:
+                pass
 
-                try:
-                    p.hrs_500_gui.acquire_callback()
-                except Exception as e:
-                    print(f"acquire_callback failed on shot {k}: {e}")
-                    continue
-
-                time.sleep(0.4)
-                try:
-                    if getattr(p.hrs_500_gui.dev._exp, "IsReadyToRun", True):
-                        # restore default preview exposure if desired by you
-                        p.hrs_500_gui.dev.set_value(CameraSettings.ShutterTimingExposureTime, 3000.0)
-                        while getattr(p.hrs_500_gui.dev._exp, "IsUpdating", False):
-                            time.sleep(0.05)
-                        if not no_preview and self.proEM_mode:
-                            p.hrs_500_gui.dev._exp.Preview()
-                except Exception:
-                    pass
-            else:
-                print("Parent OPX or SPC not available.")
-                break
 
             # If not in proEM_mode, rename CSV now (per shot)
             if not self.proEM_mode:
                 # 3) Locate saved CSV for this shot
-                fp = getattr(p.hrs_500_gui.dev, "last_saved_csv", None)
+                fp = getattr(dev, "last_saved_csv", None)
                 if not fp or not os.path.isfile(fp):
-                    save_dir = getattr(p.hrs_500_gui.dev, "save_directory", None)
+                    save_dir = getattr(dev, "save_directory", None)
                     if not save_dir:
                         print("No CSV found to rename.")
                         continue
@@ -5039,11 +5114,11 @@ class CommandDispatcher:
     def _move_delta(self, axis, arg):
         p=self.get_parent()
         try:
-            amount=float(arg)*1e6
-            p.smaractGUI.dev.MoveRelative(axis, int(amount))
+            amount=int(float(arg)*1e6)
+            p.smaractGUI.dev.MoveRelative(axis, amount)
             print(f"Axis {axis} moved by {amount*1e-6:.2f} um")
-        except:
-            print(f"move{axis} failed.")
+        except Exception as e:
+            print(f"move{axis} failed {e}.")
 
     def handle_open_lastdir(self, arg):
         """With no arg: act as lastdir (copy last_scan_dir.txt).
@@ -6470,6 +6545,7 @@ class CommandDispatcher:
           show map clib
           show app
           show wave
+          show macro
         """
         import json, os
         sub = (arg or "").strip()
@@ -6481,6 +6557,60 @@ class CommandDispatcher:
         toks = sub.split()
         key = toks[0].lower()
         base_dir = _dispatcher_base_dir(self)
+
+        # ----- show macro (list macro .txt files and open selected) -----
+        # show macro 3 -> opens item #3
+        if key == "macro":
+            try:
+                # Resolve default macro dir (same place your coup loader uses)
+                try:
+                    macro_dir = DEFAULT_COUP_DIR
+                except NameError:
+                    macro_dir = r"c:\WC\HotSystem\Utils\macro"
+
+                if not os.path.isdir(macro_dir):
+                    print(f"[show macro] Macro directory not found: {macro_dir}")
+                    return
+
+                # Collect only .txt files
+                files = [f for f in os.listdir(macro_dir)
+                         if f.lower().endswith(".txt") and os.path.isfile(os.path.join(macro_dir, f))]
+                files.sort(key=lambda s: s.lower())
+
+                if not files:
+                    print(f"[show macro] No .txt macros found in {macro_dir}")
+                    return
+
+                # Print list with indices
+                print(f"--- Macros in {macro_dir} ---")
+                for i, name in enumerate(files, 1):
+                    print(f"{i:3d}. {name}")
+
+                # If user typed an index right after 'macro', use it; else prompt
+                idx = None
+                if len(toks) >= 2 and toks[1].isdigit():
+                    idx = int(toks[1])
+                else:
+                    ans = input("Choose macro index to open: ").strip()
+                    if not ans.isdigit():
+                        print("[show macro] Please enter a numeric index.")
+                        return
+                    idx = int(ans)
+
+                if not (1 <= idx <= len(files)):
+                    print(f"[show macro] Index out of range (1..{len(files)}).")
+                    return
+
+                chosen = os.path.join(macro_dir, files[idx - 1])
+                try:
+                    _open_path(os.path.abspath(chosen))
+                except Exception as e:
+                    print(f"[show macro] Failed to open '{chosen}': {e}")
+                return
+            except Exception as e:
+                print(f"[show macro] Unexpected error: {e}")
+            return
+
 
         if key in ("wave", "wavemeter"):
             try:
@@ -7323,7 +7453,6 @@ class CommandDispatcher:
             print(f"     opts: k0={k0_frac:.3f}, cb={cb_tile}, vort={vort}, apod={apod:.2f}, demean={int(bool(demean))}")
             return
 
-
         print("Usage: sym start | sym stop | sym status | sym reset | "
               "sym carrier X,Y | sym car X,Y | sym c X,Y | "
               "sym flattop [r=0.22 edge=0.06 init=80 more=15 thr=0.10 maxit=40 seed=1]")
@@ -7526,17 +7655,47 @@ class CommandDispatcher:
 
             time.sleep(0.05)
 
+    def _get_coupon_center_uv(self):
+        """Return saved (U,V) center in µm; default (16,28)."""
+        if not hasattr(self, "_coupon_center_uv") or not isinstance(self._coupon_center_uv, (tuple, list)) or len(
+                self._coupon_center_uv) != 2:
+            self._coupon_center_uv = (16.0, 28.0)
+        return float(self._coupon_center_uv[0]), float(self._coupon_center_uv[1])
+
+    def _set_coupon_center_uv(self, u_um: float, v_um: float):
+        """Save (U,V) center in µm."""
+        self._coupon_center_uv = (float(u_um), float(v_um))
+        print(f"[coup] center saved: U={u_um:.3f} µm, V={v_um:.3f} µm")
+
+    def _read_current_position_um(self):
+        """
+        Try to read current position µm from the Smaract GUI (parent.smaractGUI).
+        First tries common DPG widgets '<prefix>_ch0_Cpos'/'_ch1_Cpos'; add your own getter if available.
+        """
+        p=self.get_parent()
+
+        p.smaractGUI.dev.GetPosition()
+        pos = p.smaractGUI.dev.AxesPositions
+        x_value = pos[0] * 1e-6  # convert pm to µm
+        y_value = pos[1] * 1e-6
+        z_value = pos[2] * 1e-6
+        return x_value, y_value, z_value
+
+
     def handle_coup(self, *args):
         """
-        coup loop                -> run coupon scan (uses 'spc shift')
-        coup loop noshift        -> run coupon scan (uses plain 'spc')
-        coup loop plain          -> same as noshift
-        coup loop1               -> alias for noshift
         coup stop                -> request cancellation
         coup status              -> print running/idle
         coup <steps.txt>         -> run steps from a text file (one command per line; ';' splits)
+        coup bottom left [<label>]        -> ask (or use <label>) and move to bottom-left coupon (NORM4<letter>)
+        coup bot left [<label>]           -> same as bottom left
+        coup corner [<label>]             -> same as bottom left
+        coup shiftx                       -> move to next array along U (uses coupx 3.5)
+        coup shifty                       -> move to next array along V (uses coupy 4.5)
+        coup center   -> set reference center or move to nearest coupon center
         """
-        import threading, os
+
+        import threading, os, math
 
         # --- ensure events exist (compat with _coup_abort_evt / _coup_cancel) ---
         if not hasattr(self, "_coup_active_evt") or not isinstance(getattr(self, "_coup_active_evt"), threading.Event):
@@ -7547,10 +7706,21 @@ class CommandDispatcher:
             self._coup_cancel = threading.Event()
 
         if not args:
-            print("Usage: coup [loop|loop noshift|loop1|stop|status|<steps.txt>]")
+            print("Usage: coup [shiftx|shifty|stop|status|<steps.txt>]")
             return False
 
-        sub = str(args[0]).lower().strip()
+        import shlex
+        # Turn args into a clean token list (handles: "shiftx -1", quoting, etc.)
+        try:
+            tokens = shlex.split(" ".join(str(a) for a in args))
+        except Exception:
+            tokens = [str(a).strip() for a in args if str(a).strip()]
+
+        if not tokens:
+            print("Usage: coup [shiftx [factor]|shifty [factor]|loop|loop noshift|loop1|stop|status|<steps>]")
+            return False
+
+        sub = tokens[0].lower()
 
         if sub == "status":
             print("[coup] running" if self._coup_active_evt.is_set() else "[coup] idle")
@@ -7576,16 +7746,218 @@ class CommandDispatcher:
                         exp.Stop()
                     except Exception:
                         pass
+                exp = getattr(getattr(getattr(p, "proem_gui", None), "dev", None), "_exp", None)
+                if exp:
+                    try:
+                        exp.Stop()
+                    except Exception:
+                        pass
             except Exception:
                 pass
             print("[coup] stop requested.")
             return True
 
+        # --- coup center: set reference center or move to nearest coupon center ---
+        if sub == "center":
+            # Spacing & angle (you can expose setters later if needed)
+            COUPON_U_UM = 80.0
+            COUPON_V_UM = 70.0
+            if not hasattr(self, "_coupon_angle_deg"):
+                self._coupon_angle_deg = 2.5  # small skew so right-neighbor ~ (95.9, 31.48) from (16,28)
+
+            # Parse optional args: "center 16,28" | "center 16 28"
+            u_set = v_set = None
+            if len(tokens) >= 2:
+                rest = " ".join(tokens[1:]).replace(",", " ").split()
+                if len(rest) == 2:
+                    try:
+                        u_set = float(rest[0]);
+                        v_set = float(rest[1])
+                    except ValueError:
+                        print("[coup] center: invalid numbers. Use: coup center <U>, <V>")
+                        return False
+                else:
+                    print("[coup] center: provide both U and V or no args. Example: coup center 16, 28")
+                    return False
+
+            # Setter mode
+            if u_set is not None and v_set is not None:
+                self._set_coupon_center_uv(u_set, v_set)
+                return True
+
+            # Move mode: snap to nearest coupon center around the reference, then move there (relative)
+            try:
+                u_ref, v_ref = self._get_coupon_center_uv()
+                u_cur, v_cur, z_cur = self._read_current_position_um()
+            except Exception as e:
+                print(f"[coup] center: {e}")
+                return False
+
+            # Build neighbor grid using rotation
+            theta = math.radians(float(self._coupon_angle_deg))
+            cos_t, sin_t = math.cos(theta), math.sin(theta)
+
+            # One-coupon vectors in lab (U-right, V-up with rotation)
+            dUx, dUy = COUPON_U_UM * cos_t, COUPON_U_UM * sin_t
+            dVx, dVy = -COUPON_V_UM * sin_t, COUPON_V_UM * cos_t
+
+            # One-array vectors (3.5 U coupons, 4.5 V coupons)
+            aUx, aUy = 3.75 * dUx, 3.75 * dUy
+            aVx, aVy = 5 * dVx, 5 * dVy
+
+            # Search ranges:
+            # - arrays: a,b ∈ [-2..2] (expand if you shift many arrays)
+            # - coupons: i,j ∈ [-2..2] around each array
+            best = None
+            for a in range(-2, 3):  # arrays along U
+                for b in range(-2, 3):  # arrays along V
+                    base_x = u_ref + a * aUx + b * aVx
+                    base_y = v_ref + a * aUy + b * aVy
+                    for i in range(-2, 3):  # coupons along U
+                        for j in range(-2, 3):  # coupons along V
+                            cx = base_x + i * dUx + j * dVx
+                            cy = base_y + i * dUy + j * dVy
+                            dist2 = (cx - u_cur) ** 2 + (cy - v_cur) ** 2
+                            if best is None or dist2 < best[0]:
+                                best = (dist2, cx, cy, a, b, i, j)
+
+            _, cx, cy, a_sel, b_sel, i_sel, j_sel = best
+            print(f"[coup] center: nearest at arrays(U={a_sel},V={b_sel}), coupons(U={i_sel},V={j_sel}) "
+                  f"→ target=({cx:.3f}, {cy:.3f}) µm")
+
+            # Relative move via your _move_delta in µm
+            du = cx - u_cur
+            dv = cy - v_cur
+            try:
+                if abs(du) > 1e-6:
+                    self._move_delta(0, du)  # arg in µm
+                if abs(dv) > 1e-6:
+                    self._move_delta(1, dv)  # arg in µm
+            except Exception as e:
+                print(f"[coup] center: move failed: {e}")
+                return False
+
+            print(f"[coup] center: moved from (U={u_cur:.3f}, V={v_cur:.3f}) to (U={cx:.3f}, V={cy:.3f}).")
+            return True
+
+
+        # --- array-shift helpers (accept optional factor) ---
+        if sub in ("shiftx", "shifty"):
+            # default multiplier is +1.0
+            factor = 1.0
+            if len(tokens) > 1 and tokens[1]:
+                try:
+                    factor = float(tokens[1])
+                except ValueError:
+                    print(f"[coup] invalid factor '{tokens[1]}', expected a number (e.g., -1, 0.5, 2).")
+                    return False
+
+            step = 3.75 if sub == "shiftx" else 5
+            n = step * factor
+            axis = "u" if sub == "shiftx" else "v"
+
+            ok = self._coupon_move(axis=axis, n=n)
+            print(f"[coup] {sub} factor={factor} -> move {n:+.3f} coupons on {axis.upper()} "
+                  f"({'done' if ok else 'failed'}).")
+            return ok
+
+        # --- bottom-left aliases ---
+        def _label_to_rc(label: str):
+            """
+            Map label -> (row, col, letter) on a 4x3 grid:
+              Row1: NORM1L  1L  2L
+              Row2: NORM2L  3L  4L
+              Row3: NORM3L  5L  6L
+              Row4: NORM4L  7L  8L
+            """
+            s = label.strip().upper()
+            m = re.fullmatch(r"NORM([1-4])([A-Z])", s)
+            if m:
+                return int(m.group(1)), 1, m.group(2)
+            m = re.fullmatch(r"([1-8])([A-Z])", s)
+            if m:
+                num = int(m.group(1))
+                letter = m.group(2)
+                table = {
+                    1: (1, 2), 2: (1, 3),
+                    3: (2, 2), 4: (2, 3),
+                    5: (3, 2), 6: (3, 3),
+                    7: (4, 2), 8: (4, 3),
+                }
+                r, c = table[num]
+                return r, c, letter
+            raise ValueError(f"Unrecognized coupon label '{label}'. Use like 'NORM3L' or '5L'.")
+
+        def _move_to_bottom_left_from_label(label: str) -> bool:
+            r, c, letter = _label_to_rc(label)
+            target_r, target_c = 4, 1  # bottom-left = NORM4<letter>
+
+            dU = target_c - c  # columns -> U axis
+            dV = target_r - r  # rows    -> V axis
+            print(f"[coup] from {label.upper()} (r{r},c{c}) → bottom-left NORM4{letter} (ΔU={dU}, ΔV={dV})")
+
+            ok_u = True if dU == 0 else self._coupon_move(axis="u", n=dU)
+            ok_v = True if dV == 0 else self._coupon_move(axis="v", n=dV)
+            return bool(ok_u and ok_v)
+
+        bl_aliases = {"bottom left", "bot left", "bottom-left", "bottomleft", "corner"}
+        first_two = " ".join([t.lower() for t in tokens[:2]]) if len(tokens) >= 2 else sub
+
+        if sub in bl_aliases or first_two in bl_aliases:
+            # label can be provided as the next token; otherwise prompt
+            provided = None
+            for t in tokens[1:]:
+                ts = str(t).strip()
+                if ts:
+                    provided = ts
+                    break
+            try:
+                label = provided or input("Enter current coupon label (e.g., NORM3L or 5L): ").strip()
+                if not label:
+                    print("[coup] no label provided.")
+                    return False
+                moved = _move_to_bottom_left_from_label(label)
+                print("[coup] bottom-left move done." if moved else "[coup] bottom-left move failed.")
+                return moved
+            except Exception as e:
+                print(f"[coup] bottom-left: {e}")
+                return False
+
+
+
+
         # file-driven mode: coup <steps.txt>
         # accept .txt/.cmd/.lst/.seq files; strip quotes; check existence
         cand_path = sub.strip('"').strip("'")
-        if any(cand_path.lower().endswith(ext) for ext in (".txt", ".cmd", ".lst", ".seq")) and os.path.isfile(
-                cand_path):
+        allowed_exts = (".txt", ".cmd", ".lst", ".seq")
+
+        # If no recognized extension was provided, default to .txt
+        if not any(cand_path.lower().endswith(ext) for ext in allowed_exts):
+            cand_path += ".txt"
+
+        # Resolve default dir if user passed only a filename (no folder)
+        def _resolve_macro_path(p: str) -> str:
+            # absolute or has a directory? use as-is
+            if os.path.isabs(p) or os.path.dirname(p):
+                return p
+            # bare filename: try default directory
+            try:
+                base_dir = DEFAULT_COUP_DIR  # <- constant defined above
+            except NameError:
+                base_dir = r"c:\WC\HotSystem\Utils\macro"
+            return os.path.join(base_dir, p)
+
+        if any(cand_path.lower().endswith(ext) for ext in allowed_exts):
+            resolved = _resolve_macro_path(cand_path)
+            if not os.path.isfile(resolved):
+                # If not found in default dir, final fallback: original path (in case caller used relative CWD)
+                if os.path.isfile(cand_path):
+                    resolved = cand_path
+                else:
+                    print(f"[coup] steps file not found: '{cand_path}'. "
+                          f"Tried: '{resolved}'.")
+                    return False
+
             if self._coup_active_evt.is_set():
                 print("[coup] already running.")
                 return False
@@ -7601,12 +7973,12 @@ class CommandDispatcher:
                 pass
 
             try:
-                steps = self._parse_coup_steps_file(cand_path)
+                steps = self._parse_coup_steps_file(resolved)
                 if not steps:
-                    print(f"[coup] no runnable steps found in '{cand_path}'.")
+                    print(f"[coup] no runnable steps found in '{resolved}'.")
                     return False
             except Exception as e:
-                print(f"[coup] failed to read steps file '{cand_path}': {e}")
+                print(f"[coup] failed to read steps file '{resolved}': {e}")
                 return False
 
             self._coup_thread = threading.Thread(
@@ -7615,18 +7987,8 @@ class CommandDispatcher:
                 daemon=True
             )
             self._coup_thread.start()
-            print(f"[coup] steps from '{cand_path}' started in background (use 'coup stop' to cancel).")
+            print(f"[coup] steps from '{resolved}' started in background (use 'coup stop' to cancel).")
             return True
-
-        if sub == "loop":
-            # parse optional mode token
-            mode = str(args[1]).lower().strip() if len(args) > 1 else ""
-            use_shift = not (mode in ("noshift", "plain"))
-        elif sub == "loop1":
-            use_shift = False  # alias: loop without shift
-        else:
-            print("Usage: coup [loop|loop noshift|loop1|stop|status]")
-            return False
 
         if self._coup_active_evt.is_set():
             print("[coup] already running.")
@@ -7722,23 +8084,22 @@ class CommandDispatcher:
     def _coup_loop_from_steps(self, use_shift: bool = True, steps: str = "", wait_for_spc: bool = True):
         self._coup_active_evt.set()
         try:
-            spc_cmd = "spc shift" if use_shift else ""
-
+            # spc_cmd = "spc shift" if use_shift else ""
             # steps = [
             #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
             #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
             #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
             #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupy 3", "movex 140;movey 5.5"
             # ]
-
             for cmd in steps:
                 if not self._run_one_cmd(cmd):
                     print("[coup] loop stopped.")
                     return
                 # time.sleep(3)
-                toks = cmd.strip().lower().split()
-                if wait_for_spc and toks and toks[0] == "spc":
+                line = cmd.strip().lower()
+                if wait_for_spc and re.search(r"\b(spc|save)\b", line):
                     print("[coup] waiting for 'spc' to finish…")
+                    time.sleep(3)
                     ok = self._wait_spc_done_or_abort()
                     if not ok:
                         print("[coup] stop/timeout during 'spc' wait.")
@@ -8057,6 +8418,212 @@ class CommandDispatcher:
             return
 
         print("Usage: wv ?  |  wave ?  |  wv bifi move [pos]")
+
+    def handle_plot(self, arg: str = ""):
+        """
+        plot                     -> choose a CSV and plot (wavelength[nm], intensity)
+        plot spc | plot spectrum -> same as 'plot'
+        plot add                 -> choose a CSV and add as a NEW line to the existing plot
+        plot "C:\\path\\file.csv" [add] -> plot given file (optional 'add' to overlay)
+        plot mult <num>                -> multiply the last displayed line's intensity by <num>
+        """
+        import os
+        import numpy as np
+        import dearpygui.dearpygui as dpg
+        from Utils import open_file_dialog
+
+        # --- tags for the standalone plot window ---
+        win = "csv_plot_win"
+        plot = "csv_plot"
+        xax = "csv_plot_x"
+        yax = "csv_plot_y"
+
+        # parse mode
+        a = (arg or "").strip().strip('"').strip("'")
+        tokens = a.split()
+        add_mode = False
+
+        # ---------- MULTIPLY MODE ----------
+        # Usage: plot mult <num>
+        if a.lower().startswith("mult"):
+            toks = a.split()
+            if len(toks) < 2:
+                print("Usage: plot mult <factor>")
+                return
+            try:
+                factor = float(toks[1])
+            except Exception:
+                print(f"Invalid factor: {toks[1]}")
+                return
+
+            if not dpg.does_item_exist(yax):
+                print("No plot available. Run 'plot' first.")
+                return
+
+            # choose the last series:
+            series_tag = None
+            # preference 1: last-known
+            if getattr(self, "_plot_last_series", None) and dpg.does_item_exist(self._plot_last_series):
+                series_tag = self._plot_last_series
+            else:
+                # preference 2: the highest csv_series_XX present
+                try:
+                    children = dpg.get_item_children(yax, 1) or []
+                except TypeError:
+                    info = dpg.get_item_children(yax)
+                    children = info.get(1, []) if isinstance(info, dict) else []
+                # filter to our series tags; keep order
+                candidates = []
+                for cid in children:
+                    try:
+                        tag = dpg.get_item_alias(cid) or str(cid)
+                    except Exception:
+                        tag = str(cid)
+                    if tag.startswith("csv_series_"):
+                        candidates.append(tag)
+                if candidates:
+                    # pick last in draw order
+                    series_tag = candidates[-1]
+                elif dpg.does_item_exist("csv_series_00"):
+                    series_tag = "csv_series_00"
+
+            if not series_tag or not dpg.does_item_exist(series_tag):
+                print("No line series found to multiply.")
+                return
+
+            # apply multiplication
+            try:
+                val = dpg.get_value(series_tag)
+
+                # Handle both list/tuple [x, y] and dict {"x": [...], "y": [...], ...}
+                if isinstance(val, dict):
+                    x_vals = list(val.get("x", []))
+                    y_vals = list(val.get("y", []))
+                elif isinstance(val, (list, tuple)) and len(val) >= 2:
+                    x_vals, y_vals = val[0], val[1]
+                else:
+                    print(f"Unexpected series value type/shape for '{series_tag}': {type(val)}")
+                    return
+
+                y_scaled = [float(y) * factor for y in y_vals]
+
+                if isinstance(val, dict):
+                    new_val = dict(val)
+                    new_val["y"] = y_scaled
+                    dpg.set_value(series_tag, new_val)
+                else:
+                    dpg.set_value(series_tag, [x_vals, y_scaled])
+
+                # update legend label to indicate scaling
+                old_label = dpg.get_item_label(series_tag)
+                if "×" in old_label:
+                    base = old_label.split("×", 1)[0].rstrip()
+                else:
+                    base = old_label
+                dpg.set_item_label(series_tag, f"{base} ×{factor:g}")
+
+                self._plot_last_series = series_tag
+                dpg.fit_axis_data(xax)
+                dpg.fit_axis_data(yax)
+                print(f"Scaled '{series_tag}' by factor {factor:g}.")
+                return
+            except Exception as e:
+                print(f"Failed to scale series: {e}")
+                return
+
+        # ---------- END MULTIPLY MODE ----------
+
+        # accept: plot add
+        if tokens[:1] == ["add"]:
+            add_mode = True
+            tokens = tokens[1:]
+
+        # accept: plot spc / plot spectrum (same as plot)
+        if tokens[:1] and tokens[0].lower() in ("spc", "spectrum"):
+            tokens = tokens[1:]
+
+        # optional explicit file path remains in tokens
+        explicit_path = " ".join(tokens).strip() if tokens else ""
+
+        # pick file
+        if explicit_path and os.path.isfile(explicit_path):
+            file_path = explicit_path
+        else:
+            start_dir = r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer"
+            file_path = open_file_dialog(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+                                         initial_folder=start_dir)
+            if not file_path:
+                print("Plot canceled or no file selected.")
+                return
+
+        # load csv: first col = wavelength (nm), second col = intensity
+        try:
+            data = np.genfromtxt(file_path, delimiter=",")
+            if data.ndim != 2 or data.shape[1] < 2:
+                print(f"CSV does not have at least two columns: {file_path}")
+                return
+            data = data[data[:, 0].argsort()]
+            x_vals = data[:, 0].tolist()
+            y_vals = data[:, 1].tolist()
+        except Exception as e:
+            print(f"Failed to read CSV '{file_path}': {e}")
+            return
+
+        # ensure window/plot exist
+        if not dpg.does_item_exist(win):
+            with dpg.window(label="Spectrum (CSV)", width=1200, height=720, pos=[120, 120], tag=win):
+                dpg.add_plot(label=os.path.basename(file_path), tag=plot, crosshairs=True, width=-1, height=-1)
+                dpg.add_plot_axis(dpg.mvXAxis, label="Wavelength [nm]", tag=xax, parent=plot)
+                dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=yax, parent=plot)
+        else:
+            dpg.show_item(win)
+            dpg.focus_item(win)
+            dpg.set_item_width(win, 1200)
+            dpg.set_item_height(win, 720)
+            if not dpg.does_item_exist(plot):
+                dpg.add_plot(label=os.path.basename(file_path), tag=plot, crosshairs=True, width=-1, height=-1,
+                             parent=win)
+            if not dpg.does_item_exist(xax):
+                dpg.add_plot_axis(dpg.mvXAxis, label="Wavelength [nm]", tag=xax, parent=plot)
+            if not dpg.does_item_exist(yax):
+                dpg.add_plot_axis(dpg.mvYAxis, label="Intensity", tag=yax, parent=plot)
+
+        # choose a unique series tag for 'add' mode; reuse primary tag on non-add
+        if not hasattr(self, "_plot_series_counter"):
+            self._plot_series_counter = 0
+
+        if add_mode:
+            self._plot_series_counter += 1
+            series_tag = f"csv_series_{self._plot_series_counter:02d}"
+            label = os.path.basename(file_path)
+            dpg.add_line_series(x_vals, y_vals, label=label, parent=yax, tag=series_tag)
+        else:
+            series_tag = "csv_series_00"
+            label = os.path.basename(file_path)
+
+            # remove any other series so only one line remains
+            try:
+                children = dpg.get_item_children(yax, 1) or []
+            except TypeError:
+                info = dpg.get_item_children(yax)
+                children = info.get(1, []) if isinstance(info, dict) else []
+            for cid in list(children):
+                if dpg.does_item_exist(cid) and cid != series_tag:
+                    dpg.delete_item(cid)
+
+            # reset counter since we're back to a single line
+            self._plot_series_counter = 0
+
+            if dpg.does_item_exist(series_tag):
+                dpg.set_value(series_tag, [x_vals, y_vals])
+                dpg.set_item_label(plot, label)
+            else:
+                dpg.add_line_series(x_vals, y_vals, label=label, parent=yax, tag=series_tag)
+                dpg.set_item_label(plot, label)
+
+        # fit axes
+        dpg.fit_axis_data(xax)
+        dpg.fit_axis_data(yax)
 
 
 # Wrapper function

@@ -47,6 +47,7 @@ CIRCLE_RADIUS_UM = 25.0       # current stitching radius
 FEATHER_WIDTH_UM = 3.0        # soft edge width; 0 = hard edge
 # Crop box in pixels: (y0, y1, x0, x1)  — inclusive/exclusive like NumPy slicing
 CROP_PIXELS = (260, 800, 300, 800)   # <- tweak these to your needs
+PROFILE_STATE = {"points_um": None}
 
 # For connect +X 2,3,6,1,7,8
 # For connect +Y 2,3,4,6,1,5
@@ -1357,23 +1358,38 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     # ----------------    "Copy"    ----------------
     def copy_main_axes_to_clipboard():
-        # Determine how many subplots we need
-        show_xz = Nz > 1
-        show_yz = Nz > 1 and ax_yz is not None
+        # Grab the current images (must exist on-screen)
+        im_xy_obj = globals().get("im_xy", None)
+        if im_xy_obj is None:
+            print("⚠️ No im_xy found; nothing to copy.")
+            return
+
+        # Pull visual state directly from the artists
+        data_xy = np.array(im_xy_obj.get_array())
+        extent_xy = list(im_xy_obj.get_extent())
+        origin_xy = getattr(im_xy_obj, "origin", "upper")
+        cmap = im_xy_obj.get_cmap()
+        vmin, vmax = im_xy_obj.get_clim()
+
+        im_xz_obj = globals().get("im_xz", None)
+        im_yz_obj = globals().get("im_yz", None)
+
+        show_xz = (Nz > 1) and (im_xz_obj is not None)
+        show_yz = (Nz > 1) and (im_yz_obj is not None)
+
         num_plots = 1 + int(show_xz) + int(show_yz)
 
-        # Create new figure
-        fig_copy, axs = plt.subplots(1, num_plots, figsize=(4 * num_plots, 4), dpi=150,
-                                     gridspec_kw={"width_ratios": [1] * num_plots, "wspace": 0.4})
+        fig_copy, axs = plt.subplots(
+            1, num_plots, figsize=(4 * num_plots, 4), dpi=150,
+            gridspec_kw={"width_ratios": [1] * num_plots, "wspace": 0.4}
+        )
         axs = np.atleast_1d(axs)
 
-        cmap = im_xy.get_cmap()
-        vmin, vmax = im_xy.get_clim()
-
-        # --- Re-plot XY ---
         im_list = []
-        im1 = axs[0].imshow(_maybe_flip(I_view[z_idx]), extent=extent_xy, origin='lower', aspect='equal', cmap=cmap, vmin=vmin,
-                            vmax=vmax)
+
+        # --- XY replot (exactly as on screen) ---
+        im1 = axs[0].imshow(data_xy, extent=extent_xy, origin=origin_xy,
+                            aspect='equal', cmap=cmap, vmin=vmin, vmax=vmax)
         axs[0].set_title(ax_xy.get_title())
         axs[0].set_xlabel(ax_xy.get_xlabel())
         axs[0].set_ylabel(ax_xy.get_ylabel())
@@ -1381,30 +1397,36 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         idx = 1
 
-        # --- Re-plot XZ if present ---
+        # --- XZ (if present) ---
         if show_xz:
-            im2 = axs[idx].imshow(I_view[:, y_idx, :], extent=extent_xz, origin='lower', aspect='auto', cmap=cmap,
-                                  vmin=vmin, vmax=vmax)
+            data_xz = np.array(im_xz_obj.get_array())
+            extent_xz = list(im_xz_obj.get_extent())
+            origin_xz = getattr(im_xz_obj, "origin", "upper")
+            im2 = axs[idx].imshow(data_xz, extent=extent_xz, origin=origin_xz,
+                                  aspect='auto', cmap=cmap, vmin=vmin, vmax=vmax)
             axs[idx].set_title(ax_xz.get_title())
             axs[idx].set_xlabel(ax_xz.get_xlabel())
             axs[idx].set_ylabel(ax_xz.get_ylabel())
             im_list.append(im2)
             idx += 1
 
-        # --- Re-plot YZ if present ---
+        # --- YZ (if present) ---
         if show_yz:
-            im3 = axs[idx].imshow(I_view[:, :, x_idx], extent=extent_yz, origin='lower', aspect='auto', cmap=cmap,
-                                  vmin=vmin, vmax=vmax)
+            data_yz = np.array(im_yz_obj.get_array())
+            extent_yz = list(im_yz_obj.get_extent())
+            origin_yz = getattr(im_yz_obj, "origin", "upper")
+            im3 = axs[idx].imshow(data_yz, extent=extent_yz, origin=origin_yz,
+                                  aspect='auto', cmap=cmap, vmin=vmin, vmax=vmax)
             axs[idx].set_title(ax_yz.get_title())
             axs[idx].set_xlabel(ax_yz.get_xlabel())
             axs[idx].set_ylabel(ax_yz.get_ylabel())
             im_list.append(im3)
 
-        # --- Add colorbar (shared) ---
+        # --- Shared colorbar ---
         cbar_ax = fig_copy.add_axes([0.92, 0.15, 0.015, 0.7])
         fig_copy.colorbar(im_list[0], cax=cbar_ax, label="kCounts/s")
 
-        # --- Copy to clipboard ---
+        # --- Copy PNG → DIB to clipboard (Windows) ---
         buf = io.BytesIO()
         fig_copy.savefig(buf, format='png', bbox_inches='tight')
         buf.seek(0)
@@ -1412,7 +1434,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         output = io.BytesIO()
         image.convert("RGB").save(output, "BMP")
-        data = output.getvalue()[14:]
+        data = output.getvalue()[14:]  # skip BMP header, keep DIB
         output.close()
 
         win32clipboard.OpenClipboard()
@@ -1421,7 +1443,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         win32clipboard.CloseClipboard()
 
         plt.close(fig_copy)
-        print("Copied graph with colorbar to clipboard.")
+        print("Copied graph with colorbar to clipboard (world coords preserved).")
+
     btn_ax = plt.axes(btn_rect)  # x, y, width, height
     btn = Button(btn_ax, 'Copy')
     btn.on_clicked(lambda event: copy_main_axes_to_clipboard())
@@ -2808,6 +2831,38 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 FileName=tmp_map_path, LinkToFile=False, SaveWithDocument=True,
                 Left=left, Top=top, Width=map_w, Height=map_h
             )
+            # --- NEW: add cross-section plot if a line was chosen earlier ---
+            try:
+                pts = PROFILE_STATE.get("points_um", None)
+                if pts and len(pts) == 2:
+                    prof_png = _make_profile_png_for_current(pts)
+                    if prof_png:
+                        # place the profile under the map thumbnail (same right margin)
+                        prof_w = map_w
+                        prof_h = map_h * 0.9  # a bit shorter than the map box
+                        prof_left = left
+                        prof_top = top + map_h + 10  # small gap under the map
+                        new_slide.Shapes.AddPicture(
+                            FileName=prof_png, LinkToFile=False, SaveWithDocument=True,
+                            Left=prof_left, Top=prof_top, Width=prof_w, Height=prof_h
+                        )
+                        # (Optional) tag it
+                        try:
+                            new_slide.Shapes[new_slide.Shapes.Count].AlternativeText = json.dumps(
+                                {"type": "cross-section",
+                                 "p0_um": {"x": float(pts[0][0]), "y": float(pts[0][1])},
+                                 "p1_um": {"x": float(pts[1][0]), "y": float(pts[1][1])}},
+                                separators=(",", ":")
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        print("⚠️ Cross-section not added (render failed).")
+                else:
+                    print("ℹ️ No saved cross-section; skipping profile for this slide.")
+            except Exception as e:
+                print(f"⚠️ Could not add cross-section image: {e}")
+
             pic.AlternativeText = json.dumps(
                 {"type": "site-map", "x_um": cx_um, "y_um": cy_um, "source": MAP_IMAGE_PATH},
                 separators=(",", ":")
@@ -3724,6 +3779,28 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     btn_addppt_map_multi = Button(ax_addppt_map_multi, 'multiple add+map')
     btn_rect_col2 = shift_rect2(btn_rect_col2)
 
+    def _set_xy_extent(ax_xy, img2d, x0, x1, y0, y1):
+        """Set and remember world-coordinate extent on the main XY image."""
+        extent = [x0, x1, y0, y1]
+        globals()["xy_world_extent"] = extent  # remember for later reapply
+
+        # Prefer existing image artist
+        im = globals().get("im_xy", None)
+        if im is not None and hasattr(im, "set_extent"):
+            im.set_extent(extent)
+            return
+
+        # Try first AxesImage on that axes
+        ims = ax_xy.get_images()
+        if ims:
+            ims[0].set_extent(extent)
+            globals()["im_xy"] = ims[0]
+            return
+
+        # As a last resort, create one
+        new_im = ax_xy.imshow(img2d, extent=extent, origin="upper")
+        globals()["im_xy"] = new_im
+
     def _handle_multiple_add2ppt_map(_evt=None):
         try:
             # Choose multiple files
@@ -3765,6 +3842,79 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                         print(f"⚠️ Skipping (load failed) {fname}: {e}")
                         continue
 
+                    # --- Display in correct µm coordinates (no text overlay) ---
+                    try:
+                        # 1) Parse Site(...) center from filename
+                        center_um = _parse_site_center_from_name(fname)
+
+                        if center_um is not None:
+                            cx_um, cy_um, _cz_um = center_um
+
+                            # 2) Pull calibration (prefer existing globals/attrs; else fallback 1.0)
+                            # Try common places you may already use in your codebase:
+                            um_per_px_x = PIXEL_SIZE_UM
+                            um_per_px_y = PIXEL_SIZE_UM
+                            try:
+                                # e.g., microscope or viewer state
+                                um_per_px_x = globals().get("um_per_px_x", PIXEL_SIZE_UM)
+                                um_per_px_y = globals().get("um_per_px_y", PIXEL_SIZE_UM)
+                            except Exception:
+                                pass
+
+                            # Safe fallback
+                            if not um_per_px_x: um_per_px_x = 1.0
+                            if not um_per_px_y: um_per_px_y = 1.0
+
+                            # 3) Compute world-coordinate extent so (cx, cy) is at the image center
+                            H, W = img2d.shape[:2]
+                            half_w_um = (W * um_per_px_x) * 0.5
+                            half_h_um = (H * um_per_px_y) * 0.5
+
+                            x0 = cx_um - half_w_um
+                            x1 = cx_um + half_w_um
+                            y0 = cy_um - half_h_um
+                            y1 = cy_um + half_h_um
+
+                            _set_xy_extent(ax_xy, img2d, x0, x1, y0, y1)
+                            # Optional: label axes in µm (no overlay text)
+                            try:
+                                ax_xy.set_xlabel("x (µm)")
+                                ax_xy.set_ylabel("y (µm)")
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        print(f"⚠️ Could not set world coords for {fname}: {e}")
+
+
+
+                    # --- NEW: flatten++ before copying to PPT ---
+                    try:
+                        # use the UI slider if available; otherwise a sensible default
+                        sigma_bg = float(slider_sigma_bg.val) if 'slider_sigma_bg' in globals() else 20.0
+
+                        # turn on aggressive flatten and rebuild the display buffer
+                        nonlocal I_view
+                        aggr_state["on"] = True
+                        aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
+                        aggr_state["computed_sigma"] = sigma_bg
+
+                        C = aggr_state["cube"]
+                        I_view = np.log10(C + EPS) if log_scale else C
+
+                        # refresh the XY image without touching clim/cmap
+                        im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
+                        if Nz > 1:
+                            im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
+                            im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
+                        try:
+                            btn_flat_aggr.label.set_text(f"flatten++ on (σ={sigma_bg:.0f})")
+                        except Exception:
+                            pass
+                        fig.canvas.draw_idle()
+                        print(f"✅ flatten++ applied (σ_bg={sigma_bg:.0f}) for {fname}")
+                    except Exception as e:
+                        print(f"⚠️ flatten++ failed for {fname}: {e} (continuing without)")
+
                     # 2) Copy main axes with colorbar to clipboard
                     copy_main_axes_to_clipboard()
 
@@ -3797,10 +3947,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                             pass
 
                     # 4) Parse coordinates from filename and draw cross on map
-                    center_um = _parse_site_center_from_name(fname)
-                    if center_um is None:
-                        print(f"⚠️ No Site(...) coords in '{fname}'; added slide without map.")
-                        continue
 
                     cx_um, cy_um, _cz_um = center_um
                     tmp_map_path = _make_map_with_cross(cx_um, cy_um, MAP_IMAGE_PATH)
@@ -3815,6 +3961,39 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                         FileName=tmp_map_path, LinkToFile=False, SaveWithDocument=True,
                         Left=left, Top=top, Width=map_w, Height=map_h
                     )
+
+                    # --- NEW: add cross-section plot if a line was chosen earlier ---
+                    try:
+                        pts = PROFILE_STATE.get("points_um", None)
+                        if pts and len(pts) == 2:
+                            prof_png = _make_profile_png_for_current(pts)
+                            if prof_png:
+                                # place the profile under the map thumbnail (same right margin)
+                                prof_w = map_w
+                                prof_h = map_h * 0.9  # a bit shorter than the map box
+                                prof_left = left
+                                prof_top = top + map_h + 10  # small gap under the map
+                                new_slide.Shapes.AddPicture(
+                                    FileName=prof_png, LinkToFile=False, SaveWithDocument=True,
+                                    Left=prof_left, Top=prof_top, Width=prof_w, Height=prof_h
+                                )
+                                # (Optional) tag it
+                                try:
+                                    new_slide.Shapes[new_slide.Shapes.Count].AlternativeText = json.dumps(
+                                        {"type": "cross-section",
+                                         "p0_um": {"x": float(pts[0][0]), "y": float(pts[0][1])},
+                                         "p1_um": {"x": float(pts[1][0]), "y": float(pts[1][1])}},
+                                        separators=(",", ":")
+                                    )
+                                except Exception:
+                                    pass
+                            else:
+                                print("⚠️ Cross-section not added (render failed).")
+                        else:
+                            print("ℹ️ No saved cross-section; skipping profile for this slide.")
+                    except Exception as e:
+                        print(f"⚠️ Could not add cross-section image: {e}")
+
                     pic.AlternativeText = json.dumps(
                         {"type": "site-map", "x_um": float(cx_um), "y_um": float(cy_um), "source": MAP_IMAGE_PATH},
                         separators=(",", ":")
@@ -4019,8 +4198,74 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             with open(json_path, "w") as f:
                 json.dump(data_to_write, f, indent=2)
             print(f"Saved line points → {os.path.basename(json_path)}")
+            # Remember the chosen line (in µm) for later use by multiple add+map
+            try:
+                PROFILE_STATE["points_um"] = [tuple(p0_um), tuple(p1_um)]
+                print(f"Saved cross-section for add+map multiple: "
+                      f"({p0_um[0]:.3f},{p0_um[1]:.3f}) → ({p1_um[0]:.3f},{p1_um[1]:.3f}) µm")
+            except Exception as _e:
+                print(f"Warning: could not store cross-section: {_e}")
+
         except Exception as e:
             print(f"Warning: failed to save line JSON: {e}")
+
+    def _make_profile_png_for_current(points_um, out_w_px=900, out_h_px=350, dpi=150):
+        """
+        Build a cross-section plot for the CURRENT image (using current processing,
+        flips & smoothing) along the given two points in µm, and save to a temp PNG.
+        Returns the PNG path or None on failure.
+        """
+        try:
+            (x0_um, y0_um), (x1_um, y1_um) = points_um
+        except Exception:
+            return None
+
+        try:
+            # 1) Pull the exact image that matches what's being exported to PPT
+            img2d = _get_img2d_for_profile()  # uses current processing pipeline
+            img2d = np.asarray(img2d, dtype=float)
+
+            # 2) Map µm → pixel using the current XY image extent
+            extent = im_xy.get_extent()  # [xmin, xmax, ymin, ymax]
+            H, W = img2d.shape[:2]
+            xs_pix = lambda x: (x - extent[0]) * (W - 1) / max(1e-12, (extent[1] - extent[0]))
+            ys_pix = lambda y: (y - extent[2]) * (H - 1) / max(1e-12, (extent[3] - extent[2]))
+
+            x0p, y0p = xs_pix(x0_um), ys_pix(y0_um)
+            x1p, y1p = xs_pix(x1_um), ys_pix(y1_um)
+
+            # 3) Sample ~1 point per pixel along the line
+            L = int(max(2, np.hypot(x1p - x0p, y1p - y0p)))
+            t = np.linspace(0.0, 1.0, L)
+            xs = x0p + (x1p - x0p) * t
+            ys = y0p + (y1p - y0p) * t
+            prof = _bilinear_profile_array(img2d, xs, ys)
+
+            # 4) Build a clean, wide figure with distance scale in µm
+            #    distance per step in µm (euclid in world coords)
+            step_um = np.hypot((x1_um - x0_um), (y1_um - y0_um)) / max(1, L - 1)
+            dist_um = np.arange(L) * step_um
+
+            import tempfile, os
+            from matplotlib import pyplot as _plt
+
+            figP = _plt.figure(figsize=(out_w_px / dpi, out_h_px / dpi), dpi=dpi)
+            axP = figP.add_subplot(111)
+            axP.plot(dist_um, prof, lw=1.5)
+            axP.set_xlabel("Distance (µm)")
+            axP.set_ylabel("Intensity (a.u.)")
+            axP.set_title("Cross-section")
+            axP.grid(True, alpha=0.3)
+
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            tmp_path = tmp.name
+            tmp.close()
+            figP.savefig(tmp_path, bbox_inches="tight", dpi=dpi)
+            _plt.close(figP)
+            return tmp_path
+        except Exception as e:
+            print(f"⚠️ Profile image render failed: {e}")
+            return None
 
     def _bilinear_profile_array(img2d, xs_pix, ys_pix):
         """Bilinear sample of 2D array at fractional (x,y) pixel coords."""

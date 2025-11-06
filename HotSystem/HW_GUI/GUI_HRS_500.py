@@ -9,14 +9,14 @@ from Utils import open_file_dialog
 
 class GUI_HRS500():
 
-    def __init__(self, device) -> None:
+    def __init__(self, device, *, prefix: str = "hrs500", title: str | None = None) -> None:
         self.dev = device
-        self.prefix = "hrs500"
+        self.prefix = prefix  # NEW
         self.window_tag:str = f"{self.prefix}_Win"
         self.series_tag = f"spectrum_series_{self.prefix}"
         if self.dev:
             self.dev.set_save_directory("Q:\\QT-Quantum_Optic_Lab\\expData\\Spectrometer")
-        self.create_gui()
+        self.create_gui(title=title)
         self.data = None
 
         # ProEM (LightField) ROI + calibration live in the dispatcher
@@ -48,14 +48,14 @@ class GUI_HRS500():
         self.dev.close()
         os.system("taskkill /im AddInProcess.exe")
 
-    def create_gui(self):
+    def create_gui(self, title: str | None = None):
         Child_Width = 100
         line_color = (255, 140, 0, 255)
         LINE_WIDTH = 2
         self.define_hrs_themes()
-        with dpg.window(label=f"{self.prefix} spectrometer", no_title_bar=False,
-                        height=150, width=400, pos=[0, 0],
-                        collapsed=False, tag=self.window_tag, on_close=self._cleanup):
+        with dpg.window(label=(title or f"{self.prefix} spectrometer"), no_title_bar=False,  # NEW
+                    height=150, width=400, pos=[0, 0],
+                    collapsed=False, tag=self.window_tag, on_close=self._cleanup):
             with dpg.group(horizontal=True, tag=f"group 1_{self.prefix}"):
                 #dpg.add_button(label="Acquire", callback=self.acquire_callback)
                 dpg.add_button(label="Acquire",

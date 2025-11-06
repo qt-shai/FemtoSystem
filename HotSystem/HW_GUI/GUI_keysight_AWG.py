@@ -243,10 +243,92 @@ class GUIKeysight33500B:
     def create_amplitude_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_amplitude_{self.unique_id}", width=200):
             dpg.add_text("Amplitude (Vpp)")
-            dpg.add_input_float(default_value=1.0, tag=f"Amplitude_{self.unique_id}",
-                                format='%.2f', width=100, callback=self.validate_amplitude_input)
+            dpg.add_input_float(
+                default_value=1.0,
+                tag=f"Amplitude_{self.unique_id}",
+                format='%.2f',
+                width=100,
+                callback=self.validate_amplitude_input
+            )
             dpg.add_button(label="Set Amplitude", callback=self.btn_set_amplitude)
             dpg.bind_item_theme(dpg.last_item(), theme)
+
+            # --- NEW: angle for line scan (degrees) ---
+            dpg.add_text("Angle (deg)")
+            dpg.add_input_float(
+                default_value=36.0,
+                tag=f"AngleDeg_{self.unique_id}",
+                format='%.2f',
+                width=100
+            )
+
+            # --- NEW: generate line scan button ---
+            dpg.add_button(label="Gen line", callback=self.btn_gen_line)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+
+            # ── NEW: one-click sync internal for both channels ──
+            dpg.add_spacer(height=6)
+            dpg.add_button(label="Sync Internal-Both CH", callback=self.btn_sync_internal_both)
+            dpg.bind_item_theme(dpg.last_item(), theme)
+
+    def btn_sync_internal_both(self, sender=None, app_data=None):
+        self.dev._send_command("SOUR1:PHAS:SYNC")
+        self.dev._send_command("SOUR2:PHAS:SYNC")
+
+    def btn_gen_line(self, sender=None, app_data=None):
+        """
+        Generate a single 'line scan' at a predefined angle:
+          - CH1: TRIANGLE, frequency = GUI Frequency, amplitude = Amplitude field
+          - CH2: TRIANGLE, same frequency, amplitude = |CH1 * tan(angle_deg)|
+          - Offsets: base1/base2, Duty: 50%, Outputs ON
+        Angle is in degrees. Amplitudes are clamped to [0.01, 10] Vpp.
+        """
+        try:
+            # Read GUI values
+            amp_ch1 = float(dpg.get_value(f"Amplitude_{self.unique_id}"))
+            angle_deg = float(dpg.get_value(f"AngleDeg_{self.unique_id}"))
+
+            # Sanity clamp for CH1 amplitude
+            amp_ch1 = max(0.01, min(10.0, amp_ch1))
+
+            # Compute CH2 amplitude = |CH1 * tan(angle)|
+            import math
+            # Avoid infinite tan near 90 + k*180
+            eps = 1e-6
+            rad = math.radians(angle_deg)
+            tanv = math.tan(rad)
+            # If tan explodes, clamp by limiting result
+            if not math.isfinite(tanv):
+                tanv = math.copysign(1e6, tanv)  # huge signed number; will clamp below
+
+            amp_ch2 = abs(amp_ch1 * tanv)
+            amp_ch2 = max(0.01, min(10.0, amp_ch2))
+
+            # Cache + set/restore current selected channel
+            prev_ch = getattr(self.dev, "channel", 1)
+
+            # ---------------- CH1 ----------------
+            try:
+                self.dev.channel = 1
+                self.dev.set_waveform_type("TRIANGLE", channel=1)
+            except Exception:
+                pass
+            self.dev.set_amplitude(amp_ch1, channel=1)
+            self.dev.set_output_state(True, channel=1)
+
+            # ---------------- CH2 ----------------
+            try:
+                self.dev.channel = 2
+                self.dev.set_waveform_type("TRIANGLE", channel=2)
+            except Exception:
+                pass
+
+            self.dev.set_amplitude(amp_ch2, channel=2)
+            self.dev.set_output_state(True, channel=2)
+
+        except Exception as e:
+            print(f"Error generating line scan: {e}")
+            traceback.print_exc()
 
     def create_offset_controls(self, theme):
         with dpg.group(horizontal=False, tag=f"column_offset_{self.unique_id}", width=150):

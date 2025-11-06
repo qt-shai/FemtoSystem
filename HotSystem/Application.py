@@ -1264,7 +1264,8 @@ class PyGuiOverlay(Layer):
             except Exception as e:
                 print(f"[g/h] write failed: {e}")
 
-        step = 50.0 if is_coarse else 20.0  # coarse = larger nudge
+        carrier_step_coarse = 50.0
+        carrier_step_fine = 20.0
 
         # 2) Ctrl-only commands
         if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:
@@ -1290,8 +1291,10 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.Q_KEY: lambda: self._toggle_mff(0),
                 KeyboardKeys.W_KEY: lambda: self._toggle_mff(1),
                 KeyboardKeys.E_KEY: lambda: self._toggle_mff(2),
-                KeyboardKeys.G_KEY: lambda: _nudge_carrier(+step, 0.0),  # Ctrl+G → x += step
-                KeyboardKeys.H_KEY: lambda: _nudge_carrier(-step, 0.0),  # Ctrl+H → x -= step
+                KeyboardKeys.G_KEY: lambda: _nudge_carrier(+carrier_step_coarse, 0.0),  # Ctrl+G → x += step
+                KeyboardKeys.H_KEY: lambda: _nudge_carrier(-carrier_step_coarse, 0.0),  # Ctrl+H → x -= step
+                KeyboardKeys.B_KEY: lambda: _nudge_carrier(+carrier_step_fine, 0.0),
+                KeyboardKeys.N_KEY: lambda: _nudge_carrier(-carrier_step_fine, 0.0),
             }
             action = ctrl_actions.get(key_data_enum)
             if action:
@@ -1318,8 +1321,10 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.OEM_5:      lambda: run("kabs;mark k", record_history=False),     # Shift+'\'
                 KeyboardKeys.K_KEY:      lambda: run("mark k", record_history=False),
                 KeyboardKeys.F_KEY:      lambda: run("fq !", record_history=False),
-                KeyboardKeys.G_KEY:      lambda: _nudge_carrier(0.0, +step),  # Shift+G → y += step
-                KeyboardKeys.H_KEY:      lambda: _nudge_carrier(0.0, -step),  # Shift+H → y -= step
+                KeyboardKeys.G_KEY:      lambda: _nudge_carrier(0.0, +carrier_step_coarse),  # Shift+G → y += step
+                KeyboardKeys.H_KEY:      lambda: _nudge_carrier(0.0, -carrier_step_coarse),  # Shift+H → y -= step
+                KeyboardKeys.B_KEY:      lambda: _nudge_carrier(0.0, +carrier_step_fine),
+                KeyboardKeys.N_KEY:      lambda: _nudge_carrier(0.0, -carrier_step_fine),
             }
 
             action = shift_actions.get(key_data_enum)
