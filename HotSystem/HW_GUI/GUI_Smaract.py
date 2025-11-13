@@ -530,18 +530,29 @@ class GUI_smaract():
 
             steps = int(direction * value1 / 1e3 * self.dev.StepsIn1mm)
 
-            # <<< NEW: use rotated U/V based on ch2 angle >>>
+            # Rotated basis by current ch2 angle
             U_rot, V_rot = self._uv_rotated()
             vec = U_rot if ch == 0 else V_rot
 
-            amount = [vec[i] * steps for i in range(3)]
+            # Integer step amounts per axis
+            amount = [int(vec[i] * steps) for i in range(3)]
             print(f"UV move (ch={ch}) angle={self._get_rot_deg_from_ch2():.3f}° amount={amount}")
 
-            for channel in range(3):
+            # Decide how many axes to move:
+            # default = 2 axes; include Z (axis 2) iff the chosen vector has non-zero Z
+            include_z = abs(vec[2]) > 0
+            max_axes = 3 if include_z else 2
+            max_axes = min(max_axes, getattr(self, "no_of_channels", 3))
+
+            for channel in range(max_axes):
+                amt = amount[channel]
+                if amt == 0:
+                    continue
                 if not self.simulation:
-                    self.dev.MoveRelative(channel, int(amount[channel]))
+                    self.dev.MoveRelative(channel, int(amt))
         except Exception as e:
             print(f"An error occurred: {e}")
+
 
     def btn_zero(self, sender, app_data, ch):
         self.dev.SetPosition(channel = ch, newPosition = 0)

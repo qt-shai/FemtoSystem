@@ -23,6 +23,8 @@ TARGET_BMP = r"C:\WC\HotSystem\Utils\Desired_image.bmp"     # used only in Inter
 WATCH_PATH = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"  # Zelux writes here
 SAVE_BMP   = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"  # S key saves here too
 INDEX_BMP_DIR = r"C:\WC\SLM_bmp"
+CONTROL_STOP_FLAG = r"C:\WC\HotSystem\Utils\cgh_stop.flag"
+
 # Map shifted number keys to frame indices
 SHIFT_KEY_TO_INDEX = {
     ord('!'): 1,   # Shift+1
@@ -53,6 +55,30 @@ GS_STEPS_MORE = 10
 APOD_SIGMA    = 0.12
 
 # ------- Helpers -------
+def _do_graceful_stop_and_zero(win, panel_wh, SAVE_BMP, WATCH_PATH, corr_u8, flip_h=False, flip_v=False):
+    """
+    Switch to External/listen, stop any playback, and show the CORR_BMP (zero-order).
+    corr_u8: the correction bitmap already loaded from CORR_BMP (uint8, panel-sized).
+    """
+    # Use the correction bitmap as the zero-order pattern
+    z = corr_u8.copy()
+
+    # Display (respect flips so the operator sees what’s actually on SLM)
+    z_disp = cv2.flip(z, 1) if flip_h else z
+    z_disp = cv2.flip(z_disp, 0) if flip_v else z_disp
+    cv2.imshow(win, z_disp)
+
+    # Also write to SAVE_BMP and WATCH_PATH so any external pipeline is zeroed
+    try:
+        ensure_dir(SAVE_BMP); cv2.imwrite(SAVE_BMP, z)
+    except Exception:
+        pass
+    try:
+        ensure_dir(WATCH_PATH); cv2.imwrite(WATCH_PATH, z)
+    except Exception:
+        pass
+
+
 def ensure_dir(p):
     d = os.path.dirname(p)
     if d and not os.path.exists(d):
@@ -152,12 +178,12 @@ def next_numbered_path(directory, ext=".bmp"):
 def load_sequence_params(directory):
     """
     Read or create sequence_display_parameters.json in `directory`.
-    Returns a dict: {"frame_time_ms": int, "duration_s": float}
+    Returns a dict: {"frame_time_ms": int}
     """
     import json, os
     os.makedirs(directory, exist_ok=True)
     params_path = os.path.join(directory, "sequence_display_parameters.json")
-    defaults = {"frame_time_ms": 30, "duration_s": 60.0}
+    defaults = {"frame_time_ms": 30}
 
     if not os.path.exists(params_path):
         with open(params_path, "w", encoding="utf-8") as f:
@@ -190,10 +216,6 @@ def load_sequence_params(directory):
         data["frame_time_ms"] = max(1, int(data.get("frame_time_ms", 30)))
     except Exception:
         data["frame_time_ms"] = 30
-    try:
-        data["duration_s"] = float(data.get("duration_s", 10.0))
-    except Exception:
-        data["duration_s"] = 10.0
     return data
 def read_sequence_params_json(dir_path):
     import json
@@ -256,13 +278,23 @@ def load_u8_noresize(path):
     if img.dtype != np.uint8:
         img = np.clip(img, 0, 255).astype(np.uint8)
     return img
-def play_sequence_on_window(win_name, panel_wh, flip_h=False, flip_v=False, ignore_keys=None, duration_s=None):
+
+def play_sequence_on_window(
+    win_name,
+    panel_wh,
+    flip_h=False,
+    flip_v=False,
+    ignore_keys=None,
+    control_flag_path=None,  # NEW: path to a stop flag file (e.g., CONTROL_STOP_FLAG)
+):
     """
     Plays BMP frames from INDEX_BMP_DIR with 'xxx[ms]' overlay.
-    Runs for `duration_s` seconds; if None, uses duration from JSON.
-    Hot-reloads frame_time_ms and duration_s while playing.
+
+    Hot-reloads frame_time_ms while playing.
+    Aborts early if `control_flag_path` exists.
     """
     import time
+    import os
 
     if ignore_keys is None:
         ignore_keys = set()
@@ -270,18 +302,12 @@ def play_sequence_on_window(win_name, panel_wh, flip_h=False, flip_v=False, igno
     W, H = panel_wh
     params = load_sequence_params(INDEX_BMP_DIR)
     frame_time_ms = float(params["frame_time_ms"])
-    json_duration_s = float(params["duration_s"])
-    # decide initial duration
-    if duration_s is None:
-        duration_s = json_duration_s
-
     frames = list_sequence_bmps(INDEX_BMP_DIR)
     if not frames:
         print(f"[Sequence] No *.bmp frames in {INDEX_BMP_DIR}")
         return
 
-    print(f"[Sequence] Playing {len(frames)} frame(s) @ {int(frame_time_ms)} ms each from {INDEX_BMP_DIR} "
-          f"for {float(duration_s):.1f}s")
+    print(f"[Sequence] Playing {len(frames)} frame(s) @ {int(frame_time_ms)} ms each from {INDEX_BMP_DIR}")
 
     try:
         cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
@@ -296,17 +322,16 @@ def play_sequence_on_window(win_name, panel_wh, flip_h=False, flip_v=False, igno
     while True:
         now = time.monotonic()
 
-        # hot-reload JSON ~10 Hz (adjust if you want slower/faster)
+        # NEW: abort if an external stop was requested
+        if control_flag_path and os.path.exists(control_flag_path):
+            print("[Sequence] STOP flag detected → aborting playback now.")
+            break
+
+        # hot-reload JSON ~10 Hz
         if now - last_reload_t >= 0.1:
             p = load_sequence_params(INDEX_BMP_DIR)
             frame_time_ms = float(p["frame_time_ms"])
-            json_duration_s = float(p["duration_s"])
-            if duration_s is None:
-                duration_s = json_duration_s
             last_reload_t = now
-
-        if now - t0 >= float(duration_s):
-            break
 
         if now >= next_flip:
             path = frames[i]
@@ -331,6 +356,7 @@ def play_sequence_on_window(win_name, panel_wh, flip_h=False, flip_v=False, igno
         _ = cv2.waitKey(1)
 
     print("[Sequence] Finished timed playback.")
+
 def human_bool(b): return "ON" if b else "OFF"
 def build_help_image(state, width=1100, height=680, dpi_scale=10):
     """
@@ -406,7 +432,6 @@ def build_help_image(state, width=1100, height=680, dpi_scale=10):
         f"Index dir ...... {state.get('INDEX_BMP_DIR', '')}",
         f"Seq frames ..... {state.get('seq_total','')}",
         f"Frame time ..... {state.get('frame_time_ms','')} ms,",
-        f"Duration ....... {state.get('duration_s',''):.1f} s",
         f"SLM monitor .... #{state.get('MONITOR_NUM', '?')}",
         f"Help monitor ... #{state.get('MONITOR_HELP_NUM', '?')}",
     ]
@@ -472,6 +497,7 @@ def main():
     # Panel size from correction map (only to size the window correctly)
     corr = read_gray(CORR_BMP)
     H, W = corr.shape
+    panel_wh = (W, H)
     print(f"Panel from correction: {W}x{H}")
 
     # Window on the SLM monitor
@@ -538,7 +564,6 @@ def main():
         # Get fresh JSON params
         params = load_sequence_params(INDEX_BMP_DIR)
         frame_time_ms = int(params.get("frame_time_ms", 30))
-        duration_s = float(params.get("duration_s", 60.0))
 
         if help_visible:
             state = {
@@ -552,7 +577,6 @@ def main():
                 "INDEX_BMP_DIR": INDEX_BMP_DIR,
                 "seq_count": len(frames),  # safe: frames is always defined
                 "frame_time_ms": frame_time_ms,  # always defined
-                "duration_s": duration_s,
                 "MONITOR_NUM": MONITOR_NUM,
                 "MONITOR_HELP_NUM": MONITOR_HELP_NUM,
                 # playback extras
@@ -613,10 +637,14 @@ def main():
                 playing = True
                 seq_idx = 0
                 current_frame_path = frames[seq_idx]
-                # (Optionally set a timer to advance frames every frame_time_ms)
                 print(f"[Sequence] Playing {len(frames)} frame(s) @ {frame_time_ms} ms each")
-                # Play numbered sequence from INDEX_BMP_DIR with overlayed frame time from JSON.
-                play_sequence_on_window(win, (W, H), flip_h=flip_h, flip_v=flip_v, ignore_keys={ord('l')}, duration_s=duration_s)
+                # NEW: pass CONTROL_STOP_FLAG so playback aborts when cgh stop is issued
+                play_sequence_on_window(
+                    win, (W, H),
+                    flip_h=flip_h, flip_v=flip_v,
+                    ignore_keys={ord('l')},
+                    control_flag_path=CONTROL_STOP_FLAG,
+                )
         elif key == ord('q'):
             # Force return to External listening mode (default)
             external_mode = True
@@ -648,6 +676,12 @@ def main():
                 print(("Saved " + out_path) if ok else "Save failed!")
             except Exception as e:
                 print(f"[A] Failed to save 1.bmp: {e}")
+        elif key == ord('z'):
+            external_mode = True;    playing = False;       seq_idx = -1
+            _do_graceful_stop_and_zero(
+                win, panel_wh, SAVE_BMP, WATCH_PATH, corr_u8=corr, flip_h=flip_h, flip_v=flip_v
+            )
+            print("[Hotkey] CORR_BMP shown as zero-order; External mode ON.")
 
         elif key in SHIFT_KEY_TO_INDEX:
             idx = SHIFT_KEY_TO_INDEX[key]
@@ -669,6 +703,20 @@ def main():
                         print("[!] Failed to write SAVE_BMP.")
             except Exception as e:
                 print(f"[!] Error copying {idx}.bmp → SAVE_BMP: {e}")
+
+        # --- control flag: graceful stop & zero (created by dispatcher 'cgh stop') ---
+        try:
+            if os.path.exists(CONTROL_STOP_FLAG):
+                print("[Control] STOP flag detected → External + CORR_BMP (zero-order).")
+                external_mode = True
+                playing = False
+                seq_idx = -1
+                _do_graceful_stop_and_zero(
+                    win, panel_wh, SAVE_BMP, WATCH_PATH, corr_u8=corr, flip_h=flip_h, flip_v=flip_v
+                )
+                os.remove(CONTROL_STOP_FLAG)
+        except Exception as e:
+            print(f"[Control] STOP handling error: {e}")
 
     cv2.destroyAllWindows()
 

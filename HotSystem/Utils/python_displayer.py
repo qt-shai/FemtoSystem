@@ -41,7 +41,8 @@ except ImportError:
     def open_file_dialog(filetypes):
         root = Tk(); root.withdraw()
         return filedialog.askopenfilename(filetypes=filetypes)
-
+SCALE_MIN = 0.0
+SCALE_MAX = 9000.0
 PIXEL_SIZE_UM = 0.0735  # µm per pixel
 CONNECT_SHIFT_UM = 5  # hard-coded stage step (µm)
 CIRCLE_RADIUS_UM = 25.0       # current stitching radius
@@ -63,7 +64,7 @@ CONNECT_STATE = {
 }
 
 # ------- Map overlay config -------
-MAP_IMAGE_PATH = "map.jpg"     # path to your site map image
+MAP_IMAGE_PATH = r"c:\WC\HotSystem\map.jpg"     # path to your site map image
 MAP_MODE = "corner"  # "center" or "corner"
 MAP_CALIB_PATH = "map_calibration.json"
 
@@ -901,19 +902,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             tmp = np.apply_along_axis(lambda r: np.interp(x_new, x_old, r), 1, img2d)
             y_old = np.linspace(0, 1, y0); y_new = np.linspace(0, 1, ny)
             return np.apply_along_axis(lambda c: np.interp(y_new, y_old, c), 0, tmp)
-
-    def _tif_to_2d(path: str) -> np.ndarray:
-        """Read TIFF, convert to gray, average frames if multipage, return 2D float64."""
-        arr = _read_tif_stack(path)          # you already have this helper above
-        arr = np.asarray(arr, dtype=np.float64)
-        arr = np.squeeze(arr)
-        if arr.ndim == 3 and arr.shape[-1] in (3, 4):
-            arr = arr[..., :3].mean(axis=-1) # RGB(A) → gray
-        if arr.ndim == 3:                     # (Z,Y,X) → YX by mean
-            arr = arr.mean(axis=0)
-        if arr.ndim != 2:
-            raise ValueError(f"Unexpected calibration TIFF shape: {arr.shape}")
-        return arr
 
     def _build_gain_from_calibration(cal2d: np.ndarray, sigma: float, clip_range=(0.25, 4.0)) -> np.ndarray:
         """Bright calib ⇒ low gain, dark calib ⇒ high gain."""
@@ -1882,6 +1870,137 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                      bbox=dict(facecolor='yellow', alpha=0.6, edgecolor='none'))
 
         plt.show(block=False)
+
+    # ----------------    Cal map 2 files (pick two files → world coords; click two pixels)    ----------------
+    ax_calmap2 = plt.axes(btn_rect)
+    btn_calmap2 = Button(ax_calmap2, 'Cal map 2 files')
+    btn_rect = shift_rect(btn_rect)
+
+    def _calibrate_map_from_files(_evt=None):
+        # 1) Load base image
+        try:
+            base = Image.open(MAP_IMAGE_PATH).convert("RGB")
+        except Exception as e:
+            print(f"⚠️ map image not found/unreadable: {MAP_IMAGE_PATH} ({e})")
+            return
+
+        # 2) Choose two files; parse Site(x,y,...) from file names
+        try:
+            paths = open_files_dialog([("TIFF Files", "*.tif *.tiff"), ("All Files", "*.*")])
+        except Exception as e:
+            print(f"❌ File chooser error: {e}")
+            return
+
+        if not paths or len(paths) < 2:
+            print("❌ Calibration aborted: please select at least TWO files.")
+            return
+
+        f1, f2 = os.path.abspath(paths[0]), os.path.abspath(paths[1])
+        fname1, fname2 = os.path.basename(f1), os.path.basename(f2)
+        ctr1 = _parse_site_center_from_name(fname1)
+        ctr2 = _parse_site_center_from_name(fname2)
+
+        if not ctr1 or not ctr2:
+            print("❌ Could not parse Site(x,y) from one or both filenames.")
+            print(f"   f1: {fname1} -> {ctr1}")
+            print(f"   f2: {fname2} -> {ctr2}")
+            return
+
+        X1, Y1, _Z1 = ctr1
+        X2, Y2, _Z2 = ctr2
+        print(f"[Cal] From files: P1 Site=({X1:.3f}, {Y1:.3f}) ← {fname1}")
+        print(f"[Cal] From files: P2 Site=({X2:.3f}, {Y2:.3f}) ← {fname2}")
+
+        # 3) Let the user LEFT-click the two corresponding pixels (P1 then P2)
+        figC, axC = plt.subplots(1, 1, figsize=(9, 9))  # bigger map
+        H, W = base.size[1], base.size[0]
+        axC.imshow(base, origin='upper')
+        axC.set_xlim(0, W);
+        axC.set_ylim(H, 0)
+        axC.set_title(
+            "Calibration (2 files): LEFT-click TWO pixels (P1 then P2).\n"
+            "Tip: turn off pan/zoom in the toolbar. Press Esc to cancel.",
+            fontsize=11
+        )
+
+        # Show chosen filenames on the figure
+        try:
+            axC.text(0.01, 0.99, f"P1: {fname1}\nP2: {fname2}",
+                     transform=axC.transAxes, va='top', ha='left',
+                     bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'), fontsize=9, zorder=5)
+        except Exception:
+            pass
+
+        figC.canvas.draw_idle()
+
+        # Ensure toolbar not in pan/zoom
+        try:
+            mgr = plt.get_current_fig_manager()
+            tb = getattr(mgr, "toolbar", None)
+            if tb and getattr(tb, "mode", ""):
+                if "pan" in tb.mode:
+                    tb.pan()
+                elif "zoom" in tb.mode:
+                    tb.zoom()
+                else:
+                    try:
+                        tb.pan()
+                    except Exception:
+                        pass
+                    try:
+                        tb.zoom()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        clicks = []
+
+        def _on_click(ev):
+            if ev.inaxes is not axC: return
+            if ev.button != 1: return
+            if ev.xdata is None or ev.ydata is None: return
+            clicks.append((ev.xdata, ev.ydata))
+            axC.plot(ev.xdata, ev.ydata, 'rx', markersize=12, mew=2)
+            figC.canvas.draw_idle()
+
+        cid = figC.canvas.mpl_connect('button_press_event', _on_click)
+
+        plt.show(block=False)
+        try:
+            while plt.fignum_exists(figC.number) and len(clicks) < 2:
+                plt.pause(0.05)
+        except KeyboardInterrupt:
+            pass
+
+        figC.canvas.mpl_disconnect(cid)
+        plt.close(figC)
+
+        if len(clicks) < 2:
+            print("❌ Calibration aborted (need two clicks).")
+            return
+
+        (x1, y1), (x2, y2) = clicks[:2]
+        print(f"Clicked pixel coords: P1=({x1:.1f}, {y1:.1f}), P2=({x2:.1f}, {y2:.1f})")
+
+        # 4) Compute calibration (corner mode)
+        if (X2 - X1) == 0 or (Y1 - Y2) == 0:
+            print("❌ Degenerate inputs; need points with different X and Y.")
+            return
+
+        px_per_um_x = (x2 - x1) / (X2 - X1)
+        px_per_um_y = (y2 - y1) / (Y1 - Y2)  # Y increases downward in pixels
+
+        xmin_um = X1 - (x1 / px_per_um_x)
+        ymax_um = Y1 + (y1 / px_per_um_y)
+
+        _save_map_calib("corner", px_per_um_x, px_per_um_y, xmin_um, ymax_um)
+
+        print(f"✅ Calibration (2 files) solved:")
+        print(f"   px/µm_x = {px_per_um_x:.6f}, px/µm_y = {px_per_um_y:.6f}")
+        print(f"   xmin_um = {xmin_um:.3f}, ymax_um = {ymax_um:.3f}")
+
+    btn_calmap2.on_clicked(_calibrate_map_from_files)
 
     # ----------------  Average multiple TIFFs  ----------------
     ax_avg = plt.axes(btn_rect)
@@ -4107,6 +4226,19 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                       f"offset={rotate_deg:.1f}°, span={span:.2f} µm")
                 return m0, m1
 
+            def _clear_profile_markers(ax):
+                """Remove previous start/end triangle markers from this axes."""
+                removed = 0
+                for coll in list(ax.collections):
+                    if getattr(coll, "_is_profile_marker", False):
+                        try:
+                            coll.remove()
+                            removed += 1
+                        except Exception:
+                            pass
+                if removed:
+                    print(f"[TRI] removed {removed} old triangle markers")
+
             _dbg(f"[INIT] slides={pres.Slides.Count}, slide_w={slide_w}, slide_h={slide_h}")
 
             for pth in paths:
@@ -4201,6 +4333,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                             p1 = (float(cx_um + d1[0]), float(cy_um + d1[1]))
                             pts_abs = (p0, p1)
                             _dbg(f"[PTS_ABS] p0={p0}, p1={p1}")
+                            _clear_profile_markers(ax_xy)
                             before = len(ax_xy.patches)
                             tri0, tri1 = _draw_end_triangles(ax_xy, p0, p1, face='y', edge='k', lw=1.0)
 
@@ -4226,6 +4359,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
                     # ----- MAIN IMAGE INSERT: PNG snapshot (robust; includes scatter triangles) -----
                     main_shape = None
+
+                    im_xy.set_clim(SCALE_MIN, SCALE_MAX)
 
                     png_path = export_main_axes_snapshot(
                         ax_xy,
@@ -5360,6 +5495,32 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     btn_view_frames.on_clicked(_handle_view_frames)
 
+    # ----------------    Quit Button    ----------------
+    ax_quit = plt.axes(btn_rect_col2)
+    btn_quit = Button(ax_quit, 'Quit')
+    btn_rect = shift_rect2(btn_rect_col2)
+
+    def _quit_app(_evt=None):
+        try:
+            import matplotlib.pyplot as _plt
+            _plt.close('all')  # close all MPL windows
+        except Exception:
+            pass
+        # If you have a Tk root, close it too (safe no-op if not present)
+        try:
+            if 'root' in globals() and root:
+                root.after(50, root.destroy)
+        except Exception:
+            pass
+        # Optional: end the process (uncomment if you want a hard exit)
+        # import sys
+        # try:
+        #     sys.exit(0)
+        # except SystemExit:
+        #     pass
+        print("[UI] Quit requested — windows closed.")
+
+    btn_quit.on_clicked(_quit_app)
 
     ######
 

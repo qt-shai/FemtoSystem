@@ -15,7 +15,7 @@ from PIL import ImageGrab, Image
 import pytesseract
 import dearpygui.dearpygui as dpg
 from bokeh.util.terminal import yellow
-
+import signal
 from Utils.extract_positions import preprocess_image, extract_positions, TESSERACT_CONFIG
 from Utils import loadFromCSV
 from Utils.export_points import export_points
@@ -26,7 +26,7 @@ from Common import *
 from PrincetonInstruments.LightField.AddIns import CameraSettings
 from PrincetonInstruments.LightField.AddIns import ExperimentSettings
 from Utils import open_file_dialog
-import Utils.display_all_z_slices_with_slider as disp
+import Utils.python_displayer as disp
 from PIL import ImageGrab, Image
 import io
 import win32com.client
@@ -51,22 +51,125 @@ from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
 # Textbox: Alt + n X
 # Font color: Alt + H F C
 # Paste as pic: Alt + H V U
-
+CHIP_ANGLE=-2.3
+# COUP_SHIFT_X_FACTOR=3.75
+COUP_SHIFT_X_FACTOR=5
+COUP_SHIFT_Y_FACTOR=5.43
+STATE_FILENAME = "coup_state.json"
 CONFIG_PATH = r"C:\WC\HotSystem\SystemConfig\xml_configs\system_info.xml"
 DEFAULT_COUP_DIR = r"c:\WC\HotSystem\Utils\macro"
+
+# ----- CGH helpers -----
+_CGH_PIDFILE = Path.home() / ".cgh_fullscreen.pid"
+def _write_pidfile(pid: int):
+    try:
+        _CGH_PIDFILE.write_text(str(pid), encoding="utf-8")
+    except Exception:
+        pass
+def _read_pidfile() -> int | None:
+    try:
+        return int(_CGH_PIDFILE.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+def _clear_pidfile():
+    try:
+        if _CGH_PIDFILE.exists():
+            _CGH_PIDFILE.unlink()
+    except Exception:
+        pass
+def _proc_is_alive(pid: int) -> bool:
+    import subprocess, os
+    try:
+        if os.name != "nt":
+            os.kill(pid, 0)
+            return True
+        else:
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True)
+            return str(pid) in out.stdout
+    except Exception:
+        return False
+def _terminate_pid(pid: int) -> bool:
+    import subprocess, os, time, signal
+    try:
+        if os.name == "nt":
+            try:
+                os.kill(pid, signal.CTRL_BREAK_EVENT)  # may fail if not same console group
+                time.sleep(0.3)
+            except Exception:
+                pass
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            os.kill(pid, signal.SIGTERM)
+        return True
+    except Exception:
+        return False
+def _send_key_p_to_cgh_window(window_title: str = "SLM CGH") -> bool:
+    """
+    Posts a 'P' keypress to the CGH window. Works even if not foreground.
+    Returns True on success.
+    """
+    try:
+        import ctypes, time
+        user32 = ctypes.windll.user32
+        FindWindowW   = user32.FindWindowW
+        PostMessageW  = user32.PostMessageW
+
+        hwnd = FindWindowW(None, window_title)
+        if not hwnd:
+            return False
+
+        WM_KEYDOWN = 0x0100
+        WM_KEYUP   = 0x0101
+        VK_P       = 0x50  # 'P'
+
+        # Press and release
+        PostMessageW(hwnd, WM_KEYDOWN, VK_P, 0)
+        time.sleep(0.02)
+        PostMessageW(hwnd, WM_KEYUP,   VK_P, 0)
+        return True
+    except Exception:
+        return False
+def _poke_cgh_window(window_title: str = "SLM CGH") -> bool:
+    """Send a harmless WM_NULL to nudge the window message loop (no behavior change)."""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, window_title)
+        if not hwnd:
+            return False
+        # WM_NULL = 0x0000
+        user32.PostMessageW(hwnd, 0x0000, 0, 0)
+        return True
+    except Exception:
+        return False
+def _find_cgh_hwnd(window_title: str = "SLM CGH") -> int | None:
+    try:
+        import ctypes
+        hwnd = ctypes.windll.user32.FindWindowW(None, window_title)
+        return hwnd or None
+    except Exception:
+        return None
+def _wait_for_cgh_window(timeout_s: float = 3.0, window_title: str = "SLM CGH") -> bool:
+    import time
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        if _find_cgh_hwnd(window_title):
+            return True
+        time.sleep(0.05)
+    return False
+# ------------------------------------------
 
 def _dispatcher_base_dir(self) -> str:
     """Folder of CommandDispatcher.py (works even if module path is indirect)."""
     mod = sys.modules.get(self.__class__.__module__) or sys.modules.get(__name__)
     here = getattr(mod, "__file__", __file__)
     return os.path.dirname(os.path.abspath(here))
-
 def _prefer_py(path: str) -> str:
     """Prefer .py over .pyc/.pyo when available."""
     if path.endswith((".pyc", ".pyo")) and os.path.exists(path[:-1]):
         return path[:-1]
     return path
-
 def _open_path(path: str):
     """Open a file with the default app (Windows) and print a status line."""
     path = _prefer_py(path)
@@ -78,7 +181,6 @@ def _open_path(path: str):
         print(f"[show] Opened: {path}")
     except Exception as e:
         print(f"[show] Failed to open {path}: {e}")
-
 def _open_module_or_fallback(module_name: str, fallback_rel: str, base_dir: str):
     """
     Try to open the source file of module_name; if not found, open base_dir/fallback_rel.
@@ -122,7 +224,7 @@ WRAP_MAP = {
     "hrs":     ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
     "hrs500":  ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
     "hrs_500": ("HW_wrapper.Wrapper_HRS_500", r"HW_wrapper\Wrapper_HRS_500.py"),
-    "wave":    ("wrapper_wavemeter", r"HW_GUI\wrapper_wavemeter.py"),
+    "wave":    ("HW_wrapper.wrapper_wavemeter", r"HW_wrapper\wrapper_wavemeter.py"),
     "wavemeter":    ("wrapper_wavemeter", r"HW_GUI\wrapper_wavemeter.py"),
 }
 
@@ -306,7 +408,6 @@ class CommandDispatcher:
             "pharos?":           self.handle_standby_query,
             "enable":            self.handle_enable_pharos,
             "enable?":           self.handle_enable_pharos_query,
-            "disable":           self.handle_disable_pharos,
             "execute":           self.handle_execute,
             "spot":              self.handle_spot,
             "spot1":             self.handle_spot1,
@@ -338,13 +439,14 @@ class CommandDispatcher:
             "wv":                self.handle_wv,
             "wave":              self.handle_wv,
             "plot":              self.handle_plot, # show spectrum
+            "disable":           self.handle_disable, #disable unused experiments or pharos
+            "uv":                self.handle_uv,
+            "chip":              self.handle_chip,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
-
     def get_parent(self):
         return getattr(sys.stdout, "parent", None)
-
     def _ensure_exec_ns(self):
         # Shared namespace for exec/eval across runs
         if not hasattr(self, "_exec_ns"):
@@ -353,7 +455,6 @@ class CommandDispatcher:
             # keep parent fresh
             self._exec_ns["parent"] = self.get_parent()
         return self._exec_ns
-
     def run(self, command: str, record_history: bool = True):
         """
             Execute one or more console commands.
@@ -892,15 +993,170 @@ class CommandDispatcher:
 
         if record_history:
             self._last_cmd = cmd_line
-
     def savehistory_on_exit(self):
         try:
             self.handle_save_history()
             print("Command history saved on exit.")
         except Exception as e:
             print(f"Failed to save history on exit: {e}")
-
+    def _refocus_cmd_input(self):
+        try:
+            dpg.focus_item("cmd_input")
+            dpg.set_value("cmd_input", "")
+        except Exception:
+            pass
     # --- Handlers (methods) ---
+    def handle_uv(self, arg: str = ""):
+        """
+        Show or set the U/V basis vectors.
+
+        Usage:
+          uv                      -> print U, V, norms, dot, cross, and rotated U/V
+          uv u=[x,y,z]            -> set U to the normalized vector [x,y,z]
+          uv v=(x, y, z)          -> set V to the normalized vector (x,y,z)
+
+        Notes:
+          - Input may use [] or (), spaces are OK, commas optional (e.g. "u=1 0 0").
+          - Vectors are normalized to unit length. Zero-length is rejected.
+          - After any change, the rotated basis (by current ch2 angle) is shown.
+        """
+        parent = self.get_parent()
+        if parent is None:
+            print("uv: no parent GUI found.")
+            return
+
+        try:
+            dev = parent.smaractGUI.dev
+            smg = parent.smaractGUI  # for _uv_rotated and angle readout
+        except Exception:
+            print("uv: SmarAct GUI/device not available.")
+            return
+
+        # Helper: parse "u=..." or "v=..."
+        def _try_parse_vector(s: str):
+            import re
+            s = s.strip()
+            # Accept formats like: u=[1,2,3], u=(1 2 3), u=1, 2, 3, u=1 2 3
+            m = re.match(r"^(u|v)\s*=\s*(.*)$", s, flags=re.IGNORECASE)
+            if not m:
+                return None, None
+            which = m.group(1).lower()
+            payload = m.group(2).strip()
+
+            # Strip wrapping brackets/parentheses if present
+            if (payload.startswith("[") and payload.endswith("]")) or (
+                    payload.startswith("(") and payload.endswith(")")):
+                payload = payload[1:-1].strip()
+
+            # Split on commas or whitespace
+            parts = re.split(r"[,\s]+", payload)
+            parts = [p for p in parts if p]  # remove empties
+
+            if len(parts) != 3:
+                raise ValueError(f"Expected 3 numbers for {which}=..., got {len(parts)}")
+
+            try:
+                vec = [float(p) for p in parts]
+            except Exception:
+                raise ValueError(f"Could not parse numbers for {which}=... : {parts}")
+
+            return which, vec
+
+        # If arg contains an assignment, set the corresponding vector
+        arg = (arg or "").strip()
+        if arg:
+            try:
+                which, vec = _try_parse_vector(arg)
+            except ValueError as e:
+                print(f"uv: {e}")
+                return
+
+            if which is None:
+                print("uv: to set, use 'uv u=[x,y,z]' or 'uv v=(x,y,z)'.")
+                # fall through to printing current state
+            else:
+                # Normalize
+                import math
+                norm = math.sqrt(sum(x * x for x in vec))
+                if norm == 0:
+                    print(f"uv: cannot set {which} to the zero vector.")
+                    return
+                vec = [x / norm for x in vec]
+
+                if which == "u":
+                    dev.U = vec
+                else:
+                    dev.V = vec
+
+                print(f"uv: set {which.upper()} to unit vector [{', '.join(f'{x:.6g}' for x in vec)}]")
+
+        # Fetch current U/V (after any update)
+        U = getattr(dev, "U", None)
+        V = getattr(dev, "V", None)
+        if U is None or V is None:
+            print("uv: U/V vectors are not set on the device.")
+            return
+
+        try:
+            U = [float(x) for x in U]
+            V = [float(x) for x in V]
+        except Exception:
+            print(f"uv: could not parse device vectors. U={U}, V={V}")
+            return
+
+        # Diagnostics in base frame
+        dot = sum(u * v for u, v in zip(U, V))
+        nu = (sum(u * u for u in U)) ** 0.5
+        nv = (sum(v * v for v in V)) ** 0.5
+
+        cross_str = ""
+        if len(U) == 3 and len(V) == 3:
+            cx = U[1] * V[2] - U[2] * V[1]
+            cy = U[2] * V[0] - U[0] * V[2]
+            cz = U[0] * V[1] - U[1] * V[0]
+            cross_str = f"\nU×V = [{cx:.6g}, {cy:.6g}, {cz:.6g}]"
+
+        # Rotated basis (by current ch2 angle, via your GUI helper)
+        try:
+            U_rot, V_rot = smg._uv_rotated()
+            angle_deg = smg._get_rot_deg_from_ch2()
+            rot_str = (
+                f"\n-- rotated by ch2={angle_deg:.3f}° --\n"
+                f"U_rot = [{', '.join(f'{x:.6g}' for x in U_rot)}]\n"
+                f"V_rot = [{', '.join(f'{x:.6g}' for x in V_rot)}]"
+            )
+        except Exception:
+            rot_str = "\n(rotated basis unavailable)"
+
+        print(
+            "== UV basis ==\n"
+            f"U = [{', '.join(f'{x:.6g}' for x in U)}]\n"
+            f"V = [{', '.join(f'{x:.6g}' for x in V)}]\n"
+            f"|U| = {nu:.6g}, |V| = {nv:.6g}, U·V = {dot:.6g}"
+            f"{cross_str}"
+            f"{rot_str}"
+        )
+    def _apply_disable_exp_ui(self):  # NEW
+        """Hide/delete all experiment buttons except Counter & G2."""  # NEW
+        def zap(tag):  # NEW
+            if dpg.does_item_exist(tag):  # NEW
+                dpg.delete_item(tag)  # NEW
+
+        # Keep: btnOPX_StartCounter, G2 buttons & width input  # NEW
+        REMOVE = [  # NEW
+            "btnOPX_StartODMR", "btnOPX_StartPulsedODMR", "btnOPX_StartODMR_Bfield",  # NEW
+            "btnOPX_StartNuclearFastRot", "btnOPX_StartRABI", "btnOPX_StartNuclearRABI",  # NEW
+            "btnOPX_StartNuclearMR", "btnOPX_StartNuclearPolESR",  # NEW
+            "btnOPX_StartNuclearLifetimeS0", "btnOPX_StartNuclearLifetimeS1",  # NEW
+            "btnOPX_StartNuclearRamsay", "btnOPX_StartHahn",  # NEW
+            "btnOPX_StartElectronLifetime", "btnOPX_StartElectron_Coherence",  # NEW
+            "btnOPX_PopulationGateTomography", "btnOPX_EntanglementStateTomography",  # NEW
+            "btnOPX_Eilons", "btnOPX_RandomBenchmark", "btnOPX_StartTimeBinEntanglement",  # NEW
+            "btnPLE", "btnExternalFrequencyScan", "btnAWG_FP_SCAN",  "btnOPX_StartG2Survey",
+            "btnOPX_StartElectronCoherence",
+        ]  # NEW
+        for t in REMOVE:  # NEW
+            zap(t)  # NEW
     def _invert_numeric_args(self, cmd: str) -> str:
         """
         Negate every standalone numeric token in 'cmd'.
@@ -930,7 +1186,30 @@ class CommandDispatcher:
             return out
 
         return num_pat.sub(repl, cmd)
+    def handle_disable(self, arg):  # NEW
+        """
+        disable commands:
+          disable exp            -> hide experiment buttons (keep Counter & G2)
+          disable pharos         -> disable Pharos laser output
+          disable femto          -> alias of 'disable pharos'
+        """  # NEW
+        sub = (arg or "").strip().lower()  # NEW
+        if not sub:  # NEW
+            print("Usage: disable exp | disable pharos | disable femto")  # NEW
+            return False  # NEW
 
+        if sub in ("pharos", "femto"):  # NEW
+            return self.handle_disable_pharos("")  # delegate; no OPX changes needed  # NEW
+
+        if sub in ("exp", "experiments"):  # if you already implemented 'disable exp'
+            # … your existing logic for hiding experiment buttons …
+            # e.g., self._exp_disabled = True;
+            self._apply_disable_exp_ui()
+            print("[disable] Experiments hidden; only Counter and G2 remain.")
+            return True
+
+        print("Usage: disable exp | disable pharos | disable femto")  # NEW
+        return False  # NEW
     def handle_close_qm(self, arg):
         """Close all Quantum Machines (QM).  Usage: 'close qm' or 'qmm'"""
         try:
@@ -939,7 +1218,6 @@ class CommandDispatcher:
             print("QM: closed all quantum machines.")
         except Exception as e:
             print(f"QM close failed: {e}")
-
     def handle_auto(self, arg):
         """Apply auto‑fit to OPX graph axes: 'auto', 'auto x', 'auto y'."""
         x_tag = "plotImaga_X"
@@ -968,7 +1246,6 @@ class CommandDispatcher:
                     print(f"Axis '{tag}' not found; skipping.")
         else:
             print("Invalid syntax. Use: auto, auto x, or auto y.")
-
     def handle_g2(self, arg):
         """Start G2 scan or set correlation width (e.g. 'g2 1000')."""
         p = self.get_parent()
@@ -993,7 +1270,6 @@ class CommandDispatcher:
                 print("✅ Started G2 scan.")
             except Exception as e:
                 print(f"❌ Failed to start G2 scan: {e}")
-
     def handle_mark(self, arg):
         """
         Draw a marker on the plotImaga plot.
@@ -1143,7 +1419,6 @@ class CommandDispatcher:
         except Exception as e:
             traceback.print_exc()
             print(f"Error in mark: {e}")
-
     def handle_unmark(self, arg):
         """Remove the temporary marker."""
         try:
@@ -1157,7 +1432,6 @@ class CommandDispatcher:
             print("Marker cleared." if removed else "No marker to clear.")
         except Exception as e:
             print(f"Error in unmark: {e}")
-
     def handle_add_slide(self, arg):
         """
         Command: a [option]
@@ -1297,7 +1571,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Could not add slide: {e}")
-
     def convert_loaded_csv_to_scan_data(self,scan_out, Nx, Ny, Nz, startLoc, dL_scan):
         """
         Reconstructs scan_data dictionary (x, y, z, I) from scan_Out and dimensions.
@@ -1332,7 +1605,6 @@ class CommandDispatcher:
             "z": z.tolist(),
             "I": I_reshaped.tolist()
         }
-
     def handle_copy_window(self, arg):
         """Copy QuTi SW window to clipboard."""
         try:
@@ -1352,7 +1624,6 @@ class CommandDispatcher:
             print("Window copied to clipboard with scan_data.")
         except Exception as e:
             print(f"Copy window failed: {e}")
-
     def handle_set_graph_size(self, arg):
         """Set OPX graph width and height: gr<width> or gr<width>,<height>; no arg resets to defaults. e.g. gr 1100"""
         tag = "plotImaga"
@@ -1412,7 +1683,6 @@ class CommandDispatcher:
         dpg.set_item_height(tag, h)
         print(f"Graph size set to {w}×{h}")
         self.get_parent().opx.graph_size_override = (w, h)  # ✅ Store override for future redraws
-
     def handle_screenshot_delayed(self, arg):
         """Schedule a delayed screenshot (cc) with optional suffix."""
         p = self.get_parent()
@@ -1439,7 +1709,6 @@ class CommandDispatcher:
         timer.daemon = True
         timer.start()
         print("cc: screenshot scheduled in ~0.3 s")
-
     def handle_hide_legend(self, arg):
         """Hide OPX legend."""
         p = self.get_parent()
@@ -1447,7 +1716,6 @@ class CommandDispatcher:
             p.opx.hide_legend(); print("Legend hidden.")
         else:
             print("Cannot hide legend.")
-
     def handle_toggle_sc(self, reverse=False):
         """Start/stop camera & flippers."""
         p = self.get_parent()
@@ -1466,11 +1734,9 @@ class CommandDispatcher:
                     flipper.on_off_slider_callback(tag, 1 if not reverse else 0)
         except Exception as e:
             print(f"toggle_sc error: {e}")
-
     def handle_move_files(self, arg):
         """Move last saved files."""
         self.get_parent().opx.move_last_saved_files()
-
     def handle_clog(self, arg):
         """Run clog.py."""
         try:
@@ -1484,7 +1750,6 @@ class CommandDispatcher:
                 print(result.stdout)
         except Exception as e:
             print(f"clog failed: {e}")
-
     def handle_clogq(self, arg):
         """Run clog.py with 'q' prefix."""
         try:
@@ -1499,7 +1764,6 @@ class CommandDispatcher:
                 print(result.stdout)
         except Exception as e:
             print(f"clogq failed: {e}")
-
     def handle_copy_filename(self, arg):
         """Copy the most-recently logged filepath (with a slash) to the clipboard."""
         msgs = getattr(sys.stdout, "messages", [])
@@ -1532,7 +1796,6 @@ class CommandDispatcher:
             print(f"Filename copied: {path}")
         else:
             print("No valid filepath found in recent messages.")
-
     def handle_set_subfolder(self, arg):
         """Set subfolder for scans."""
         p = self.get_parent()
@@ -1542,7 +1805,6 @@ class CommandDispatcher:
             print(f"Subfolder set: {arg.strip()}")
         except Exception as e:
             print(f"Error in sub: {e}")
-
     def handle_set_cobolt_power(self, arg):
         """Set Cobolt laser power."""
         p = self.get_parent()
@@ -1551,7 +1813,6 @@ class CommandDispatcher:
             print(f"Cobolt power set to {mw:.2f} mW")
         except Exception as e:
             print(f"cob failed: {e}")
-
     def handle_external_clipboard(self, arg):
         """Launch external clipboard script."""
         try:
@@ -1559,7 +1820,6 @@ class CommandDispatcher:
             print("Clipboard script launched.")
         except Exception as e:
             print(f"pp failed: {e}")
-
     def handle_start_counter(self, arg):
         """Start counter live."""
         p = self.get_parent()
@@ -1569,7 +1829,6 @@ class CommandDispatcher:
             print("Counter live started.")
         except:
             print("Counter start failed.")
-
     def handle_load_positions(self, arg):
         """Load window positions profile.
 
@@ -1606,7 +1865,6 @@ class CommandDispatcher:
                 print(f"Error loading positions: {e}")
         else:
             print("smaractGUI not available.")
-
     def handle_save_positions(self, arg):
         """Save window positions profile."""
         p = self.get_parent()
@@ -1616,7 +1874,6 @@ class CommandDispatcher:
             print(f"Positions saved: {prof}")
         except:
             print("Save positions failed.")
-
     def handle_reload(self, arg):
         """
             Reload modules or specific GUI components.
@@ -2324,10 +2581,10 @@ class CommandDispatcher:
 
             # === Display Z-Slices Viewer ===
             if name in ("disp", "display_slices", "zslider", "zslice"):
-                import Utils.display_all_z_slices_with_slider as disp_mod
+                import Utils.python_displayer as disp_mod
                 importlib.reload(disp_mod)
                 p.display_all_z_slices = disp_mod.display_all_z_slices
-                print("Reloaded display_all_z_slices from display_all_z_slices_with_slider.py.")
+                print("Reloaded display_all_z_slices from python_displayer.py.")
                 return
 
             # === Generic fallback reload ===
@@ -2342,7 +2599,6 @@ class CommandDispatcher:
         except Exception:
             traceback.print_exc()
             print(f"Reload failed for '{module_name}'")
-
     def handle_plot_future_femto(self, arg):
         """Annotate future Femto energies on plot (fully restoring previous behavior)."""
         p = self.get_parent()
@@ -2398,7 +2654,6 @@ class CommandDispatcher:
                 p.future_annots.append(tag)
         except Exception as e:
             print(f"Error running 'plf': {e}")
-
     def handle_file(self, arg=None):
         """With no arg: print & copy last_loaded_file.
         With <path>: open that file if it exists."""
@@ -2446,7 +2701,6 @@ class CommandDispatcher:
             print(f"Opened file: {path}")
         except Exception as e:
             print(f"Failed to open file: {e}")
-
     def handle_load_csv(self, arg):
         """Load & plot most recent CSV from last scan dir."""
         p = self.get_parent()
@@ -2476,7 +2730,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Error in ld command: {e}")
-
     def handle_toggle_coords(self, arg):
         """Toggle coordinate grid."""
         p = self.get_parent()
@@ -2486,7 +2739,6 @@ class CommandDispatcher:
             print(f"Coords grid {'shown' if not cur else 'hidden'}.")
         except:
             print("toggle_coords failed.")
-
     def handle_fill_query(self, arg):
         """
             Fill/move/store query points (fq).
@@ -2637,7 +2889,6 @@ class CommandDispatcher:
             self.handle_list_points(str(idx) if idx is not None else "")
         except Exception as e:
             print(f"fq failed: {e}")
-
     def handle_toggle_ax(self, arg):
         """
         Toggle the angled axis overlay in the Zelux GUI.
@@ -2656,7 +2907,6 @@ class CommandDispatcher:
 
         current = getattr(p.cam, "show_axis", False)
         p.cam.toggle_show_axis(app_data=not current)
-
     def handle_find_max_in_area(self, arg):
         """Find the maximum Z value inside the currently defined queried_area.
            Move the stage to the X,Y location of the maximum, update the GUI,
@@ -2735,7 +2985,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Error in findq command: {e}")
-
     def handle_move_last_z(self, arg):
         """Move to last_z_value + offset."""
         p = self.get_parent()
@@ -2748,19 +2997,15 @@ class CommandDispatcher:
             print(f"Moved Z to {z:.2f}")
         except Exception as e:
             print(f"lastz failed: {e}")
-
     def handle_move_abs_x(self, arg):
         """Set X absolute."""
         self._move_abs_axis(0,arg)
-
     def handle_move_abs_y(self, arg):
         """Set Y absolute."""
         self._move_abs_axis(1,arg)
-
     def handle_move_abs_z(self, arg):
         """Set Z absolute."""
         self._move_abs_axis(2,arg)
-
     def _move_abs_axis(self, axis, arg):
         p = self.get_parent()
         try:
@@ -2770,43 +3015,60 @@ class CommandDispatcher:
             print(f"Moved axis {axis} to {val:.3f}")
         except Exception as e:
             print(f"moveabs{axis} failed: {e}")
-
     def handle_save_and_down(self, arg):
-        """Save last_z and move to 11500."""
+        """Save last_z and move Z to 11500 (relative move, no ABS widget)."""
         p = self.get_parent()
         try:
-            curr = p.smaractGUI.dev.AxesPositions[2]*1e-6
-            p.smaractGUI.last_z_value = curr
-            dpg.set_value("mcs_ch2_ABS",11500.0)
-            p.smaractGUI.move_absolute(None,None,2)
-            print(f"Saved Z={curr:.2f}, moved to 11500")
+            # Current Z in µm (AxesPositions are in meters)
+            curr_um = p.smaractGUI.dev.AxesPositions[2] * 1e6
+            p.smaractGUI.last_z_value = curr_um
+
+            target_um = 11500.0
+            dz_um = target_um - curr_um
+
+            if abs(dz_um) < 1e-3:
+                print(f"Saved Z={curr_um:.2f} µm, already at target {target_um:.2f} µm (no move).")
+                return
+
+            # Relative move on axis 2 in µm (no ABS widget)
+            self._move_delta(2, dz_um)
+
+            print(f"Saved Z={curr_um:.2f} µm, moved by ΔZ={dz_um:.2f} µm to ~{target_um:.2f} µm")
         except Exception as e:
             print(f"down failed: {e}")
-
     def handle_up(self, arg):
-        """Move Z to last saved value; 'up ?' prints it; 'up 1' or no saved -> Z=600."""
+        """Move Z to last saved value; 'up ?' prints it; 'up 1' or no saved -> Z=600 (relative)."""
         try:
             p = self.get_parent()
             s = (arg or "").strip()
             last = getattr(p.smaractGUI, "last_z_value", None)
 
+            # Current Z in µm
+            curr_um = p.smaractGUI.dev.AxesPositions[2] * 1e6
+
             if s == "?":
-                print("up? -> no last Z saved" if last is None else f"up? -> last Z = {last:.2f}")
+                if last is None:
+                    print("up? -> no last Z saved")
+                else:
+                    print(f"up? -> last Z = {last:.2f} µm")
                 return
 
+            # If "up 1" or nothing saved yet -> go to 600 µm
             if s == "1" or last is None:
-                z = 600.0
-                dpg.set_value("mcs_ch2_ABS", z)
-                p.smaractGUI.move_absolute(None, None, 2)
-                print(f"Moved Z to {z:.2f}")
+                target_um = 600.0
+            else:
+                target_um = float(last)
+
+            dz_um = target_um - curr_um
+
+            if abs(dz_um) < 1e-3:
+                print(f"Z already at ~{target_um:.2f} µm (no move).")
                 return
 
-            dpg.set_value("mcs_ch2_ABS", float(last))
-            p.smaractGUI.move_absolute(None, None, 2)
-            print(f"Moved to last Z = {last:.2f}")
+            self._move_delta(2, dz_um)
+            print(f"Moved Z by ΔZ={dz_um:.2f} µm to ~{target_um:.2f} µm")
         except Exception as e:
             print(f"up failed: {e}")
-
     def handle_round_position(self, arg):
         """Round XYZ to given precision."""
         p = self.get_parent()
@@ -2819,7 +3081,6 @@ class CommandDispatcher:
             print(f"Rounded to {pos}")
         except Exception as e:
             print(f"round failed: {e}")
-
     def handle_list_points(self, arg=None):
         """List and draw stored query points."""
         p = self.get_parent()
@@ -2880,7 +3141,6 @@ class CommandDispatcher:
                 p.query_annots.extend([dot_tag, annot_tag])
         else:
             print("No points stored.")
-
     def handle_list_zelux(self, arg=None):
         """Display stored query points on the Zelux camera image."""
         p = self.get_parent()
@@ -2888,7 +3148,6 @@ class CommandDispatcher:
         cam = getattr(p, "cam", None)
         cam.query_points = pts
         print(f"✅ Stored {len(pts)} points to Zelux camera for display.")
-
     def handle_zel_shift_x(self, arg):
         """Shift all query points in Zelux display along X by given microns."""
         p = self.get_parent()
@@ -2898,7 +3157,6 @@ class CommandDispatcher:
             print(f"Zelux X-shift set to {cam.zel_shift_x} µm")
         except Exception as e:
             print(f"Invalid shift X: {e}")
-
     def handle_zel_shift_y(self, arg):
         """Shift all query points in Zelux display along Y by given microns."""
         p = self.get_parent()
@@ -2908,7 +3166,6 @@ class CommandDispatcher:
             print(f"Zelux Y-shift set to {cam.zel_shift_y} µm")
         except Exception as e:
             print(f"Invalid shift Y: {e}")
-
     def handle_clear(self, arg):
         """Clear points or annotations."""
         p = self.get_parent()
@@ -2931,7 +3188,6 @@ class CommandDispatcher:
             print("All cleared.")
             self._last_fq_idx = 0
             print("fq next index reset to 0.")
-
     def handle_shift_point(self, arg):
         """Shift a stored point by ΔX,ΔY."""
         p = self.get_parent()
@@ -2947,7 +3203,6 @@ class CommandDispatcher:
             print(f"No point #{idx}")
         except Exception as e:
             print(f"shift failed: {e}")
-
     def handle_insert_points(self, arg):
         """Insert new points relative to last."""
         p = self.get_parent()
@@ -2966,7 +3221,6 @@ class CommandDispatcher:
                 print(f"Inserted #{idx}")
         except Exception as e:
             print(f"insert failed: {e}")
-
     def handle_save_list(self, arg):
         """Save points to file."""
         p = self.get_parent()
@@ -2977,7 +3231,6 @@ class CommandDispatcher:
             print("Points saved.")
         except Exception as e:
             print(f"savelist failed: {e}")
-
     def handle_load_list(self, arg):
         """Load points from file. Accepts a filename path or falls back to default."""
         p = self.get_parent()
@@ -2989,7 +3242,6 @@ class CommandDispatcher:
             self.handle_list_points()
         except Exception as e:
             print(f"loadlist failed: {e}")
-
     def handle_generate_list(self, arg):
         """Generate point file from CSV and load if small. 'genlist1' prompts for file."""
         p = self.get_parent()
@@ -3016,7 +3268,6 @@ class CommandDispatcher:
                 self.handle_load_list(out)
         except Exception as e:
             print(f"genlist failed: {e}")
-
     def handle_hrs(self, arg: str):
         p = self.get_parent()
         a = (arg or "").strip().lower()
@@ -3044,7 +3295,6 @@ class CommandDispatcher:
             return
 
         print(f"Unknown hrs command: {arg!r}")
-
     def handle_acquire_spectrum(self, arg):
         """Launch threaded spectrum acquisition process.
         Usage: spc [st] [exposure_s]
@@ -3100,7 +3350,6 @@ class CommandDispatcher:
         self._spc_running = True  # <— NEW: running flag
 
         threading.Thread(target=self._acquire_spectrum_worker, args=(arg,), daemon=True).start()
-
     def _acquire_spectrum_worker(self, arg):
         """Actual spectrum acquisition logic, run in a background thread."""
         import re, os, glob, time, threading
@@ -3314,7 +3563,8 @@ class CommandDispatcher:
                 try:
                     bare_time = float(t)
                     break
-                except Exception:
+                except Exception as e:
+                    print(f"Could not parse {t} as float: {e}")
                     pass
             time_s = t_explicit if (t_explicit is not None) else bare_time
 
@@ -3668,27 +3918,44 @@ class CommandDispatcher:
             print("SPC finished.")
         except Exception:
             pass
-
     def handle_message(self, arg):
         """Show large message window."""
         show_msg_window(arg)
-
     def handle_message_clear(self, arg):
         """Clear message window."""
         if dpg.does_item_exist("msg_Win"):
             dpg.delete_item("msg_Win")
         print("Message cleared.")
-
     def handle_set_xyz(self, arg):
         """Fill XYZ from current position."""
         p=self.get_parent()
         p.smaractGUI.fill_current_position_to_moveabs()
         print("XYZ filled.")
-
     def handle_update_note(self, arg):
-        """Set or append to experiment notes."""
+        """Set or append to experiment notes.
+
+        note <text>        -> set notes to <text>
+        note !<text>       -> append <text> to existing notes
+        note hide          -> hide/close the notes window
+        """
         p = self.get_parent()
-        raw = arg.strip()
+        raw = (arg or "").strip()
+
+        # --- special: note hide / off / close -> hide the message window ---
+        if raw.lower() in ("hide", "off", "close"):
+            window_tag = "msg_Win"
+            if dpg.does_item_exist(window_tag):
+                # either delete or just hide; delete is fine since show recreates it
+                try:
+                    dpg.delete_item(window_tag)
+                    print(f"Notes window '{window_tag}' closed.")
+                except Exception as e:
+                    print(f"Failed to close notes window '{window_tag}': {e}")
+            else:
+                print("Notes window not currently open.")
+            return
+
+        # --- normal behavior: set / append note text and show window ---
         # Determine new note text
         if raw.startswith("!"):
             append = raw[1:].strip()
@@ -3696,14 +3963,15 @@ class CommandDispatcher:
             note_text = (existing + ", " + append).strip()
         else:
             note_text = raw.capitalize()
+
         show_msg_window(note_text)
         p.opx.expNotes = note_text
+
         # Update GUI text box if present
         if dpg.does_item_exist("inTxtScan_expText"):
             dpg.set_value("inTxtScan_expText", note_text)
             p.opx.saveExperimentsNotes(note=note_text)
         print(f"Notes updated: {note_text}")
-
     def handle_set_attenuator(self, arg):
         """Set femto attenuator to percent."""
         p = self.get_parent()
@@ -3736,7 +4004,6 @@ class CommandDispatcher:
                 print(f"Failed to set attenuator: {e}")
         else:
             print("Femto GUI or Pharos API not available.")
-
     def handle_future(self, arg):
         """Parse future pulses input, update widgets, and calculate femto-pulse steps."""
         p = self.get_parent()
@@ -3854,13 +4121,11 @@ class CommandDispatcher:
                 print("Ly is 0 or inInt_Ly_scan not found.")
         except Exception as e:
             print(f"Error calculating future: {e}")
-
     def handle_femto_calculate(self, arg):
         """Press femto calculate."""
         p=self.get_parent()
         p.femto_gui.calculate_button()
         print("Femto calculate pressed.")
-
     def handle_femto_pulses(self, arg):
         """Trigger Femto pulses in OPX GUI."""
         p = self.get_parent()
@@ -3887,7 +4152,6 @@ class CommandDispatcher:
                 print(f"Error calling btnFemtoPulses: {e}")
         else:
             print("OPX or btnFemtoPulses method not available.")
-
     def handle_fill_span(self, arg):
         """Compute dx, dy, Lx, Ly from the loaded scan and fill the Scan Parameters inputs."""
         p = self.get_parent()
@@ -3928,15 +4192,12 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"fill span failed: {e}")
-
     def handle_prepare_for_scan(self,arg):
         """Stop camera live view & retract flippers."""
         self.handle_toggle_sc(reverse=False)
-
     def handle_start_camera(self,arg):
         """Start camera live view & extend flippers."""
         self.handle_toggle_sc(reverse=True)
-
     def handle_stop_scan(self, arg):
         """Stop scan.
         - 'stp' / 'stop'           -> normal stop (restore at end)
@@ -3954,7 +4215,6 @@ class CommandDispatcher:
                 print("Stopped.")
         except Exception:
             pass
-
     def handle_set_angle(self, arg):
         """Set HWP angle and wait until the hardware reaches it."""
         p = self.get_parent()
@@ -3983,7 +4243,6 @@ class CommandDispatcher:
             print(f"HWP angle reached: {current:.2f}° (target {ang:.2f}°)")
         except Exception as e:
             print(f"angle failed: {e}")
-
     def handle_start_scan(self, arg):
         """
         Start OPX scan.
@@ -4029,7 +4288,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Error Start Scan: {e}")
-
     def handle_start_scan_with_galvo(self, arg):
         """
         Start OPX scan with Galvo.
@@ -4086,7 +4344,6 @@ class CommandDispatcher:
             )
         except Exception as e:
             print(f"Error Start Scan: {e}")
-
     def handle_set_dx(self, arg):
         """Set dx scan step."""
         p=self.get_parent()
@@ -4095,7 +4352,6 @@ class CommandDispatcher:
             print(f"dx={dx}")
         except:
             print("dx failed.")
-
     def handle_set_dy(self, arg):
         """Set dy scan step."""
         p=self.get_parent()
@@ -4104,7 +4360,6 @@ class CommandDispatcher:
             print(f"dy={dy}")
         except:
             print("dy failed.")
-
     def handle_toggle_or_set_dz(self, arg):
         """Toggle or set dz scan step."""
         p=self.get_parent()
@@ -4118,7 +4373,6 @@ class CommandDispatcher:
             cur=dpg.get_value("chkbox_bZ_Scan")
             dpg.set_value("chkbox_bZ_Scan",not cur)
             print(f"dz toggled to {not cur}")
-
     def handle_set_all_steps(self, arg):
         """Set dx, dy, and dz scan step sizes to the same value."""
         p = self.get_parent()
@@ -4144,7 +4398,6 @@ class CommandDispatcher:
             print(f"-> dz set to {v} nm")
         except Exception as e:
             print(f"-> failed to set dz: {e}")
-
     def handle_set_Lx(self, arg):
         """Set Lx scan length."""
         p=self.get_parent()
@@ -4153,7 +4406,6 @@ class CommandDispatcher:
             print(f"Lx={Lx}")
         except:
             print("lx failed.")
-
     def handle_set_Ly(self, arg):
         """Set Ly scan length."""
         p=self.get_parent()
@@ -4162,7 +4414,6 @@ class CommandDispatcher:
             print(f"Ly={Ly}")
         except:
             print("ly failed.")
-
     def handle_set_Lz(self, arg):
         """Set Lz scan length."""
         p=self.get_parent()
@@ -4171,7 +4422,6 @@ class CommandDispatcher:
             print(f"Lz={Lz}")
         except:
             print("lz failed.")
-
     def handle_save_history(self, arg=None):
         """Save command history and '>' macros to files. Optional suffix: savehist <suffix>"""
         import json, os
@@ -4188,7 +4438,6 @@ class CommandDispatcher:
             print(f"History and macros saved to: {hist_fn}, {macro_fn}")
         except Exception as e:
             print(f"savehistory failed: {e}")
-
     def handle_load_history(self, arg):
         """Load command history and '>' macros from files. Optional suffix: loadhist <suffix>"""
         import json, os
@@ -4207,7 +4456,6 @@ class CommandDispatcher:
             print(f"History and macros loaded from: {hist_fn}, {macro_fn}")
         except Exception as e:
             print(f"loadhistory failed: {e}")
-
     def handle_del_history(self, arg):
         """Clears command history and '>' macros (memory) and deletes files. Optional suffix: delhist <suffix>"""
         import os, json
@@ -4232,7 +4480,6 @@ class CommandDispatcher:
             except Exception as e:
                 print(f"Failed to delete {fn}: {e}")
         return
-
     def handle_save_processed_image(self, arg):
         """Save processed image from Zelux."""
         p=self.get_parent()
@@ -4248,7 +4495,6 @@ class CommandDispatcher:
                 print(f"Image saved as {fn}")
         except:
             print("sv failed.")
-
     def handle_list_windows(self, arg):
         """List all DPG windows."""
         items = dpg.get_all_items()
@@ -4256,7 +4502,6 @@ class CommandDispatcher:
         print("DPG Windows:")
         for alias,item in wins:
             print(f" {alias} shown={dpg.is_item_shown(item)}")
-
     def handle_show_window(self, arg):
         """Show a DPG window."""
         t=arg.strip()
@@ -4264,7 +4509,6 @@ class CommandDispatcher:
             dpg.show_item(t); print(f"{t} shown.")
         else:
             print(f"{t} not found.")
-
     def handle_hide_window(self, arg):
         """Hide a DPG window."""
         t=arg.strip()
@@ -4272,7 +4516,6 @@ class CommandDispatcher:
             dpg.hide_item(t); print(f"{t} hidden.")
         else:
             print(f"{t} not found.")
-
     def handle_copy_scan_position(self, arg):
         """Copy OPX initial scan Location to clipboard."""
         try:
@@ -4284,7 +4527,6 @@ class CommandDispatcher:
             print(f"Copied {s}")
         except:
             print("scpos failed.")
-
     def handle_set_exposure(self, arg):
         """Set Zelux camera exposure."""
         try:
@@ -4297,7 +4539,6 @@ class CommandDispatcher:
             print(f"Exposure {actual:.1f} ms")
         except:
             print("exp failed.")
-
     def handle_display_slices(self, arg):
         """
         Run Z-slices viewer.
@@ -4392,7 +4633,7 @@ class CommandDispatcher:
                 print(f"Opening latest TIFF: {latest}")
 
                 # launch the existing viewer
-                subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", str(latest)])
+                subprocess.Popen([sys.executable, "Utils/python_displayer.py", str(latest)])
                 return
 
             if arg_clean == "temp":
@@ -4647,7 +4888,7 @@ class CommandDispatcher:
                 out_path = latest.parent / out_name
                 if _imwrite_16(out_path, out):
                     print(f"Average written: {out_path}")
-                    subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", str(out_path)])
+                    subprocess.Popen([sys.executable, "Utils/python_displayer.py", str(out_path)])
                 else:
                     print(f"Failed to write avg TIF: {out_path}")
                 return
@@ -4692,7 +4933,7 @@ class CommandDispatcher:
                 matches.sort(key=lambda m: m.stat().st_mtime, reverse=True)
                 target = matches[0]
                 print(f"Opening match: {target}")
-                subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", str(target)])
+                subprocess.Popen([sys.executable, "Utils/python_displayer.py", str(target)])
                 return
 
 
@@ -4704,12 +4945,11 @@ class CommandDispatcher:
                     print("No last loaded file found or could not resolve it. "
                           "Check 'MoveSubfolderInput' and that the file exists under the 'scan' folder.")
                     return
-                subprocess.Popen([sys.executable, "Utils/display_all_z_slices_with_slider.py", resolved_fn])
-                # subprocess.Popen(["python", "Utils/display_all_z_slices_with_slider.py", fn])
+                subprocess.Popen([sys.executable, "Utils/python_displayer.py", resolved_fn])
+                # subprocess.Popen(["python", "Utils/python_displayer.py", fn])
                 print("Displaying slices from file.")
         except Exception as e:
             print(f"disp failed: {e}")
-
     def handle_set_integration_time(self, arg):
         """Set/query integration time (ms).  Usage: 'int <ms>' or 'int ?'"""
         import re
@@ -4737,7 +4977,6 @@ class CommandDispatcher:
             self.handle_update_note(f"!Int {ms} ms")
         except Exception as e:
             print(f"int failed: {e}")
-
     def handle_nextrun(self, arg):
         """
         Enable or disable devices in system_info.xml:
@@ -4794,7 +5033,6 @@ class CommandDispatcher:
             print(f"{friendly} {state} for next run.")
         except Exception as e:
             print(f"Failed to process 'nextrun': {e}")
-
     def handle_help(self, arg: str | None = None):
         """Show help with searchable command list; 'help <cmd>' opens that command."""
         # Local imports to avoid module-level deps if you embed this function somewhere else
@@ -5059,7 +5297,6 @@ class CommandDispatcher:
             _show_detail_for(initial_cmd)
         else:
             _help_set_list([k for k, _ in index])
-
     def _help_search(self):
         """Callback for help lookup."""
         query = dpg.get_value("help_search_input").strip().lower()
@@ -5079,7 +5316,6 @@ class CommandDispatcher:
                 print("  " + line)
         else:
             print(f"No commands matching '{query}' found.")
-
     def handle_wait(self, arg):
         """Delay subsequent commands by <ms> then execute them."""
         # arg: "<ms> cmd1;cmd2;cmd3"
@@ -5106,7 +5342,6 @@ class CommandDispatcher:
 
         threading.Thread(target=_delayed_runner, daemon=True).start()
         print(f"Started background wait for {ms}ms... deferring {remaining}")
-
     def handle_ocr(self, arg):
         """Perform OCR and set XYZ fields."""
         p=self.get_parent()
@@ -5122,7 +5357,6 @@ class CommandDispatcher:
                     print(f"{ch}:{v:.2f}")
         except:
             print("ocr failed.")
-
     def handle_go(self, arg):
         """Move one or all axes: go, go0, go1, go2."""
         p=self.get_parent()
@@ -5134,7 +5368,6 @@ class CommandDispatcher:
         for ax in axes:
             p.smaractGUI.move_absolute(None,None,ax)
         print(f"Moved axes {axes}.")
-
     def handle_move0(self, arg):
         """Move axis0 (X) by the specified delta."""
         self._move_delta(0,arg)
@@ -5153,7 +5386,6 @@ class CommandDispatcher:
     def handle_moveZ(self, arg):
         """move Z axis by the specified delta."""
         self._move_delta(2,arg)
-
     def _move_delta(self, axis, arg):
         p=self.get_parent()
         try:
@@ -5162,7 +5394,6 @@ class CommandDispatcher:
             print(f"Axis {axis} moved by {amount*1e-6:.2f} um")
         except Exception as e:
             print(f"move{axis} failed {e}.")
-
     def handle_open_lastdir(self, arg):
         """With no arg: act as lastdir (copy last_scan_dir.txt).
         With a filepath: copy its folder and open it in Explorer."""
@@ -5202,7 +5433,6 @@ class CommandDispatcher:
             subprocess.Popen(["explorer", folder])
         except Exception as e:
             print(f"dir failed: {e}")
-
     def handle_detect_and_draw(self, arg):
         """Detect pillars and draw them."""
         p=self.get_parent()
@@ -5226,7 +5456,6 @@ class CommandDispatcher:
             print(f"Detected {len(centres)} pillars.")
         except Exception as e:
             print(f"det failed: {e}")
-
     def handle_fmax(self, arg):
         """Find max signal and update saved point."""
         p=self.get_parent()
@@ -5247,7 +5476,6 @@ class CommandDispatcher:
                 p.saved_query_points=pts
                 print(f"fmax updated point #{idx}: {pos}")
         threading.Thread(target=worker,daemon=True).start()
-
     def handle_kfmax(self, arg):
         """
         Sweep the Keysight AWG offset to find the maximum signal,
@@ -5286,7 +5514,6 @@ class CommandDispatcher:
                 print(f"kfmax updated point #{idx}: pos={pos}, offset={best_off}V")
 
         threading.Thread(target=worker, daemon=True).start()
-
     def handle_ntrack(self, arg):
         """
         Get or set tracking parameters.
@@ -5411,7 +5638,6 @@ class CommandDispatcher:
             print("ntrack: failed to set tracking integration time.")
 
         _show()
-
     def handle_copy_last_msg(self, arg):
         """Copy the last console message to the clipboard."""
         msgs = getattr(sys.stdout, "messages", [])
@@ -5424,7 +5650,6 @@ class CommandDispatcher:
             print(f"Copied to clipboard: {last}")
         except Exception as e:
             print(f"Copy failed: {e}")
-
     def handle_exit(self, arg):
         """Exit the application immediately."""
         print("Exiting application...")
@@ -5432,7 +5657,6 @@ class CommandDispatcher:
         dpg.stop_dearpygui()
         # terminate Python process
         os._exit(0)
-
     def handle_enablepp(self, arg):
         """Enable the pharos pulse picker (PP)."""
         p = self.get_parent()
@@ -5444,7 +5668,6 @@ class CommandDispatcher:
             print("Pharos pulse picker enabled.")
         except Exception as e:
             print(f"enablepp failed: {e}")
-
     def handle_pulsecount(self, arg):
         """Set the number of pulses per trigger: pulsecount <num>."""
         p = self.get_parent()
@@ -5460,7 +5683,6 @@ class CommandDispatcher:
             print(f"Pulse count set to {count}.")
         except Exception as e:
             print(f"pulsecount failed: {e}")
-
     def handle_focus(self, arg):
         """
         Run FindFocus (channel 2).
@@ -5519,7 +5741,6 @@ class CommandDispatcher:
                 print(f"focus failed: {e}")
 
         threading.Thread(target=worker, daemon=True).start()
-
     def _focus_plot(self, coords, signals):
         """Create/update a DPG window with Signal vs Z, marking the max point."""
         # Remove old window if it exists
@@ -5547,7 +5768,6 @@ class CommandDispatcher:
                 label="Max",
                 parent="focus_plot_y",
             )
-
     def handle_standby(self, arg):
         """Put the Pharos laser into standby mode."""
         p = self.get_parent()
@@ -5557,7 +5777,6 @@ class CommandDispatcher:
             print("Pharos: entered standby mode.")
         except Exception as e:
             print(f"standby failed: {e}")
-
     def handle_standby_query(self, arg):
         """Print yes if Pharos is currently in standby mode."""
         p = self.get_parent()
@@ -5578,7 +5797,6 @@ class CommandDispatcher:
                 print(f"pharos state is {state}")
         except Exception as e:
             print(f"standby? failed: {e}")
-
     def handle_execute(self, arg):
         """Reload last-selected Pharos preset and turn the laser on."""
         p = self.get_parent()
@@ -5592,7 +5810,6 @@ class CommandDispatcher:
             print("Pharos: laser turned ON.")
         except Exception as e:
             print(f"execute failed: {e}")
-
     def handle_enable_pharos_query(self, arg):
         """Print Pharos output status."""
         p = self.get_parent()
@@ -5604,7 +5821,6 @@ class CommandDispatcher:
             print(f"Pharos output enabled: {enabled}, output open: {open_}")
         except Exception as e:
             print(f"enable? failed: {e}")
-
     def handle_enable_pharos(self, arg=None):
         """Enable the Pharos laser output."""
         p = self.get_parent()
@@ -5617,7 +5833,6 @@ class CommandDispatcher:
             print("Pharos output enabled.")
         except Exception as e:
             print(f"enable failed: {e}")
-
     def handle_disable_pharos(self, arg):
         """Disable the Pharos laser output."""
         p = self.get_parent()
@@ -5626,7 +5841,6 @@ class CommandDispatcher:
             print("Pharos output disabled.")
         except Exception as e:
             print(f"disable failed: {e}")
-
     def handle_spot(self, arg, skip_restore=False):
         """Verify counter is on, camera is live, first MFF is down, second is up."""
         p = self.get_parent()
@@ -5718,12 +5932,10 @@ class CommandDispatcher:
                         fl.on_off_slider_callback(tag, val)
             threading.Timer(0.5, _restore).start()
             print("Scheduled exposure & flipper restore in 500ms.")
-
     def handle_spot1(self, arg):
         """Same as spot, but do NOT restore after saving."""
         # call handle_spot with skip_restore=True
         self.handle_spot(arg, skip_restore=True)
-
     def handle_lens_toggle(self, arg):
         """
         Toggle the second MFF (MFF #2) between UP and DOWN.
@@ -5751,13 +5963,11 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Lens toggle failed: {e}")
-
     def handle_scanmv(self, arg):
         """Start a thread to monitor scan status and move files when done."""
         t = threading.Thread(target=self._watch_scan_and_move, args=(arg,), daemon=True)
         t.start()
         print("Watching scan progress...")
-
     def _watch_scan_and_move(self, arg):
         """
         Waits until scan is done (i.e., Stop button disappears),
@@ -5773,7 +5983,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"[watch_scan_and_move] Error: {e}")
-
     def handle_restore(self, arg):
         """Restore SmarAct absolute positions from <initial_scan_Location> in OPX_params.xml."""
         try:
@@ -5807,7 +6016,6 @@ class CommandDispatcher:
                     print(f"Tag not found: {tag}")
         except Exception as e:
             print(f"Failed to restore positions: {e}")
-
     def handle_keysight_offset(self, arg):
         """
         Set the Keysight AWG offset for one or both channels.
@@ -5878,7 +6086,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Failed to set offset(s): {e}")
-
     def handle_kabs(self, arg):
         """
         Set absolute AWG offsets based on either micron positions or direct voltages.
@@ -6010,7 +6217,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Failed to set kabs offset(s): {e}")
-
     def handle_kx(self, arg):
         """
         Shift both AWG channels for X-axis motion.
@@ -6108,7 +6314,6 @@ class CommandDispatcher:
             self.handle_mark("k")
         except Exception as e:
             print(f"Failed to perform kx: {e}")
-
     def handle_ky(self, arg):
         """
         Shift both AWG channels for Y-axis motion.
@@ -6189,7 +6394,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"Failed to perform ky: {e}")
-
     def handle_lf(self, arg):
         """
         LightField / ProEM utilities.
@@ -6325,11 +6529,9 @@ class CommandDispatcher:
 
         else:
             print(f"lf: unknown subcommand '{sub}'. Try: 'lf roi' or 'lf inf'.")
-
     def handle_clear_console(self, arg=None):
         dpg.set_value("console_log", "")  # Replace with your console tag
         print("Console cleared.")
-
     def mark_proem_pixel(self, px: int | None = None, py: int | None = None):
         """
         Mark a ProEM pixel in the plot.
@@ -6409,7 +6611,6 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"mark_proem_pixel error: {e}")
-
     def handle_revive_app(self, arg=None):
         """
         Soft-revive the GUI if a long callback/scan left things unresponsive.
@@ -6522,7 +6723,6 @@ class CommandDispatcher:
             print("[revive] done. If UI still looks frozen, try 'reload opx' or 'reload hrs'.")
         except Exception as e:
             print(f"[revive] unexpected error: {e}")
-
     def handle_reset_smaract(self, arg: str):
         """
         Usage:
@@ -6577,7 +6777,6 @@ class CommandDispatcher:
                   f"X={start_um[0]:.2f} µm, Y={start_um[1]:.2f} µm, Z={start_um[2]:.2f} µm")
         except Exception as e:
             print(f"reset smaract failed: {e}")
-
     def handle_show(self, arg):
         """
         show commands:
@@ -6589,17 +6788,41 @@ class CommandDispatcher:
           show app
           show wave
           show macro
+          show map
+          show coup
         """
         import json, os
         sub = (arg or "").strip()
+
         if not sub:
             print(
-                "Usage: show config | show cmd | show <opx|disp|awg|cld|cob|femto|hrs|kdc|smaract|zelux|wave|app> | show wrap <cld|zelux|cob|smaract|hrs|wave> | show map clib")
+                "Usage: show config | show cmd | show <opx|disp|awg|cld|cob|femto|hrs|kdc|smaract|zelux|wave|app> | "
+                "show wrap <cld|zelux|cob|smaract|hrs|wave> | show map clib | show macro | show coup"
+            )
             return
 
         toks = sub.split()
         key = toks[0].lower()
         base_dir = _dispatcher_base_dir(self)
+
+        # ----- show coup (open coup_state.json used by coup save/load) -----
+        if key == "coup":
+            try:
+                # Same directory used by coup macros / state
+                try:
+                    coup_dir = DEFAULT_COUP_DIR
+                except NameError:
+                    coup_dir = r"c:\WC\HotSystem\Utils\macro"
+
+                state_path = os.path.join(coup_dir, "coup_state.json")
+                if not os.path.exists(state_path):
+                    print(f"[show coup] State file not found: {state_path}")
+                    return
+
+                _open_path(os.path.abspath(state_path))
+            except Exception as e:
+                print(f"[show coup] Failed to open coup state file: {e}")
+            return
 
         # ----- show macro (list macro .txt files and open selected) -----
         # show macro 3 -> opens item #3
@@ -6654,7 +6877,6 @@ class CommandDispatcher:
                 print(f"[show macro] Unexpected error: {e}")
             return
 
-
         if key in ("wave", "wavemeter"):
             try:
                 _open_path(os.path.join(base_dir, r"HW_GUI\GUI_wavemeter.py"))
@@ -6693,12 +6915,28 @@ class CommandDispatcher:
             return
 
         # ----- show map clib (or calib) -----
+        # ----- show map -----            # NEW (header comment tweak)
         if key == "map":
+            # No args -> open the map image in the default app                 # NEW
+            if len(toks) == 1 or (len(toks) >= 2 and toks[1].lower() in ("img", "image", "jpg")):  # NEW
+                try:  # NEW
+                    _open_path(r"C:\WC\HotSystem\map.jpg")  # NEW
+                except Exception as e:  # NEW
+                    print(f"[show map] Failed to open map image: {e}")  # NEW
+                return  # NEW
+
+            submap = toks[1].lower()  # NEW
+            # Support calibration JSON (accept: calibration | calib | clib)    # NEW
+            if submap in ("calibration", "calib", "clib"):  # NEW
+                _open_path(os.path.join(base_dir, r"Utils\map_calibration.json"))  # NEW
+                return  # NEW
+
             if len(toks) >= 2 and toks[1].lower() in ("calibration", "calib"):
                 _open_path(os.path.join(base_dir, r"Utils\map_calibration.json"))
                 return
-            print("Usage: show map clib")
-            return
+
+            print("Usage: show map [img|calib]")  # NEW
+            return  # NEW
 
         # ----- show hist / history (print + open files, optional suffix) -----
         if key in ("hist", "history"):
@@ -6756,7 +6994,6 @@ class CommandDispatcher:
                 return
 
         print(f"[show] Unknown subcommand: {sub}")
-
     def handle_collapse(self, arg: str):
         """Collapse instrument windows: zelux / hrs / cobolt / cld / all.
            Examples:
@@ -6832,7 +7069,6 @@ class CommandDispatcher:
 
         if total == 0:
             print("[collapse] Nothing collapsed.")
-
     def handle_expand(self, arg: str):
         """Expand instrument windows: zelux / hrs / cobolt / cld / all.
            Examples:
@@ -6900,7 +7136,6 @@ class CommandDispatcher:
 
         if total == 0:
             print("[expand] Nothing expanded.")
-
     def handle_hist(self, arg: str):
         """Bind a '>' macro from a history line number.
            Usage:
@@ -6945,7 +7180,6 @@ class CommandDispatcher:
 
         self.cmd_macros[key] = body
         print(f"Saved macro '>{key}': {body!r}")
-
     def handle_sym(self, arg: str):
         """
         sym start            – launch AutoSym on current ZeluxGUI
@@ -7499,7 +7733,6 @@ class CommandDispatcher:
         print("Usage: sym start | sym stop | sym status | sym reset | "
               "sym carrier X,Y | sym car X,Y | sym c X,Y | "
               "sym flattop [r=0.22 edge=0.06 init=80 more=15 thr=0.10 maxit=40 seed=1]")
-
     def handle_g(self, arg: str):
         """
         g [X,Y]
@@ -7561,18 +7794,15 @@ class CommandDispatcher:
             print(f"g: wrote grating with carrier=({cx:.3f}, {cy:.3f}) to {OUT_BMP}")
         except Exception as e:
             print(f"g: write failed: {e}")
-
     def handle_coupx(self, *args):
         """Move along U by N coupons."""
-        n = int(args[0]) if args and str(args[0]).strip() else 1
+        n = float(args[0]) if args and str(args[0]).strip() else 1
         return self._coupon_move(axis="u", n=n)
-
     def handle_coupy(self, *args):
         """Move along V by N coupons."""
-        n = int(args[0]) if args and str(args[0]).strip() else 1
+        n = float(args[0]) if args and str(args[0]).strip() else 1
         return self._coupon_move(axis="v", n=n)
-
-    def _coupon_move(self, axis: str, n: int):
+    def _coupon_move(self, axis: str, n: float):
         """
         axis: 'u' -> ch0 (U axis, 80 µm per coupon)
               'v' -> ch1 (V axis, 70 µm per coupon)
@@ -7600,13 +7830,13 @@ class CommandDispatcher:
         direction = +1.0 if n >= 0 else -1.0
         mag_um = coupon_um * abs(n)
 
-        dpg.set_value(f"{gui.prefix}_ch2_Cset", 2.5)
+        angle_deg = float(getattr(self, "_coupon_angle_deg", CHIP_ANGLE))
+        dpg.set_value(f"{gui.prefix}_ch2_Cset", angle_deg)
 
         # set widget value so move_uv picks it up as if you typed it
 
         wid = f"{gui.prefix}_ch{ch}_Cset"
         dpg.set_value(wid, float(mag_um))
-
 
         # call the existing handler (coarse=True)
         try:
@@ -7617,7 +7847,6 @@ class CommandDispatcher:
         except Exception as e:
             print(f"coupon move failed: {e}")
             return False
-
     def _get_spc_handles(self):
         """Best-effort grab of (evt, running_flag_ref, exp_obj) for waiting."""
         # CommandDispatcher -> parent -> hrs_500_gui.dev._exp
@@ -7639,7 +7868,6 @@ class CommandDispatcher:
         except Exception:
             pass
         return evt if isinstance(evt, threading.Event) else None, owner, exp
-
     def _wait_spc_done(self, min_quiet_ms=600, hard_timeout_s=900):
         """
         Wait until SPC is done using multiple signals:
@@ -7697,19 +7925,16 @@ class CommandDispatcher:
                     quiet_start = None
 
             time.sleep(0.05)
-
     def _get_coupon_center_uv(self):
         """Return saved (U,V) center in µm; default (16,28)."""
         if not hasattr(self, "_coupon_center_uv") or not isinstance(self._coupon_center_uv, (tuple, list)) or len(
                 self._coupon_center_uv) != 2:
             self._coupon_center_uv = (16.0, 28.0)
         return float(self._coupon_center_uv[0]), float(self._coupon_center_uv[1])
-
     def _set_coupon_center_uv(self, u_um: float, v_um: float):
         """Save (U,V) center in µm."""
         self._coupon_center_uv = (float(u_um), float(v_um))
         print(f"[coup] center saved: U={u_um:.3f} µm, V={v_um:.3f} µm")
-
     def _read_current_position_um(self):
         """
         Try to read current position µm from the Smaract GUI (parent.smaractGUI).
@@ -7723,8 +7948,7 @@ class CommandDispatcher:
         y_value = pos[1] * 1e-6
         z_value = pos[2] * 1e-6
         return x_value, y_value, z_value
-
-    def handle_coup(self, *args):
+    def handle_coup(self, *args, nested: bool = False):
         """
         coup stop                -> request cancellation
         coup status              -> print running/idle
@@ -7732,12 +7956,123 @@ class CommandDispatcher:
         coup bottom left [<label>]        -> ask (or use <label>) and move to bottom-left coupon (NORM4<letter>)
         coup bot left [<label>]           -> same as bottom left
         coup corner [<label>]             -> same as bottom left
-        coup shiftx                       -> move to next array along U (uses coupx 3.5)
-        coup shifty                       -> move to next array along V (uses coupy 4.5)
-        coup center   -> set reference center or move to nearest coupon center
+        coup shiftx [factor|set <val>]    -> move to next array along U (uses COUP_SHIFT_X_FACTOR, default 5)
+        coup shifty [factor|set <val>]    -> move to next array along V (uses COUP_SHIFT_Y_FACTOR, default 5.43)
+        coup center [set|<U> <V>]         -> set reference center or move to nearest coupon center
+        coup angle set                    -> store current axis-2 angle as chip angle
+        coup save                         -> save coupon angle & center to disk
+        coup load [<state.json>]          -> load state (default coup_state.json if no file given)
         """
 
-        import threading, os, math
+        import threading, os, math, shlex, re, json
+
+        # Auto-detect nested context: if we're already inside the running coup thread,
+        # treat this invocation as nested even if the caller forgot to pass nested=True.
+        try:
+            if not nested:
+                cur = threading.current_thread()
+                if getattr(self, "_coup_active_evt", None) and self._coup_active_evt.is_set():
+                    if cur is getattr(self, "_coup_thread", None):
+                        nested = True
+        except Exception:
+            pass
+
+        use_shift = False
+
+        def _is_coup_busy() -> bool:
+            try:
+                return bool(getattr(self, "_coup_active_evt", None)) and self._coup_active_evt.is_set()
+            except Exception:
+                return False
+        def _get_coup_state_path() -> str:
+            """Return full path for coup state file, ensuring base dir exists."""
+            try:
+                base_dir = DEFAULT_COUP_DIR
+            except NameError:
+                base_dir = r"c:\WC\HotSystem\Utils\macro"
+            try:
+                os.makedirs(base_dir, exist_ok=True)
+            except Exception:
+                pass
+            return os.path.join(base_dir, STATE_FILENAME)
+        def _coup_save_state(extra_named_copy: bool = False) -> bool:
+            """Save angle, center, and shift factors to JSON. Returns True/False."""
+            import json
+
+            # Angle: use stored coupon angle if present, else fall back to CHIP_ANGLE
+            try:
+                angle_deg = float(getattr(self, "_coupon_angle_deg", CHIP_ANGLE))
+            except Exception:
+                angle_deg = float(CHIP_ANGLE)
+
+            # Round to 1 decimal (e.g. -2.29999 -> -2.3)
+            angle_deg_rounded = round(angle_deg, 1)
+
+            # Center: read from your existing reference storage
+            try:
+                u_ref, v_ref = self._get_coupon_center_uv()
+            except Exception as e:
+                print(f"[coup] save: cannot read coupon center UV: {e}")
+                return False
+
+            # Shift factors: per-instance, with constants as defaults
+            try:
+                shift_x = float(getattr(self, "_coup_shift_x_factor", COUP_SHIFT_X_FACTOR))
+            except Exception:
+                shift_x = float(COUP_SHIFT_X_FACTOR)
+            try:
+                shift_y = float(getattr(self, "_coup_shift_y_factor", COUP_SHIFT_Y_FACTOR))
+            except Exception:
+                shift_y = float(COUP_SHIFT_Y_FACTOR)
+
+            # Chip name (optional)
+            chip_name = str(getattr(self, "_chip_name", "") or "").strip()
+
+            # Chip inverted flag (optional)
+            chip_inverted = bool(getattr(self, "_chip_inverted", False))
+
+            state = {
+                "angle_deg": angle_deg_rounded,
+                "center_u_um": float(u_ref),
+                "center_v_um": float(v_ref),
+                "shift_x_factor": shift_x,
+                "shift_y_factor": shift_y,
+                "chip_name": chip_name,
+            }
+
+            path = _get_coup_state_path()
+            ok = True
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(state, f, indent=2)
+                print(
+                    f"[coup] save: angle={angle_deg_rounded:.1f}°, "
+                    f"center=(U={u_ref:.3f}, V={v_ref:.3f}) µm, "
+                    f"shiftX={shift_x:.3f}, shiftY={shift_y:.3f} -> '{path}'"
+                    f"chip='{chip_name}' -> '{path}'"
+                )
+            except Exception as e:
+                print(f"[coup] save: failed to write '{path}': {e}")
+                return False
+
+            # Optional per-chip extra copy: coup_state_<chip_name>.json
+            if extra_named_copy:
+                if not chip_name:
+                    print("[coup] save name: chip_name not set; use 'chip name <name>' first.")
+                    return ok
+
+                base_dir = os.path.dirname(path)
+                safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", chip_name)
+                named_path = os.path.join(base_dir, f"coup_state_{safe_name}.json")
+                try:
+                    with open(named_path, "w", encoding="utf-8") as f:
+                        json.dump(state, f, indent=2)
+                    print(f"[coup] save name: also wrote '{named_path}'")
+                except Exception as e:
+                    print(f"[coup] save name: failed to write '{named_path}': {e}")
+                    ok = False
+
+            return ok
 
         # --- ensure events exist (compat with _coup_abort_evt / _coup_cancel) ---
         if not hasattr(self, "_coup_active_evt") or not isinstance(getattr(self, "_coup_active_evt"), threading.Event):
@@ -7751,23 +8086,130 @@ class CommandDispatcher:
             print("Usage: coup [shiftx|shifty|stop|status|<steps.txt>]")
             return False
 
-        import shlex
-        # Turn args into a clean token list (handles: "shiftx -1", quoting, etc.)
+        # Turn args into a clean token list (handles quoting)
         try:
             tokens = shlex.split(" ".join(str(a) for a in args))
         except Exception:
             tokens = [str(a).strip() for a in args if str(a).strip()]
 
         if not tokens:
-            print("Usage: coup [shiftx [factor]|shifty [factor]|loop|loop noshift|loop1|stop|status|<steps>]")
+            print("Usage: coup [shiftx [factor]|shifty [factor]|stop|status|<steps>]")
             return False
 
         sub = tokens[0].lower()
 
+        # --- coup save/load: persist coupon angle + center ---
+        if sub == "save":
+            # `coup save`      -> normal save
+            # `coup save name` -> normal save + per-chip copy
+            extra_named_copy = len(tokens) >= 2 and tokens[1].lower() == "name"
+            _coup_save_state(extra_named_copy=extra_named_copy)
+            return True
+        if sub == "load":
+            # Optional: coup load <file_name>
+            # - No argument  -> default coup_state.json via _get_coup_state_path()
+            # - With argument -> resolve relative to DEFAULT_COUP_DIR (or fallback), default .json extension
+            if len(tokens) >= 2 and tokens[1].strip():
+                raw_name = tokens[1].strip().strip('"').strip("'")
+
+                # Add .json if no extension given
+                fname = raw_name
+                if not os.path.splitext(fname)[1]:
+                    fname = fname + ".json"
+
+                # If no directory given, look in the coup/macro dir
+                if not os.path.isabs(fname) and not os.path.dirname(fname):
+                    try:
+                        base_dir = DEFAULT_COUP_DIR
+                    except NameError:
+                        base_dir = r"c:\WC\HotSystem\Utils\macro"
+                    path = os.path.join(base_dir, fname)
+                else:
+                    path = fname
+            else:
+                # Default behavior: load the main coup_state.json
+                path = _get_coup_state_path()
+
+            if not os.path.isfile(path):
+                print(f"[coup] load: state file not found: '{path}'.")
+                return False
+
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            except Exception as e:
+                print(f"[coup] load: failed to read '{path}': {e}")
+                return False
+
+            try:
+                angle_deg = float(state["angle_deg"])
+                u_ref = float(state["center_u_um"])
+                v_ref = float(state["center_v_um"])
+            except Exception as e:
+                print(f"[coup] load: invalid core data in '{path}': {e}")
+                return False
+
+            # Optional shift factors
+            shift_x = state.get("shift_x_factor", None)
+            shift_y = state.get("shift_y_factor", None)
+
+            # Optional chip name
+            chip_name = state.get("chip_name", "")
+            if chip_name is not None:
+                self._chip_name = str(chip_name).strip()
+
+            # Optional chip inverted flag
+            chip_inverted = state.get("chip_inverted", False)
+            self._chip_inverted = bool(chip_inverted)
+
+            # Apply angle
+            self._coupon_angle_deg = angle_deg
+
+            # Apply center
+            try:
+                self._set_coupon_center_uv(u_ref, v_ref)
+            except Exception as e:
+                print(f"[coup] load: failed to set center: {e}")
+                return False
+
+            # Apply shift factors if present
+            if shift_x is not None:
+                try:
+                    self._coup_shift_x_factor = float(shift_x)
+                except Exception:
+                    print(f"[coup] load: warning: invalid shift_x_factor '{shift_x}' in state; ignoring.")
+            if shift_y is not None:
+                try:
+                    self._coup_shift_y_factor = float(shift_y)
+                except Exception:
+                    print(f"[coup] load: warning: invalid shift_y_factor '{shift_y}' in state; ignoring.")
+
+            # Reflect loaded angle into GUI axis-2 (best-effort)
+            try:
+                gui = getattr(self.get_parent(), "smaractGUI", None)
+                if gui is not None:
+                    try:
+                        dpg.set_value(f"{gui.prefix}_ch2_Cset", angle_deg)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            print(
+                f"[coup] load: restored angle={angle_deg:.3f}°, "
+                f"center=(U={u_ref:.3f}, V={v_ref:.3f}) µm, "
+                f"shiftX={getattr(self, '_coup_shift_x_factor', COUP_SHIFT_X_FACTOR):.3f}, "
+                f"shiftY={getattr(self, '_coup_shift_y_factor', COUP_SHIFT_Y_FACTOR):.3f}, "
+                f"chip='{getattr(self, '_chip_name', '')}' "
+                f"inverted={getattr(self, '_chip_inverted', False)} "
+                f"from '{path}'."
+            )
+            return True
+
+        # --- non-blocking commands ---
         if sub == "status":
             print("[coup] running" if self._coup_active_evt.is_set() else "[coup] idle")
             return True
-
         if sub == "stop":
             # signal all known cancel flags
             try:
@@ -7798,18 +8240,81 @@ class CommandDispatcher:
                 pass
             print("[coup] stop requested.")
             return True
+        # --- coup angle: set coupon chip angle from current axis-2 position ---
+        if sub == "angle":
+            if len(tokens) >= 2 and tokens[1].lower() == "set":
+                # Find the GUI_Smaract instance
+                gui = getattr(self.get_parent(), "smaractGUI", None)
+                if gui is None:
+                    print("[coup] angle set: Smaract GUI not available (expected at parent.smaractGUI).")
+                    return False
+
+                # Try to read current axis-2 angle from GUI widgets
+                angle_val = None
+                try:
+                    # Adjust the widget id to whatever you actually use for axis-2 current angle
+                    angle_val = dpg.get_value(f"{gui.prefix}_ch2_Cset")
+                    angle_val = round(float(angle_val), 3)
+                except Exception as e:
+                    print(f"[coup] angle set: failed to read axis-2 angle: {e}")
+                    return False
+
+                try:
+                    self._coupon_angle_deg = float(angle_val)
+                except Exception as e:
+                    print(f"[coup] angle set: invalid angle value '{angle_val}': {e}")
+                    return False
+
+                print(f"[coup] angle set: chip angle now {self._coupon_angle_deg:.3f}° "
+                      f"(taken from axis-2 current position).")
+                _coup_save_state()
+                return True
+
+            # Usage/help if someone just types `coup angle`
+            print("[coup] angle: use 'coup angle set' to store current axis-2 as chip angle.")
+            return False
+        # --- coup inv set: mark chip as inverted and save ---
+        if sub == "inv":
+            if len(tokens) >= 2 and tokens[1].lower() == "set":
+                self._chip_inverted = True
+                print("[coup] inv set: chip is now marked as inverted (chip_inverted=True).")
+
+                # Auto-save state (like angle/center/shift setters)
+                _coup_save_state()
+                return True
+
+            print("Usage: coup inv set")
+            return False
+
+        # --- SINGLE busy guard (applies only to top-level invocations) ---
+        non_blocking = {"status", "stop", "save", "load", "angle"}
+        if (sub not in non_blocking) and _is_coup_busy() and not nested:
+            print("[coup] already running.")
+            return False
 
         # --- coup center: set reference center or move to nearest coupon center ---
         if sub == "center":
-            # Spacing & angle (you can expose setters later if needed)
+            # Spacing & angle
             COUPON_U_UM = 80.0
             COUPON_V_UM = 70.0
-            if not hasattr(self, "_coupon_angle_deg"):
-                self._coupon_angle_deg = 2.5  # small skew so right-neighbor ~ (95.9, 31.48) from (16,28)
 
-            # Parse optional args: "center 16,28" | "center 16 28"
+            if not hasattr(self, "_coupon_angle_deg"):
+                self._coupon_angle_deg = CHIP_ANGLE  # skew so right-neighbor ~ (95.9, 31.48) from (16,28)
+
+            # Parse optional args: "center set" | "center 16,28" | "center 16 28"
             u_set = v_set = None
             if len(tokens) >= 2:
+                if tokens[1].strip().lower() == "set":
+                    try:
+                        u_cur, v_cur, _ = self._read_current_position_um()
+                        self._set_coupon_center_uv(u_cur, v_cur)
+                        print(f"[coup] center: reference set to current position (U={u_cur:.3f}, V={v_cur:.3f}) µm.")
+                        _coup_save_state()
+                        return True
+                    except Exception as e:
+                        print(f"[coup] center set: {e}")
+                        return False
+                # otherwise try explicit numeric U,V
                 rest = " ".join(tokens[1:]).replace(",", " ").split()
                 if len(rest) == 2:
                     try:
@@ -7818,8 +8323,9 @@ class CommandDispatcher:
                     except ValueError:
                         print("[coup] center: invalid numbers. Use: coup center <U>, <V>")
                         return False
-                else:
-                    print("[coup] center: provide both U and V or no args. Example: coup center 16, 28")
+                elif len(rest) > 0:
+                    print("[coup] center: provide both U and V, 'set', or no args. Examples: "
+                          "coup center 16, 28 | coup center set | coup center")
                     return False
 
             # Setter mode
@@ -7843,20 +8349,18 @@ class CommandDispatcher:
             dUx, dUy = COUPON_U_UM * cos_t, COUPON_U_UM * sin_t
             dVx, dVy = -COUPON_V_UM * sin_t, COUPON_V_UM * cos_t
 
-            # One-array vectors (3.5 U coupons, 4.5 V coupons)
+            # One-array vectors (3.75 U coupons, 5 V coupons)
             aUx, aUy = 3.75 * dUx, 3.75 * dUy
             aVx, aVy = 5 * dVx, 5 * dVy
 
-            # Search ranges:
-            # - arrays: a,b ∈ [-2..2] (expand if you shift many arrays)
-            # - coupons: i,j ∈ [-2..2] around each array
+            # Search ranges: arrays a,b ∈ [-2..2]; coupons i,j ∈ [-2..2]
             best = None
-            for a in range(-2, 3):  # arrays along U
-                for b in range(-2, 3):  # arrays along V
+            for a in range(-4, 4):
+                for b in range(-4, 4):
                     base_x = u_ref + a * aUx + b * aVx
                     base_y = v_ref + a * aUy + b * aVy
-                    for i in range(-2, 3):  # coupons along U
-                        for j in range(-2, 3):  # coupons along V
+                    for i in range(-2, 3):
+                        for j in range(-2, 3):
                             cx = base_x + i * dUx + j * dVx
                             cy = base_y + i * dUy + j * dVy
                             dist2 = (cx - u_cur) ** 2 + (cy - v_cur) ** 2
@@ -7870,11 +8374,18 @@ class CommandDispatcher:
             # Relative move via your _move_delta in µm
             du = cx - u_cur
             dv = cy - v_cur
+            print(f"du = {du}, dv = {dv}")
+
+            MAX_JUMP = 60.0
+            if abs(du) > MAX_JUMP or abs(dv) > MAX_JUMP:
+                print(f"[coup] center: exceeds {MAX_JUMP} µm per-axis limit (du={du:.3f}, dv={dv:.3f}).")
+                return False
+
             try:
                 if abs(du) > 1e-6:
-                    self._move_delta(0, du)  # arg in µm
+                    self._move_delta(0, du)
                 if abs(dv) > 1e-6:
-                    self._move_delta(1, dv)  # arg in µm
+                    self._move_delta(1, dv)
             except Exception as e:
                 print(f"[coup] center: move failed: {e}")
                 return False
@@ -7882,28 +8393,51 @@ class CommandDispatcher:
             print(f"[coup] center: moved from (U={u_cur:.3f}, V={v_cur:.3f}) to (U={cx:.3f}, V={cy:.3f}).")
             return True
 
-
-        # --- array-shift helpers (accept optional factor) ---
+        # --- array-shift helpers (accept optional factor and 'set' mode) ---
         if sub in ("shiftx", "shifty"):
-            # default multiplier is +1.0
+            # Setter mode: `coup shiftx set 5` or `coup shifty set 5.43`
+            if len(tokens) >= 3 and tokens[1].lower() == "set":
+                try:
+                    new_val = float(tokens[2])
+                except ValueError:
+                    print(f"[coup] {sub} set: invalid value '{tokens[2]}', expected a number.")
+                    return False
+
+                if sub == "shiftx":
+                    self._coup_shift_x_factor = new_val
+                else:
+                    self._coup_shift_y_factor = new_val
+
+                print(f"[coup] {sub} set: factor now {new_val:.3f} coupons.")
+                _coup_save_state()
+                return True
+
+            # Move mode: optional numeric factor -> value * base step
             factor = 1.0
             if len(tokens) > 1 and tokens[1]:
                 try:
                     factor = float(tokens[1])
                 except ValueError:
-                    print(f"[coup] invalid factor '{tokens[1]}', expected a number (e.g., -1, 0.5, 2).")
+                    print(f"[coup] invalid factor '{tokens[1]}', expected a number (e.g., -1, 0.5, 2) "
+                          f"or 'set <value>'.")
                     return False
 
-            step = 3.75 if sub == "shiftx" else 5
-            n = step * factor
+            # Per-instance factors, with constants as defaults
+            base_step_x = float(getattr(self, "_coup_shift_x_factor", COUP_SHIFT_X_FACTOR))
+            base_step_y = float(getattr(self, "_coup_shift_y_factor", COUP_SHIFT_Y_FACTOR))
+            step = base_step_x if sub == "shiftx" else base_step_y
+
             axis = "u" if sub == "shiftx" else "v"
+            n = step * factor
 
             ok = self._coupon_move(axis=axis, n=n)
-            print(f"[coup] {sub} factor={factor} -> move {n:+.3f} coupons on {axis.upper()} "
-                  f"({'done' if ok else 'failed'}).")
+            print(
+                f"[coup] {sub} factor={factor:.3f} (base={step:.3f}) -> move {n:+.3f} coupons on {axis.upper()} "
+                f"({'done' if ok else 'failed'})."
+            )
             return ok
 
-        # --- bottom-left aliases ---
+        # --- corner/bottom-left + inverted-corner aliases ---
         def _label_to_rc(label: str):
             """
             Map label -> (row, col, letter) on a 4x3 grid:
@@ -7911,15 +8445,27 @@ class CommandDispatcher:
               Row2: NORM2L  3L  4L
               Row3: NORM3L  5L  6L
               Row4: NORM4L  7L  8L
+
+            Supported labels:
+              NORM1L, NORM2L, ..., NORM4L
+              NORM1, NORM2, ..., NORM4    (letter defaults to 'L')
+              1L..8L
+              1..8                        (letter defaults to 'L')
             """
             s = label.strip().upper()
-            m = re.fullmatch(r"NORM([1-4])([A-Z])", s)
+
+            # NORM row: NORM1L / NORM1
+            m = re.fullmatch(r"NORM([1-4])([A-Z])?", s)
             if m:
-                return int(m.group(1)), 1, m.group(2)
-            m = re.fullmatch(r"([1-8])([A-Z])", s)
+                row = int(m.group(1))
+                letter = m.group(2) or "L"
+                return row, 1, letter  # NORM column is col=1
+
+            # Numeric coupon: 1L..8L or bare 1..8 (default letter L)
+            m = re.fullmatch(r"([1-8])([A-Z])?", s)
             if m:
                 num = int(m.group(1))
-                letter = m.group(2)
+                letter = m.group(2) or "L"
                 table = {
                     1: (1, 2), 2: (1, 3),
                     3: (2, 2), 4: (2, 3),
@@ -7928,27 +8474,53 @@ class CommandDispatcher:
                 }
                 r, c = table[num]
                 return r, c, letter
-            raise ValueError(f"Unrecognized coupon label '{label}'. Use like 'NORM3L' or '5L'.")
 
-        def _move_to_bottom_left_from_label(label: str) -> bool:
+            raise ValueError(f"Unrecognized coupon label '{label}'. Use like 'NORM3L', 'NORM1', '5L' or '5'.")
+        def _move_to_corner_from_label(label: str, inverted: bool = False) -> bool:
             r, c, letter = _label_to_rc(label)
-            target_r, target_c = 4, 1  # bottom-left = NORM4<letter>
 
-            dU = target_c - c  # columns -> U axis
-            dV = target_r - r  # rows    -> V axis
-            print(f"[coup] from {label.upper()} (r{r},c{c}) → bottom-left NORM4{letter} (ΔU={dU}, ΔV={dV})")
+            # Always move to bottom-left NORM4L (row 4, col 1),
+            # even when inverted. For INV we just reverse the direction.
+            target_r = 4
+            target_c = 1
+
+            # Base deltas from current (r,c) to NORM4L
+            base_dU = target_c - c  # columns -> U axis
+            base_dV = target_r - r  # rows    -> V axis
+
+            if inverted:
+                dU = -base_dU
+                dV = -base_dV
+            else:
+                dU = base_dU
+                dV = base_dV
+
+            tag = "INV" if inverted else "STD"
+            print(
+                f"[coup] corner({tag}): from {label.upper()} (r{r},c{c}) → NORM4L "
+                f"(ΔU={dU}, ΔV={dV})"
+            )
 
             ok_u = True if dU == 0 else self._coupon_move(axis="u", n=dU)
             ok_v = True if dV == 0 else self._coupon_move(axis="v", n=dV)
             return bool(ok_u and ok_v)
 
         bl_aliases = {"bottom left", "bot left", "bottom-left", "bottomleft", "corner"}
+        inv_aliases = {"inv", "neg", "-", "flipud"}  # 180° rotation helpers
         first_two = " ".join([t.lower() for t in tokens[:2]]) if len(tokens) >= 2 else sub
 
-        if sub in bl_aliases or first_two in bl_aliases:
-            # label can be provided as the next token; otherwise prompt
+        # Detect 'corner inv/neg/-/flipud' specifically
+        is_corner = (sub in bl_aliases) or (first_two in bl_aliases)
+        if is_corner:
+            inverted = False
+            label_token_start = 1
+            if sub == "corner" and len(tokens) >= 2 and tokens[1].lower() in inv_aliases:
+                inverted = True
+                label_token_start = 2  # label comes after the inv keyword
+
+            # label can be provided as the next token after any optional inv keyword; otherwise prompt
             provided = None
-            for t in tokens[1:]:
+            for t in tokens[label_token_start:]:
                 ts = str(t).strip()
                 if ts:
                     provided = ts
@@ -7958,18 +8530,15 @@ class CommandDispatcher:
                 if not label:
                     print("[coup] no label provided.")
                     return False
-                moved = _move_to_bottom_left_from_label(label)
-                print("[coup] bottom-left move done." if moved else "[coup] bottom-left move failed.")
+                moved = _move_to_corner_from_label(label, inverted=inverted)
+                print(f"[coup] corner move {'(inverted) ' if inverted else ''}done."
+                      if moved else f"[coup] corner move {'(inverted) ' if inverted else ''}failed.")
                 return moved
             except Exception as e:
-                print(f"[coup] bottom-left: {e}")
+                print(f"[coup] corner: {e}")
                 return False
 
-
-
-
-        # file-driven mode: coup <steps.txt>
-        # accept .txt/.cmd/.lst/.seq files; strip quotes; check existence
+        # --- steps-file mode detection (supports bare numbers like `coup 5` -> "5.txt") ---
         cand_path = sub.strip('"').strip("'")
         allowed_exts = (".txt", ".cmd", ".lst", ".seq")
 
@@ -7979,12 +8548,10 @@ class CommandDispatcher:
 
         # Resolve default dir if user passed only a filename (no folder)
         def _resolve_macro_path(p: str) -> str:
-            # absolute or has a directory? use as-is
             if os.path.isabs(p) or os.path.dirname(p):
                 return p
-            # bare filename: try default directory
             try:
-                base_dir = DEFAULT_COUP_DIR  # <- constant defined above
+                base_dir = DEFAULT_COUP_DIR
             except NameError:
                 base_dir = r"c:\WC\HotSystem\Utils\macro"
             return os.path.join(base_dir, p)
@@ -7992,19 +8559,14 @@ class CommandDispatcher:
         if any(cand_path.lower().endswith(ext) for ext in allowed_exts):
             resolved = _resolve_macro_path(cand_path)
             if not os.path.isfile(resolved):
-                # If not found in default dir, final fallback: original path (in case caller used relative CWD)
+                # Fallback to original path in case caller used relative CWD
                 if os.path.isfile(cand_path):
                     resolved = cand_path
                 else:
-                    print(f"[coup] steps file not found: '{cand_path}'. "
-                          f"Tried: '{resolved}'.")
+                    print(f"[coup] steps file not found: '{cand_path}'. Tried: '{resolved}'.")
                     return False
 
-            if self._coup_active_evt.is_set():
-                print("[coup] already running.")
-                return False
-
-            # clear cancel flags and launch
+            # Clear cancel flags (even when nested — nested runs can still be canceled)
             try:
                 self._coup_abort_evt.clear()
             except Exception:
@@ -8014,6 +8576,7 @@ class CommandDispatcher:
             except Exception:
                 pass
 
+            # Parse steps
             try:
                 steps = self._parse_coup_steps_file(resolved)
                 if not steps:
@@ -8023,39 +8586,59 @@ class CommandDispatcher:
                 print(f"[coup] failed to read steps file '{resolved}': {e}")
                 return False
 
-            self._coup_thread = threading.Thread(
-                target=self._coup_loop_from_steps,
-                kwargs={"steps": steps, "wait_for_spc": True},
-                daemon=True
-            )
+            # If we're already inside a coup run (nested), execute INLINE
+            if nested:
+                print(f"[coup] running nested steps inline from '{resolved}'.")
+                try:
+                    self._coup_loop_from_steps(steps=steps, wait_for_spc=True)
+                    return True
+                except Exception as e:
+                    print(f"[coup] nested steps failed: {e}")
+                    return False
+
+            # Top-level launch (busy was already checked once above)
+            def _run():
+                try:
+                    self._coup_active_evt.set()
+                    self._coup_loop_from_steps(steps=steps, wait_for_spc=True)
+                finally:
+                    try:
+                        self._coup_active_evt.clear()
+                    except Exception:
+                        pass
+
+            self._coup_thread = threading.Thread(target=_run, daemon=True)
             self._coup_thread.start()
             print(f"[coup] steps from '{resolved}' started in background (use 'coup stop' to cancel).")
             return True
 
-        if self._coup_active_evt.is_set():
-            print("[coup] already running.")
-            return False
+        # --- fallback: start the generic loop (no steps file) ---
+        if nested:
+            # Inline nested run (no new thread, no busy toggle)
+            print(f"[coup] nested loop start (mode={'shift' if use_shift else 'plain'}).")
+            try:
+                self._coup_loop_from_steps(use_shift=use_shift)
+                return True
+            except Exception as e:
+                print(f"[coup] nested loop failed: {e}")
+                return False
 
-        # clear cancel flags and launch
-        try:
-            self._coup_abort_evt.clear()
-        except Exception:
-            pass
-        try:
-            self._coup_cancel.clear()
-        except Exception:
-            pass
+        # Top-level fallback loop in background (busy already checked once)
+        def _run_loop():
+            try:
+                self._coup_active_evt.set()
+                self._coup_loop_from_steps(use_shift=use_shift)
+            finally:
+                try:
+                    self._coup_active_evt.clear()
+                except Exception:
+                    pass
 
-        self._coup_thread = threading.Thread(
-            target=self._coup_loop_from_steps,
-            kwargs={"use_shift": use_shift},
-            daemon=True
-        )
+        self._coup_thread = threading.Thread(target=_run_loop, daemon=True)
         self._coup_thread.start()
         print(
             f"[coup] loop started in background (mode={'shift' if use_shift else 'plain'}; use 'coup stop' to cancel).")
         return True
-
     def _parse_coup_steps_file(self, path: str):
         """
         Read a steps file and return a flat list of commands.
@@ -8080,7 +8663,6 @@ class CommandDispatcher:
                 parts = [p.strip() for p in line.split(";") if p.strip()]
                 steps.extend(parts)
         return steps
-
     def _wait_spc_done_or_abort(self, poll_ms=100, hard_timeout_s=120):
         """
         Wait until SPC thread signals done OR a stop is requested OR timeout.
@@ -8101,7 +8683,6 @@ class CommandDispatcher:
             if evt.wait(timeout=poll_ms / 1000.0):  # finished
                 return True
         return False
-
     def _run_one_cmd(self, cmd: str) -> bool:
         if self._coup_abort_evt.is_set():
             print(f"[coup] aborted before '{cmd}'")
@@ -8135,7 +8716,6 @@ class CommandDispatcher:
                 print("[coup] stop/timeout during 'spc shift' wait.")
                 return False
         return True
-
     def _coup_loop_from_steps(self, use_shift: bool = True, steps: str = "", wait_for_spc: bool = True):
         self._coup_active_evt.set()
         try:
@@ -8164,7 +8744,6 @@ class CommandDispatcher:
             print("[coup] loop complete.")
         finally:
             self._coup_active_evt.clear()
-
     def _resolve_cgh_utils_path(self, override: str | None = None) -> Path | None:
         """Locate cgh_fullscreen.py inside a Utils folder (or use explicit override)."""
         if override:
@@ -8181,7 +8760,6 @@ class CommandDispatcher:
             if p.exists():
                 return p
         return None
-
     def handle_cgh(self, *args):
         """
         Usage:
@@ -8192,18 +8770,187 @@ class CommandDispatcher:
         """
         args = list(args)
 
-        # kill
-        if args and str(args[0]).lower() == "--kill":
-            if getattr(self, "_cgh_proc", None) and self._cgh_proc.poll() is None:
+        # normalize subcommand (status/kill/play/p)
+        sub = str(args[0]).lower() if args else ""
+        is_status = sub in {"--status", "status"}
+        is_kill = sub in {"--kill", "kill"}
+        is_play = sub in {"p", "play"}
+        is_stop  = sub in {"--stop", "stop"}
+
+
+        if is_status:
+            proc = getattr(self, "_cgh_proc", None)
+            if proc and proc.poll() is None:
+                print(f"[cgh] running (pid={proc.pid}) via handle.")
+                self._refocus_cmd_input()
+                return True
+
+            # pidfile fallback (if you added the helpers earlier)
+            try:
+                pid = _read_pidfile()
+                if pid and _proc_is_alive(pid):
+                    print(f"[cgh] running (pid={pid}) via pidfile.")
+                    self._refocus_cmd_input()
+                    return True
+            except Exception:
+                pass
+
+            print("[cgh] not running.")
+            self._refocus_cmd_input()
+            return True
+
+        if is_kill:
+            # robust kill for DETACHED GUI: try terminate -> then taskkill /T /F
+            def _force_kill_tree(pid: int):
                 try:
-                    self._cgh_proc.terminate()
-                    print("[cgh] sent terminate to fullscreen CGH process.")
+                    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                    return True
+                except Exception:
+                    return False
+
+            proc = getattr(self, "_cgh_proc", None)
+            if proc and proc.poll() is None:
+                pid = proc.pid
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+
+                # small grace
+                for _ in range(15):
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(0.1)
+
+                if proc.poll() is None:
+                    _force_kill_tree(pid)
+
+                if proc.poll() is None:
+                    print("[cgh] force-terminate attempted; process may still be shutting down.")
+                else:
+                    print("[cgh] terminated fullscreen CGH process.")
+
+                self._cgh_proc = None
+                try: _clear_pidfile()
+                except Exception: pass
+                self._refocus_cmd_input()
+                return True
+
+            # pidfile fallback
+            try:
+                pid = _read_pidfile()
+            except Exception:
+                pid = None
+
+            if pid:
+                _ = _force_kill_tree(pid)
+                # verify
+                out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True)
+                if str(pid) not in out.stdout:
+                    print(f"[cgh] terminated fullscreen CGH process by pid={pid}.")
+                else:
+                    print(f"[cgh] could not terminate pid={pid}.")
+                try: _clear_pidfile()
+                except Exception: pass
+                self._refocus_cmd_input()
+                return True
+
+            print("[cgh] no running fullscreen CGH process.")
+            self._refocus_cmd_input()
+            return True
+
+        if is_play:
+            # 1) Is the app running already? (prefer window check; fallback to handle/pidfile)
+            running = bool(_find_cgh_hwnd("SLM CGH"))
+            proc = getattr(self, "_cgh_proc", None)
+            if not running:
+                if proc and proc.poll() is None:
+                    running = True
+                else:
+                    try:
+                        pid = _read_pidfile()
+                        if pid and _proc_is_alive(pid):
+                            running = True
+                    except Exception:
+                        pass
+
+            # 2) If not running, launch it (same flags as your normal 'cgh' launch)
+            if not running:
+                script_path = self._resolve_cgh_utils_path(None)
+                if not script_path:
+                    print("[cgh] could not find Utils/cgh_fullscreen.py (use 'cgh --path <file.py>')")
+                    self._refocus_cmd_input()
+                    return False
+
+                creationflags = 0
+                startupinfo = None
+                popen_kwargs = {}
+                if os.name == "nt":
+                    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                else:
+                    popen_kwargs["start_new_session"] = True
+
+                cmd = [sys.executable, "-u", str(script_path)]
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=str(script_path.parent),
+                        creationflags=creationflags,
+                        startupinfo=startupinfo,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                        **popen_kwargs
+                    )
+                    self._cgh_proc = proc
+                    try: _write_pidfile(proc.pid)
+                    except Exception: pass
+                    print(f"[cgh] launched: {cmd}  (pid={proc.pid})")
                 except Exception as e:
-                    print(f"[cgh] terminate failed: {e}")
-                finally:
-                    self._cgh_proc = None
+                    print(f"[cgh] launch failed: {e}")
+                    self._refocus_cmd_input()
+                    return False
+
+                # wait briefly for the window to appear
+                _wait_for_cgh_window(timeout_s=3.0, window_title="SLM CGH")
+                time.sleep(5)
+
+            # 3) Send 'p' to start playback
+            ok = _send_key_p_to_cgh_window("SLM CGH")
+            if ok:
+                print("[cgh] sent 'p' to SLM CGH window (play).")
             else:
-                print("[cgh] no running fullscreen CGH process.")
+                # last-chance: small extra wait then retry once
+                if _wait_for_cgh_window(timeout_s=1.0, window_title="SLM CGH") and _send_key_p_to_cgh_window("SLM CGH"):
+                    print("[cgh] sent 'p' after window appeared (play).")
+                else:
+                    print("[cgh] could not find 'SLM CGH' window to send 'p'. Is CGH running?")
+
+            self._refocus_cmd_input()
+            return True
+
+        if is_stop:
+            # Create the control flag so the CGH process stops playback and shows CORR_BMP
+            try:
+                flag = r"C:\WC\HotSystem\Utils\cgh_stop.flag"
+                os.makedirs(os.path.dirname(flag), exist_ok=True)
+                with open(flag, "w", encoding="utf-8") as f:
+                    f.write("stop")
+                print("[cgh] stop requested → STOP flag written. CGH will switch to CORR_BMP (zero-order).")
+            except Exception as e:
+                print(f"[cgh] failed to write STOP flag: {e}")
+
+            # Optional: nudge the window to process messages (no quit)
+            try:
+                _poke_cgh_window("SLM CGH")
+            except Exception:
+                pass
+
+            # Do NOT kill or quit the process here.
+            self._refocus_cmd_input()
             return True
 
         # optional --path and extra args after --
@@ -8220,15 +8967,22 @@ class CommandDispatcher:
         script_path = self._resolve_cgh_utils_path(override)
         if not script_path:
             print("[cgh] could not find Utils/cgh_fullscreen.py (use 'cgh --path <file.py>')")
+            self._refocus_cmd_input()
             return False
 
         # detached spawn
         creationflags = 0
         startupinfo = None
+        popen_kwargs = {}
+
         if os.name == "nt":
+            # New process group to allow CTRL_BREAK; hide window
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        else:
+            # POSIX: new session so we can signal the group if needed
+            popen_kwargs["start_new_session"] = True
 
         cmd = [sys.executable, "-u", str(script_path), *extra]
         try:
@@ -8237,17 +8991,20 @@ class CommandDispatcher:
                 cwd=str(script_path.parent),
                 creationflags=creationflags,
                 startupinfo=startupinfo,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                stdout=subprocess.DEVNULL,  # don't pipe if you won't read
+                stderr=subprocess.DEVNULL,
+                **popen_kwargs
             )
             self._cgh_proc = proc
+            _write_pidfile(proc.pid)
             print(f"[cgh] launched: {cmd}  (pid={proc.pid})")
+            self._refocus_cmd_input()
             return True
+
         except Exception as e:
             print(f"[cgh] launch failed: {e}")
+            self._refocus_cmd_input()
             return False
-
     def handle_negative(self, *args):
         """
         Repeat the last command with all numeric arguments sign-inverted.
@@ -8268,24 +9025,187 @@ class CommandDispatcher:
         except Exception as e:
             print(f"[2] failed: {e}")
             return False
-
     def handle_wv(self, *args):
         """
             wv ?         -> print current wavelength (nm)
             wave ?       -> same as above
             wv bifi move [pos] -> move BIFI to optional [pos] and execute move
             wv bifi up             -> lower BIFI by 100; if |Δλ|>0.1 nm, lower another 100
+            wv exp                 -> print current exposure (ms)
+            wv exp +               -> increase exposure by 0.5 ms
         """
-        import time
         # Normalize args like the rest of your handlers do
         arg = " ".join(a for a in args if isinstance(a, str)).strip()
         toks = arg.split()
         p = self.get_parent()
 
+        import time as _time
+
+        def _read_wavelength_nm_with_autoexp(max_adj: int = 5):
+            """
+            Try to read wavelength (nm). If status is 'over' or 'under', auto-tweak exposure:
+              - 'over'  -> Expo.1 -= 1 ms; if still 'over' on the next read, also Expo.2 -= 1 ms
+              - 'under' -> Expo.1 += 1 ms
+            Wait 1 s after each tweak and retry. Up to max_adj total adjustments.
+            Returns (lam_nm, status) where status is None on success or one of:
+              'over','under','badsig','nosig','noval','nowlm','autoexp_exhausted','error:<msg>'
+            """
+            wwrap = getattr(p, "wlm_gui", None)
+            if wwrap is None or getattr(wwrap, "_dev", None) is None:
+                return None, "nowlm"
+
+            w = wwrap._dev  # your HighFinesseWLM (ms API)
+            dev = getattr(w, "_device", None)  # pylablib WLM (seconds API)
+
+            # Track whether we already adjusted sensor 1 on the immediately previous loop
+            last_adjusted_s1 = False
+
+            def _get_status_or_value():
+                if dev is not None:
+                    with w.lock:
+                        return dev.get_wavelength(error_on_invalid=False, wait=False)
+                # fallback to wrapper (will raise on invalid; treat that as error)
+                return w.get_wavelength()
+
+            def _tweak_s1(delta_ms: float):
+                """Use wrapper (ms API) for sensor 1."""
+                cur = float(w.get_exposure() or 10.0)  # ms
+                new = max(1.0, min(60000.0, cur + delta_ms))
+                w.set_exposure(new)  # wrapper converts to seconds for driver
+                print(f"[wv] Auto-adjust Expo.1: {cur:.1f} → {new:.1f} ms")
+
+            def _tweak_s2_down_1ms():
+                """Use driver (seconds API) for sensor 2 ('2+'); allow reaching 0 ms."""
+                if dev is None:
+                    return False
+                try:
+                    with w.lock:
+                        # driver getters return seconds
+                        try:
+                            e2_s = dev.get_exposure(sensor=2)  # seconds
+                        except Exception:
+                            lst = dev.get_exposure(sensor="all")  # list of seconds
+                            e2_s = float(lst[1]) if (lst and len(lst) > 1) else None
+                        if e2_s is None:
+                            return False
+                        new_s = max(0.0, e2_s - 0.001)  # allow 0 ms (0.0 s)
+                        dev.set_exposure(new_s, sensor=2)
+                    print(f"[wv] Auto-adjust Expo.2+: {e2_s * 1e3:.1f} → {new_s * 1e3:.1f} ms")
+                    return True
+                except Exception as ee:
+                    print(f"[wv] Expo.2+ adjust failed: {ee}")
+                    return False
+
+            for _ in range(max_adj + 1):
+                try:
+                    v = _get_status_or_value()
+                except Exception as e:
+                    return None, f"error:{e}"
+
+                if isinstance(v, str):
+                    if v == "over":
+                        # First try: adjust sensor 1 down by 1 ms
+                        if not last_adjusted_s1:
+                            try:
+                                _tweak_s1(-1.0)
+                                last_adjusted_s1 = True
+                            except Exception as ee:
+                                print(f"[wv] Expo.1 adjust failed: {ee}")
+                                return None, "over"
+                            _time.sleep(1.0)
+                            continue
+                        # Second consecutive 'over': also tweak 2+ down by 1 ms
+                        else:
+                            _tweak_s2_down_1ms()
+                            last_adjusted_s1 = False  # reset; next loop re-check status
+                            _time.sleep(1.0)
+                            continue
+
+                    if v == "under":
+                        try:
+                            _tweak_s1(+1.0)
+                            last_adjusted_s1 = False
+                        except Exception as ee:
+                            print(f"[wv] Expo.1 adjust failed: {ee}")
+                            return None, "under"
+                        _time.sleep(1.0)
+                        continue
+
+                    # other statuses: 'badsig','nosig','noval','nowlm'
+                    return None, v
+
+                # numeric wavelength (meters) → nm
+                return float(v) * 1e9, None
+
+            return None, "autoexp_exhausted"
+
         # ---- wavelength query ----
         if arg in ("", "?"):
-            lam_nm = p.wlm_gui._dev.get_wavelength() * 1e9
-            print(f"Wavelength: {lam_nm:.3f} nm")
+            lam_nm, status = _read_wavelength_nm_with_autoexp()
+            if status is None:
+                print(f"Wavelength: {lam_nm:.3f} nm")
+            elif status == "over":
+                print("Status: overexposed (auto-adjusted)")
+            elif status == "under":
+                print("Status: underexposed (auto-adjusted)")
+            else:
+                print(f"Status: {status}")
+            return
+
+        # ---- exposure commands ----
+        if len(toks) >= 1 and toks[0].lower() in ("exp", "exposure"):
+            wlm = getattr(p, "wlm_gui", None)
+            if wlm is None:
+                print("[wv exp] WLM wrapper not available.")
+                return
+
+            w = getattr(wlm, "_dev", None)  # your HighFinesseWLM wrapper
+
+            # --- direct-driver helpers (ms throughout) ---
+            def _read_exposure_ms() -> float | None:
+                try:
+                    return None if w is None else float(w.get_exposure())
+                except Exception as e:
+                    print(f"[wv exp] Wrapper read error: {e}")
+                    return None
+
+            def _write_exposure_ms(new_ms: float) -> bool:
+                new_ms = max(1.0, min(60000.0, float(new_ms)))  # clamp 1–60000 ms
+                try:
+                    w.set_exposure(new_ms)
+                    return True
+                except Exception as e:
+                    print(f"[wv exp] Wrapper write error: {e}")
+                    return False
+
+
+            # Query: wv exp
+            if len(toks) == 1:
+                exp_ms = _read_exposure_ms()
+                if exp_ms is None:
+                    print("[wv exp] Unable to read exposure.")
+                else:
+                    print(f"Exposure: {exp_ms:.3f} ms")
+                return
+
+            # Increment: wv exp +
+            if len(toks) == 2 and toks[1] == "+":
+                exp_ms = _read_exposure_ms()
+                if exp_ms is None:
+                    print("[wv exp] Unable to read current exposure; cannot increment.")
+                    return
+                new_ms = exp_ms + 1
+                if not _write_exposure_ms(new_ms):
+                    print("[wv exp] Failed to write exposure.")
+                    return
+                exp_ms2 = _read_exposure_ms()
+                if exp_ms2 is None:
+                    print(f"[wv exp] Set exposure to ~{new_ms:.3f} ms (read-back unavailable).")
+                else:
+                    print(f"[wv exp] Exposure: {exp_ms:.3f} → {exp_ms2:.3f} ms (+1.0 ms)")
+                return
+
+            print("Usage: wv exp  |  wv exp +")
             return
 
         # ---- bifi move ----
@@ -8338,7 +9258,9 @@ class CommandDispatcher:
                 settle_s = 0.5  # settle time between moves
 
                 # Baseline wavelength (nm)
-                lam0 = p.wlm_gui._dev.get_wavelength() * 1e9
+                lam0, st0 = _read_wavelength_nm_with_autoexp()
+                if st0 is not None:
+                    raise RuntimeError(f"[wv bifi up] Baseline failed: {st0}")
 
                 # Helper: get current BIFI position
                 def _get_bifi_pos():
@@ -8362,7 +9284,11 @@ class CommandDispatcher:
 
                     time.sleep(settle_s)
 
-                    lam = p.wlm_gui._dev.get_wavelength() * 1e9
+                    lam, st = _read_wavelength_nm_with_autoexp()
+                    if st is not None:
+                        print(f"[wv bifi up] Read status: {st}")
+                        break
+
                     dlam_total = abs(lam - lam0)
                     print(f"[wv bifi up save] iter {i}: pos {curr_pos:.0f} -> {target:.0f}, "
                           f"λ={lam:.3f} nm |Δλ_total|={dlam_total:.3f} nm")
@@ -8392,7 +9318,37 @@ class CommandDispatcher:
 
         # ---- bifi up (lower position by 100, check Δλ, maybe lower another 100) ----
         if len(toks) >= 2 and toks[0].lower() == "bifi" and toks[1].lower() == "up":
+            import time
             try:
+                # Optional: import pyvisa error if available
+                try:
+                    from pyvisa.errors import VisaIOError as _VisaIOError
+                except Exception:
+                    _VisaIOError = None
+
+                def _is_locked_error(e: Exception) -> bool:
+                    msg = str(e)
+                    return ("VI_ERROR_RSRC_LOCKED" in msg) or (
+                            _VisaIOError is not None and isinstance(e, _VisaIOError)
+                    )
+
+                def _retry(callable_, *, retries=3, base_delay=0.25, backoff=1.8, action_desc=""):
+                    """
+                    Retry helper for flaky VISA ops. Raises last exception if retries exhausted.
+                    """
+                    attempt = 0
+                    delay = base_delay
+                    while True:
+                        try:
+                            return callable_()
+                        except Exception as e:
+                            if not _is_locked_error(e) or attempt >= retries:
+                                raise
+                            attempt += 1
+                            print(f"[wv bifi up] {action_desc} locked; retry {attempt}/{retries} after {delay:.2f}s...")
+                            time.sleep(delay)
+                            delay *= backoff
+
                 mat_gui = getattr(p, "matisse_gui", None) or getattr(p, "mattise_gui", None)
                 if mat_gui is None:
                     print("[wv bifi up] Matisse GUI not available.")
@@ -8411,15 +9367,19 @@ class CommandDispatcher:
                 settle_s = 0.5
 
                 # Baseline wavelength (nm)
-                lam0 = p.wlm_gui._dev.get_wavelength() * 1e9
+                lam0, st0 = _read_wavelength_nm_with_autoexp()
+                if st0 is not None:
+                    raise RuntimeError(f"[wv bifi up] Baseline failed: {st0}")
 
                 # Helper: get current BIFI position
                 def _get_bifi_pos():
                     if hasattr(mat_gui.dev, "get_bifi_position"):
                         try:
-                            return float(mat_gui.dev.get_bifi_position())
-                        except Exception:
-                            pass
+                            return float(_retry(lambda: mat_gui.dev.get_bifi_position(),
+                                                action_desc="get BIFI position"))
+                        except Exception as e:
+                            if not _is_locked_error(e):
+                                pass  # fall through to UI value
                     try:
                         return float(dpg.get_value(f"BifiMoveTo_{mat_gui.unique_id}"))
                     except Exception:
@@ -8432,18 +9392,27 @@ class CommandDispatcher:
                 for i in range(1, max_iters + 1):
                     target = curr_pos - step_units
                     dpg.set_value(f"BifiMoveTo_{mat_gui.unique_id}", int(target))
-                    mat_gui.btn_move_bifi()
+
+                    # Moving BIFI may hit lock; retry it
+                    _retry(lambda: mat_gui.btn_move_bifi(), action_desc="move BIFI")
 
                     time.sleep(settle_s)  # brief settle
 
-                    lam = p.wlm_gui._dev.get_wavelength() * 1e9
+                    # Wavelength read can also hit lock; retry it
+                    lam, st = _read_wavelength_nm_with_autoexp()
+                    if st is not None:
+                        print(f"[wv bifi up] Read status: {st}")
+                        # if it's still not a number after auto-adjusts, break or continue as you prefer:
+                        # continue  # try next iteration
+                        # or:
+                        break
+
                     dlam_total = abs(lam - lam0)
                     dlam_step = abs(lam - prev_lam)
                     print(f"[wv bifi up] iter {i}: pos {curr_pos:.0f} -> {target:.0f}, "
-                          f"λ={lam:.3f} nm |dlambda_total|={dlam_total:.3f} nm")
+                          f"λ={lam:.3f} nm |dlambda_total|={dlam_total:.3f} nm (dstep={dlam_step:.3f} nm)")
 
                     curr_pos = target
-                    # stop if total change meets threshold
                     if dlam_total >= th_total_nm:
                         print(f"[wv bifi up] Reached total dlambda ≥ {th_total_nm:.3f} nm; stopping.")
                         reached_threshold = True
@@ -8455,7 +9424,7 @@ class CommandDispatcher:
                     print("[wv bifi up] Done. Total threshold not reached or early stop triggered.")
 
             except Exception as e:
-                print(f"[wv bifi up] Failed: {e}")
+                print(f"[wv bifi up] Failed after retries: {e}")
             return
 
         # ---- bifi min (go to fixed position 84000) ----
@@ -8473,8 +9442,7 @@ class CommandDispatcher:
                 print(f"[wv bifi min] Failed: {e}")
             return
 
-        print("Usage: wv ?  |  wave ?  |  wv bifi move [pos]")
-
+        print("Usage: wv ?  |  wave ?  |  wv bifi move [pos]  |  wv exp  |  wv exp +")
     def handle_plot(self, arg: str = ""):
         """
         plot                     -> choose a CSV and plot (wavelength[nm], intensity)
@@ -8680,7 +9648,55 @@ class CommandDispatcher:
         # fit axes
         dpg.fit_axis_data(xax)
         dpg.fit_axis_data(yax)
+    def handle_chip(self, *args):
+        """
+        chip commands:
+          chip name <the name>    -> set chip_name and save it into coup_state.json
+        """
+        import shlex
 
+        # Join all args into one string; dispatcher often passes a single "name foo" argument.
+        text = " ".join(str(a) for a in args).strip()
+        if not text:
+            print("Usage: chip name <chip-name>")
+            return False
+
+        try:
+            tokens = shlex.split(text)
+        except Exception:
+            tokens = text.split()
+
+        if not tokens:
+            print("Usage: chip name <chip-name>")
+            return False
+
+        sub = tokens[0].lower()
+        if sub != "name":
+            print("Usage: chip name <chip-name>")
+            return False
+
+        if len(tokens) < 2:
+            print("[chip] missing chip name. Usage: chip name <chip-name>")
+            return False
+
+        # Everything after 'name' is the chip name (so spaces are allowed: chip name NORM4 Lot42)
+        name = " ".join(tokens[1:]).strip()
+        if not name:
+            print("[chip] empty chip name not allowed.")
+            return False
+
+        # Store chip name
+        self._chip_name = name
+        print(f"[chip] name set to '{name}'")
+
+        # Persist it via coup save (normal save; no extra named copy here)
+        try:
+            self.handle_coup("save")
+        except Exception as e:
+            print(f"[chip] warning: failed to save coup state after setting name: {e}")
+            return False
+
+        return True
 
 # Wrapper function
 dispatcher = CommandDispatcher()

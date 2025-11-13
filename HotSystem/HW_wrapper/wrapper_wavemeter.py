@@ -55,6 +55,7 @@ class HighFinesseWLM(PeriodicUpdateMixin):  # pylint: disable=too-many-public-me
         simulation: bool = False,
         polling_rate: float | None = None,
         max_points: int = 10_000) -> None:
+        self._exposure_ms_cache: Optional[float] = None
         if index < 0:
             raise ValueError("index must be non-negative")
         super().__init__(polling_rate=polling_rate)
@@ -146,31 +147,66 @@ class HighFinesseWLM(PeriodicUpdateMixin):  # pylint: disable=too-many-public-me
 
     def get_frequency(self, channel: int = 0) -> float | None:
         """Return frequency [Hz]; ``None`` if unavailable."""
-        if self.simulation:
-            return self._simulated_frequency()
-        if not self._device:
-            return None
-        with self.lock:
-            return self._device.get_frequency()
+        try:
+            if self.simulation:
+                return self._simulated_frequency()
+            if not self._device:
+                return None
+            with self.lock:
+                return self._device.get_frequency()
+        except Exception as exc:
+            print(f"Error get frequency: {exc}")
+            pass
 
-    def set_exposure(self, exposure_ms: int, channel: int = 0) -> None:
+    def get_exposure(self, channel: int = 0) -> Optional[float]:
         """
-        Set CCD/diode exposure.
+        Return exposure in milliseconds; None if unavailable.
+        Converts driver value (seconds) to ms when a driver getter exists.
+        Falls back to cache otherwise.
+        """
+        if self.simulation:
+            return self._exposure_ms_cache if self._exposure_ms_cache is not None else 10.0
 
-        Raises
-        ------
-        ValueError
-            If *exposure_ms* is out of the 1–60000 ms safe range.
+        if not self._device:
+            return self._exposure_ms_cache
+
+        with self.lock:
+            # Try common getter names (driver likely returns seconds)
+            for name in ("get_exposure", "read_exposure", "get_exposure_time", "read_exposure_time"):
+                g = getattr(self._device, name, None)
+                if callable(g):
+                    try:
+                        val_s = g()
+                        if val_s is None:
+                            continue
+                        # assume seconds → convert to ms
+                        val_ms = float(val_s) * 1e3
+                        self._exposure_ms_cache = val_ms
+                        return val_ms
+                    except Exception:
+                        pass
+            # No driver getter → return cache
+            return self._exposure_ms_cache
+
+    def set_exposure(self, exposure_ms: float, channel: int = 0) -> None:
+        """
+        Set CCD/diode exposure in ms.
+        Driver expects seconds; we convert ms→s.
         """
         if not 1 <= exposure_ms <= 60_000:
             raise ValueError("exposure_ms must be 1–60000 ms")
 
+        # Update cache first so callers can read back immediately
+        self._exposure_ms_cache = float(exposure_ms)
+
         if self.simulation or not self._device:
-            _logger.debug("[SIM] set_exposure=%d", exposure_ms)
+            _logger.debug("[SIM] set_exposure=%.3f ms", exposure_ms)
             return
 
+        exp_s = float(exposure_ms) * 1e-3
         with self.lock:
-            self._device.set_exposure(exp_time=exposure_ms)
+            # If your driver requires a keyword, use: self._device.set_exposure(exp_time=exp_s)
+            self._device.set_exposure(exp_s)
 
     # ------------------------------------------------------------------
     # PeriodicUpdateMixin hook
