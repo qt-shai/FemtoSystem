@@ -3015,27 +3015,31 @@ class CommandDispatcher:
             print(f"Moved axis {axis} to {val:.3f}")
         except Exception as e:
             print(f"moveabs{axis} failed: {e}")
+
     def handle_save_and_down(self, arg):
-        """Save last_z and move Z to 11500 (relative move, no ABS widget)."""
+        """Save last_z and move Z down by a TOTAL of 10,000 µm in 2,000 µm steps (relative)."""
         p = self.get_parent()
         try:
             # Current Z in µm (AxesPositions are in meters)
             curr_um = p.smaractGUI.dev.AxesPositions[2] * 1e6
             p.smaractGUI.last_z_value = curr_um
 
-            target_um = 11500.0
-            dz_um = target_um - curr_um
+            step_um = 2000.0
+            total_um = 10000.0
+            n_steps = int(total_um // step_um)  # = 5
 
-            if abs(dz_um) < 1e-3:
-                print(f"Saved Z={curr_um:.2f} µm, already at target {target_um:.2f} µm (no move).")
-                return
+            print(f"Saved Z={curr_um:.2f} µm. Moving down {total_um:.0f} µm in {n_steps}×{step_um:.0f} µm steps…")
 
-            # Relative move on axis 2 in µm (no ABS widget)
-            self._move_delta(2, dz_um)
+            for i in range(1, n_steps + 1):
+                # Negative = "down". Flip sign if your axis convention is opposite.
+                self._move_delta(2, step_um)
+                print(f"  step {i}/{n_steps}: ΔZ = -{step_um:.0f} µm")
 
-            print(f"Saved Z={curr_um:.2f} µm, moved by ΔZ={dz_um:.2f} µm to ~{target_um:.2f} µm")
+            est_final = curr_um - total_um
+            print(f"Done. Estimated Z = {est_final:.2f} µm (moved total dZ = -{total_um:.0f} µm).")
         except Exception as e:
             print(f"down failed: {e}")
+
     def handle_up(self, arg):
         """Move Z to last saved value; 'up ?' prints it; 'up 1' or no saved -> Z=600 (relative)."""
         try:

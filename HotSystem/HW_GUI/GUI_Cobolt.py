@@ -138,10 +138,19 @@ class GUI_Cobolt():  # todo1: support several devices
 
             # Handles input power change
 
-    def cancel_auto_shut(self):
-        # called when user presses Cancel in the popup
-        self.auto_shut_cancelled = True
-        dpg.configure_item("AutoShutPopup", show=False)
+    def cancel_auto_shut(self, sender, app_data, user_data):
+        # completely turn off auto shut
+        if dpg.does_item_exist("AutoShutCheckbox"):
+            dpg.set_value("AutoShutCheckbox", False)
+
+        # reset all auto-shut state
+        self.auto_shut_target = None
+        self.auto_shut_warning_shown = False
+        self.auto_shut_warning_start = None
+        self.auto_shut_cancelled = False  # optional, depending on your logic
+
+        if dpg.does_item_exist("AutoShutPopup"):
+            dpg.configure_item("AutoShutPopup", show=False)
 
     def inputPower(self, app_data, user_data):
         try:

@@ -578,34 +578,37 @@ class PyGuiOverlay(Layer):
                                            f"Cobolt (mod. pwr mode): {Laser_power} mW (setpoint: {Laser_mod_power} mW)")
 
                     # ----------------- AUTO SHUT LOGIC -----------------
+                    g = self.coboltGUI
                     auto_shut_enabled = dpg.get_value("AutoShutCheckbox") if dpg.does_item_exist(
                         "AutoShutCheckbox") else False
 
                     if not auto_shut_enabled:
-                        # if user unchecked the box, clean everything up
-                        self.reset_auto_shut_state()
+                        # cleanup state if checkbox is off
+                        g.auto_shut_target = None
+                        g.auto_shut_warning_shown = False
+                        g.auto_shut_warning_start = None
+                        g.auto_shut_cancelled = False
                     else:
-                        # if enabled and we don't have a target yet, parse it
-                        if self.auto_shut_target is None and not self.auto_shut_cancelled:
-                            self.auto_shut_target = self.parse_auto_shut_time()
+                        if g.auto_shut_target is None and not g.auto_shut_cancelled:
+                            g.auto_shut_target = self.parse_auto_shut_time()
 
-                        if self.auto_shut_target is not None and not self.auto_shut_cancelled:
+                        if g.auto_shut_target is not None and not g.auto_shut_cancelled:
                             now = datetime.now()
 
-                            # time reached or passed
-                            if now >= self.auto_shut_target:
-                                # first time reaching the deadline -> show warning popup
-                                if not self.auto_shut_warning_shown:
-                                    self.auto_shut_warning_shown = True
-                                    self.auto_shut_warning_start = now
+                            if now >= g.auto_shut_target:
+                                if not g.auto_shut_warning_shown:
+                                    g.auto_shut_warning_shown = True
+                                    g.auto_shut_warning_start = now
                                     dpg.configure_item("AutoShutPopup", show=True)
                                 else:
-                                    # if popup already shown: wait 10 seconds, then stop if not cancelled
-                                    if (now - self.auto_shut_warning_start).total_seconds() >= 10:
-                                        # call your stop-scan command
-                                        run("stop")
-                                        # Prevent multiple calls
-                                        self.reset_auto_shut_state()
+                                    if (now - g.auto_shut_warning_start).total_seconds() >= 10:
+                                        # actually stop scan
+                                        run("stp")
+                                        # prevent re-trigger
+                                        g.auto_shut_target = None
+                                        g.auto_shut_warning_shown = False
+                                        g.auto_shut_warning_start = None
+                                        g.auto_shut_cancelled = False
 
             except Exception as e:
                 print(f"Cobolt render error: {e}")
