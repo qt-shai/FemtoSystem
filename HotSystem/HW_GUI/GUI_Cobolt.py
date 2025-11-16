@@ -15,6 +15,10 @@ class GUI_Cobolt():  # todo1: support several devices
         self.available_ports = []
         self.Port = []
         self.isConnected = False
+        self.auto_shut_target = None
+        self.auto_shut_warning_shown = False
+        self.auto_shut_warning_start = None
+        self.auto_shut_cancelled = False
         self.items_list = [  # List of controllable items to enable/disable
             "Turn_ON_OFF",
             "ON_OFF_Modulation",
@@ -84,6 +88,13 @@ class GUI_Cobolt():  # todo1: support several devices
                                             format='%.3f', width=30)
                         dpg.add_input_float(label="Set Mod. P(mW)", default_value=0, callback=self.inputModulationPower,
                                             tag="Modulation_power_input", format='%.3f', width=30)
+                    dpg.add_separator()
+                    dpg.add_checkbox(tag="AutoShutCheckbox", label="Auto shut")
+                    dpg.add_input_text(
+                        tag="AutoShutTimeInput",
+                        label="Auto shut at (HH:MM)",
+                        hint="23:15"
+                    )
 
                 # Column 4: Modulation settings
                 # with dpg.child_window(border = True):
@@ -93,6 +104,17 @@ class GUI_Cobolt():  # todo1: support several devices
                     dpg.add_checkbox(label="Digital Mod.", tag="Digital_Modulation_cbx", default_value=False)
                     with dpg.group(horizontal=True):
                         dpg.add_checkbox(label="ON/OFF Mod.", tag="ON_OFF_Modulation", default_value=False, callback=self.cbxON_OFF_MOdulation)
+
+                # Popup / modal for the warning:
+                with dpg.window(tag="AutoShutPopup",
+                                label="Auto shut",
+                                modal=True,
+                                show=False,
+                                no_move=True,
+                                no_resize=True,
+                                no_collapse=True):
+                    dpg.add_text("Cobolt laser is going to shut down")
+                    dpg.add_button(label="Cancel", callback=self.cancel_auto_shut)
 
         # Bind themes to the main window and controls
         # dpg.bind_item_theme(self.window_tag, win_theme)
@@ -115,6 +137,11 @@ class GUI_Cobolt():  # todo1: support several devices
             print(f"Error in cbxOnOffModulation: {e}")
 
             # Handles input power change
+
+    def cancel_auto_shut(self):
+        # called when user presses Cancel in the popup
+        self.auto_shut_cancelled = True
+        dpg.configure_item("AutoShutPopup", show=False)
 
     def inputPower(self, app_data, user_data):
         try:
