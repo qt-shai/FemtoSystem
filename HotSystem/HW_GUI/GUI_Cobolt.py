@@ -89,11 +89,12 @@ class GUI_Cobolt():  # todo1: support several devices
                         dpg.add_input_float(label="Set Mod. P(mW)", default_value=0, callback=self.inputModulationPower,
                                             tag="Modulation_power_input", format='%.3f', width=30)
                     dpg.add_separator()
-                    dpg.add_checkbox(tag="AutoShutCheckbox", label="Auto shut")
+                    dpg.add_checkbox(tag="AutoShutCheckbox", label="Auto shut",default_value=True)
                     dpg.add_input_text(
                         tag="AutoShutTimeInput",
                         label="Auto shut at (HH:MM)",
-                        hint="23:15"
+                        hint="19:00",
+                        default_value="19:00",
                     )
 
                 # Column 4: Modulation settings

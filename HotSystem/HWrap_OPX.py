@@ -69,6 +69,7 @@ from Common import show_msg_window
 from Common import Experiment
 
 matplotlib.use('qtagg')
+# matplotlib.use('Agg')
 
 def create_logger(log_file_path: str):
     log_file = open(log_file_path, 'w')

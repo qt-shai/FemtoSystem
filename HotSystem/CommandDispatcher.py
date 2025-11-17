@@ -52,9 +52,7 @@ from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
 # Font color: Alt + H F C
 # Paste as pic: Alt + H V U
 CHIP_ANGLE=-2.3
-# COUP_SHIFT_X_FACTOR=3.75
-COUP_SHIFT_X_FACTOR=5
-COUP_SHIFT_Y_FACTOR=5.43
+
 STATE_FILENAME = "coup_state.json"
 CONFIG_PATH = r"C:\WC\HotSystem\SystemConfig\xml_configs\system_info.xml"
 DEFAULT_COUP_DIR = r"c:\WC\HotSystem\Utils\macro"
@@ -278,8 +276,10 @@ class CommandDispatcher:
     eliminating any long if/elif chains.
     """
     def __init__(self):
-        # Map command verbs to handler methods
-        # self.proEM_mode = True
+        self._coup_shift_x_factor=5
+        self._coup_shift_y_factor=5.43
+        self._coupx_move_um = 80
+        self._coupy_move_um = 70
         self._last_cmd = None
         self._last_fq_idx = None
         self._cgh_proc = None  # track the fullscreen CGH process
@@ -434,6 +434,7 @@ class CommandDispatcher:
             "coupx":             self.handle_coupx,
             "coupy":             self.handle_coupy,
             "coup":              self.handle_coup,
+            "coupon":            self.handle_coupon,
             "cgh":               self.handle_cgh,
             "n":                 self.handle_negative,
             "wv":                self.handle_wv,
@@ -445,6 +446,9 @@ class CommandDispatcher:
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
+        # Disable unused experiments
+        # self.handle_disable("exp") # BUG HERE !!!
+        self.handle_coup("load")
     def get_parent(self):
         return getattr(sys.stdout, "parent", None)
     def _ensure_exec_ns(self):
@@ -3015,7 +3019,6 @@ class CommandDispatcher:
             print(f"Moved axis {axis} to {val:.3f}")
         except Exception as e:
             print(f"moveabs{axis} failed: {e}")
-
     def handle_save_and_down(self, arg):
         """Save last_z and move Z down by a TOTAL of 10,000 µm in 2,000 µm steps (relative)."""
         p = self.get_parent()
@@ -3039,7 +3042,6 @@ class CommandDispatcher:
             print(f"Done. Estimated Z = {est_final:.2f} µm (moved total dZ = -{total_um:.0f} µm).")
         except Exception as e:
             print(f"down failed: {e}")
-
     def handle_up(self, arg):
         """Move Z to last saved value; 'up ?' prints it; 'up 1' or no saved -> Z=600 (relative)."""
         try:
@@ -7798,55 +7800,131 @@ class CommandDispatcher:
             print(f"g: wrote grating with carrier=({cx:.3f}, {cy:.3f}) to {OUT_BMP}")
         except Exception as e:
             print(f"g: write failed: {e}")
-    def handle_coupx(self, *args):
-        """Move along U by N coupons."""
-        n = float(args[0]) if args and str(args[0]).strip() else 1
-        return self._coupon_move(axis="u", n=n)
-    def handle_coupy(self, *args):
-        """Move along V by N coupons."""
-        n = float(args[0]) if args and str(args[0]).strip() else 1
-        return self._coupon_move(axis="v", n=n)
-    def _coupon_move(self, axis: str, n: float):
+    def handle_coupx(self, arg: str = ""):
         """
-        axis: 'u' -> ch0 (U axis, 80 µm per coupon)
-              'v' -> ch1 (V axis, 70 µm per coupon)
-        n: coupon count (sign sets direction).
+        U-axis move.
+
+        Forms:
+          coupx <n>          -> move by <n> coupons
+          coupx <um> set     -> set default U move in micrometers (e.g. 'coupx 52.5 set', 'coupx 52.5um set')
+          coupx              -> move by stored default (1 coupon worth of µm)
         """
-        # --- find the GUI_Smaract instance ---
-        gui = getattr(self.get_parent(), "smaractGUI", None)
-        if gui is None:
-            print("Smaract GUI not available (expected at parent.smaractGUI or parent.cam)")
+        import shlex
+
+        text = (arg or "").strip()
+        # no args -> move by 1 coupon (using self._coupx_move_um)
+        if not text:
+            return self._coupon_move(axis="u", n=1.0)
+
+        try:
+            tokens = shlex.split(text)
+        except Exception:
+            tokens = text.split()
+
+        # SET MODE: "coupx 52.5 set" or "coupx 52.5um set"
+        if len(tokens) >= 2 and tokens[1].lower() == "set":
+            raw = tokens[0].lower().replace("um", "").replace("µm", "").strip()
+            try:
+                um = float(raw)
+            except Exception:
+                print("coupx set: expected something like 'coupx 52.5 set' or 'coupx 52.5um set'.")
+                return False
+
+            # store the per-call move in µm (i.e. one 'coupx' worth)
+            self._coupx_move_um = um
+            print(f"[coup] coupx set: default U move = {um:.3f} µm")
+            return True
+
+        # MOVE MODE: first token must be coupon count
+        try:
+            n_coupons = float(tokens[0])
+        except Exception:
+            print("coupx: expected number of coupons or 'coupx <um> set'.")
             return False
 
-        # Per-axis coupon size (µm)
-        COUPON_U_UM = 80.0  # X/U
-        COUPON_V_UM = 70.0  # Y/V
+        return self._coupon_move(axis="u", n=n_coupons)
+    def handle_coupy(self, arg: str = ""):
+        """
+        V-axis move.
+
+        Forms:
+          coupy <n>          -> move by <n> coupons
+          coupy <um> set     -> set default V move in micrometers (e.g. 'coupy 40 set', 'coupy 40um set')
+          coupy              -> move by stored default (1 coupon worth of µm)
+        """
+        import shlex
+
+        text = (arg or "").strip()
+        if not text:
+            return self._coupon_move(axis="v", n=1.0)
+
+        try:
+            tokens = shlex.split(text)
+        except Exception:
+            tokens = text.split()
+
+        # SET MODE
+        if len(tokens) >= 2 and tokens[1].lower() == "set":
+            raw = tokens[0].lower().replace("um", "").replace("µm", "").strip()
+            try:
+                um = float(raw)
+            except Exception:
+                print("coupy set: expected something like 'coupy 40 set' or 'coupy 40um set'.")
+                return False
+
+            self._coupy_move_um = um
+            print(f"[coup] coupy set: default V move = {um:.3f} µm")
+            return True
+
+        # MOVE MODE
+        try:
+            n_coupons = float(tokens[0])
+        except Exception:
+            print("coupy: expected number of coupons or 'coupy <um> set'.")
+            return False
+
+        return self._coupon_move(axis="v", n=n_coupons)
+    def _coupon_move(self, axis: str, n: float):
+        """
+        Move by n coupons along U or V.
+
+        axis:
+          'u' -> ch0  (U axis, uses self._coupx_move_um µm per coupon)
+          'v' -> ch1  (V axis, uses self._coupy_move_um µm per coupon)
+        n   : coupon count (sign sets direction).
+        """
+        gui = getattr(self.get_parent(), "smaractGUI", None)
+        if gui is None:
+            print("Smaract GUI not available (expected at parent.smaractGUI)")
+            return False
 
         axis = axis.lower()
         if axis not in ("u", "v"):
             print(f"Unknown axis '{axis}', expected 'u' or 'v'.")
             return False
 
-        ch = 0 if axis == "u" else 1
-        coupon_um = COUPON_U_UM if axis == "u" else COUPON_V_UM
+        if axis == "u":
+            ch = 0
+            per_coupon_um = float(getattr(self, "_coupx_move_um", 80.0))
+        else:
+            ch = 1
+            per_coupon_um = float(getattr(self, "_coupy_move_um", 70.0))
 
-        # direction & magnitude
         direction = +1.0 if n >= 0 else -1.0
-        mag_um = coupon_um * abs(n)
+        mag_um = abs(n) * per_coupon_um
 
         angle_deg = float(getattr(self, "_coupon_angle_deg", CHIP_ANGLE))
         dpg.set_value(f"{gui.prefix}_ch2_Cset", angle_deg)
 
-        # set widget value so move_uv picks it up as if you typed it
-
         wid = f"{gui.prefix}_ch{ch}_Cset"
-        dpg.set_value(wid, float(mag_um))
+        dpg.set_value(wid, mag_um)
 
-        # call the existing handler (coarse=True)
         try:
             gui.move_uv(sender=None, app_data=None, user_data=(ch, direction, True))
             print(
-                f"coupon move: axis={axis.upper()} ch={ch} n={n} → {mag_um:.1f} µm (per-coupon={coupon_um:.1f}), dir={int(direction)}")
+                f"coupon move: axis={axis.upper()} ch={ch} n={n} "
+                f"→ {mag_um:.1f} µm (per-coupon={per_coupon_um:.1f}), dir={int(direction)}"
+            )
             return True
         except Exception as e:
             print(f"coupon move failed: {e}")
@@ -7960,8 +8038,8 @@ class CommandDispatcher:
         coup bottom left [<label>]        -> ask (or use <label>) and move to bottom-left coupon (NORM4<letter>)
         coup bot left [<label>]           -> same as bottom left
         coup corner [<label>]             -> same as bottom left
-        coup shiftx [factor|set <val>]    -> move to next array along U (uses COUP_SHIFT_X_FACTOR, default 5)
-        coup shifty [factor|set <val>]    -> move to next array along V (uses COUP_SHIFT_Y_FACTOR, default 5.43)
+        coup shiftx [factor|set <val>]    -> move to next array along U
+        coup shifty [factor|set <val>]    -> move to next array along V
         coup center [set|<U> <V>]         -> set reference center or move to nearest coupon center
         coup angle set                    -> store current axis-2 angle as chip angle
         coup save                         -> save coupon angle & center to disk
@@ -8020,14 +8098,8 @@ class CommandDispatcher:
                 return False
 
             # Shift factors: per-instance, with constants as defaults
-            try:
-                shift_x = float(getattr(self, "_coup_shift_x_factor", COUP_SHIFT_X_FACTOR))
-            except Exception:
-                shift_x = float(COUP_SHIFT_X_FACTOR)
-            try:
-                shift_y = float(getattr(self, "_coup_shift_y_factor", COUP_SHIFT_Y_FACTOR))
-            except Exception:
-                shift_y = float(COUP_SHIFT_Y_FACTOR)
+            shift_x = float(getattr(self, "_coup_shift_x_factor", 5))
+            shift_y = float(getattr(self, "_coup_shift_y_factor", 5.43))
 
             # Chip name (optional)
             chip_name = str(getattr(self, "_chip_name", "") or "").strip()
@@ -8035,12 +8107,35 @@ class CommandDispatcher:
             # Chip inverted flag (optional)
             chip_inverted = bool(getattr(self, "_chip_inverted", False))
 
+            # Collect coupon labels (if any) in a JSON-friendly way
+            labels_to_save = {}
+            try:
+                lbls = getattr(self, "_coupon_labels", {}) or {}
+                for name, info in lbls.items():
+                    try:
+                        key = str(name)
+                        u = float(info.get("u_um"))
+                        v = float(info.get("v_um"))
+                        labels_to_save[key] = {
+                            "u_um": u,
+                            "v_um": v,
+                        }
+                    except Exception:
+                        # Skip malformed entries
+                        continue
+            except Exception:
+                labels_to_save = {}
+
             state = {
                 "angle_deg": angle_deg_rounded,
                 "center_u_um": float(u_ref),
                 "center_v_um": float(v_ref),
                 "shift_x_factor": shift_x,
                 "shift_y_factor": shift_y,
+                "chip_inverted": chip_inverted,
+                "coupx_move_um": float(getattr(self, "_coupx_move_um", 0.0)),
+                "coupy_move_um": float(getattr(self, "_coupy_move_um", 0.0)),
+                "coupon_labels": labels_to_save,
                 "chip_name": chip_name,
             }
 
@@ -8166,6 +8261,11 @@ class CommandDispatcher:
             chip_inverted = state.get("chip_inverted", False)
             self._chip_inverted = bool(chip_inverted)
 
+            if "coupx_move_um" in state:
+                self._coupx_move_um = float(state["coupx_move_um"])
+            if "coupy_move_um" in state:
+                self._coupy_move_um = float(state["coupy_move_um"])
+
             # Apply angle
             self._coupon_angle_deg = angle_deg
 
@@ -8199,11 +8299,28 @@ class CommandDispatcher:
             except Exception:
                 pass
 
+            # Restore coupon labels if present
+            labels_from_state = state.get("coupon_labels", None)
+            if isinstance(labels_from_state, dict):
+                clean_labels = {}
+                for name, info in labels_from_state.items():
+                    try:
+                        u = float(info.get("u_um"))
+                        v = float(info.get("v_um"))
+                        clean_labels[str(name)] = {
+                            "u_um": u,
+                            "v_um": v,
+                        }
+                    except Exception:
+                        continue
+                self._coupon_labels = clean_labels
+                print(f"[coup] load: restored {len(clean_labels)} coupon name(s).")
+
             print(
                 f"[coup] load: restored angle={angle_deg:.3f}°, "
                 f"center=(U={u_ref:.3f}, V={v_ref:.3f}) µm, "
-                f"shiftX={getattr(self, '_coup_shift_x_factor', COUP_SHIFT_X_FACTOR):.3f}, "
-                f"shiftY={getattr(self, '_coup_shift_y_factor', COUP_SHIFT_Y_FACTOR):.3f}, "
+                f"shiftX={getattr(self, '_coup_shift_x_factor', 5):.3f}, "
+                f"shiftY={getattr(self, '_coup_shift_y_factor', 5.43):.3f}, "
                 f"chip='{getattr(self, '_chip_name', '')}' "
                 f"inverted={getattr(self, '_chip_inverted', False)} "
                 f"from '{path}'."
@@ -8298,10 +8415,6 @@ class CommandDispatcher:
 
         # --- coup center: set reference center or move to nearest coupon center ---
         if sub == "center":
-            # Spacing & angle
-            COUPON_U_UM = 80.0
-            COUPON_V_UM = 70.0
-
             if not hasattr(self, "_coupon_angle_deg"):
                 self._coupon_angle_deg = CHIP_ANGLE  # skew so right-neighbor ~ (95.9, 31.48) from (16,28)
 
@@ -8350,8 +8463,8 @@ class CommandDispatcher:
             cos_t, sin_t = math.cos(theta), math.sin(theta)
 
             # One-coupon vectors in lab (U-right, V-up with rotation)
-            dUx, dUy = COUPON_U_UM * cos_t, COUPON_U_UM * sin_t
-            dVx, dVy = -COUPON_V_UM * sin_t, COUPON_V_UM * cos_t
+            dUx, dUy = self._coupx_move_um * cos_t, self._coupx_move_um * sin_t
+            dVx, dVy = -self._coupy_move_um * sin_t, self._coupy_move_um * cos_t
 
             # One-array vectors (3.75 U coupons, 5 V coupons)
             aUx, aUy = 3.75 * dUx, 3.75 * dUy
@@ -8397,49 +8510,112 @@ class CommandDispatcher:
             print(f"[coup] center: moved from (U={u_cur:.3f}, V={v_cur:.3f}) to (U={cx:.3f}, V={cy:.3f}).")
             return True
 
-        # --- array-shift helpers (accept optional factor and 'set' mode) ---
+        # --- array-shift helpers (accept factor OR '<µm> set') ---
         if sub in ("shiftx", "shifty"):
-            # Setter mode: `coup shiftx set 5` or `coup shifty set 5.43`
-            if len(tokens) >= 3 and tokens[1].lower() == "set":
-                try:
-                    new_val = float(tokens[2])
-                except ValueError:
-                    print(f"[coup] {sub} set: invalid value '{tokens[2]}', expected a number.")
-                    return False
+            is_x = (sub == "shiftx")
 
-                if sub == "shiftx":
-                    self._coup_shift_x_factor = new_val
+            # µm per coupon from __init__
+            per_coupon_um = float(self._coupx_move_um if is_x else self._coupy_move_um)
+
+            # ----- SET MODE -----
+            # Supports:
+            #   coup shiftx 3 set
+            #   coup shiftx 310um set
+            #   coup shifty -2 set
+            #   coup shifty 140um set
+            if len(tokens) >= 3 and tokens[-1].lower() == "set":
+                # everything between 'shiftx' and 'set' is the value (usually one token)
+                val_str = " ".join(tokens[1:-1]).strip()
+                raw = val_str.lower()
+
+                # A) contains units -> interpret as microns
+                if "um" in raw or "µm" in raw:
+                    raw_num = raw.replace("um", "").replace("µm", "").strip()
+                    try:
+                        microns = float(raw_num)
+                    except Exception:
+                        print(f"[coup] {sub} set: invalid µm value '{val_str}'")
+                        return False
+
+                    factor = microns / per_coupon_um
+                    print(
+                        f"[coup] {sub} set: {microns:.3f} µm / {per_coupon_um:.3f} µm-per-coupon "
+                        f"→ factor={factor:.6f} coupons"
+                    )
+
                 else:
-                    self._coup_shift_y_factor = new_val
+                    # B) plain factor, no units
+                    try:
+                        factor = float(val_str)
+                    except Exception:
+                        print(f"[coup] {sub} set: invalid factor '{val_str}'")
+                        return False
 
-                print(f"[coup] {sub} set: factor now {new_val:.3f} coupons.")
+                    microns = factor * per_coupon_um
+                    print(
+                        f"[coup] {sub} set: factor={factor:.6f} coupons "
+                        f"→ {microns:.3f} µm (per_coupon={per_coupon_um:.3f} µm)"
+                    )
+
+                # store factor
+                if is_x:
+                    self._coup_shift_x_factor = factor
+                else:
+                    self._coup_shift_y_factor = factor
+
                 _coup_save_state()
                 return True
 
-            # Move mode: optional numeric factor -> value * base step
-            factor = 1.0
-            if len(tokens) > 1 and tokens[1]:
+            # ----- MOVE MODE -----
+            # coup shiftx          -> factor = 1.0 (use base factor as-is)
+            # coup shiftx 2.5      -> factor = 2.5 * base_factor
+            if len(tokens) >= 2:
                 try:
                     factor = float(tokens[1])
-                except ValueError:
-                    print(f"[coup] invalid factor '{tokens[1]}', expected a number (e.g., -1, 0.5, 2) "
-                          f"or 'set <value>'.")
+                except Exception:
+                    print(f"[coup] {sub}: invalid factor '{tokens[1]}'.")
                     return False
+            else:
+                factor = 1.0
 
-            # Per-instance factors, with constants as defaults
-            base_step_x = float(getattr(self, "_coup_shift_x_factor", COUP_SHIFT_X_FACTOR))
-            base_step_y = float(getattr(self, "_coup_shift_y_factor", COUP_SHIFT_Y_FACTOR))
-            step = base_step_x if sub == "shiftx" else base_step_y
+            base_factor = float(
+                self._coup_shift_x_factor if is_x else self._coup_shift_y_factor
+            )
 
-            axis = "u" if sub == "shiftx" else "v"
-            n = step * factor
+            coupons_to_move = base_factor * factor
+            axis = "u" if is_x else "v"
 
-            ok = self._coupon_move(axis=axis, n=n)
+            ok = self._coupon_move(axis=axis, n=coupons_to_move)
+
             print(
-                f"[coup] {sub} factor={factor:.3f} (base={step:.3f}) -> move {n:+.3f} coupons on {axis.upper()} "
-                f"({'done' if ok else 'failed'})."
+                f"[coup] {sub}: factor={factor:.3f}, base={base_factor:.3f} "
+                f"→ move {coupons_to_move:+.3f} coupons on {axis.upper()} "
+                f"({'done' if ok else 'failed'})"
             )
             return ok
+
+        # --- shiftx? and shifty? : print current settings ---
+        if sub in ("shiftx?", "shifty?"):
+            is_x = (sub == "shiftx?")
+            axis_name = "X/U" if is_x else "Y/V"
+
+            per_coupon_um = self._coupx_move_um if is_x else self._coupy_move_um
+            factor = self._coup_shift_x_factor if is_x else self._coup_shift_y_factor
+
+            print(
+                f"[coup] {sub}\n"
+                f"  axis: {axis_name}\n"
+                f"  µm per coupon: {per_coupon_um:.6f} µm\n"
+                f"  stored factor: {factor:.6f} coupons\n"
+                f"  → movement per 'coup shiftx' call: {factor * per_coupon_um:.6f} µm"
+                if is_x else
+                f"[coup] {sub}\n"
+                f"  axis: {axis_name}\n"
+                f"  µm per coupon: {per_coupon_um:.6f} µm\n"
+                f"  stored factor: {factor:.6f} coupons\n"
+                f"  → movement per 'coup shifty' call: {factor * per_coupon_um:.6f} µm"
+            )
+            return True
 
         # --- corner/bottom-left + inverted-corner aliases ---
         def _label_to_rc(label: str):
@@ -9655,16 +9831,31 @@ class CommandDispatcher:
     def handle_chip(self, *args):
         """
         chip commands:
-          chip name <the name>    -> set chip_name and save it into coup_state.json
+            chip name <the name>   -> set chip_name and save it
+            chip name?             -> print the currently stored chip name
         """
         import shlex
 
-        # Join all args into one string; dispatcher often passes a single "name foo" argument.
+        # Join dispatcher args
         text = " ".join(str(a) for a in args).strip()
+
+        # If user typed exactly:  chip name?
+        if text.lower() == "name?":
+            name = getattr(self, "_chip_name", "")
+            if name:
+                print(f"[chip] name = '{name}'")
+            else:
+                print("[chip] name not set.")
+            return True
+
+        # No args or incomplete
         if not text:
-            print("Usage: chip name <chip-name>")
+            print("Usage:")
+            print("  chip name <chip-name>")
+            print("  chip name?         # show current chip name")
             return False
 
+        # Tokenize
         try:
             tokens = shlex.split(text)
         except Exception:
@@ -9675,15 +9866,20 @@ class CommandDispatcher:
             return False
 
         sub = tokens[0].lower()
+
+        # Wrong subcommand
         if sub != "name":
-            print("Usage: chip name <chip-name>")
+            print("Usage:")
+            print("  chip name <chip-name>")
+            print("  chip name?")
             return False
 
-        if len(tokens) < 2:
-            print("[chip] missing chip name. Usage: chip name <chip-name>")
+        # Handle plain: chip name?
+        if len(tokens) == 1:
+            print("Usage: chip name <chip-name>   or   chip name?")
             return False
 
-        # Everything after 'name' is the chip name (so spaces are allowed: chip name NORM4 Lot42)
+        # SET MODE (chip name <name...>)
         name = " ".join(tokens[1:]).strip()
         if not name:
             print("[chip] empty chip name not allowed.")
@@ -9693,7 +9889,7 @@ class CommandDispatcher:
         self._chip_name = name
         print(f"[chip] name set to '{name}'")
 
-        # Persist it via coup save (normal save; no extra named copy here)
+        # Persist via coup save
         try:
             self.handle_coup("save")
         except Exception as e:
@@ -9701,6 +9897,254 @@ class CommandDispatcher:
             return False
 
         return True
+
+    def handle_coupon(self, arg: str = ""):
+        """
+        coupon name <name>        -> save current coordinates with label <name>
+        coupon <name>             -> same as 'coupon name <name>'
+        coupon listx <n1> <n2>…   -> record names at the current position (no movement)
+        coupon listy <n1> <n2>…   -> same as listx (no movement)
+        coupon list               -> list all stored coupon names and positions
+        coupon ?                  -> show the nearest coupon name at current position
+        """
+        import shlex
+        import math
+
+        # Ensure store exists: name -> dict(u_um, v_um)
+        if not hasattr(self, "_coupon_labels"):
+            self._coupon_labels = {}
+
+        text = (arg or "").strip()
+
+        # Helper: remove any existing labels closer than tol_um
+        def _override_nearby(u_new: float, v_new: float, tol_um: float = 1.0):
+            removed = []
+            for name, info in list(self._coupon_labels.items()):
+                try:
+                    du = u_new - float(info.get("u_um", 0.0))
+                    dv = v_new - float(info.get("v_um", 0.0))
+                    if (du * du + dv * dv) ** 0.5 < tol_um:
+                        del self._coupon_labels[name]
+                        removed.append(name)
+                except Exception:
+                    continue
+            for name in removed:
+                print(f"[coupon] overriding old name '{name}' at nearly the same position.")
+
+        # --- coupon ? -> query nearest coupon name by (U,V) ---
+        if text == "?":
+            try:
+                u_cur, v_cur, _ = self._read_current_position_um()
+            except Exception as e:
+                print(f"[coupon] ?: cannot read current position: {e}")
+                return False
+
+            best = None
+            TOL_UM = 260.0  # how close [µm] to consider "same vicinity"
+
+            for name, info in self._coupon_labels.items():
+                try:
+                    du = u_cur - float(info.get("u_um", 0.0))
+                    dv = v_cur - float(info.get("v_um", 0.0))
+                    d2 = du * du + dv * dv
+                except Exception:
+                    continue
+                if best is None or d2 < best[0]:
+                    best = (d2, name, du, dv)
+
+            if best is None or best[0] > TOL_UM * TOL_UM:
+                print("[coupon] no named coupon found near the current position.")
+                return True
+
+            d2, name, du, dv = best
+            dist = math.sqrt(d2)
+            print(f"[coupon] nearest name: '{name}' (distance ≈ {dist:.3f} µm)")
+            return True
+
+        # --- coupon list -> list all labels ---
+        if text.lower() == "list":
+            if not self._coupon_labels:
+                print("[coupon] list: no coupon names stored.")
+                return True
+
+            print(f"[coupon] list: {len(self._coupon_labels)} name(s):")
+            for name in sorted(self._coupon_labels.keys(), key=str):
+                info = self._coupon_labels[name]
+                u = float(info.get("u_um", 0.0))
+                v = float(info.get("v_um", 0.0))
+                print(f"  {name!r}: U={u:.3f} µm, V={v:.3f} µm")
+            return True
+
+        # --- coupon clear -> erase all stored coupon names ---
+        if text.lower() == "clear":
+            self._coupon_labels.clear()
+            print("[coupon] clear: all coupon names removed.")
+            return True
+
+        # No arg → show usage
+        if not text:
+            print("Usage:")
+            print("  coupon name <name>")
+            print("  coupon <name>")
+            print("  coupon listx <n1> <n2> ...")
+            print("  coupon listy <n1> <n2> ...")
+            print("  coupon list")
+            print("  coupon ?")
+            return False
+
+        try:
+            tokens = shlex.split(text)
+        except Exception:
+            tokens = text.split()
+
+        if not tokens:
+            print(
+                "Usage: coupon name <name> | coupon <name> | "
+                "coupon listx <n1> <n2> ... | coupon listy <n1> <n2> ... | "
+                "coupon list | coupon ?"
+            )
+            return False
+
+        sub = tokens[0].lower()
+
+        # --- coupon go <name> ---
+        if sub == "go":
+            if len(tokens) < 2:
+                print("[coupon] go: missing name. Usage: coupon go <name>")
+                return False
+
+            label = " ".join(tokens[1:]).strip()
+            if label not in self._coupon_labels:
+                print(f"[coupon] go: no such coupon '{label}'. Use 'coupon list' to see available names.")
+                return False
+
+            target = self._coupon_labels[label]
+            try:
+                u_tgt = float(target["u_um"])
+                v_tgt = float(target["v_um"])
+            except Exception:
+                print(f"[coupon] go: invalid data for '{label}'.")
+                return False
+
+            # Read current position
+            try:
+                u_cur, v_cur, _ = self._read_current_position_um()
+            except Exception as e:
+                print(f"[coupon] go: cannot read current position: {e}")
+                return False
+
+            # Compute required delta
+            dU = u_tgt - u_cur
+            dV = v_tgt - v_cur
+
+            # Perform move in real UV axes
+            try:
+                if abs(dU) > 1e-6:
+                    self._move_delta(0, dU)
+                if abs(dV) > 1e-6:
+                    self._move_delta(1, dV)
+            except Exception as e:
+                print(f"[coupon] go: move failed: {e}")
+                return False
+
+            print(f"[coupon] go: moved to '{label}' → (U={u_tgt:.3f} µm, V={v_tgt:.3f} µm)")
+            return True
+
+        # --- coupon name <name>  OR  coupon <name> ---
+        if sub == "name" or sub not in ("listx", "listy", "list", "?"):
+            # If user wrote 'coupon name foo', label is tokens[1:]
+            # If user wrote 'coupon foo', label is tokens[0:] (because sub is not a keyword)
+            if sub == "name":
+                if len(tokens) < 2:
+                    print("[coupon] name: missing name. Usage: coupon name <name> or coupon <name>")
+                    return False
+                label = " ".join(tokens[1:]).strip()
+            else:
+                # coupon <name> path
+                label = " ".join(tokens).strip()
+
+            if not label:
+                print("[coupon] name: empty name not allowed.")
+                return False
+
+            try:
+                u_cur, v_cur, _ = self._read_current_position_um()
+            except Exception as e:
+                print(f"[coupon] name: cannot read current position: {e}")
+                return False
+
+            _override_nearby(u_cur, v_cur, tol_um=1.0)
+
+            self._coupon_labels[label] = {
+                "u_um": float(u_cur),
+                "v_um": float(v_cur),
+            }
+            print(f"[coupon] name: '{label}' recorded at (U={u_cur:.3f} µm, V={v_cur:.3f} µm)")
+            return True
+
+        # --- coupon listx / listy <n1> <n2> ... (no physical movement) ---
+        if sub in ("listx", "listy"):
+            along_x = (sub == "listx")
+            names = tokens[1:]
+            if not names:
+                print(f"[coupon] {sub}: need at least one name.")
+                return False
+
+            # Read current stage position once
+            try:
+                u0, v0, _ = self._read_current_position_um()
+            except Exception as e:
+                print(f"[coupon] {sub}: cannot read current position: {e}")
+                return False
+
+            # Compute the delta-UV step according to coup shiftx/shifty
+            import math
+            angle = math.radians(float(getattr(self, "_coupon_angle_deg", 0.0)))
+            cos_t = math.cos(angle)
+            sin_t = math.sin(angle)
+
+            if along_x:
+                # shiftx → moves along U axis direction
+                step_um = self._coup_shift_x_factor * self._coupx_move_um
+                dU = step_um * cos_t
+                dV = step_um * sin_t
+            else:
+                # shifty → moves along V axis direction
+                step_um = self._coup_shift_y_factor * self._coupy_move_um
+                dU = -step_um * sin_t
+                dV = step_um * cos_t
+
+            # Record each name at simulated positions
+            for idx, label in enumerate(names):
+                label = label.strip()
+                if not label:
+                    continue
+
+                # Predicted position = initial position + idx * (dU, dV)
+                u_est = u0 + idx * dU
+                v_est = v0 + idx * dV
+
+                _override_nearby(u_est, v_est, tol_um=1.0)
+
+                self._coupon_labels[label] = {
+                    "u_um": float(u_est),
+                    "v_um": float(v_est),
+                }
+
+                print(f"[coupon] {sub}: '{label}' recorded at simulated (U={u_est:.3f} µm, V={v_est:.3f} µm)")
+
+            return True
+
+        # Unknown subcommand
+        print("Usage:")
+        print("  coupon name <name>")
+        print("  coupon <name>")
+        print("  coupon listx <n1> <n2> ...")
+        print("  coupon listy <n1> <n2> ...")
+        print("  coupon list")
+        print("  coupon ?")
+        return False
+
 
 # Wrapper function
 dispatcher = CommandDispatcher()

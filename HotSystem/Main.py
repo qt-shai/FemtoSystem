@@ -5,6 +5,13 @@ Entry point to our SW
 import os
 
 import HW_wrapper.HW_devices
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="Could not set COM MTA mode. Unexpected behavior may occur.",
+    category=UserWarning
+)
+
 
 HW_wrapper.HW_devices.HW_devices()
 if HW_wrapper.HW_devices.HW_devices().wavemeter:
@@ -29,8 +36,10 @@ warnings.filterwarnings("ignore", message=".*Could not set COM MTA mode.*")
 # add search for devices fo Rohde Schwarz
 
 def main():
+    print("Entering main, creating overlays... ")
     gui = ImGuiOverlay() #pyimgui
     guiDPG = PyGuiOverlay() # dear imgui
+    print("Creating application singleton...")
     app = Application_singletone()
     app.PushOverLay(gui)
     app.PushOverLay(layer=guiDPG)
