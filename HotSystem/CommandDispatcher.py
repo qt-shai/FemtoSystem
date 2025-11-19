@@ -5390,6 +5390,7 @@ class CommandDispatcher:
     def handle_moveZ(self, arg):
         """move Z axis by the specified delta."""
         self._move_delta(2,arg)
+        time.sleep(0.3)
     def _move_delta(self, axis, arg):
         p=self.get_parent()
         try:
@@ -8532,9 +8533,83 @@ class CommandDispatcher:
 
             print("Usage: coup inv set")
             return False
+        # --- coup copy [chip_name]: copy map/sb/state + all TIFs to chip folder ---
+        if sub == "copy":
+            import shutil
+
+            # 1) Determine chip name: argument wins, else stored _chip_name
+            if len(tokens) >= 2:
+                chip_name_raw = " ".join(tokens[1:]).strip().strip('"').strip("'")
+            else:
+                chip_name_raw = str(getattr(self, "_chip_name", "") or "").strip()
+
+            if not chip_name_raw:
+                print("[coup] copy: chip name not set. Use 'chip name <name>' or 'coup copy <name>'.")
+                return False
+
+            # Sanitize for folder name
+            safe_chip = re.sub(r'[^A-Za-z0-9_.\- ]+', "_", chip_name_raw)
+
+            base_out = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations"
+            chip_dir = os.path.join(base_out, safe_chip)
+            tif_dir = os.path.join(chip_dir, "tif_files")
+
+            try:
+                os.makedirs(chip_dir, exist_ok=True)
+                os.makedirs(tif_dir, exist_ok=True)
+            except Exception as e:
+                print(f"[coup] copy: failed to create output dirs: {e}")
+                return False
+
+            print(f"[coup] copy: target folder = '{chip_dir}'")
+
+            # 2) Copy fixed files
+            fixed_sources = [
+                r"C:\WC\HotSystem\map.jpg",
+                r"C:\WC\HotSystem\Utils\macro\sb.py",
+                r"C:\WC\HotSystem\Utils\macro\coup_state.json",
+            ]
+            for src in fixed_sources:
+                try:
+                    if not os.path.isfile(src):
+                        print(f"[coup] copy: missing file (skipped): {src}")
+                        continue
+                    dst = os.path.join(chip_dir, os.path.basename(src))
+                    shutil.copy2(src, dst)
+                    print(f"[coup] copy: {src} -> {dst}")
+                except Exception as e:
+                    print(f"[coup] copy: failed to copy '{src}': {e}")
+
+            # 3) Copy all TIF files
+            tif_src_dir = r"C:\Users\Femto\Work Folders\Documents\LightField"
+            if not os.path.isdir(tif_src_dir):
+                print(f"[coup] copy: TIF source directory not found: '{tif_src_dir}'")
+                return False
+
+            tif_count = 0
+            try:
+                for name in os.listdir(tif_src_dir):
+                    if not name.lower().endswith(".tif"):
+                        continue
+                    src = os.path.join(tif_src_dir, name)
+                    if not os.path.isfile(src):
+                        continue
+                    dst = os.path.join(tif_dir, name)
+                    try:
+                        shutil.copy2(src, dst)
+                        tif_count += 1
+                    except Exception as e:
+                        print(f"[coup] copy: failed to copy TIF '{src}': {e}")
+                print(f"[coup] copy: copied {tif_count} TIF file(s) to '{tif_dir}'.")
+            except Exception as e:
+                print(f"[coup] copy: error while scanning TIF directory: {e}")
+                return False
+
+            print(f"[coup] copy: done for chip '{chip_name_raw}' → '{chip_dir}'")
+            return True
 
         # --- SINGLE busy guard (applies only to top-level invocations) ---
-        non_blocking = {"status", "stop", "save", "load", "angle","resume"}
+        non_blocking = {"status", "stop", "save", "load", "angle","resume","copy"}
         if (sub not in non_blocking) and _is_coup_busy() and not nested:
             print("[coup] already running.")
             return False
@@ -8956,11 +9031,11 @@ class CommandDispatcher:
         #   coup sb.txt pause
         pause_mode = any(t.lower() == "pause" for t in tokens[1:])
 
-        allowed_exts = (".txt", ".cmd", ".lst", ".seq")
+        allowed_exts = (".txt", ".cmd", ".lst", ".seq",".py")
 
         # If no recognized extension was provided, default to .txt
         if not any(cand_path.lower().endswith(ext) for ext in allowed_exts):
-            cand_path += ".txt"
+            cand_path += ".py"
 
         # Resolve default dir if user passed only a filename (no folder)
         def _resolve_macro_path(pth: str) -> str:

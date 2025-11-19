@@ -42,8 +42,7 @@ except ImportError:
         root = Tk(); root.withdraw()
         return filedialog.askopenfilename(filetypes=filetypes)
 SCALE_MIN = 0.0
-# SCALE_MAX = 9000.0
-SCALE_MAX = 3000.0
+SCALE_MAX = 40000.0
 PIXEL_SIZE_UM = 0.0735  # µm per pixel
 CONNECT_SHIFT_UM = 5  # hard-coded stage step (µm)
 CIRCLE_RADIUS_UM = 25.0       # current stitching radius
@@ -77,11 +76,11 @@ MAP_XMIN_UM = -1000.0          # used only when MAP_MODE == "corner"
 MAP_YMAX_UM =  1000.0          # used only when MAP_MODE == "corner"
 
 # Cross drawing params
-CROSS_SIZE_PX = 100             # half-size of cross arm in pixels
-CROSS_THICK_PX = 20             # line thickness
+CROSS_SIZE_PX = 20             # half-size of cross arm in pixels
+CROSS_THICK_PX = 2             # line thickness
 CROSS_COLOR = (255, 0, 0)      # red
-RING_RADIUS_PX = 180          # NEW: circle radius in pixels
-RING_THICK_PX = 20           # NEW: circle outline thickness
+RING_RADIUS_PX = 50          # NEW: circle radius in pixels
+RING_THICK_PX = 10           # NEW: circle outline thickness
 
 # ------- Preset parameters -------
 PRESET1_SIGMA = 0.1
@@ -212,7 +211,6 @@ def run_multicalib_cli(calib_path: str | None = None):
             fail += 1
 
     print(f"Batch complete: {ok} saved, {fail} failed.")
-
 
 def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, data=None):
     """
@@ -4539,142 +4537,92 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                     except Exception:
                         pass
 
-                    # ---------- Create the slide FIRST ----------
-                    new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)  # ppLayoutBlank
-                    ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
-
                     # ----- MAIN IMAGE INSERT: PNG snapshot (robust; includes scatter triangles) -----
-                    main_shape = None
+                    # ========== SLIDE 1: ORIGINAL SCALE ==========
+                    for scale_mode in ("auto", "fixed"):
+                        new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)  # ppLayoutBlank
+                        ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
 
-                    # im_xy.set_clim(SCALE_MIN, SCALE_MAX)
+                        # apply scaling mode
+                        if scale_mode == "fixed":
+                            try:
+                                im_xy.set_clim(SCALE_MIN, SCALE_MAX)
+                                print(f"[SCALE] Fixed scale applied: ({SCALE_MIN}, {SCALE_MAX})")
+                            except Exception as e:
+                                print(f"[SCALE] Failed to apply fixed scale: {e}")
+                        else:
+                            print("[SCALE] Auto scale (original)")
 
-                    png_path = export_main_axes_snapshot(
-                        ax_xy,
-                        mappable=im_xy,  # provide the image artist
-                        cbar_ax_or_cb=None,  # force a single, big colorbar
-                        dpi=220,
-                        font_scale=4.0
-                    )
+                        # make snapshot (includes triangles, labels, etc.)
+                        png_path = export_main_axes_snapshot(
+                            ax_xy,
+                            mappable=im_xy,
+                            cbar_ax_or_cb=None,
+                            dpi=220,
+                            font_scale=4.0
+                        )
 
-                    if png_path and os.path.exists(png_path):
+                        main_shape = None
+                        if png_path and os.path.exists(png_path):
+                            try:
+                                target_w = slide_w * 0.68
+                                left, top = 40, 90
+                                shp = new_slide.Shapes.AddPicture(
+                                    FileName=png_path, LinkToFile=False, SaveWithDocument=True,
+                                    Left=left, Top=top, Width=target_w, Height=-1
+                                )
+                                shp.LockAspectRatio = -1
+                                main_shape = shp
+                                _fit_shape_keep_aspect(main_shape,
+                                                       left=left, top=top,
+                                                       max_w=slide_w * 0.68, max_h=slide_h * 0.8)
+                            except Exception as e:
+                                print(f"[PASTE] PNG AddPicture failed: {e}")
+
+                        # title
                         try:
-                            # Left column ~0.68 slide width, keep aspect
-                            target_w = slide_w * 0.68
-                            left, top = 40, 90
-                            shp = new_slide.Shapes.AddPicture(
-                                FileName=png_path, LinkToFile=False, SaveWithDocument=True,
-                                Left=left, Top=top, Width=target_w, Height=-1
-                            )
-                            shp.LockAspectRatio = -1
-                            main_shape = shp
-                            print(
-                                f"[PASTE] PNG inserted W={shp.Width:.1f} H={shp.Height:.1f} L={shp.Left:.1f} T={shp.Top:.1f}")
-                        except Exception as e:
-                            print(f"[PASTE] PNG AddPicture failed: {e}")
-
-                    # After obtaining `main_shape` (either from clipboard or AddPicture)
-                    if main_shape is not None:
-                        # Left column box (example numbers—use your existing margins)
-                        box_left = 40
-                        box_top = 90
-                        box_w = slide_w * 0.68  # ~2/3 slide width
-                        box_h = slide_h * 0.80  # leave room for title
-                        _fit_shape_keep_aspect(main_shape, left=box_left, top=box_top, max_w=box_w, max_h=box_h)
-
-                    # Final sanity; if snapshot failed, fall back once to clipboard (best effort)
-                    if main_shape is None:
-                        try:
-                            print("[PASTE] snapshot missing; trying clipboard fallback")
-                            fig.canvas.draw()
-                            copy_main_axes_to_clipboard()
-                            shapes = new_slide.Shapes.Paste()
-                            main_shape = shapes[0] if getattr(shapes, "Count", 0) else None
-                            print(f"[PASTE] clipboard fallback, shape={'ok' if main_shape else 'none'}")
-                        except Exception as e:
-                            print(f"[PASTE] clipboard fallback failed: {e}")
-
-                    if main_shape is None:
-                        print("⚠️ No main image inserted (both PNG and clipboard failed).")
-                    else:
-                        try:
-                            main_shape.AlternativeText = json.dumps({"filename": pth}, separators=(",", ":"))
-                        except Exception as e:
-                            print(f"[ALT] set AlternativeText failed: {e}")
-
-                    # ---------- Title ----------
-                    try:
-                        title_shape = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40, 50)
-                        tr = title_shape.TextFrame.TextRange
-                        tr.Text = fname
-                        tr.ParagraphFormat.Alignment = 2
-                        tr.Font.Bold = True
-                        tr.Font.Size = 28
-                        try:
+                            title_shape = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40, 50)
+                            tr = title_shape.TextFrame.TextRange
+                            tr.Text = f"{fname}  ({'original scale' if scale_mode == 'auto' else 'fixed scale'})"
+                            tr.ParagraphFormat.Alignment = 2
+                            tr.Font.Bold = True
+                            tr.Font.Size = 28
                             title_shape.Fill.Visible = 0
                             title_shape.Line.Visible = 0
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        print(f"[TITLE] failed: {e}")
+                        except Exception as e:
+                            print(f"[TITLE] failed: {e}")
 
-                    # ---------- Small map ----------
-                    try:
-                        cx_um, cy_um, _cz_um = center_um if center_um else (0.0, 0.0, 0.0)
-                        tmp_map_path = _make_map_with_cross(cx_um, cy_um, MAP_IMAGE_PATH)
-                        _dbg(f"[MAP] tmp_map_path={tmp_map_path}")
-                        if tmp_map_path:
-                            left = slide_w - map_w - margin
-                            top = margin
-                            pic = new_slide.Shapes.AddPicture(
-                                FileName=tmp_map_path, LinkToFile=False, SaveWithDocument=True,
-                                Left=left, Top=top, Width=map_w, Height=map_h
-                            )
-                            try:
-                                pic.AlternativeText = json.dumps(
-                                    {"type": "site-map", "x_um": float(cx_um), "y_um": float(cy_um),
-                                     "source": MAP_IMAGE_PATH},
-                                    separators=(",", ":")
+                        # small map
+                        try:
+                            cx_um, cy_um, _cz_um = center_um if center_um else (0.0, 0.0, 0.0)
+                            tmp_map_path = _make_map_with_cross(cx_um, cy_um, MAP_IMAGE_PATH)
+                            if tmp_map_path:
+                                left = slide_w - map_w - margin
+                                top = margin
+                                new_slide.Shapes.AddPicture(
+                                    FileName=tmp_map_path, LinkToFile=False, SaveWithDocument=True,
+                                    Left=left, Top=top, Width=map_w, Height=map_h
                                 )
-                            except Exception:
-                                pass
-                        else:
-                            print("⚠️ Map not available; continuing without map.")
-                    except Exception as e:
-                        print(f"[MAP] failed: {e}")
+                        except Exception as e:
+                            print(f"[MAP] failed: {e}")
 
-                    # ---------- Cross-section plot (if we had pts_abs) ----------
-                    try:
+                        # optional cross-section
                         if pts_abs:
-                            _dbg(f"[PROFILE] calling _make_profile_png_for_current with pts_abs={pts_abs}")
-                            prof_png = _make_profile_png_for_current(pts_abs)
-                            _dbg(f"[PROFILE] returned prof_png={prof_png}")
-                            if prof_png:
-                                prof_w = map_w
-                                prof_h = map_h * 0.9
-                                prof_left = slide_w - map_w - margin
-                                prof_top = margin + map_h + 10
-                                shp = new_slide.Shapes.AddPicture(
-                                    FileName=prof_png, LinkToFile=False, SaveWithDocument=True,
-                                    Left=prof_left, Top=prof_top, Width=prof_w, Height=prof_h
-                                )
-                                try:
-                                    shp.AlternativeText = json.dumps(
-                                        {"type": "cross-section",
-                                         "p0_um": {"x": float(pts_abs[0][0]), "y": float(pts_abs[0][1])},
-                                         "p1_um": {"x": float(pts_abs[1][0]), "y": float(pts_abs[1][1])}},
-                                        separators=(",", ":")
+                            try:
+                                prof_png = _make_profile_png_for_current(pts_abs)
+                                if prof_png:
+                                    prof_left = slide_w - map_w - margin
+                                    prof_top = margin + map_h + 10
+                                    prof_w = map_w
+                                    prof_h = map_h * 0.9
+                                    new_slide.Shapes.AddPicture(
+                                        FileName=prof_png, LinkToFile=False, SaveWithDocument=True,
+                                        Left=prof_left, Top=prof_top, Width=prof_w, Height=prof_h
                                     )
-                                except Exception:
-                                    pass
-                            else:
-                                print("⚠️ Cross-section not added (render failed or None path).")
-                        else:
-                            print("ℹ️ No cross-section template; skipping profile for this slide.")
-                    except Exception as e:
-                        print(f"⚠️ Could not add cross-section image: {e}")
+                            except Exception as e:
+                                print(f"[PROFILE] failed: {e}")
 
-                    print(
-                        f"Added slide #{new_slide.SlideIndex} for {fname} with map cross at ({cx_um:.1f}, {cy_um:.1f}) µm.")
+                        print(f"Added slide #{new_slide.SlideIndex} ({scale_mode}) for {fname}.")
 
                 except Exception as e:
                     print(f"❌ Failed on {os.path.basename(pth)}: {e}")
