@@ -280,6 +280,7 @@ class CommandDispatcher:
         self._coup_shift_y_factor=5.43
         self._coupx_move_um = 80
         self._coupy_move_um = 70
+        self._dual_output = DualOutput(sys.stdout)
         self._last_cmd = None
         self._last_fq_idx = None
         self._cgh_proc = None  # track the fullscreen CGH process
@@ -443,6 +444,9 @@ class CommandDispatcher:
             "disable":           self.handle_disable, #disable unused experiments or pharos
             "uv":                self.handle_uv,
             "chip":              self.handle_chip,
+            "last":              self.handle_last_message,
+            "cr":                self.handle_cr,
+            "proem":             self.handle_proem,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -658,6 +662,7 @@ class CommandDispatcher:
             _refocus()
             return
 
+        print(f"{cmd_line}")
         # --- NEW: "1" repeats the last command line (entire pipeline) ---
         if cmd_line == "1":
             history = getattr(parent, "command_history", [])
@@ -1726,8 +1731,11 @@ class CommandDispatcher:
         try:
             cam = getattr(p, "cam", None)
             if cam:
-                if reverse: cam.StartLive(); print("Camera started."); p.opx.btnStartCounterLive()
-                else:       cam.StopLive();  print("Camera stopped.")
+                if reverse:
+                    cam.StartLive(); print("Camera started."); p.opx.btnStartCounterLive()
+                else:
+                    if hasattr(cam, "LiveTh") and cam.LiveTh is not None:
+                        cam.StopLive();  print("Camera stopped.")
             for flipper in getattr(p, "mff_101_gui", []):
                 if flipper.serial_number[-2:] == '32':
                     print("Skipping M32 flipper toggle")
@@ -1824,7 +1832,7 @@ class CommandDispatcher:
             print("Clipboard script launched.")
         except Exception as e:
             print(f"pp failed: {e}")
-    def handle_start_counter(self, arg):
+    def handle_start_counter(self, arg=""):
         """Start counter live."""
         p = self.get_parent()
         try:
@@ -3318,34 +3326,50 @@ class CommandDispatcher:
 
         Notes:
           • Exposure time is given in seconds (float).
-          • 'st' = run handle_set_xyz first, then use clipboard text as experiment note.
           • Last saved CSV is renamed with experiment note appended.
           • New file path is copied to clipboard after acquisition.
         """
-        import threading,re
+        import threading,re,shlex
 
         # --- NEW: support "spc note <text>" to persist a note across acquisitions ---
         _arg = (arg or "").strip()
         if _arg.lower().startswith("note"):
-            # Accept: spc note Hello world
-            #         spc note "Quoted note"
-            #         spc note 'Quoted note'
-            #         spc note clear
-            note_raw = _arg[4:].strip()
-            # strip surrounding quotes if present
-            if (len(note_raw) >= 2) and ((note_raw[0] == note_raw[-1]) and note_raw[0] in ("'", '"')):
+            # Accept:
+            #   spc note <text>
+            #   spc note clear
+            #   spc note coupon   <-- NEW
+            note_raw = _arg[4:].strip()  # remove "note"
+
+            # --- NEW: handle "spc note coupon" ---
+            if note_raw.lower() == "coupon":
+                name = self._nearest_coupon_name()
+                if not name:
+                    print("SPC note coupon: no coupon near the current position.")
+                    setattr(self, "_spc_note", None)
+                else:
+                    setattr(self, "_spc_note", name)
+                    print(f"SPC note set to nearest coupon: '{name}'")
+                return
+            # --- END NEW ---
+
+            # strip quotes
+            if (len(note_raw) >= 2) and (note_raw[0] == note_raw[-1] in ("'", '"')):
                 note_raw = note_raw[1:-1].strip()
 
+            # clear note
             if note_raw.lower() in ("", "clear", "none", "off"):
                 setattr(self, "_spc_note", None)
                 print("SPC note cleared.")
-            else:
-                # sanitize slightly to avoid forbidden filename chars later
-                safe = re.sub(r'[<>:"/\\|?*]', "_", note_raw).strip()
-                setattr(self, "_spc_note", safe if safe else None)
-                print(f"SPC note set to: {getattr(self, '_spc_note', '')!r}")
+                return
+
+            # normal text note
+            import re
+            safe = re.sub(r'[<>:"/\\|?*]', "_", note_raw).strip()
+            setattr(self, "_spc_note", safe if safe else None)
+            print(f"SPC note set to: '{getattr(self, '_spc_note', '')}'")
             return
         # --- end NEW ---
+
 
         run("cn")
 
@@ -3356,11 +3380,46 @@ class CommandDispatcher:
         self._spc_running = True  # <— NEW: running flag
 
         threading.Thread(target=self._acquire_spectrum_worker, args=(arg,), daemon=True).start()
+    def _nearest_coupon_name(self, tol_um: float = 600.0):
+        """
+        Return the nearest coupon name to the current (U,V) position,
+        or None if none within tol_um.
+        """
+        import math
+
+        # must match the same store used by handle_coupon
+        labels = getattr(self, "_coupon_labels", None)
+        if not labels:
+            return None
+
+        try:
+            u_cur, v_cur, _ = self._read_current_position_um()
+        except Exception:
+            return None
+
+        best = None
+        for name, info in labels.items():
+            try:
+                du = u_cur - float(info.get("u_um", 0.0))
+                dv = v_cur - float(info.get("v_um", 0.0))
+                d2 = du * du + dv * dv
+            except Exception:
+                continue
+            if best is None or d2 < best[0]:
+                best = (d2, name)
+
+        if best is None:
+            return None
+
+        d2, name = best
+        if d2 > tol_um * tol_um:
+            return None
+        return name
     def _acquire_spectrum_worker(self, arg):
         """Actual spectrum acquisition logic, run in a background thread."""
         import re, os, glob, time, threading
         from pathlib import Path
-        import pyperclip
+        # import pyperclip
 
         p = self.get_parent()
 
@@ -3442,6 +3501,32 @@ class CommandDispatcher:
             # keep below your 100-char sanitize later; we’ll let your truncation handle length
             return f"{name}{tail}"
 
+        # --- NEW: get current filename *stem* from device instead of clipboard ---
+        def _get_dev_filename_stem() -> str:
+            import os
+
+            name = ""
+            # Try common attributes first
+            for attr in ("filename", "file_name", "current_filename"):
+                val = getattr(dev, attr, None)
+                if isinstance(val, str) and val.strip():
+                    name = val.strip()
+                    break
+
+            # Optional SDK getter, if available
+            if not name:
+                try:
+                    name = str(dev.get_filename()).strip()
+                except Exception:
+                    name = ""
+
+            if not name:
+                return ""
+
+            name = name.replace("\r", "").replace("\n", " ")
+            base = os.path.basename(name)
+            base, _ext = os.path.splitext(base)
+            return base
         # --- NEW: helper to append persistent note to filename stem ---
         def _append_persistent_note(base: str) -> str:
             import re
@@ -3577,37 +3662,6 @@ class CommandDispatcher:
         # defaults
         shots = _kv("n", int, 1)
         no_preview = any(t == "!" for t in tokens)
-        is_st = not any(t.lower() == "nost" for t in tokens)  # default ST=ON
-
-        # -------- ST pre-sequence (optional but default ON) --------
-        if is_st:
-            try:
-                self.handle_set_xyz("")  # your existing pre-setup
-                print("handle_set_xyz done.")
-            except Exception as e:
-                print(f"handle_set_xyz failed: {e}")
-
-            try:
-                clip = (pyperclip.paste() or "").strip()
-                if clip:
-                    self.handle_update_note(clip)
-                    print("Experiment note updated from clipboard.")
-                else:
-                    print("Clipboard empty — note not updated.")
-            except Exception as e:
-                print(f"Could not read clipboard / update note: {e}")
-
-            # Parse origin Site(...) from clipboard name (used to update coords in shift mode)
-            origin_site = None
-            origin_use_comma = False
-            try:
-                _clip_name = (pyperclip.paste() or "").strip()
-                ps = _parse_site_from_string(_clip_name)
-                if ps:
-                    ox_um, oy_um, oz_um, origin_use_comma = ps
-                    origin_site = (ox_um, oy_um, oz_um)
-            except Exception:
-                pass
 
         # Use the *cleaned* arg for your mark (drop kvs and !, and NEW: drop 'shift' + its number)
         def _clean_mark_arg():
@@ -3710,24 +3764,21 @@ class CommandDispatcher:
                 # ----- your existing proEM capture block (unchanged) -----
                 dev._exp.Stop()
 
-                # Build filename from clipboard + update Site(...) with current offsets
+                # Build filename from current device filename + update Site(...) with current offsets
                 try:
-                    if forced_fname:  # new
+                    if forced_fname:
                         base = _sanitize_name(forced_fname)
                     else:
-                        clip_raw = (pyperclip.paste() or "").strip().strip('"').strip("'")
-                        clip_raw = clip_raw.replace("\r", "").replace("\n", " ")
-                        # drop any extension from clipboard text and sanitize
-                        base = _sanitize_name(Path(clip_raw).stem or os.path.basename(clip_raw))
+                        base = _sanitize_name(_get_dev_filename_stem())
 
-                    if origin_site is not None:
-                        ox_um, oy_um, oz_um = origin_site
-                        nx_um = float(ox_um) + float(x_off_um)
-                        ny_um = float(oy_um) + float(y_off_um)
-                        base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
+                    # Always read current stage position for Site(...), not from filename/clipboard
+                    try:
+                        x_um, y_um, z_um = self._read_current_position_um()
+                        base = _replace_or_append_site(base, x_um, y_um, z_um, use_comma=True)
+                    except Exception as e:
+                        print(f"Could not read stage position for filename: {e}")
 
                     base = f"{base} #{k}"
-                    # --- NEW: append persistent note (if any) ---
                     base = _append_persistent_note(base)
 
                     dev.set_filename(base[:100])
@@ -3773,20 +3824,6 @@ class CommandDispatcher:
             except Exception:
                 pass
 
-            # # Continue your post-display if ST was on
-            # if is_st:
-            #     try:
-            #         self.handle_display_slices("tif")
-            #         print('Executed: disp tif')
-            #     except Exception as e:
-            #         print(f'Failed to run "disp tif": {e}')
-            #
-            # run("wait 2000;a")
-            # try:
-            #     self._spc_done_evt.set()
-            #     print("SPC finished (9-frame snake).")
-            # except Exception:
-            #     pass
             try:
                 self._spc_running = False  # <— NEW: clear running
                 self._spc_done_evt.set()
@@ -3804,33 +3841,20 @@ class CommandDispatcher:
 
             # Optional: refresh XYZ each shot if you want; currently leave as once before
             try:
-                # Set a filename stem from clipboard, safe characters only
-                fn = __import__('pyperclip').paste()
-                s = (fn or "").strip().strip('"').strip("'")
-                s = s.replace("\r", "").replace("\n", " ")
-                pt = Path(s)
-                base = pt.stem if pt.suffix else os.path.basename(s)
-                # add shot index to ensure uniqueness when SW reuses names
-                base = re.sub(r'[<>:"/\\|?*]', "_", base)[:100]
+                base = _sanitize_name(_get_dev_filename_stem())
                 if forced_fname:
                     base = base + " " + _sanitize_name(forced_fname)
 
-                # --- NEW: if shift_mode and we know the origin Site(...), update coords for this shot
-                if shift_mode and origin_site is not None:
-                    try:
-                        ox_um, oy_um, oz_um = origin_site
-                        # current offset relative to origin, set earlier by the move we just made
-                        nx_um = float(ox_um) + float(x_off_um)
-                        ny_um = float(oy_um) + float(y_off_um)
-                        base = _replace_or_append_site(base, nx_um, ny_um, oz_um, origin_use_comma)
-                    except Exception as _e:
-                        # fallback: keep base as-is if anything goes wrong
-                        pass
+                # Always read current stage position for Site(...)
+                try:
+                    x_um, y_um, z_um = self._read_current_position_um()
+                    base = _replace_or_append_site(base, x_um, y_um, z_um, use_comma=True)
+                except Exception as e:
+                    print(f"Could not read stage position for filename: {e}")
 
                 if shots > 1:
                     base = f"{base}_#{k:02d}"
 
-                # --- NEW: append persistent note (if any) ---
                 base = _append_persistent_note(base)
 
                 dev.set_filename(base)
@@ -3886,38 +3910,12 @@ class CommandDispatcher:
                         continue
                     fp = max(matches, key=os.path.getmtime)
 
-                # # 4) Rename with notes
-                # notes = getattr(p.opx, "expNotes", "")
-                # dirname, basename = os.path.split(fp)
-                # base, ext = os.path.splitext(basename)
-                # if notes:
-                #     new_name = f"{base}_{notes}{ext}"
-                #     new_fp = os.path.join(dirname, new_name)
-                #     try:
-                #         os.replace(fp, new_fp)
-                #         print(f"[{k}/{shots}] Renamed SPC file → {new_fp}")
-                #         pyperclip.copy(new_fp)
-                #         p.hrs_500_gui.dev.last_saved_csv = new_fp  # update path
-                #     except Exception as e:
-                #         print(f"[{k}/{shots}] Failed to rename SPC file: {e}")
-                # else:
-                #     print(f"[{k}/{shots}] Saved: {fp}")
-
         # Ensure we end at the original position
         try:
             _back_to_origin()
         except Exception:
             pass
 
-        # # Optional post-display when ST mode was used
-        # if is_st:
-        #     try:
-        #         self.handle_display_slices("tif")
-        #         print('Executed: disp tif')
-        #     except Exception as e:
-        #         print(f'Failed to run "disp tif": {e}')
-        #
-        # run("wait 2000;a")
         try:
             self._spc_running = False  # <— NEW: clear running
             self._spc_done_evt.set()
@@ -8023,7 +8021,6 @@ class CommandDispatcher:
         First tries common DPG widgets '<prefix>_ch0_Cpos'/'_ch1_Cpos'; add your own getter if available.
         """
         p=self.get_parent()
-
         p.smaractGUI.dev.GetPosition()
         pos = p.smaractGUI.dev.AxesPositions
         x_value = pos[0] * 1e-6  # convert pm to µm
@@ -8032,21 +8029,97 @@ class CommandDispatcher:
         return x_value, y_value, z_value
     def handle_coup(self, *args, nested: bool = False):
         """
-        coup stop                -> request cancellation
-        coup status              -> print running/idle
-        coup <steps.txt>         -> run steps from a text file (one command per line; ';' splits)
-        coup bottom left [<label>]        -> ask (or use <label>) and move to bottom-left coupon (NORM4<letter>)
-        coup bot left [<label>]           -> same as bottom left
-        coup corner [<label>]             -> same as bottom left
-        coup shiftx [factor|set <val>]    -> move to next array along U
-        coup shifty [factor|set <val>]    -> move to next array along V
-        coup center [set|<U> <V>]         -> set reference center or move to nearest coupon center
-        coup angle set                    -> store current axis-2 angle as chip angle
-        coup save                         -> save coupon angle & center to disk
-        coup load [<state.json>]          -> load state (default coup_state.json if no file given)
+        COUP COMMANDS
+        ------------------------------------------------------------
+        General:
+          coup stop
+              Request cancellation of the running coup sequence.
+
+          coup status
+              Print whether coup engine is running or idle.
+
+          coup <steps.txt>
+              Run step file (one command per line; ';' also splits).
+
+        ------------------------------------------------------------
+        Coupon Grid Navigation:
+          coup bottom left [<label>]
+          coup bot left [<label>]
+          coup corner [<label>]
+              Move from the provided label (or ask interactively)
+              to the bottom-left coupon (NORM4L). Aliases supported.
+
+          coup shiftx
+          coup shifty
+              Shift one array position along U or V using the
+              stored shift factors.
+
+          coup shiftx <factor>
+          coup shifty <factor>
+              Move by:  <factor> * (stored shift factor).
+
+          coup shiftx set <val>
+          coup shifty set <val>
+              Set shift factor.
+                • If <val> is a plain number → coupons factor.
+                • If <val> ends with 'um' → interpreted as microns
+                  and automatically converted to coupon units.
+
+        ------------------------------------------------------------
+        Coupon Center Calibration:
+          coup center
+              Move to the nearest coupon center based on the stored
+              chip angle, center reference, and coupon geometry.
+
+          coup center set
+              Store current position as the coupon center reference.
+
+          coup center <U> <V>
+              Explicitly set coupon center reference in µm.
+
+          coup center from label <dU, dV>
+              Store that the chip center is offset from the current
+              coupon *label* position by (dU, dV) µm.
+              (No movement.)
+
+          coup center from label
+              Apply the previously stored offsets (dU, dV):
+              Move from the current (label) position to the chip
+              center. Also updates the coupon-center reference.
+
+        ------------------------------------------------------------
+        Label From Center (inverse move):
+          coup label from center
+              Use the stored (dU, dV) offsets and move from the
+              chip center back to the corresponding coupon label.
+              Move = (−dU, −dV).
+              Requires prior 'coup center from label ...'.
+
+        ------------------------------------------------------------
+        Chip Angle / Chip State:
+          coup angle set
+              Store current axis-2 angle widget value as chip angle.
+
+          coup inv set
+              Mark chip as inverted (affects corner orientation).
+
+        ------------------------------------------------------------
+        State Management:
+          coup save
+              Save chip angle, coupon center, shift factors,
+              move-per-coupon values, label offsets, chip name,
+              and saved coupon names to coup_state.json.
+
+          coup save name
+              Also save a named copy: coup_state_<chip>.json
+
+          coup load [file.json]
+              Load angle, center, shift factors, move-per-coupon,
+              label offsets, chip name, and saved coupon labels.
+              If no file is given, the default coup_state.json is used.
         """
 
-        import threading, os, math, shlex, re, json
+        import threading, os, math, shlex, re, json, time
 
         # Auto-detect nested context: if we're already inside the running coup thread,
         # treat this invocation as nested even if the caller forgot to pass nested=True.
@@ -8088,7 +8161,7 @@ class CommandDispatcher:
                 angle_deg = float(CHIP_ANGLE)
 
             # Round to 1 decimal (e.g. -2.29999 -> -2.3)
-            angle_deg_rounded = round(angle_deg, 1)
+            angle_deg_rounded = round(angle_deg, 3)
 
             # Center: read from your existing reference storage
             try:
@@ -8106,6 +8179,10 @@ class CommandDispatcher:
 
             # Chip inverted flag (optional)
             chip_inverted = bool(getattr(self, "_chip_inverted", False))
+
+            # Center-from-label offsets (optional)
+            dU_from_label = float(getattr(self, "_center_from_label_dU_um", 0.0))
+            dV_from_label = float(getattr(self, "_center_from_label_dV_um", 0.0))
 
             # Collect coupon labels (if any) in a JSON-friendly way
             labels_to_save = {}
@@ -8135,6 +8212,8 @@ class CommandDispatcher:
                 "chip_inverted": chip_inverted,
                 "coupx_move_um": float(getattr(self, "_coupx_move_um", 0.0)),
                 "coupy_move_um": float(getattr(self, "_coupy_move_um", 0.0)),
+                "center_from_label_dU_um": dU_from_label,  # NEW
+                "center_from_label_dV_um": dV_from_label,  # NEW
                 "coupon_labels": labels_to_save,
                 "chip_name": chip_name,
             }
@@ -8180,6 +8259,8 @@ class CommandDispatcher:
             self._coup_abort_evt = threading.Event()
         if not hasattr(self, "_coup_cancel") or not isinstance(getattr(self, "_coup_cancel"), threading.Event):
             self._coup_cancel = threading.Event()
+        if not hasattr(self, "_coup_pause_evt") or not isinstance(getattr(self, "_coup_pause_evt"), threading.Event):
+            self._coup_pause_evt = threading.Event()
 
         if not args:
             print("Usage: coup [shiftx|shifty|stop|status|<steps.txt>]")
@@ -8251,6 +8332,19 @@ class CommandDispatcher:
             # Optional shift factors
             shift_x = state.get("shift_x_factor", None)
             shift_y = state.get("shift_y_factor", None)
+
+            # Center-from-label offsets (optional)
+            if "center_from_label_dU_um" in state:
+                try:
+                    self._center_from_label_dU_um = float(state["center_from_label_dU_um"])
+                except Exception:
+                    pass
+            if "center_from_label_dV_um" in state:
+                try:
+                    self._center_from_label_dV_um = float(state["center_from_label_dV_um"])
+                except Exception:
+                    pass
+
 
             # Optional chip name
             chip_name = state.get("chip_name", "")
@@ -8331,6 +8425,38 @@ class CommandDispatcher:
         if sub == "status":
             print("[coup] running" if self._coup_active_evt.is_set() else "[coup] idle")
             return True
+        # --- coup resume [factor] : resume from pause and set pause factor ---
+        #   coup resume       -> factor = 1.0  (pause every 3 SPC)
+        #   coup resume 2     -> factor = 2.0  (pause every 6 SPC)
+        #   coup resume 0.5   -> factor = 0.5  (pause every 1–2 SPC, rounded)
+        if sub == "resume":
+            factor = 1.0
+            if len(tokens) >= 2:
+                try:
+                    factor = float(tokens[1])
+                except Exception:
+                    print(f"[coup] resume: invalid factor '{tokens[1]}'. Use e.g. 'coup resume 2'.")
+                    return False
+
+            if factor <= 0:
+                print("[coup] resume: factor must be > 0.")
+                return False
+
+            self._coup_pause_factor = factor
+
+            # make sure pause event exists and signal resume
+            import threading as _th
+            evt = getattr(self, "_coup_pause_evt", None)
+            if not isinstance(evt, _th.Event):
+                self._coup_pause_evt = _th.Event()
+                evt = self._coup_pause_evt
+            evt.set()
+
+            spc_threshold = max(1, int(round(3 * factor)))
+            print(f"[coup] resume: pause factor set to {factor:.3f} "
+                  f"(will pause every {spc_threshold} SPC commands).")
+            return True
+
         if sub == "stop":
             # signal all known cancel flags
             try:
@@ -8408,13 +8534,117 @@ class CommandDispatcher:
             return False
 
         # --- SINGLE busy guard (applies only to top-level invocations) ---
-        non_blocking = {"status", "stop", "save", "load", "angle"}
+        non_blocking = {"status", "stop", "save", "load", "angle","resume"}
         if (sub not in non_blocking) and _is_coup_busy() and not nested:
             print("[coup] already running.")
             return False
 
+        # --- coup label from center: inverse of "center from label" ---
+        if sub == "label":
+            if len(tokens) >= 3 and tokens[1].lower() == "from" and tokens[2].lower() == "center":
+                # Use stored offsets (label → center), but move opposite (center → label)
+                dU = float(getattr(self, "_center_from_label_dU_um", 0.0))
+                dV = float(getattr(self, "_center_from_label_dV_um", 0.0))
+                if dU == 0.0 and dV == 0.0:
+                    print("[coup] label from center: no stored offsets. Use 'coup center from label dU,dV' first.")
+                    return False
+
+                try:
+                    u_cur, v_cur, _ = self._read_current_position_um()
+                except Exception as e:
+                    print(f"[coup] label from center: cannot read current position: {e}")
+                    return False
+
+                # Inverse move: center → label
+                dU_label = -dU
+                dV_label = -dV
+                u_label = u_cur + dU_label
+                v_label = v_cur + dV_label
+
+                try:
+                    if abs(dU_label) > 1e-6:
+                        self._move_delta(0, dU_label)
+                    if abs(dV_label) > 1e-6:
+                        self._move_delta(1, dV_label)
+                except Exception as e:
+                    print(f"[coup] label from center: move failed: {e}")
+                    return False
+
+                print(
+                    f"[coup] label from center: moved by (dU={dU_label:.3f}, dV={dV_label:.3f}) µm "
+                    f"to label at (U={u_label:.3f}, V={v_label:.3f}) µm."
+                )
+                return True
+
+            # Unknown "coup label ..." usage
+            print("Usage: coup label from center")
+            return False
+
         # --- coup center: set reference center or move to nearest coupon center ---
         if sub == "center":
+            # --- center from label [dU,dV] ---
+            # coup center from label -100,95   -> store offsets (no move)
+            # coup center from label          -> move by stored offsets to center
+            if len(tokens) >= 3 and tokens[1].lower() == "from" and tokens[2].lower() == "label":
+                # SET MODE: explicit offsets
+                if len(tokens) >= 4:
+                    # parse everything after "center from label" as "dU dV" or "dU,dV"
+                    offs_str = " ".join(tokens[3:]).replace(",", " ").split()
+                    if len(offs_str) != 2:
+                        print("[coup] center from label: expected two numbers, e.g. 'coup center from label -100,95'")
+                        return False
+                    try:
+                        dU = float(offs_str[0])
+                        dV = float(offs_str[1])
+                    except Exception:
+                        print("[coup] center from label: invalid numbers. Use e.g. -100,95")
+                        return False
+
+                    self._center_from_label_dU_um = dU
+                    self._center_from_label_dV_um = dV
+                    print(f"[coup] center from label: stored offsets dU={dU:.3f} µm, dV={dV:.3f} µm.")
+                    _coup_save_state()
+                    return True
+
+                # MOVE MODE: no offsets given, use stored values
+                dU = float(getattr(self, "_center_from_label_dU_um", 0.0))
+                dV = float(getattr(self, "_center_from_label_dV_um", 0.0))
+                if dU == 0.0 and dV == 0.0:
+                    print("[coup] center from label: no stored offsets. Use 'coup center from label dU,dV' first.")
+                    return False
+
+                try:
+                    u_cur, v_cur, _ = self._read_current_position_um()
+                except Exception as e:
+                    print(f"[coup] center from label: cannot read current position: {e}")
+                    return False
+
+                u_center = u_cur + dU
+                v_center = v_cur + dV
+
+                # Move WITHOUT MAX_JUMP limitation (your example uses -100,95)
+                try:
+                    if abs(dU) > 1e-6:
+                        self._move_delta(0, dU)
+                    if abs(dV) > 1e-6:
+                        self._move_delta(1, dV)
+                except Exception as e:
+                    print(f"[coup] center from label: move failed: {e}")
+                    return False
+
+                # Also update the coupon center reference
+                try:
+                    self._set_coupon_center_uv(u_center, v_center)
+                except Exception as e:
+                    print(f"[coup] center from label: moved, but failed to store new center: {e}")
+                    return False
+
+                print(
+                    f"[coup] center from label: moved by (dU={dU:.3f}, dV={dV:.3f}) µm "
+                    f"to center at (U={u_center:.3f}, V={v_center:.3f}) µm."
+                )
+                return True
+
             if not hasattr(self, "_coupon_angle_deg"):
                 self._coupon_angle_deg = CHIP_ANGLE  # skew so right-neighbor ~ (95.9, 31.48) from (16,28)
 
@@ -8717,9 +8947,15 @@ class CommandDispatcher:
             except Exception as e:
                 print(f"[coup] corner: {e}")
                 return False
-
         # --- steps-file mode detection (supports bare numbers like `coup 5` -> "5.txt") ---
-        cand_path = sub.strip('"').strip("'")
+        # tokens[0] is the "filename-ish" part (e.g. "sb" in: coup sb pause)
+        cand_path = tokens[0].strip('"').strip("'")
+
+        # Optional "pause" modifier anywhere after the filename:
+        #   coup sb pause
+        #   coup sb.txt pause
+        pause_mode = any(t.lower() == "pause" for t in tokens[1:])
+
         allowed_exts = (".txt", ".cmd", ".lst", ".seq")
 
         # If no recognized extension was provided, default to .txt
@@ -8727,14 +8963,14 @@ class CommandDispatcher:
             cand_path += ".txt"
 
         # Resolve default dir if user passed only a filename (no folder)
-        def _resolve_macro_path(p: str) -> str:
-            if os.path.isabs(p) or os.path.dirname(p):
-                return p
+        def _resolve_macro_path(pth: str) -> str:
+            if os.path.isabs(pth) or os.path.dirname(pth):
+                return pth
             try:
                 base_dir = DEFAULT_COUP_DIR
             except NameError:
                 base_dir = r"c:\WC\HotSystem\Utils\macro"
-            return os.path.join(base_dir, p)
+            return os.path.join(base_dir, pth)
 
         if any(cand_path.lower().endswith(ext) for ext in allowed_exts):
             resolved = _resolve_macro_path(cand_path)
@@ -8766,59 +9002,40 @@ class CommandDispatcher:
                 print(f"[coup] failed to read steps file '{resolved}': {e}")
                 return False
 
+            # Decide which loop implementation to use
+            def _run_steps():
+                if pause_mode:
+                    self._coup_loop_from_steps_with_pause(steps)
+                else:
+                    self._coup_loop_from_steps(steps=steps, wait_for_spc=True)
+
             # If we're already inside a coup run (nested), execute INLINE
             if nested:
-                print(f"[coup] running nested steps inline from '{resolved}'.")
+                print(
+                    f"[coup] running nested steps inline from '{resolved}' "
+                    f"(pause={'ON' if pause_mode else 'OFF'})."
+                )
                 try:
-                    self._coup_loop_from_steps(steps=steps, wait_for_spc=True)
+                    _run_steps()
                     return True
                 except Exception as e:
                     print(f"[coup] nested steps failed: {e}")
                     return False
 
-            # Top-level launch (busy was already checked once above)
+            # Top-level launch
             def _run():
                 try:
-                    self._coup_active_evt.set()
-                    self._coup_loop_from_steps(steps=steps, wait_for_spc=True)
-                finally:
-                    try:
-                        self._coup_active_evt.clear()
-                    except Exception:
-                        pass
+                    _run_steps()
+                except Exception as e:
+                    print(f"[coup] steps thread failed: {e}")
 
             self._coup_thread = threading.Thread(target=_run, daemon=True)
             self._coup_thread.start()
-            print(f"[coup] steps from '{resolved}' started in background (use 'coup stop' to cancel).")
+            print(
+                f"[coup] steps from '{resolved}' started "
+                f"(pause={'ON' if pause_mode else 'OFF'}; use 'coup stop' to cancel)."
+            )
             return True
-
-        # --- fallback: start the generic loop (no steps file) ---
-        if nested:
-            # Inline nested run (no new thread, no busy toggle)
-            print(f"[coup] nested loop start (mode={'shift' if use_shift else 'plain'}).")
-            try:
-                self._coup_loop_from_steps(use_shift=use_shift)
-                return True
-            except Exception as e:
-                print(f"[coup] nested loop failed: {e}")
-                return False
-
-        # Top-level fallback loop in background (busy already checked once)
-        def _run_loop():
-            try:
-                self._coup_active_evt.set()
-                self._coup_loop_from_steps(use_shift=use_shift)
-            finally:
-                try:
-                    self._coup_active_evt.clear()
-                except Exception:
-                    pass
-
-        self._coup_thread = threading.Thread(target=_run_loop, daemon=True)
-        self._coup_thread.start()
-        print(
-            f"[coup] loop started in background (mode={'shift' if use_shift else 'plain'}; use 'coup stop' to cancel).")
-        return True
     def _parse_coup_steps_file(self, path: str):
         """
         Read a steps file and return a flat list of commands.
@@ -8896,6 +9113,116 @@ class CommandDispatcher:
                 print("[coup] stop/timeout during 'spc shift' wait.")
                 return False
         return True
+    def _coup_loop_from_steps_with_pause(self, steps):
+        """
+        Like _coup_loop_from_steps(wait_for_spc=True), but after every
+        K real SPC acquisitions (not 'spc note ...') it runs a preview
+        at 1000 ms exposure and then PAUSES until 'coup resume' / 'cr'
+        or 'coup stop'.
+
+        K is computed dynamically as:
+            K = max(1, round(3 * self._coup_pause_factor))
+
+        where self._coup_pause_factor is set by:
+            coup resume [factor]
+        """
+        import re, time, threading as _th
+
+        p = self.get_parent()
+        target_gui = getattr(p, "proem_gui", None)
+        dev = getattr(target_gui, "dev", None) if target_gui is not None else None
+
+        # make sure pause event exists
+        evt = getattr(self, "_coup_pause_evt", None)
+        if not isinstance(evt, _th.Event):
+            self._coup_pause_evt = _th.Event()
+            evt = self._coup_pause_evt
+
+        spc_count = 0
+
+        self._coup_active_evt.set()
+        try:
+            for cmd in steps:
+                if not self._run_one_cmd(cmd):
+                    print("[coup] loop stopped.")
+                    return
+
+                line = cmd.strip().lower()
+
+                # Same SPC wait logic as _coup_loop_from_steps
+                if re.search(r"\b(spc|save)\b", line) and not re.search(r"\bspc\s+note\b", line):
+                    print("[coup] waiting for 'spc' to finish…")
+                    time.sleep(3.0)
+                    ok = self._wait_spc_done_or_abort()
+                    if not ok:
+                        print("[coup] stop/timeout during 'spc' wait.")
+                        return
+
+                    # Count real SPCs (not 'spc note') for pause logic
+                    if line.startswith("spc") and not line.startswith("spc note"):
+                        spc_count += 1
+
+                        # compute current pause threshold from factor
+                        pause_factor = float(getattr(self, "_coup_pause_factor", 1.0))
+                        pause_every = max(1, int(round(3 * pause_factor)))
+
+                        if pause_every and (spc_count % pause_every == 0):
+                            # --- Preview at 1000 ms ---
+                            print(
+                                f"[coup] pause: after {pause_every} SPCs "
+                                "→ Preview at 1000 ms"
+                            )
+                            if dev is not None:
+                                try:
+                                    dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
+                                except Exception as e:
+                                    print(f"[coup] pause: failed to set preview exposure: {e}")
+
+                                try:
+                                    exp = getattr(dev, "_exp", None)
+                                    if exp is not None:
+                                        try:
+                                            while getattr(exp, "IsUpdating", False):
+                                                time.sleep(0.05)
+                                        except Exception:
+                                            pass
+
+                                        if getattr(exp, "IsReadyToRun", True):
+                                            try:
+                                                exp.Preview()
+                                            except Exception as e:
+                                                print(f"[coup] pause: Preview() failed: {e}")
+                                except Exception as e:
+                                    print(f"[coup] pause: error around preview: {e}")
+
+                            # --- REAL PAUSE HERE ---
+                            dpg.set_value("cmd_input", "cr 3")
+
+                            try:
+                                evt.clear()
+                            except Exception:
+                                pass
+
+                            print(
+                                "[coup] pause: waiting. Use 'coup resume [factor]' or 'cr [factor]' "
+                                "to continue, or 'coup stop' to abort."
+                            )
+                            while True:
+                                # abort / stop?
+                                if self._coup_abort_evt.is_set() or self._coup_cancel.is_set():
+                                    print("[coup] aborted during pause.")
+                                    return
+                                if evt.is_set():
+                                    # user called 'coup resume' / 'cr'
+                                    # (pause_factor may have changed; we'll recompute next time)
+                                    break
+                                time.sleep(0.1)
+
+            # finished all steps
+            self.handle_stop_scan("")
+            print("[coup] loop complete.")
+        finally:
+            self._coup_active_evt.clear()
     def _coup_loop_from_steps(self, use_shift: bool = True, steps: str = "", wait_for_spc: bool = True):
         self._coup_active_evt.set()
         try:
@@ -9897,18 +10224,21 @@ class CommandDispatcher:
             return False
 
         return True
-
     def handle_coupon(self, arg: str = ""):
         """
         coupon name <name>        -> save current coordinates with label <name>
         coupon <name>             -> same as 'coupon name <name>'
-        coupon listx <n1> <n2>…   -> record names at the current position (no movement)
-        coupon listy <n1> <n2>…   -> same as listx (no movement)
+        coupon listx <n1> <n2>…   -> record names along X using coup shiftx geometry (no movement)
+        coupon listy <n1> <n2>…   -> record names along Y using coup shifty geometry (no movement)
+        coupon listxy A1-E6       -> record a 2D grid from current position (A1) using shiftx/shifty (no movement)
         coupon list               -> list all stored coupon names and positions
+        coupon clear              -> clear all stored coupon names
         coupon ?                  -> show the nearest coupon name at current position
+        coupon go <name>          -> move to stored coupon <name>
         """
         import shlex
         import math
+        import re
 
         # Ensure store exists: name -> dict(u_um, v_um)
         if not hasattr(self, "_coupon_labels"):
@@ -9940,7 +10270,7 @@ class CommandDispatcher:
                 return False
 
             best = None
-            TOL_UM = 260.0  # how close [µm] to consider "same vicinity"
+            TOL_UM = 560.0  # how close [µm] to consider "same vicinity"
 
             for name, info in self._coupon_labels.items():
                 try:
@@ -9958,7 +10288,7 @@ class CommandDispatcher:
 
             d2, name, du, dv = best
             dist = math.sqrt(d2)
-            print(f"[coupon] nearest name: '{name}' (distance ≈ {dist:.3f} µm)")
+            print(f"[coupon] nearest name: '{name}' (distance = {dist:.3f} µm)")
             return True
 
         # --- coupon list -> list all labels ---
@@ -9988,7 +10318,10 @@ class CommandDispatcher:
             print("  coupon <name>")
             print("  coupon listx <n1> <n2> ...")
             print("  coupon listy <n1> <n2> ...")
+            print("  coupon listxy A1-E6")
             print("  coupon list")
+            print("  coupon clear")
+            print("  coupon go <name>")
             print("  coupon ?")
             return False
 
@@ -10001,7 +10334,7 @@ class CommandDispatcher:
             print(
                 "Usage: coupon name <name> | coupon <name> | "
                 "coupon listx <n1> <n2> ... | coupon listy <n1> <n2> ... | "
-                "coupon list | coupon ?"
+                "coupon listxy A1-E6 | coupon list | coupon clear | coupon go <name> | coupon ?"
             )
             return False
 
@@ -10051,7 +10384,7 @@ class CommandDispatcher:
             return True
 
         # --- coupon name <name>  OR  coupon <name> ---
-        if sub == "name" or sub not in ("listx", "listy", "list", "?"):
+        if sub == "name" or sub not in ("listx", "listy", "listxy", "list", "clear", "go", "?"):
             # If user wrote 'coupon name foo', label is tokens[1:]
             # If user wrote 'coupon foo', label is tokens[0:] (because sub is not a keyword)
             if sub == "name":
@@ -10082,6 +10415,29 @@ class CommandDispatcher:
             print(f"[coupon] name: '{label}' recorded at (U={u_cur:.3f} µm, V={v_cur:.3f} µm)")
             return True
 
+        # --- geometric helpers (used by listx, listy, listxy) ---
+        def _geom_steps():
+            """Return (dUx, dVx, dUy, dVy) in µm for one step in X (shiftx) and Y (shifty)."""
+            angle = math.radians(float(getattr(self, "_coupon_angle_deg", 0.0)))
+            cos_t = math.cos(angle)
+            sin_t = math.sin(angle)
+
+            # step along U (shiftx)
+            step_x_um = float(getattr(self, "_coup_shift_x_factor", 5.0)) * float(
+                getattr(self, "_coupx_move_um", 80.0)
+            )
+            dUx = step_x_um * cos_t
+            dVx = step_x_um * sin_t
+
+            # step along V (shifty)
+            step_y_um = float(getattr(self, "_coup_shift_y_factor", 5.43)) * float(
+                getattr(self, "_coupy_move_um", 70.0)
+            )
+            dUy = -step_y_um * sin_t
+            dVy = step_y_um * cos_t
+
+            return dUx, dVx, dUy, dVy
+
         # --- coupon listx / listy <n1> <n2> ... (no physical movement) ---
         if sub in ("listx", "listy"):
             along_x = (sub == "listx")
@@ -10097,32 +10453,23 @@ class CommandDispatcher:
                 print(f"[coupon] {sub}: cannot read current position: {e}")
                 return False
 
-            # Compute the delta-UV step according to coup shiftx/shifty
-            import math
-            angle = math.radians(float(getattr(self, "_coupon_angle_deg", 0.0)))
-            cos_t = math.cos(angle)
-            sin_t = math.sin(angle)
+            dUx, dVx, dUy, dVy = _geom_steps()
 
+            # Use only one axis of the geometry
             if along_x:
-                # shiftx → moves along U axis direction
-                step_um = self._coup_shift_x_factor * self._coupx_move_um
-                dU = step_um * cos_t
-                dV = step_um * sin_t
+                step_u = dUx
+                step_v = dVx
             else:
-                # shifty → moves along V axis direction
-                step_um = self._coup_shift_y_factor * self._coupy_move_um
-                dU = -step_um * sin_t
-                dV = step_um * cos_t
+                step_u = dUy
+                step_v = dVy
 
-            # Record each name at simulated positions
             for idx, label in enumerate(names):
                 label = label.strip()
                 if not label:
                     continue
 
-                # Predicted position = initial position + idx * (dU, dV)
-                u_est = u0 + idx * dU
-                v_est = v0 + idx * dV
+                u_est = u0 + idx * step_u
+                v_est = v0 + idx * step_v
 
                 _override_nearby(u_est, v_est, tol_um=1.0)
 
@@ -10135,16 +10482,133 @@ class CommandDispatcher:
 
             return True
 
+        # --- coupon listxy A1-E6 (no physical movement) ---
+        if sub == "listxy":
+            if len(tokens) < 2:
+                print("[coupon] listxy: missing range. Usage: coupon listxy A1-E6")
+                return False
+
+            rng = tokens[1].strip()
+            m = re.fullmatch(r"([A-Za-z])(\d+)\s*-\s*([A-Za-z])(\d+)", rng)
+            if not m:
+                print("[coupon] listxy: invalid range. Use like: coupon listxy A1-E6")
+                return False
+
+            row_start_char, col_start_str, row_end_char, col_end_str = m.groups()
+            row_start = ord(row_start_char.upper()) - ord("A")
+            row_end = ord(row_end_char.upper()) - ord("A")
+            col_start = int(col_start_str)
+            col_end = int(col_end_str)
+
+            if row_end < row_start or col_end < col_start:
+                print("[coupon] listxy: range must be increasing, e.g. A1-E6.")
+                return False
+
+            n_rows = row_end - row_start + 1
+            n_cols = col_end - col_start + 1
+
+            # Read current stage position once (A1)
+            try:
+                u0, v0, _ = self._read_current_position_um()
+            except Exception as e:
+                print(f"[coupon] listxy: cannot read current position: {e}")
+                return False
+
+            dUx, dVx, dUy, dVy = _geom_steps()
+
+            for r_idx in range(n_rows):
+                for c_idx in range(n_cols):
+                    row_char = chr(ord("A") + row_start + r_idx)
+                    col_num = col_start + c_idx
+                    label = f"{row_char}{col_num}"
+
+                    u_est = u0 + c_idx * dUx + r_idx * dUy
+                    v_est = v0 + c_idx * dVx + r_idx * dVy
+
+                    _override_nearby(u_est, v_est, tol_um=1.0)
+
+                    self._coupon_labels[label] = {
+                        "u_um": float(u_est),
+                        "v_um": float(v_est),
+                    }
+
+                    print(f"[coupon] listxy: '{label}' recorded at simulated (U={u_est:.3f} µm, V={v_est:.3f} µm)")
+
+            return True
+
         # Unknown subcommand
         print("Usage:")
         print("  coupon name <name>")
         print("  coupon <name>")
         print("  coupon listx <n1> <n2> ...")
         print("  coupon listy <n1> <n2> ...")
+        print("  coupon listxy A1-E6")
         print("  coupon list")
+        print("  coupon clear")
+        print("  coupon go <name>")
         print("  coupon ?")
         return False
+    def handle_last_message(self, *args):
+        """
+        last            -> copy the last message to the clipboard
+        last N          -> copy the last N messages to the clipboard
+        """
+        import pyperclip
+        try:
+            dual = sys.stdout
 
+            # How many messages to copy
+            if args and str(args[0]).isdigit():
+                n = int(args[0])
+                if n < 1:
+                    print("[last] N must be >= 1")
+                    return False
+            else:
+                n = 1
+
+            if not hasattr(dual, "messages") or not dual.messages:
+                print("[last] no messages available.")
+                return False
+
+            # Select last N messages
+            msgs = dual.messages[-n:]
+
+            # Clean and join
+            cleaned = [m.rstrip("\n") for m in msgs]
+            final_text = "\n".join(cleaned)
+
+            pyperclip.copy(final_text)
+            print(f"[last] copied last {n} message(s) to clipboard.")
+            return True
+
+        except Exception as e:
+            print(f"[last] failed: {e}")
+            return False
+    def handle_cr(self, arg: str = ""):
+        """
+        cr [factor]
+          Alias for 'coup resume [factor]'.
+
+          cr         -> same as 'coup resume'      (factor default = 1.0)
+          cr 3       -> same as 'coup resume 3'
+        """
+        text = (arg or "").strip()
+        if not text:
+            # no factor → just plain 'resume'
+            return self.handle_coup("resume")
+
+        # take first token as factor, ignore the rest if any
+        factor_token = text.split()[0]
+        return self.handle_coup(f"resume {factor_token}")
+    def handle_proem(self, arg: str = ""):
+        self.handle_start_counter()
+        p = self.get_parent()
+        target_gui = getattr(p, "proem_gui", None)
+        dev = getattr(target_gui, "dev", None) if target_gui is not None else None
+        dev._exp.Stop()
+        time.sleep(0.2)
+        dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
+        dev._exp.Preview()
 
 # Wrapper function
 dispatcher = CommandDispatcher()

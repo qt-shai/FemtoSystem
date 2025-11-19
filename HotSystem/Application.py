@@ -1166,6 +1166,30 @@ class PyGuiOverlay(Layer):
                     print("No history yet.")
                 return
 
+            # ── BACKTICK (`) → paste clipboard into cmd_input and run ──
+            if key_data_enum == KeyboardKeys.OEM_3:  # ` key
+                try:
+                    clip = dpg.get_clipboard_text()
+                except Exception as e:
+                    print(f"no text in clipboard (error reading clipboard: {e})")
+                    return
+
+                # Require non-empty pure text
+                if not isinstance(clip, str) or not clip.strip():
+                    print("no text in clipboard")
+                    return
+
+                # Put it into the cmd_input
+                dpg.set_value("cmd_input", clip)
+                dpg.focus_item("cmd_input")
+
+                # Run the command
+                try:
+                    run(clip)  # uses your existing run(...) function
+                except Exception as e:
+                    print(f"Error running clipboard command: {e}")
+                return
+
             # ── if the user is actively typing into the command box, bail out  ──
             focused_inputs = (
                 "cmd_input",

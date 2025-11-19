@@ -67,7 +67,7 @@ class GUI_smaract():
                             dpg.add_button(label=lbl_list[ch*2+1], width=50, callback=self.move_c_f, user_data=(ch, 'neg', 'c'))
                             dpg.bind_item_theme(dpg.last_item(), red_button_theme)
                             dpg.add_input_float(label="", default_value=1, tag=f"{self.prefix}_ch" + str(ch) + "_Cset",
-                                                indent=-1, format='%.1f', width=150, step=1, step_fast=100,callback=self.ipt_large_step)
+                                                indent=-1, format='%.2f', width=150, step=1, step_fast=100,callback=self.ipt_large_step)
                             dpg.add_text("um  ", indent=-10)
                     with dpg.group(horizontal=True, tag="group_pos_1"):
                         dpg.add_button(label="load pos", callback=self.load_pos)

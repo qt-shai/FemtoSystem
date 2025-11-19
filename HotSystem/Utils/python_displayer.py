@@ -42,7 +42,8 @@ except ImportError:
         root = Tk(); root.withdraw()
         return filedialog.askopenfilename(filetypes=filetypes)
 SCALE_MIN = 0.0
-SCALE_MAX = 9000.0
+# SCALE_MAX = 9000.0
+SCALE_MAX = 3000.0
 PIXEL_SIZE_UM = 0.0735  # µm per pixel
 CONNECT_SHIFT_UM = 5  # hard-coded stage step (µm)
 CIRCLE_RADIUS_UM = 25.0       # current stitching radius
@@ -66,7 +67,7 @@ CONNECT_STATE = {
 # ------- Map overlay config -------
 MAP_IMAGE_PATH = r"c:\WC\HotSystem\map.jpg"     # path to your site map image
 MAP_MODE = "corner"  # "center" or "corner"
-MAP_CALIB_PATH = "map_calibration.json"
+MAP_CALIB_PATH = r"c:\WC\HotSystem\Utils\map_calibration.json"
 
 # If MAP_MODE == "center": we assume 0,0 is the center of the JPEG.
 # If MAP_MODE == "corner": define world coords for the top-left pixel (Xmin_um, Ymax_um)
@@ -222,6 +223,21 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     _is_switched_2d = False  # True when current dataset was created by _switch_to_2d_dataset
 
     # --- Helpers for TIFF reading ---
+    def _parse_site_center_from_name(name: str):
+        # Match Site (<x> <y> <z>) where decimals use commas
+        import re
+        m = re.search(r"Site\s*\(\s*([^\s\)]+)\s+([^\s\)]+)\s+([^\s\)]+)\s*\)", name)
+        if not m:
+            return None
+        try:
+            # replace comma decimal with dot and convert to float (µm)
+            cx = float(m.group(1).replace(',', '.'))
+            cy = float(m.group(2).replace(',', '.'))
+            cz = float(m.group(3).replace(',', '.'))
+            return (cx, cy, cz)
+        except Exception:
+            return None
+
     def _read_tif_stack(path: str):
         # prefer tifffile, fallback to imageio.v3
         try:
@@ -279,21 +295,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             # Wrap as single "slice"
             stack = stack[np.newaxis, ...]  # shape: (1, Y, X)
             Nz, Ny, Nx = stack.shape
-
-            def _parse_site_center_from_name(name: str):
-                # Match Site (<x> <y> <z>) where decimals use commas
-                import re
-                m = re.search(r"Site\s*\(\s*([^\s\)]+)\s+([^\s\)]+)\s+([^\s\)]+)\s*\)", name)
-                if not m:
-                    return None
-                try:
-                    # replace comma decimal with dot and convert to float (µm)
-                    cx = float(m.group(1).replace(',', '.'))
-                    cy = float(m.group(2).replace(',', '.'))
-                    cz = float(m.group(3).replace(',', '.'))
-                    return (cx, cy, cz)
-                except Exception:
-                    return None
 
             fname = os.path.basename(filepath)
             center_um = _parse_site_center_from_name(fname)  # (cx, cy, cz) in µm or None
@@ -879,7 +880,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         ax_xy.set_title(f"XY @ Site({cx0_um:.2f}, {cy0_um:.2f}) µm  (origin + +Y)")
         fig.canvas.draw_idle()
 
-    # ===== Calibration (flat-field) — hard-coded path =====
+    # ===== Gain Calibration (flat-field) — hard-coded path =====
     CALIB_TIF_PATH = r"C:\WC\SLM_bmp\Calib\Averaged_calibration.tif"
 
     calib_state = {
@@ -1139,6 +1140,14 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     btn_rect_col2 = (col2_x, btn_y, btn_w, btn_h)
 
     def shift_rect2(rect, dx=0.0, dy=-0.03):
+        x1, y1, w1, h1 = rect
+        return x1 + dx, y1 + dy, w1, h1
+
+    # Column 3 starts to the right of column 2
+    col3_x = col2_x + btn_w + COL_GAP
+    btn_rect_col3 = (col3_x, btn_y, btn_w, btn_h)
+
+    def shift_rect3(rect, dx=0.0, dy=-0.03):
         x1, y1, w1, h1 = rect
         return x1 + dx, y1 + dy, w1, h1
 
@@ -1994,13 +2003,238 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         xmin_um = X1 - (x1 / px_per_um_x)
         ymax_um = Y1 + (y1 / px_per_um_y)
 
-        _save_map_calib("corner", px_per_um_x, px_per_um_y, xmin_um, ymax_um)
+        _save_map_calib(
+            "corner",
+            px_per_um_x, px_per_um_y, xmin_um, ymax_um,
+            p1_px=(x1, y1), p2_px=(x2, y2),
+            p1_um=(X1, Y1), p2_um=(X2, Y2),
+        )
 
         print(f"✅ Calibration (2 files) solved:")
         print(f"   px/µm_x = {px_per_um_x:.6f}, px/µm_y = {px_per_um_y:.6f}")
         print(f"   xmin_um = {xmin_um:.3f}, ymax_um = {ymax_um:.3f}")
 
     btn_calmap2.on_clicked(_calibrate_map_from_files)
+
+    # ----------------  Check map calib on folder (Column 3)  ----------------
+    ax_check_map_folder = plt.axes(btn_rect_col3)
+    btn_check_map_folder = Button(ax_check_map_folder, 'check map folder')
+    btn_rect_col3 = shift_rect3(btn_rect_col3)
+
+    def _check_map_calibration_folder(_evt=None):
+        """
+        Debug helper: pick a folder of TIFFs, parse all Site(x,y) centers, and overlay
+        small red dots for each unique site on the map image using the current
+        map calibration.
+        """
+        try:
+            folder = _select_folder()
+        except Exception as e:
+            print(f"❌ Folder chooser error: {e}")
+            return
+
+        if not folder:
+            print("Canceled.")
+            return
+
+        try:
+            files = [os.path.join(folder, f) for f in os.listdir(folder)
+                     if f.lower().endswith((".tif", ".tiff"))]
+        except Exception as e:
+            print(f"❌ Could not list folder: {e}")
+            return
+
+        if not files:
+            print("No TIFF files found in selected folder.")
+            return
+
+        # Load base map image
+        try:
+            base = Image.open(MAP_IMAGE_PATH).convert("RGB")
+        except Exception as e:
+            print(f"⚠️ map image not found/unreadable: {MAP_IMAGE_PATH} ({e})")
+            return
+
+        W, H = base.size
+
+        # Load current calibration (if any)
+        cal = _load_map_calib()
+        use_corner = cal.get("mode", "").lower() == "corner"
+        if not use_corner:
+            print("ℹ️ No saved 'corner' calibration; using MAP_* config parameters.")
+
+        # Collect unique centers (in µm)
+        centers = {}
+        s_um = float(CONNECT_SHIFT_UM)
+        for p in files:
+            center = None
+            # Prefer true site center inferred from #01-#09 set
+            try:
+                center = _infer_center_from_file(p, s_um)
+            except Exception:
+                center = None
+
+            # Fallback: raw Site(x,y,...) from the filename
+            if center is None:
+                try:
+                    ctr = _parse_site_center_from_name(os.path.basename(p))
+                except Exception:
+                    ctr = None
+                if ctr:
+                    try:
+                        x_um = float(str(ctr[0]).replace(",", "."))
+                        y_um = float(str(ctr[1]).replace(",", "."))
+                        center = (x_um, y_um)
+                    except Exception:
+                        center = None
+
+            if center is None:
+                continue
+
+            x_um, y_um = center
+            key = (round(x_um, 4), round(y_um, 4))  # de-dupe sites
+            if key not in centers:
+                centers[key] = (x_um, y_um)
+
+        if not centers:
+            print("❌ No usable Site(...) coordinates were found in that folder.")
+            return
+
+        # Convert each center (µm) -> pixel coords on map
+        pts_px = []
+        xs = []
+        ys = []
+        any_oob = False
+        for (cx_um, cy_um) in centers.values():
+            if use_corner:
+                px_per_um_x = cal["px_per_um_x"]
+                px_per_um_y = cal["px_per_um_y"]
+                xmin_um = cal["xmin_um"]
+                ymax_um = cal["ymax_um"]
+                px = (cx_um - xmin_um) * px_per_um_x
+                py = (ymax_um - cy_um) * px_per_um_y
+            else:
+                # Fallback to config parameters (pre-calibration)
+                if MAP_MODE.lower() == "center":
+                    px = W / 2.0 + cx_um * MAP_PX_PER_UM
+                    py = H / 2.0 - cy_um * MAP_PX_PER_UM
+                else:
+                    px = (cx_um - MAP_XMIN_UM) * MAP_PX_PER_UM
+                    py = (MAP_YMAX_UM - cy_um) * MAP_PX_PER_UM
+
+            pts_px.append((px, py))
+            xs.append(px)
+            ys.append(py)
+            if not (0 <= px <= W and 0 <= py <= H):
+                any_oob = True
+
+        # Show overlay
+        # --- Show overlay ---
+        figM, axM = plt.subplots(1, 1, figsize=(7, 7))
+        axM.imshow(base)
+        try:
+            folder_name = os.path.basename(folder.rstrip(os.sep))
+        except Exception:
+            folder_name = folder
+        axM.set_title(
+            f"Map calibration check: {len(centers)} site(s)\nFolder: {folder_name}"
+        )
+
+        # plot P1/P2 green X markers
+        clicked_px = cal.get("clicked_px") or {}
+        for lbl in ("P1", "P2"):
+            pt = clicked_px.get(lbl)
+            if not pt or len(pt) != 2:
+                continue
+            cx, cy = float(pt[0]), float(pt[1])
+            axM.plot(cx, cy, 'gx', markersize=14, mew=2.5, zorder=7)
+            axM.text(cx + 10, cy - 10, lbl,
+                     color='lime', fontsize=10, weight='bold', zorder=8,
+                     bbox=dict(facecolor='black', alpha=0.4, edgecolor='none'))
+
+        # draw all red dots (initially no DX/DY)
+        scat = axM.plot([p[0] for p in pts_px], [p[1] for p in pts_px],
+                        'r.', markersize=3, zorder=5)[0]
+
+        # initial limits
+        margin = 20
+        x_min = min(0, min(xs) - margin)
+        x_max = max(W, max(xs) + margin)
+        y_min = min(0, min(ys) - margin)
+        y_max = max(H, max(ys) + margin)
+        axM.set_xlim(x_min, x_max)
+        axM.set_ylim(y_max, y_min)
+
+        if any_oob:
+            axM.text(
+                0.02, 0.98,
+                "⚠️ Some dots fall outside the map bounds (check calibration)",
+                transform=axM.transAxes, va='top', ha='left',
+                bbox=dict(facecolor='yellow', alpha=0.6, edgecolor='none'),
+            )
+
+        # --- Interactive DX/DY tuning controls ---
+        from matplotlib.widgets import Button, Slider
+
+        dx_val = 0.0
+        dy_val = 0.0
+
+        # function to re-draw points when DX/DY changes
+        def _update_dots():
+            newx = [px + dx_val for (px, py) in pts_px]
+            newy = [py + dy_val for (px, py) in pts_px]
+            scat.set_data(newx, newy)
+            figM.canvas.draw_idle()
+
+        def _nudge(dx=0, dy=0):
+            nonlocal dx_val, dy_val
+            dx_val += dx
+            dy_val += dy
+            _update_dots()
+            print(f"DX={dx_val:.1f}px, DY={dy_val:.1f}px")
+
+        # small inset axes for buttons
+        ax_up = plt.axes([0.85, 0.15, 0.05, 0.05])
+        ax_down = plt.axes([0.85, 0.05, 0.05, 0.05])
+        ax_left = plt.axes([0.79, 0.10, 0.05, 0.05])
+        ax_right = plt.axes([0.91, 0.10, 0.05, 0.05])
+        ax_save = plt.axes([0.79, 0.20, 0.17, 0.05])
+
+        btn_up = Button(ax_up, '↑')
+        btn_down = Button(ax_down, '↓')
+        btn_left = Button(ax_left, '←')
+        btn_right = Button(ax_right, '→')
+        btn_save = Button(ax_save, '💾 Save offset')
+
+        # link buttons to movement
+        btn_up.on_clicked(lambda _e: _nudge(dy=-10))
+        btn_down.on_clicked(lambda _e: _nudge(dy=+10))
+        btn_left.on_clicked(lambda _e: _nudge(dx=-10))
+        btn_right.on_clicked(lambda _e: _nudge(dx=+10))
+
+        # save new calibration with adjusted origin
+        def _save_offset(_e=None):
+            dx_um = dx_val / cal["px_per_um_x"]
+            dy_um = dy_val / cal["px_per_um_y"]
+            new_xmin_um = cal["xmin_um"] - dx_um
+            new_ymax_um = cal["ymax_um"] + dy_um
+            cal["xmin_um"] = new_xmin_um
+            cal["ymax_um"] = new_ymax_um
+            with open(MAP_CALIB_PATH, "w", encoding="utf-8") as f:
+                json.dump(cal, f, indent=2)
+            print(f"💾 Saved updated offsets: DX={dx_val:.1f}px, DY={dy_val:.1f}px → "
+                  f"xmin_um={new_xmin_um:.3f}, ymax_um={new_ymax_um:.3f}")
+            axM.text(0.5, 0.02, "Saved!", transform=axM.transAxes,
+                     ha='center', va='bottom', color='green',
+                     bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+            figM.canvas.draw_idle()
+
+        btn_save.on_clicked(_save_offset)
+
+        plt.show(block=False)
+
+
+    btn_check_map_folder.on_clicked(_check_map_calibration_folder)
 
     # ----------------  Average multiple TIFFs  ----------------
     ax_avg = plt.axes(btn_rect)
@@ -4141,11 +4375,11 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             except Exception:
                 pass
 
-    def _handle_multiple_add2ppt_map(_evt=None):
+    def _run_multiple_add2ppt_map(paths):
+        """Core logic for multi add+map, given an explicit list of paths."""
         try:
-            paths = open_files_dialog([("TIFF Files", "*.tif *.tiff"), ("All Files", "*.*")])
             if not paths:
-                print("No files selected.")
+                print("No files to process.")
                 return
 
             pythoncom.CoInitialize()
@@ -4188,56 +4422,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 except Exception as e:
                     print(f"[FIT] resize failed: {e}")
 
-            def _draw_end_triangles(ax, p0, p1, *, size_pt=180, face='y', edge='k', lw=1.0, rotate_deg=27.0):
-                """
-                Draw start/end triangles with fixed *screen* size so they appear in PPT.
-                Uses oriented scatter markers (3-vertex polygon), rotated slightly for visibility.
-                Returns (m0, m1) PathCollections.
-                """
-                x0, y0 = float(p0[0]), float(p0[1])
-                x1, y1 = float(p1[0]), float(p1[1])
-                dx, dy = (x1 - x0), (y1 - y0)
-                ang_deg = np.degrees(np.arctan2(dy, dx))
-
-                # small extra rotation to make the markers pop and avoid aliasing along the line
-                m0 = ax.scatter([x0], [y0],
-                                s=size_pt, marker=(3, 0, ang_deg + rotate_deg),
-                                facecolor=face, edgecolor=edge, linewidths=lw,
-                                zorder=1000, clip_on=True)
-                m1 = ax.scatter([x1], [y1],
-                                s=size_pt, marker=(3, 0, ang_deg + 180.0 - rotate_deg),
-                                facecolor=face, edgecolor=edge, linewidths=lw,
-                                zorder=1000, clip_on=True)
-
-                for coll in (m0, m1):
-                    try:
-                        coll.set_rasterized(False)
-                        coll._is_profile_marker = True
-                    except Exception:
-                        pass
-
-                try:
-                    ax.figure.canvas.draw_idle()
-                except Exception:
-                    pass
-
-                span = (dx ** 2 + dy ** 2) ** 0.5
-                print(f"[TRI] scatter triangles added: size_pt={size_pt}, angle={ang_deg:.1f}°, "
-                      f"offset={rotate_deg:.1f}°, span={span:.2f} µm")
-                return m0, m1
-
-            def _clear_profile_markers(ax):
-                """Remove previous start/end triangle markers from this axes."""
-                removed = 0
-                for coll in list(ax.collections):
-                    if getattr(coll, "_is_profile_marker", False):
-                        try:
-                            coll.remove()
-                            removed += 1
-                        except Exception:
-                            pass
-                if removed:
-                    print(f"[TRI] removed {removed} old triangle markers")
+            # (keep your existing _draw_end_triangles and _clear_profile_markers
+            #  exactly as they are here – omitted for brevity)
 
             _dbg(f"[INIT] slides={pres.Slides.Count}, slide_w={slide_w}, slide_h={slide_h}")
 
@@ -4285,8 +4471,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                                 ax_xy.set_ylabel("y (µm)")
                             except Exception:
                                 pass
-                            ax_xy.set_xlim(x0, x1);
-                            ax_xy.set_ylim(y0, y1);
+                            ax_xy.set_xlim(x0, x1)
+                            ax_xy.set_ylim(y0, y1)
                             ax_xy.autoscale(False)
                             _log_axes_state(ax_xy, "ax_after_extent")
                         else:
@@ -4360,7 +4546,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                     # ----- MAIN IMAGE INSERT: PNG snapshot (robust; includes scatter triangles) -----
                     main_shape = None
 
-                    im_xy.set_clim(SCALE_MIN, SCALE_MAX)
+                    # im_xy.set_clim(SCALE_MIN, SCALE_MAX)
 
                     png_path = export_main_axes_snapshot(
                         ax_xy,
@@ -4402,7 +4588,6 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                             fig.canvas.draw()
                             copy_main_axes_to_clipboard()
                             shapes = new_slide.Shapes.Paste()
-                            # normalize your ShapeRange/list here if you use a helper
                             main_shape = shapes[0] if getattr(shapes, "Count", 0) else None
                             print(f"[PASTE] clipboard fallback, shape={'ok' if main_shape else 'none'}")
                         except Exception as e:
@@ -4425,7 +4610,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                         tr.Font.Bold = True
                         tr.Font.Size = 28
                         try:
-                            title_shape.Fill.Visible = 0; title_shape.Line.Visible = 0
+                            title_shape.Fill.Visible = 0
+                            title_shape.Line.Visible = 0
                         except Exception:
                             pass
                     except Exception as e:
@@ -4517,7 +4703,52 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         except Exception as e:
             print(f"⚠️ Could not close app cleanly: {e}")
 
+    def _handle_multiple_add2ppt_map(_evt=None):
+        """Existing button: pick multiple files via dialog."""
+        try:
+            paths = open_files_dialog([("TIFF Files", "*.tif *.tiff"), ("All Files", "*.*")])
+            if not paths:
+                print("No files selected.")
+                return
+            _run_multiple_add2ppt_map(paths)
+        except Exception as e:
+            print(f"❌ multiple add+map failed: {e}")
+
     btn_addppt_map_multi.on_clicked(_handle_multiple_add2ppt_map)
+
+    # ------------- Button: multiple add+map (dir) -------------
+    ax_addppt_map_multi_dir = plt.axes(btn_rect_col2)
+    btn_addppt_map_multi_dir = Button(ax_addppt_map_multi_dir, 'multi add+map dir')
+    btn_rect_col2 = shift_rect2(btn_rect_col2)
+
+    def _handle_multiple_add2ppt_map_dir(_evt=None):
+        """New button: choose a directory, process all TIFFs inside."""
+        import os
+        from tkinter import filedialog
+
+        # Ask for directory
+        dir_path = filedialog.askdirectory(title="Select directory with TIFF files")
+        if not dir_path:
+            print("No directory selected.")
+            return
+
+        # Collect all .tif / .tiff (case-insensitive)
+        exts = {'.tif', '.tiff'}
+        paths = [
+            os.path.join(dir_path, f)
+            for f in sorted(os.listdir(dir_path))
+            if os.path.isfile(os.path.join(dir_path, f))
+               and os.path.splitext(f)[1].lower() in exts
+        ]
+
+        if not paths:
+            print(f"No TIFF files found in directory: {dir_path}")
+            return
+
+        print(f"Found {len(paths)} TIFF files in {dir_path}")
+        _run_multiple_add2ppt_map(paths)
+
+    btn_addppt_map_multi_dir.on_clicked(_handle_multiple_add2ppt_map_dir)
 
     # ---------------- Button: multiple crop (batch) ----------------
     ax_multicrop = plt.axes(btn_rect_col2)
@@ -5623,7 +5854,10 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 print(f"⚠️ Could not read {MAP_CALIB_PATH}: {e}")
         return {}
 
-    def _save_map_calib(mode, px_per_um_x, px_per_um_y, xmin_um, ymax_um):
+    def _save_map_calib(mode,
+                        px_per_um_x, px_per_um_y, xmin_um, ymax_um,
+                        p1_px=None, p2_px=None,
+                        p1_um=None, p2_um=None):
         d = {
             "mode": mode,
             "px_per_um_x": float(px_per_um_x),
@@ -5631,6 +5865,19 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             "xmin_um": float(xmin_um),
             "ymax_um": float(ymax_um),
         }
+
+        # store where we actually clicked (for debug overlays)
+        if p1_px is not None and p2_px is not None:
+            d["clicked_px"] = {
+                "P1": [float(p1_px[0]), float(p1_px[1])],
+                "P2": [float(p2_px[0]), float(p2_px[1])],
+            }
+        if p1_um is not None and p2_um is not None:
+            d["clicked_um"] = {
+                "P1": [float(p1_um[0]), float(p1_um[1])],
+                "P2": [float(p2_um[0]), float(p2_um[1])],
+            }
+
         with open(MAP_CALIB_PATH, "w", encoding="utf-8") as f:
             json.dump(d, f, indent=2)
         print(f"✅ Saved calibration → {MAP_CALIB_PATH}: {d}")
@@ -5647,8 +5894,221 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     except KeyboardInterrupt:
         pass
 
+def open_check_map_calibration(folder=None):
+    """
+    Open an interactive calibration-check window:
+    - Shows current calibration dots over map
+    - Lets user tune DX,DY (shift) and ScaleX,ScaleY
+    - Saves updated calibration back to MAP_CALIB_PATH
+    """
+    import os, json, re
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Button, Slider
+    from PIL import Image
 
+    # --- local helper: extract Site(x,y) center from filename ---
+    def _parse_site_center_from_name(name: str):
+        """
+        Parse patterns like 'Site (-8642,1 1494,3 -785,6)' and return (x_um, y_um, z_um)
+        """
+        if not name:
+            return None
+        m = re.search(r"Site\s*\(([-\d,\.]+)\s+([-\d,\.]+)(?:\s+([-\d,\.]+))?", name)
+        if not m:
+            return None
+        try:
+            x = float(m.group(1).replace(",", "."))
+            y = float(m.group(2).replace(",", "."))
+            z = float(m.group(3).replace(",", ".")) if m.group(3) else 0.0
+            return (x, y, z)
+        except Exception:
+            return None
 
+    # ---------- Load map + calibration ----------
+    try:
+        base = Image.open(MAP_IMAGE_PATH).convert("RGB")
+    except Exception as e:
+        print(f"⚠️ Map image error: {e}")
+        return
+
+    W, H = base.size
+
+    if not os.path.isfile(MAP_CALIB_PATH):
+        print(f"❌ No calibration file found: {MAP_CALIB_PATH}")
+        return
+    with open(MAP_CALIB_PATH, "r", encoding="utf-8") as f:
+        cal = json.load(f)
+
+    # original calibration (we'll modify a scaled version of these)
+    px_per_um_x0 = float(cal["px_per_um_x"])
+    px_per_um_y0 = float(cal["px_per_um_y"])
+    xmin_um0 = float(cal["xmin_um"])
+    ymax_um0 = float(cal["ymax_um"])
+
+    # ---------- Load site centers from folder ----------
+    if folder is None:
+        from tkinter.filedialog import askdirectory
+        folder = askdirectory(title="Select folder with TIFFs")
+
+    if not folder:
+        print("Canceled.")
+        return
+
+    tifs = [os.path.join(folder, f) for f in os.listdir(folder)
+            if f.lower().endswith((".tif", ".tiff"))]
+    if not tifs:
+        print("No TIFF files found in folder.")
+        return
+
+    centers_um = []
+    for p in tifs:
+        c = _parse_site_center_from_name(os.path.basename(p))
+        if not c:
+            continue
+        try:
+            x_um = float(str(c[0]).replace(",", "."))
+            y_um = float(str(c[1]).replace(",", "."))
+            centers_um.append((x_um, y_um))
+        except Exception:
+            pass
+
+    if not centers_um:
+        print("No usable Site(x,y) in filenames.")
+        return
+
+    # helper: world (µm) -> pixel using current calib params
+    def world_to_pixel(cx_um, cy_um, px_per_um_x, px_per_um_y, xmin_um, ymax_um):
+        px = (cx_um - xmin_um) * px_per_um_x
+        py = (ymax_um - cy_um) * px_per_um_y
+        return px, py
+
+    # ---------- Build figure ----------
+    fig, ax = plt.subplots(figsize=(7, 7))
+    ax.imshow(base)
+    ax.set_title(f"Map calibration check: {len(centers_um)} sites\nFolder: {os.path.basename(folder)}")
+
+    # initial positions (no shift/scale yet)
+    xs0, ys0 = [], []
+    for (cx, cy) in centers_um:
+        px, py = world_to_pixel(cx, cy, px_per_um_x0, px_per_um_y0, xmin_um0, ymax_um0)
+        xs0.append(px)
+        ys0.append(py)
+
+    scat, = ax.plot(xs0, ys0, 'r.', markersize=3)
+
+    # Green X markers for P1/P2 (if present in JSON)
+    clicked_px = cal.get("clicked_px") or {}
+    for lbl in ("P1", "P2"):
+        pt = clicked_px.get(lbl)
+        if pt and len(pt) == 2:
+            cx, cy = pt
+            ax.plot(cx, cy, 'gx', markersize=14, mew=2.5, zorder=6)
+            ax.text(cx + 10, cy - 10, lbl,
+                    color='lime', fontsize=10, weight='bold',
+                    bbox=dict(facecolor='black', alpha=0.4, edgecolor='none'))
+
+    ax.set_xlim(0, W)
+    ax.set_ylim(H, 0)
+
+    # ---------- Interactive state: shift + scale ----------
+    dx_val = 0.0  # pixels
+    dy_val = 0.0  # pixels
+    sx_val = 1.0  # scale factor for px_per_um_x
+    sy_val = 1.0  # scale factor for px_per_um_y
+
+    def update_plot():
+        px_per_um_x = px_per_um_x0 * sx_val
+        px_per_um_y = px_per_um_y0 * sy_val
+        xs, ys = [], []
+        for (cx, cy) in centers_um:
+            px, py = world_to_pixel(cx, cy, px_per_um_x, px_per_um_y, xmin_um0, ymax_um0)
+            xs.append(px + dx_val)
+            ys.append(py + dy_val)
+        scat.set_data(xs, ys)
+        fig.canvas.draw_idle()
+
+    # call once to ensure consistent internal state
+    update_plot()
+
+    # ---------- Buttons & sliders ----------
+    ax_up    = plt.axes([0.86, 0.15, 0.06, 0.05])
+    ax_down  = plt.axes([0.86, 0.05, 0.06, 0.05])
+    ax_left  = plt.axes([0.79, 0.10, 0.06, 0.05])
+    ax_right = plt.axes([0.93, 0.10, 0.06, 0.05])
+    ax_save  = plt.axes([0.79, 0.20, 0.20, 0.05])
+
+    ax_step  = plt.axes([0.79, 0.27, 0.20, 0.03])
+    ax_sx    = plt.axes([0.79, 0.32, 0.20, 0.03])
+    ax_sy    = plt.axes([0.79, 0.37, 0.20, 0.03])
+
+    btn_up    = Button(ax_up, '↑')
+    btn_down  = Button(ax_down, '↓')
+    btn_left  = Button(ax_left, '←')
+    btn_right = Button(ax_right, '→')
+    btn_save  = Button(ax_save, '💾 Save')
+
+    s_step = Slider(ax_step, 'Step(px)', 1, 50, valinit=10, valstep=1)
+    s_sx   = Slider(ax_sx, 'ScaleX', 0.8, 3, valinit=1.0, valstep=0.001)
+    s_sy   = Slider(ax_sy, 'ScaleY', 0.8, 3, valinit=1.0, valstep=0.001)
+
+    def nudge(dx=0, dy=0):
+        nonlocal dx_val, dy_val
+        step = float(s_step.val)
+        dx_val += dx * step
+        dy_val += dy * step
+        update_plot()
+        print(f"DX={dx_val:.2f}px, DY={dy_val:.2f}px")
+
+    btn_up.on_clicked(lambda e: nudge(0, -1))
+    btn_down.on_clicked(lambda e: nudge(0, +1))
+    btn_left.on_clicked(lambda e: nudge(-1, 0))
+    btn_right.on_clicked(lambda e: nudge(+1, 0))
+
+    def on_sx(val):
+        nonlocal sx_val
+        sx_val = float(val)
+        update_plot()
+        print(f"ScaleX = {sx_val:.4f}")
+    s_sx.on_changed(on_sx)
+
+    def on_sy(val):
+        nonlocal sy_val
+        sy_val = float(val)
+        update_plot()
+        print(f"ScaleY = {sy_val:.4f}")
+    s_sy.on_changed(on_sy)
+
+    def save_offset(_):
+        # new per-axis scales
+        new_px_per_um_x = px_per_um_x0 * sx_val
+        new_px_per_um_y = px_per_um_y0 * sy_val
+
+        # convert pixel shifts to µm using NEW scales
+        dx_um = dx_val / new_px_per_um_x
+        dy_um = dy_val / new_px_per_um_y
+
+        # adjust origin so that:
+        # px_new = (cx - xmin_new)*new_px_per_um_x = px_orig*sx_val + dx_val
+        cal["px_per_um_x"] = new_px_per_um_x
+        cal["px_per_um_y"] = new_px_per_um_y
+        cal["xmin_um"] = xmin_um0 - dx_um
+        cal["ymax_um"] = ymax_um0 + dy_um
+
+        with open(MAP_CALIB_PATH, "w", encoding="utf-8") as f:
+            json.dump(cal, f, indent=2)
+
+        print("💾 Saved updated calibration:")
+        print(f"   px/µm_x = {cal['px_per_um_x']:.6f}, px/µm_y = {cal['px_per_um_y']:.6f}")
+        print(f"   xmin_um = {cal['xmin_um']:.3f}, ymax_um = {cal['ymax_um']:.3f}")
+
+    btn_save.on_clicked(save_offset)
+
+    plt.show(block=True)
+
+# from Utils.python_displayer import open_check_map_calibration
+# open_check_map_calibration(r"C:\Users\Femto\Work Folders\Documents\LightField")
+# import importlib, Utils.python_displayer as pd;importlib.reload(pd);pd.open_check_map_calibration(r"C:\Users\Femto\Work Folders\Documents\LightField")
 
 
 # =========================

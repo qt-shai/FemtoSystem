@@ -163,7 +163,7 @@ class KeyboardKeys(Enum): # Mapping keys to custom values
     OEM_PERIOD = 190  # .
     OEM_1 = 186  # ; :
     OEM_2 = 191  # / ?
-    OEM_3 = 192  # ` ~
+    OEM_3 = 192  # ` ~  backtick/tilde
     OEM_4 = 219  # [ {
     OEM_5 = 220  # \ |
     OEM_6 = 221  # ] }
