@@ -1392,6 +1392,41 @@ class PyGuiOverlay(Layer):
             if self._cmd_input_has_focus() and key_data_enum in (KeyboardKeys.OEM_PLUS, KeyboardKeys.OEM_MINUS):
                 return False
 
+            # --- dynamic Shift+letter → macro (>a, >b, ...) support -----------------
+            # We only use this when there is no explicit Shift shortcut for that key.
+            # Example:
+            #   >>a disp   (defines macro 'a')
+            #   Shift+A    (if no Shift+A shortcut exists) → run(">a")
+            letter_macro_map = {
+                KeyboardKeys.A_KEY: "a",
+                KeyboardKeys.B_KEY: "b",
+                KeyboardKeys.C_KEY: "c",
+                KeyboardKeys.D_KEY: "d",
+                KeyboardKeys.E_KEY: "e",
+                KeyboardKeys.F_KEY: "f",
+                KeyboardKeys.G_KEY: "g",
+                KeyboardKeys.H_KEY: "h",
+                KeyboardKeys.I_KEY: "i",
+                KeyboardKeys.J_KEY: "j",
+                KeyboardKeys.K_KEY: "k",
+                KeyboardKeys.L_KEY: "l",
+                KeyboardKeys.M_KEY: "m",
+                KeyboardKeys.N_KEY: "n",
+                KeyboardKeys.O_KEY: "o",
+                KeyboardKeys.P_KEY: "p",
+                KeyboardKeys.Q_KEY: "q",
+                KeyboardKeys.R_KEY: "r",
+                KeyboardKeys.S_KEY: "s",
+                KeyboardKeys.T_KEY: "t",
+                KeyboardKeys.U_KEY: "u",
+                KeyboardKeys.V_KEY: "v",
+                KeyboardKeys.W_KEY: "w",
+                KeyboardKeys.X_KEY: "x",
+                KeyboardKeys.Y_KEY: "y",
+                KeyboardKeys.Z_KEY: "z",
+            }
+            # -----------------------------------------------------------------------
+
             shift_actions = {
                 KeyboardKeys.KEY_0:      self._restore_exposure,                    # Shift+0
                 KeyboardKeys.KEY_1:      lambda: self._set_fine_steps(100, axes=(0, 1, 2)),  # Shift+2 → 20 nm all axes
@@ -1414,6 +1449,17 @@ class PyGuiOverlay(Layer):
             action = shift_actions.get(key_data_enum)
             if action:
                 action()
+                self.CURRENT_KEY = key_data_enum
+                return True
+
+            # Fallback: dynamic macro binding (only if no explicit Shift shortcut)
+            macro_id = letter_macro_map.get(key_data_enum)
+            if macro_id is not None:
+                # This will either run the macro or print "No macro bound to '>x'" if none exists.
+                try:
+                    run(f">{macro_id}", record_history=False)
+                except Exception as e:
+                    print(f"Error running macro >{macro_id}: {e}")
                 self.CURRENT_KEY = key_data_enum
                 return True
 

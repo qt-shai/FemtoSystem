@@ -8568,6 +8568,7 @@ class CommandDispatcher:
                 r"C:\WC\HotSystem\map.jpg",
                 r"C:\WC\HotSystem\Utils\macro\sb.py",
                 r"C:\WC\HotSystem\Utils\macro\coup_state.json",
+                r"C:\WC\SLM_bmp\Calib\Averaged_calibration.tif",
             ]
             for src in fixed_sources:
                 try:

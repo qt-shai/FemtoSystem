@@ -34,6 +34,15 @@ except Exception:
     except Exception:
         iio = None
 
+# --- SciPy availability flag (used by stain removal / inpaint) ---
+try:
+    import scipy.ndimage as ndi
+    _HAS_SCIPY = True
+except Exception:
+    ndi = None
+    _HAS_SCIPY = False
+
+
 try:
     from Utils.Common import open_file_dialog
 except ImportError:
@@ -886,6 +895,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         "gain": None,            # 2D gain map (Ny, Nx)
         "sigma": 15.0,           # blur (px) on the calibration image to avoid imprinting noise
         "clip": (0.25, 4.0),     # clamp gain to avoid extremes (min, max)
+        "stain_mask": None,
     }
 
     def _ensure_size(img2d: np.ndarray, shape_xy: tuple[int,int]) -> np.ndarray:
@@ -902,25 +912,122 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             y_old = np.linspace(0, 1, y0); y_new = np.linspace(0, 1, ny)
             return np.apply_along_axis(lambda c: np.interp(y_new, y_old, c), 0, tmp)
 
-    def _build_gain_from_calibration(cal2d: np.ndarray, sigma: float, clip_range=(0.25, 4.0)) -> np.ndarray:
-        """Bright calib ⇒ low gain, dark calib ⇒ high gain."""
+    def _remove_calib_stains(
+            A_in: np.ndarray,
+            sigma_bg: float = 17.0,
+            thresh_sigma: float = 2.3,
+            min_size_px: int = 10,
+            max_size_px: int = 60000,
+            grow_px: int = 5,
+            feather_px: int = 6,
+            inpaint_sigma: float = 40,
+            noise_strength: float = 0.05,  # stronger visible grain
+            brighten_gain: float = 1.02,  # +10% brightness boost
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Detect dark stains, replace them with brightened blurred background,
+        add soft grain, and feather edges for seamless blending.
+        """
+        import numpy as np, scipy.ndimage as ndi
+
+        A = np.asarray(A_in, dtype=np.float64)
+
+        if not _HAS_SCIPY:
+            mask = np.zeros_like(A, dtype=bool)
+            return A, mask
+
+        # --- 1) detect stains ---
+        bg = ndi.gaussian_filter(A, sigma=sigma_bg, mode="reflect")
+        resid = bg - A
+        med = np.median(resid)
+        std = np.std(resid)
+        mask = resid > (med + thresh_sigma * std)
+
+        # --- 2) morphology & size filter ---
+        mask = ndi.binary_opening(mask, iterations=1)
+        mask = ndi.binary_closing(mask, iterations=1)
+        mask = ndi.binary_fill_holes(mask)
+
+        labels, nlab = ndi.label(mask)
+        if nlab > 0:
+            sizes = ndi.sum(mask, labels, index=range(1, nlab + 1))
+            keep = np.zeros(nlab + 1, dtype=bool)
+            keep[1:][(sizes >= min_size_px) & (sizes <= max_size_px)] = True
+            mask = keep[labels]
+
+        if grow_px > 0:
+            mask = ndi.binary_dilation(mask, iterations=grow_px)
+
+        if not mask.any():
+            print("[calib] no stains found.")
+            return A, mask
+
+        # --- 3) blurred inpaint base ---
+        smooth_bg = ndi.gaussian_filter(A, sigma=inpaint_sigma, mode="reflect")
+
+        # --- 4) apply brightened base where mask ---
+        A_clean = A.copy()
+        A_clean[mask] = smooth_bg[mask] * brighten_gain
+
+        # --- 5) add Gaussian noise to masked region ---
+        local_std = np.std(A[np.isfinite(A)]) or 1.0
+        noise = np.random.normal(0.0, local_std * noise_strength, A.shape)
+        # blur noise slightly so it blends
+        noise = ndi.gaussian_filter(noise, sigma=1.0, mode="reflect")
+        A_clean[mask] += noise[mask]
+
+        # --- 6) feather edges for smooth transition ---
+        if feather_px > 0:
+            dist = ndi.distance_transform_edt(~mask)
+            blend_zone = (dist > 0) & (dist <= feather_px)
+            w = np.clip(dist[blend_zone] / feather_px, 0, 1)
+            A_clean[blend_zone] = w * A[blend_zone] + (1 - w) * A_clean[blend_zone]
+
+        n_pix = int(mask.sum())
+        n_blobs = int(labels.max()) if n_pix > 0 else 0
+        print(f"[calib] stain removal: {n_pix} px in {n_blobs} blobs "
+              f"(brighten={brighten_gain}, noise={noise_strength})")
+
+        return A_clean, mask
+
+    def _build_gain_from_calibration(
+            cal2d: np.ndarray,
+            sigma: float,
+            clip_range=(0.25, 4.0)
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """Bright calib ⇒ low gain, dark calib ⇒ high gain.
+
+        Returns (gain, stain_mask)
+        """
         A = np.asarray(cal2d, dtype=np.float64)
+
+        stain_mask = None
+        # --- detect & inpaint dark stains (dust, etc.) ---
+        try:
+            sigma_bg = max(sigma * 2.0, 35.0)
+            A, stain_mask = _remove_calib_stains(A, sigma_bg=sigma_bg)
+        except Exception as e:
+            print(f"[calib] stain removal skipped: {e}")
+
+        # expose mask to the rest of the app
+        calib_state["stain_mask"] = stain_mask
+
         if sigma > 0:
             try:
-                import scipy.ndimage as ndi
                 A = ndi.gaussian_filter(A, sigma=sigma, mode="reflect")
             except Exception:
-                # fallback: a few passes of your numpy smoothing
                 for _ in range(3):
                     A = _smooth2d(A)
+
         pos = A[A > 0]
         ref = float(np.median(pos)) if pos.size else float(np.mean(A))
         if not np.isfinite(ref) or ref <= 0:
             ref = 1.0
+
         gain = ref / np.clip(A, ref * 1e-6, None)  # inverse shading
         gmin, gmax = clip_range
         gain = np.clip(gain, gmin, gmax)
-        return gain
+        return gain, stain_mask
 
     def _load_calibration_gain_for_current_shape() -> np.ndarray:
         """Load hard-coded calibration TIFF and return gain resized to (Ny,Nx) of current data."""
@@ -928,17 +1035,66 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             raise FileNotFoundError(f"Calibration TIFF not found:\n{CALIB_TIF_PATH}")
         cal = _tif_to_2d(CALIB_TIF_PATH)
         cal = _ensure_size(cal, (Ny, Nx))
-        gain = _build_gain_from_calibration(cal, sigma=calib_state["sigma"], clip_range=calib_state["clip"])
+        gain, stain_mask = _build_gain_from_calibration(
+            cal,
+            sigma=calib_state["sigma"],
+            clip_range=calib_state["clip"],
+        )
+
+        calib_state["gain"] = gain
+        calib_state["stain_mask"] = stain_mask
+
         return gain
 
+    def handle_calib_load():
+        """Load calibration TIFF once, build gain and stain mask."""
+        try:
+            calib_state["gain"] = _load_calibration_gain_for_current_shape()
+            calib_state["on"] = True
+            mask = calib_state.get("stain_mask", None)
+            msg = f"✅ Calibration loaded: gain OK, stain_mask={'set' if mask is not None else 'none'}"
+            print(msg)
+        except Exception as e:
+            print(f"❌ handle_calib_load failed: {e}")
+
+    def _inpaint_stains_with_mask(frame: np.ndarray,
+                                  stain_mask: np.ndarray,
+                                  inpaint_sigma: float = 6.0,
+                                  feather_px: float = 5.0) -> np.ndarray:
+        """Apply blur + feathered inpaint using a precomputed stain mask."""
+        if (not _HAS_SCIPY) or stain_mask is None or not stain_mask.any():
+            return frame
+
+        A = np.asarray(frame, dtype=np.float64)
+        mask = stain_mask.astype(bool)
+        blurred = ndi.gaussian_filter(A, sigma=inpaint_sigma, mode="reflect")
+        dist = ndi.distance_transform_edt(mask)
+        alpha = np.clip(dist / float(feather_px), 0.0, 1.0)
+
+        A_clean = A.copy()
+        inside = mask
+        A_clean[inside] = alpha[inside] * blurred[inside] + (1.0 - alpha[inside]) * A[inside]
+        return A_clean
+
     def _apply_calibration_to_cube(base_cube: np.ndarray) -> np.ndarray:
-        """Multiply base cube by gain (per-pixel) if calibration is ON."""
+        """Multiply base cube by gain (per-pixel) and blur-inpaint stains if calibration is ON."""
         if not calib_state.get("on") or calib_state.get("gain") is None:
             return base_cube
+
         G = calib_state["gain"]
+        stain_mask = calib_state.get("stain_mask", None)
+
+        def _apply_to_frame(f2d: np.ndarray) -> np.ndarray:
+            out = np.asarray(f2d, dtype=np.float64) * G
+            if stain_mask is not None:
+                out = _inpaint_stains_with_mask(out, stain_mask)
+            return out
+
         if base_cube.ndim == 2:
-            return base_cube * G
-        return base_cube * G[np.newaxis, :, :]
+            return _apply_to_frame(base_cube)
+
+        # assume (Nz, Ny, Nx)
+        return np.stack([_apply_to_frame(z) for z in base_cube], axis=0)
 
     # --- Smoothing (minimal; does not modify I_) ---
     try:
@@ -1127,6 +1283,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     btn_rect = (btn_x, btn_y, btn_w, btn_h)  # tuple
     btn_x_slider =  btn_x + 0.03
 
+    handle_calib_load()
+
     # --- Column layout for small buttons ---
     COL_GAP = 0.02  # horizontal gap between columns
 
@@ -1198,7 +1356,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
     # ----------------     Aggressiveness slider     ----------------
     ax_sigma_bg = plt.axes((btn_x_slider, 0.12, 0.1, 0.03))
-    slider_sigma_bg = Slider(ax_sigma_bg, 'σ_bg', 5, 120, valinit=20, valstep=1)
+    slider_sigma_bg = Slider(ax_sigma_bg, 'σ_bg', 5, 120, valinit=35, valstep=1)
 
     def _on_sigma_bg_change(val):
         # invalidate cache
@@ -1589,7 +1747,8 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 try:
                     img2d = _tif_to_2d(path).astype(np.float64)  # read & flatten to 2D
                     Ny, Nx = img2d.shape
-                    G = _load_calib_gain_for_shape((Ny, Nx))  # per-image sized gain
+                    G_result = _load_calib_gain_for_shape((Ny, Nx))
+                    G, _ = G_result if isinstance(G_result, tuple) else (G_result, None)
                     corrected = _apply_calib_to_array(img2d, G)
 
                     # map to uint16 using image min/max so full dynamic range is kept
@@ -3464,7 +3623,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
     # -------   Aggressive flatten: per-slice background (big blur) removal   -------
     aggr_state = {"on": False, "cube": None, "computed_sigma": None}
 
-    def _compute_flat_cube_aggressive(sigma_bg: float = 20.0) -> np.ndarray:
+    def _compute_flat_cube_aggressive(sigma_bg: float = 35.0) -> np.ndarray:
         """
         Strong shading correction per slice:
           C[k] = ( S / median(S) ) / ( G(S, sigma_bg) / median(G(S, sigma_bg)) )
@@ -3517,7 +3676,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             except Exception:
                 pass
 
-            sigma_bg = float(getattr(slider_sigma_bg, "val", 20.0))  # ← read slider
+            sigma_bg = float(getattr(slider_sigma_bg, "val", 35.0))  # ← read slider
             if aggr_state["cube"] is None or aggr_state.get("computed_sigma") != sigma_bg:
                 aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
                 aggr_state["computed_sigma"] = sigma_bg
@@ -4374,11 +4533,39 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 pass
 
     def _run_multiple_add2ppt_map(paths):
-        """Core logic for multi add+map, given an explicit list of paths."""
+        """Core logic for multi add+map, grouped and sorted by site letter (auto-scale only)."""
         try:
             if not paths:
                 print("No files to process.")
                 return
+
+            import re
+            from collections import defaultdict
+
+            # --- helper to extract the letter (A-Z) from filename ---
+            def extract_letter(fname):
+                """
+                Extract the group letter that appears after 'Site (...)' in the filename.
+                Example:
+                  Site (...) 7K(285)... -> returns 'K'
+                """
+                import re
+                # Find the text after 'Site (...)'
+                m = re.search(r'Site\s*\([^)]*\)\s*[^\s]*([A-Z])', fname, re.IGNORECASE)
+                if m:
+                    return m.group(1).upper()
+                else:
+                    return 'Z'  # fallback for unknown pattern
+
+            # --- group paths by letter ---
+            groups = defaultdict(list)
+            for p in paths:
+                letter = extract_letter(os.path.basename(p))
+                groups[letter].append(p)
+
+            # --- sort groups alphabetically ---
+            sorted_letters = sorted(groups.keys())
+            print(f"[SORT] Grouped {len(paths)} files into {len(sorted_letters)} letter groups: {sorted_letters}")
 
             pythoncom.CoInitialize()
             ppt = win32com.client.Dispatch("PowerPoint.Application")
@@ -4393,67 +4580,108 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
             map_h = slide_h * 0.25
             margin = 20
 
-            # --- ADD this helper once (e.g., near your other PPT helpers) ---
-            def _fit_shape_keep_aspect(shape, *, left, top, max_w, max_h):
+            def _draw_end_triangles(ax, p0, p1, *, size_pt=180, face='y', edge='k', lw=1.0, rotate_deg=27.0):
                 """
-                Resize and place a PowerPoint shape to fit inside (max_w x max_h) box,
-                preserving aspect ratio (no distortion).
+                Draw start/end triangles with fixed *screen* size so they appear in PPT.
+                Uses oriented scatter markers (3-vertex polygon), rotated slightly for visibility.
+                Returns (m0, m1) PathCollections.
                 """
+                x0, y0 = float(p0[0]), float(p0[1])
+                x1, y1 = float(p1[0]), float(p1[1])
+                dx, dy = (x1 - x0), (y1 - y0)
+                ang_deg = np.degrees(np.arctan2(dy, dx))
+
+                # small extra rotation to make the markers pop and avoid aliasing along the line
+                m0 = ax.scatter([x0], [y0],
+                                s=size_pt, marker=(3, 0, ang_deg + rotate_deg),
+                                facecolor=face, edgecolor=edge, linewidths=lw,
+                                zorder=1000, clip_on=True)
+                m1 = ax.scatter([x1], [y1],
+                                s=size_pt, marker=(3, 0, ang_deg + 180.0 - rotate_deg),
+                                facecolor=face, edgecolor=edge, linewidths=lw,
+                                zorder=1000, clip_on=True)
+
+                for coll in (m0, m1):
+                    try:
+                        coll.set_rasterized(False)
+                        coll._is_profile_marker = True
+                    except Exception:
+                        pass
+
                 try:
-                    shape.LockAspectRatio = -1  # msoTrue
+                    ax.figure.canvas.draw_idle()
                 except Exception:
                     pass
 
+                span = (dx ** 2 + dy ** 2) ** 0.5
+                print(f"[TRI] scatter triangles added: size_pt={size_pt}, angle={ang_deg:.1f}°, "
+                      f"offset={rotate_deg:.1f}°, span={span:.2f} µm")
+                return m0, m1
+
+            def _clear_profile_markers(ax):
+                """Remove previous start/end triangle markers from this axes."""
+                removed = 0
+                for coll in list(ax.collections):
+                    if getattr(coll, "_is_profile_marker", False):
+                        try:
+                            coll.remove()
+                            removed += 1
+                        except Exception:
+                            pass
+                if removed:
+                    print(f"[TRI] removed {removed} old triangle markers")
+
+            def _fit_shape_keep_aspect(shape, *, left, top, max_w, max_h):
                 try:
+                    shape.LockAspectRatio = -1
                     w, h = float(shape.Width), float(shape.Height)
                     if w <= 0 or h <= 0:
-                        print("[FIT] invalid shape size; skipping resize")
                         return
-
                     scale = min(max_w / w, max_h / h)
                     shape.Width = w * scale
                     shape.Height = h * scale
                     shape.Left = left
                     shape.Top = top
-                    print(f"[FIT] placed W={shape.Width:.1f} H={shape.Height:.1f} "
-                          f"at L={shape.Left:.1f}, T={shape.Top:.1f}")
                 except Exception as e:
                     print(f"[FIT] resize failed: {e}")
 
-            # (keep your existing _draw_end_triangles and _clear_profile_markers
-            #  exactly as they are here – omitted for brevity)
-
             _dbg(f"[INIT] slides={pres.Slides.Count}, slide_w={slide_w}, slide_h={slide_h}")
 
-            for pth in paths:
+            # --- process groups in sorted order ---
+            for letter in sorted_letters:
+                print(f"\n=== Processing group '{letter}' ({len(groups[letter])} files) ===")
+
+                # optional: add group title slide
                 try:
-                    pth = os.path.abspath(pth)
-                    fname = os.path.basename(pth)
-                    _dbg(f"\n=== Processing: {fname} ===")
+                    title_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)
+                    tr = title_slide.Shapes.AddTextbox(1, 100, 200, slide_w - 200, 100).TextFrame.TextRange
+                    tr.Text = f"Group {letter}"
+                    tr.Font.Size = 32
+                    tr.Font.Bold = True
+                    tr.ParagraphFormat.Alignment = 2
+                except Exception as e:
+                    print(f"[GROUP TITLE] failed for {letter}: {e}")
 
-                    # ---------- Load TIFF into viewer ----------
+                # process all files in this group
+                for pth in sorted(groups[letter]):
                     try:
-                        img2d = _tif_to_2d(pth).astype(np.float64)
-                        _dbg(f"[LOAD] img2d shape={getattr(img2d, 'shape', None)} dtype={img2d.dtype}")
-                        _switch_to_2d_dataset(img2d)
+                        pth = os.path.abspath(pth)
+                        fname = os.path.basename(pth)
+                        _dbg(f"--- File: {fname} ---")
+
+                        # (everything below identical to before: TIFF load, mapping, etc.)
                         try:
+                            img2d = _tif_to_2d(pth).astype(np.float64)
+                            _switch_to_2d_dataset(img2d)
                             ax_xy.set_title(fname)
-                        except Exception:
-                            pass
-                        fig.canvas.draw_idle()
-                    except Exception as e:
-                        print(f"⚠️ Skipping (load failed) {fname}: {e}")
-                        continue
+                            fig.canvas.draw_idle()
+                        except Exception as e:
+                            print(f"⚠️ Skipping (load failed) {fname}: {e}")
+                            continue
 
-                    # ---------- World coords ----------
-                    center_um = None
-                    try:
                         center_um = _parse_site_center_from_name(fname)
                         globals()["LAST_CENTER_UM"] = center_um
-                        print(f"[CENTER] LAST_CENTER_UM set to {center_um}")
-                        _dbg(f"[CENTER] parsed center_um={center_um}")
-
-                        if center_um is not None:
+                        if center_um:
                             cx_um, cy_um, _ = center_um
                             um_per_px_x = globals().get("um_per_px_x", PIXEL_SIZE_UM) or 1.0
                             um_per_px_y = globals().get("um_per_px_y", PIXEL_SIZE_UM) or 1.0
@@ -4462,139 +4690,89 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                             half_h_um = (H * um_per_px_y) * 0.5
                             x0, x1 = cx_um - half_w_um, cx_um + half_w_um
                             y0, y1 = cy_um - half_h_um, cy_um + half_h_um
-                            _dbg(f"[EXTENT] x=({x0:.2f},{x1:.2f}) y=({y0:.2f},{y1:.2f})")
                             _set_xy_extent(ax_xy, img2d, x0, x1, y0, y1)
-                            try:
-                                ax_xy.set_xlabel("x (µm)")
-                                ax_xy.set_ylabel("y (µm)")
-                            except Exception:
-                                pass
                             ax_xy.set_xlim(x0, x1)
                             ax_xy.set_ylim(y0, y1)
                             ax_xy.autoscale(False)
-                            _log_axes_state(ax_xy, "ax_after_extent")
-                        else:
-                            _dbg("[CENTER] center_um is None; skipping extent/template mapping")
-                    except Exception as e:
-                        print(f"⚠️ Could not set world coords for {fname}: {e}")
 
-                    # ---------- flatten++ (optional) ----------
-                    try:
-                        sigma_bg = float(slider_sigma_bg.val) if 'slider_sigma_bg' in globals() else 20.0
-                        nonlocal I_view
-                        aggr_state["on"] = True
-                        aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
-                        aggr_state["computed_sigma"] = sigma_bg
-                        C = aggr_state["cube"]
-                        I_view = np.log10(C + EPS) if log_scale else C
-                        im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
-                        if Nz > 1:
-                            im_xz.set_data(_smooth2d(I_view[:, y_idx, :]))
-                            im_yz.set_data(_smooth2d(I_view[:, :, x_idx]))
+                        # flatten++
                         try:
-                            btn_flat_aggr.label.set_text(f"flatten++ on (σ={sigma_bg:.0f})")
-                        except Exception:
-                            pass
-                        fig.canvas.draw_idle()
-                        _dbg(f"[FLATTEN++] sigma_bg={sigma_bg}")
-                    except Exception as e:
-                        print(f"⚠️ flatten++ failed for {fname}: {e} (continuing without)")
+                            sigma_bg = float(slider_sigma_bg.val) if 'slider_sigma_bg' in globals() else 35.0
+                            nonlocal I_view
+                            aggr_state["on"] = True
+                            aggr_state["cube"] = _compute_flat_cube_aggressive(sigma_bg=sigma_bg)
+                            C = aggr_state["cube"]
+                            I_view = np.log10(C + EPS) if log_scale else C
+                            im_xy.set_data(_maybe_flip(_smooth2d(I_view[z_idx])))
+                            fig.canvas.draw_idle()
+                        except Exception as e:
+                            print(f"⚠️ flatten++ failed for {fname}: {e}")
 
-                    # ---------- triangles from template (relative to center) ----------
-                    pts_abs = None
-                    try:
-                        t = globals().get("PROFILE_TEMPLATE", None)
-                        _dbg(f"[TEMPLATE] PROFILE_TEMPLATE present={bool(t)}; keys={list(t.keys()) if t else None}")
-                        if not center_um:
-                            _dbg("[TEMPLATE] center_um is None → cannot map relative offsets; skipping triangles")
-                        elif not t:
-                            _dbg("[TEMPLATE] PROFILE_TEMPLATE missing; skipping triangles")
-                        else:
-                            d0 = _coerce_pt(t.get("d0_um", None), "d0_um")
-                            d1 = _coerce_pt(t.get("d1_um", None), "d1_um")
-                            cx_um, cy_um, _ = center_um
-                            p0 = (float(cx_um + d0[0]), float(cy_um + d0[1]))
-                            p1 = (float(cx_um + d1[0]), float(cy_um + d1[1]))
-                            pts_abs = (p0, p1)
-                            _dbg(f"[PTS_ABS] p0={p0}, p1={p1}")
-                            _clear_profile_markers(ax_xy)
-                            before = len(ax_xy.patches)
-                            tri0, tri1 = _draw_end_triangles(ax_xy, p0, p1, face='y', edge='k', lw=1.0)
+                        # triangles (if template exists)
+                        pts_abs = None
+                        try:
+                            t = globals().get("PROFILE_TEMPLATE", None)
+                            if t and center_um:
+                                d0 = _coerce_pt(t.get("d0_um", None), "d0_um")
+                                d1 = _coerce_pt(t.get("d1_um", None), "d1_um")
+                                cx_um, cy_um, _ = center_um
+                                p0 = (float(cx_um + d0[0]), float(cy_um + d0[1]))
+                                p1 = (float(cx_um + d1[0]), float(cy_um + d1[1]))
+                                pts_abs = (p0, p1)
+                                _clear_profile_markers(ax_xy)
+                                tri0, tri1 = _draw_end_triangles(ax_xy, p0, p1, face='y', edge='k', lw=1.0)
+                                tri0.set_zorder(100)
+                                tri1.set_zorder(100)
+                        except Exception as e:
+                            print(f"⚠️ template failed: {e}")
 
-                            tri0.set_zorder(100)
-                            tri1.set_zorder(100)
-                            tri0.set_visible(True)
-                            tri1.set_visible(True)
-                            _dbg(f"[TRIANGLES] patches before={before} after={len(ax_xy.patches)}")
-                    except Exception as e:
-                        print(f"⚠️ Could not apply cross-section template: {e}")
-
-                    # Ensure triangles are drawn
-                    try:
                         fig.canvas.draw()
                         fig.canvas.flush_events()
-                        _log_axes_state(ax_xy, "ax_before_clipboard")
-                    except Exception:
-                        pass
 
-                    # ----- MAIN IMAGE INSERT: PNG snapshot (robust; includes scatter triangles) -----
-                    # ========== SLIDE 1: ORIGINAL SCALE ==========
-                    for scale_mode in ("auto", "fixed"):
-                        new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)  # ppLayoutBlank
+                        # slide creation
+                        new_slide = pres.Slides.Add(pres.Slides.Count + 1, 12)
                         ppt.ActiveWindow.View.GotoSlide(new_slide.SlideIndex)
+                        print("[SCALE] Auto only")
 
-                        # apply scaling mode
-                        if scale_mode == "fixed":
-                            try:
-                                im_xy.set_clim(SCALE_MIN, SCALE_MAX)
-                                print(f"[SCALE] Fixed scale applied: ({SCALE_MIN}, {SCALE_MAX})")
-                            except Exception as e:
-                                print(f"[SCALE] Failed to apply fixed scale: {e}")
-                        else:
-                            print("[SCALE] Auto scale (original)")
+                        # --- Auto scale adjustment based on current clim ---
+                        try:
+                            clim = im_xy.get_clim()
+                            if clim and len(clim) == 2:
+                                current_min, current_max = clim
+                                if current_max < 65000:
+                                    new_max = current_max * 1.10  # increase by 10%
+                                    im_xy.set_clim(current_min, new_max)
+                                    print(f"[SCALE] current max {current_max:.1f} < 65000 → increased to {new_max:.1f}")
+                                else:
+                                    print(f"[SCALE] current max {current_max:.1f} ≥ 65000 → no change")
+                            else:
+                                print("[SCALE] invalid clim returned; skipping adjustment")
+                        except Exception as e:
+                            print(f"[SCALE] auto adjustment failed: {e}")
 
-                        # make snapshot (includes triangles, labels, etc.)
                         png_path = export_main_axes_snapshot(
-                            ax_xy,
-                            mappable=im_xy,
-                            cbar_ax_or_cb=None,
-                            dpi=220,
-                            font_scale=4.0
+                            ax_xy, mappable=im_xy, cbar_ax_or_cb=None, dpi=220, font_scale=4.0
                         )
 
-                        main_shape = None
                         if png_path and os.path.exists(png_path):
-                            try:
-                                target_w = slide_w * 0.68
-                                left, top = 40, 90
-                                shp = new_slide.Shapes.AddPicture(
-                                    FileName=png_path, LinkToFile=False, SaveWithDocument=True,
-                                    Left=left, Top=top, Width=target_w, Height=-1
-                                )
-                                shp.LockAspectRatio = -1
-                                main_shape = shp
-                                _fit_shape_keep_aspect(main_shape,
-                                                       left=left, top=top,
-                                                       max_w=slide_w * 0.68, max_h=slide_h * 0.8)
-                            except Exception as e:
-                                print(f"[PASTE] PNG AddPicture failed: {e}")
+                            left, top = 40, 90
+                            shp = new_slide.Shapes.AddPicture(
+                                FileName=png_path, LinkToFile=False, SaveWithDocument=True,
+                                Left=left, Top=top, Width=slide_w * 0.68, Height=-1
+                            )
+                            _fit_shape_keep_aspect(shp, left=left, top=top,
+                                                   max_w=slide_w * 0.68, max_h=slide_h * 0.8)
 
                         # title
-                        try:
-                            title_shape = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40, 50)
-                            tr = title_shape.TextFrame.TextRange
-                            tr.Text = f"{fname}  ({'original scale' if scale_mode == 'auto' else 'fixed scale'})"
-                            tr.ParagraphFormat.Alignment = 2
-                            tr.Font.Bold = True
-                            tr.Font.Size = 28
-                            title_shape.Fill.Visible = 0
-                            title_shape.Line.Visible = 0
-                        except Exception as e:
-                            print(f"[TITLE] failed: {e}")
+                        tr = new_slide.Shapes.AddTextbox(1, 20, 10, slide_w - 40, 50).TextFrame.TextRange
+                        tr.Text = f"{fname}"
+                        tr.ParagraphFormat.Alignment = 2
+                        tr.Font.Bold = True
+                        tr.Font.Size = 12
 
                         # small map
                         try:
-                            cx_um, cy_um, _cz_um = center_um if center_um else (0.0, 0.0, 0.0)
+                            cx_um, cy_um, _cz_um = center_um if center_um else (0, 0, 0)
                             tmp_map_path = _make_map_with_cross(cx_um, cy_um, MAP_IMAGE_PATH)
                             if tmp_map_path:
                                 left = slide_w - map_w - margin
@@ -4606,7 +4784,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                         except Exception as e:
                             print(f"[MAP] failed: {e}")
 
-                        # optional cross-section
+                        # optional profile
                         if pts_abs:
                             try:
                                 prof_png = _make_profile_png_for_current(pts_abs)
@@ -4622,34 +4800,57 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                             except Exception as e:
                                 print(f"[PROFILE] failed: {e}")
 
-                        print(f"Added slide #{new_slide.SlideIndex} ({scale_mode}) for {fname}.")
+                        print(f"Added slide #{new_slide.SlideIndex} for {fname} (Group {letter}).")
 
-                except Exception as e:
-                    print(f"❌ Failed on {os.path.basename(pth)}: {e}")
+                    except Exception as e:
+                        print(f"❌ Failed on {os.path.basename(pth)}: {e}")
+
+            # ---------- Export to PDF at the end ----------
+            try:
+                pdf_path = os.path.splitext(pres.FullName)[0] + ".pdf"
+                print(f"[EXPORT] Saving presentation as PDF: {pdf_path}")
+                pres.ExportAsFixedFormat(
+                    pdf_path,
+                    2,  # ppFixedFormatTypePDF
+                    PrintRange=None,
+                    Intent=1,  # ppFixedFormatIntentScreen
+                    FrameSlides=True,
+                    IncludeDocProperties=True,
+                    KeepIRMSettings=True,
+                    DocStructureTags=True,
+                    BitmapMissingFonts=True,
+                    UseISO19005_1=False
+                )
+                print("[EXPORT] PDF saved successfully.")
+
+                # Exit PowerPoint cleanly
+                print("[EXIT] Closing PowerPoint...")
+                pres.Close()
+                ppt.Quit()
+                pythoncom.CoUninitialize()
+                print("[EXIT] PowerPoint closed.")
+
+                # Close figures and GUI
+                try:
+                    import matplotlib.pyplot as _plt
+                    _plt.close('all')
+                except Exception:
+                    pass
+                if 'root' in globals() and root:
+                    try:
+                        root.after(100, root.destroy)
+                    except Exception:
+                        pass
+
+                # Exit Python app cleanly
+                print("[EXIT] Exiting Python application...")
+                import sys
+                sys.exit(0)
+            except Exception as e:
+                print(f"⚠️ PDF export failed: {e}")
 
         except Exception as e:
             print(f"❌ multiple add+map failed: {e}")
-
-        # ---------- Close the app after finishing ----------
-        try:
-            _dbg("[CLOSE] closing figures and root…")
-            try:
-                import matplotlib.pyplot as _plt
-                _plt.close('all')
-            except Exception:
-                pass
-            if 'root' in globals() and root:
-                try:
-                    root.after(100, root.destroy)
-                except Exception:
-                    pass
-            import sys
-            try:
-                sys.exit(0)
-            except SystemExit:
-                pass
-        except Exception as e:
-            print(f"⚠️ Could not close app cleanly: {e}")
 
     def _handle_multiple_add2ppt_map(_evt=None):
         """Existing button: pick multiple files via dialog."""
@@ -5788,6 +5989,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         tmp = tempfile.NamedTemporaryFile(prefix="map_cross_", suffix=".png", delete=False)
         tmp_path = tmp.name
         tmp.close()
+
+        # --- make image low resolution ---
+        lowres_factor = 0.1  # smaller = lower resolution
+        newW = int(W * lowres_factor)
+        newH = int(H * lowres_factor)
+        base = base.resize((newW, newH), Image.Resampling.LANCZOS)
+
         base.save(tmp_path, "PNG")
         return tmp_path
 
@@ -6054,6 +6262,230 @@ def open_check_map_calibration(folder=None):
 
     plt.show(block=True)
 
+def test_calib_stains_viewer(
+    calib_path=r"C:\WC\SLM_bmp\Calib\Averaged_calibration.tif",
+    cmap="magma",
+):
+    """
+    Small standalone viewer to experiment with _remove_calib_stains on a calibration TIFF.
+
+    - Left: original calibration frame
+    - Right: cleaned (stain-removed) version
+    - Sliders:
+        * sigma_bg      – blur for background used in detection
+        * thresh_sigma  – threshold in sigma units for dark stains
+        * min_size_px   – minimum blob size (pixels)
+        * max_size_px   – maximum blob size (pixels)
+    """
+
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Slider
+
+    # --- Optional: SciPy for morphology. If missing, we just skip the fancy stuff. ---
+    try:
+        import scipy.ndimage as ndi
+        _HAS_SCIPY = True
+    except Exception:
+        ndi = None
+        _HAS_SCIPY = False
+        print("⚠️ scipy.ndimage not found – stain removal will be much simpler.")
+
+    # --------- minimal standalone TIFF reader (2D) ----------
+    def _read_tif_2d(path: str) -> np.ndarray:
+        """Read TIFF and return a 2D float64 image (RGB→gray, multipage→mean)."""
+        try:
+            import tifffile as tiff
+            arr = tiff.imread(path)
+        except Exception:
+            try:
+                import imageio.v3 as iio
+                arr = iio.imread(path, index=None)
+            except Exception as e:
+                raise RuntimeError("Need tifffile or imageio.v3 to read TIFFs") from e
+
+        a = np.asarray(arr, dtype=np.float64)
+        a = np.squeeze(a)
+
+        # Handle RGB(A)
+        if a.ndim == 3 and a.shape[-1] in (3, 4):
+            a = a[..., :3].mean(axis=-1)
+
+        # Handle multipage stack (Z, Y, X)
+        if a.ndim == 3:
+            a = a.mean(axis=0)
+
+        if a.ndim != 2:
+            raise ValueError(f"Unexpected TIFF shape for {os.path.basename(path)}: {a.shape}")
+        return a
+
+    def _remove_calib_stains(
+            A_in: np.ndarray,
+            sigma_bg: float = 17.0,
+            thresh_sigma: float = 2.0,
+            min_size_px: int = 15,
+            max_size_px: int = 50000,
+            grow_px: int = 1,
+            feather_px: int = 1,
+            inpaint_sigma: float = 0.1,
+            noise_strength: float = 0.03,  # NEW: noise amplitude as fraction of local std
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Detect dark stains in a flat-field frame, inpaint them from smooth background,
+        and add mild random texture to blend with surroundings.
+
+        Returns
+        -------
+        A_clean : 2D array (float)
+            Image with stains inpainted and blended with noise.
+        mask : 2D bool array
+            True where a stain was detected (after growth).
+        """
+        A = np.asarray(A_in, dtype=np.float64)
+
+        if not _HAS_SCIPY:
+            mask = np.zeros_like(A, dtype=bool)
+            return A, mask
+
+        # --- 1) background & residuals ---
+        bg = ndi.gaussian_filter(A, sigma=sigma_bg, mode="reflect")
+        resid = bg - A
+
+        valid = resid[np.isfinite(resid)]
+        if valid.size == 0:
+            mask = np.zeros_like(A, dtype=bool)
+            return A, mask
+
+        med = float(np.median(valid))
+        std = float(np.std(valid)) or 1.0
+        thr = med + thresh_sigma * std
+
+        mask = resid > thr
+
+        # --- 2) clean mask + size filter ---
+        mask = ndi.binary_opening(mask, iterations=1)
+        mask = ndi.binary_closing(mask, iterations=1)
+        mask = ndi.binary_fill_holes(mask)
+
+        labels, nlab = ndi.label(mask)
+        if nlab > 0:
+            sizes = ndi.sum(mask, labels, index=range(1, nlab + 1))
+            keep = np.zeros(nlab + 1, dtype=bool)
+            keep[1:][(sizes >= min_size_px) & (sizes <= max_size_px)] = True
+            mask = keep[labels]
+
+        # --- grow mask to cover halo ---
+        if grow_px > 0:
+            mask = ndi.binary_dilation(mask, iterations=int(grow_px))
+
+        if not mask.any():
+            print("[calib] no stains found with current parameters.")
+            return A, mask
+
+        # --- 3) smooth inpaint background ---
+        smooth_bg = ndi.gaussian_filter(A, sigma=inpaint_sigma, mode="reflect")
+
+        # --- 4) inpaint and feather ---
+        A_clean = A.copy()
+        A_clean[mask] = smooth_bg[mask]
+
+        if feather_px > 0:
+            inv = ~mask
+            dist = ndi.distance_transform_edt(inv)
+            ring = (dist > 0) & (dist <= float(feather_px))
+            if ring.any():
+                w = np.clip(dist[ring] / float(feather_px), 0.0, 1.0)
+                A_clean[ring] = w * A[ring] + (1.0 - w) * smooth_bg[ring]
+
+        # --- 5) add noise in the inpainted region ---
+        local_std = np.std(A[np.isfinite(A)]) or 1.0
+        noise = np.random.normal(0.0, local_std * noise_strength, size=A.shape)
+        A_clean[mask] += noise[mask]
+
+        n_pix = int(mask.sum())
+        n_blobs = int(labels.max()) if n_pix > 0 else 0
+        print(f"[calib] stain removal: inpainting {n_pix} pixels in {n_blobs} blob(s) "
+              f"(grow={grow_px}, feather={feather_px}, inpaint_sigma={inpaint_sigma}, noise={noise_strength})")
+
+        return A_clean, mask
+
+    # --------- load image ----------
+    if not os.path.isfile(calib_path):
+        raise FileNotFoundError(f"Calibration TIFF not found:\n{calib_path}")
+
+    img = _read_tif_2d(calib_path).astype(np.float64)
+    fname = os.path.basename(calib_path)
+    print(f"Loaded calibration image: {fname}, shape={img.shape}, min={img.min():.1f}, max={img.max():.1f}")
+
+    # Initial parameters
+    sigma_bg0 = 25.0
+    thresh_sigma0 = 3.0
+    min_size0 = 20
+    max_size0 = 1500
+
+    # --------- make figure ----------
+    plt.ion()
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12, 6))
+    fig.suptitle(f"Calibration stains test – {fname}", fontsize=14)
+
+    im0 = ax0.imshow(img, cmap=cmap)
+    ax0.set_title("Original calib")
+    fig.colorbar(im0, ax=ax0, fraction=0.046, pad=0.04)
+
+    cleaned = _remove_calib_stains(
+        img,
+        sigma_bg=sigma_bg0,
+        thresh_sigma=thresh_sigma0,
+        min_size_px=min_size0,
+        max_size_px=max_size0,
+    )
+    im1 = ax1.imshow(cleaned, cmap=cmap)
+    ax1.set_title("Cleaned (stains removed)")
+    fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
+
+    # --------- sliders ----------
+    plt.subplots_adjust(left=0.07, bottom=0.28, right=0.97)
+
+    ax_sigma = plt.axes([0.15, 0.18, 0.7, 0.03])
+    ax_thresh = plt.axes([0.15, 0.13, 0.7, 0.03])
+    ax_min_size = plt.axes([0.15, 0.08, 0.7, 0.03])
+    ax_max_size = plt.axes([0.15, 0.03, 0.7, 0.03])
+    ax_grow = plt.axes([0.15, 0.23, 0.7, 0.03])  # put it above the others
+
+    s_grow = Slider(ax_grow, "grow px", 0, 15, valinit=3, valstep=1)
+    s_sigma = Slider(ax_sigma, "σ_bg", 5.0, 80.0, valinit=sigma_bg0, valstep=1.0)
+    s_thresh = Slider(ax_thresh, "thresh σ", 1.0, 8.0, valinit=thresh_sigma0, valstep=0.5)
+    s_min = Slider(ax_min_size, "min size", 1, 500, valinit=min_size0, valstep=1)
+    s_max = Slider(ax_max_size, "max size", 50, 5000, valinit=max_size0, valstep=10)
+
+    def _update(_val=None):
+        sigma_bg = float(s_sigma.val)
+        thr = float(s_thresh.val)
+        min_sz = int(s_min.val)
+        max_sz = int(s_max.val)
+        grow_px = int(s_grow.val)
+
+        new_clean = _remove_calib_stains(
+            img,
+            sigma_bg=sigma_bg,
+            thresh_sigma=thr,
+            min_size_px=min_sz,
+            max_size_px=max_sz,
+            grow_px=grow_px,
+        )
+        im1.set_data(new_clean)
+        im1.set_clim(im0.get_clim())
+        fig.canvas.draw_idle()
+
+    s_grow.on_changed(_update)
+    s_sigma.on_changed(_update)
+    s_thresh.on_changed(_update)
+    s_min.on_changed(_update)
+    s_max.on_changed(_update)
+
+    plt.show(block=False)
+    print("Move the sliders to tune stain detection. Close the figure window to finish.")
 # from Utils.python_displayer import open_check_map_calibration
 # open_check_map_calibration(r"C:\Users\Femto\Work Folders\Documents\LightField")
 # import importlib, Utils.python_displayer as pd;importlib.reload(pd);pd.open_check_map_calibration(r"C:\Users\Femto\Work Folders\Documents\LightField")
