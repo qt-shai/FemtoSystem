@@ -4823,6 +4823,16 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
                 )
                 print("[EXPORT] PDF saved successfully.")
 
+                # Ensure the presentation is saved (if it has no name)
+                if not pres.FullName:
+                    pptx_path = os.path.join(tempfile.gettempdir(), "auto_export.pptx")
+                    pres.SaveAs(pptx_path)
+                    print(f"[SAVE] Presentation saved as {pptx_path}")
+                else:
+                    pres.Save()
+
+                pres.Saved = True
+
                 # Exit PowerPoint cleanly
                 print("[EXIT] Closing PowerPoint...")
                 pres.Close()
