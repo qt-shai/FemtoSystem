@@ -20,6 +20,9 @@ from Common import load_window_positions
 class GUI_smaract():
     def __init__(self, simulation: bool = False, serial_number:str = "") -> None:
         self.last_z_value = None
+        self._uz_override = None
+        self._vz_override = None
+
         self.HW = hw_devices.HW_devices()
         self.dev = self.HW.positioner
         self.selectedDevice = serial_number
@@ -371,6 +374,13 @@ class GUI_smaract():
 
         U_rot = [Ux_r, Uy_r, Uz]
         V_rot = [Vx_r, Vy_r, Vz]
+
+        # Apply overrides if set
+        if getattr(self, "_uz_override", None) is not None:
+            U_rot[2] = self._uz_override
+        if getattr(self, "_vz_override", None) is not None:
+            V_rot[2] = self._vz_override
+
         return U_rot, V_rot
 
     def ipt_large_step(self,app_data,user_data):
@@ -552,7 +562,6 @@ class GUI_smaract():
                     self.dev.MoveRelative(channel, int(amt))
         except Exception as e:
             print(f"An error occurred: {e}")
-
 
     def btn_zero(self, sender, app_data, ch):
         self.dev.SetPosition(channel = ch, newPosition = 0)

@@ -82,6 +82,8 @@ def detect_dc_center(g, guess=None, win_frac=0.30):
     dcy = H * 0.5
     return dcx, dcy
 
+OUT_BMP = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"
+
 class ZeluxGUI():
     def __init__(self):
         self.show_coords_grid = None
@@ -1078,7 +1080,7 @@ class ZeluxGUI():
             print(f"❌ Failed writing {out_path}")
         if settle_s and settle_s > 0:
             time.sleep(settle_s)
-            st = os.stat(OUT_BMP);
+            st = os.stat(OUT_BMP)
             # print(f"[SLM] wrote {OUT_BMP} size={st.st_size} mtime={st.st_mtime:.3f}")
 
     def _spot_second_moments(self, img01: np.ndarray, roi_px=220):

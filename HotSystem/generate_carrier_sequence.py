@@ -37,13 +37,13 @@ DEFAULT_CORR_BMP = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\Devices\SLM\Hamamatsu 
 DEFAULT_CORR_DIR = os.path.dirname(DEFAULT_CORR_BMP)
 
 # Default mesh (inclusive), periods across the aperture
-DEFAULT_X0 = -50
-DEFAULT_X1 =  150
-DEFAULT_XS =  150
+DEFAULT_X0 = -300
+DEFAULT_X1 = 50
+DEFAULT_XS = 10
 
-DEFAULT_Y0 = -50
-DEFAULT_Y1 =  150
-DEFAULT_YS =  150
+DEFAULT_Y0 = -100
+DEFAULT_Y1 = 100
+DEFAULT_YS = 10
 # --------------------------------
 
 def u8_to_phase(u8):

@@ -6001,7 +6001,7 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         tmp.close()
 
         # --- make image low resolution ---
-        lowres_factor = 0.1  # smaller = lower resolution
+        lowres_factor = 0.5  # smaller = lower resolution
         newW = int(W * lowres_factor)
         newH = int(H * lowres_factor)
         base = base.resize((newW, newH), Image.Resampling.LANCZOS)

@@ -157,7 +157,6 @@ def _wait_for_cgh_window(timeout_s: float = 3.0, window_title: str = "SLM CGH") 
         time.sleep(0.05)
     return False
 # ------------------------------------------
-
 def _dispatcher_base_dir(self) -> str:
     """Folder of CommandDispatcher.py (works even if module path is indirect)."""
     mod = sys.modules.get(self.__class__.__module__) or sys.modules.get(__name__)
@@ -447,6 +446,9 @@ class CommandDispatcher:
             "last":              self.handle_last_message,
             "cr":                self.handle_cr,
             "proem":             self.handle_proem,
+            "uz": lambda arg="": self.handle_uvz("uz", arg),
+            "vz": lambda arg="": self.handle_uvz("vz", arg),
+        "replace":               self.handle_replace,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -6409,14 +6411,20 @@ class CommandDispatcher:
           lf inf        -> trigger the LightField 'Run INF' action
         """
         p = self.get_parent()
+        tokens = (arg or "").strip().lower().split()
+        # ✅ NEW BEHAVIOR: no arguments → open LightField folder
+        if not tokens:
+            folder = r"C:\Users\Femto\Work Folders\Documents\LightField"
+            try:
+                subprocess.Popen(f'explorer "{folder}"')
+                print(f"lf: opened LightField folder → {folder}")
+            except Exception as e:
+                print(f"lf: failed to open folder: {e}")
+            return
+
         lf_gui = getattr(p, "hrs_500_gui", None)
         if lf_gui is None:
             print("lf inf: hrs_500_gui not available.")
-            return
-
-        tokens = (arg or "").strip().lower().split()
-        if not tokens:
-            print("lf: missing subcommand (try: 'lf roi' or 'lf inf').")
             return
 
         sub = tokens[0]
@@ -6454,7 +6462,6 @@ class CommandDispatcher:
                         f"lf roi: approx µm bounds -> x:[{xmin_um:.2f}, {xmax_um:.2f}]  y:[{ymin_um:.2f}, {ymax_um:.2f}]")
                 else:
                     print("lf roi print: calibration (sx/sy) not set; skipping µm bounds.")
-
         elif sub == "inf":
             try:
 
@@ -6474,7 +6481,6 @@ class CommandDispatcher:
                 print("lf inf: no suitable method found (define run_inf/acquire_inf on GUI/dev).")
             except Exception as e:
                 print(f"lf inf failed: {e}")
-
         elif sub == "anchor":
             # Usage: lf anchor <px> <py>
             if len(tokens) < 3:
@@ -6513,7 +6519,6 @@ class CommandDispatcher:
                 print(f"lf anchor: using scale sx={sx:.4f} µm/px, sy={sy:.4f} µm/px")
             else:
                 print("lf anchor: note—sx/sy (µm/px) not set yet.")
-
         elif sub in ("sx", "sy"):
             # Usage: lf sx <num>, lf sy <num>
             if len(tokens) < 2:
@@ -6531,7 +6536,6 @@ class CommandDispatcher:
             else:
                 setattr(lf_gui, "proem_sy_um_per_px", val)
                 print(f"lf sy: set sy = {val:.4f} µm/px")
-
         else:
             print(f"lf: unknown subcommand '{sub}'. Try: 'lf roi' or 'lf inf'.")
     def handle_clear_console(self, arg=None):
@@ -8185,6 +8189,22 @@ class CommandDispatcher:
             dU_from_label = float(getattr(self, "_center_from_label_dU_um", 0.0))
             dV_from_label = float(getattr(self, "_center_from_label_dV_um", 0.0))
 
+            # uz/vz overrides from Smaract GUI (optional)
+            uz_override = vz_override = None
+            try:
+                gui = getattr(self.get_parent(), "smaractGUI", None)
+                if gui is not None:
+                    uz_override = getattr(gui, "_uz_override", None)
+                    vz_override = getattr(gui, "_vz_override", None)
+                    # Make sure they're JSON-friendly
+                    if uz_override is not None:
+                        uz_override = float(uz_override)
+                    if vz_override is not None:
+                        vz_override = float(vz_override)
+            except Exception:
+                uz_override = vz_override = None
+
+
             # Collect coupon labels (if any) in a JSON-friendly way
             labels_to_save = {}
             try:
@@ -8215,6 +8235,8 @@ class CommandDispatcher:
                 "coupy_move_um": float(getattr(self, "_coupy_move_um", 0.0)),
                 "center_from_label_dU_um": dU_from_label,  # NEW
                 "center_from_label_dV_um": dV_from_label,  # NEW
+                "uz_override": uz_override,
+                "vz_override": vz_override,
                 "coupon_labels": labels_to_save,
                 "chip_name": chip_name,
             }
@@ -8383,16 +8405,31 @@ class CommandDispatcher:
                 except Exception:
                     print(f"[coup] load: warning: invalid shift_y_factor '{shift_y}' in state; ignoring.")
 
-            # Reflect loaded angle into GUI axis-2 (best-effort)
+            # Reflect loaded angle into GUI axis-2 (best-effort) and restore uz/vz overrides
             try:
                 gui = getattr(self.get_parent(), "smaractGUI", None)
                 if gui is not None:
+                    # angle
                     try:
                         dpg.set_value(f"{gui.prefix}_ch2_Cset", angle_deg)
                     except Exception:
                         pass
+                    # NEW: uz/vz overrides
+                    try:
+                        uz_override = state.get("uz_override", None)
+                        if uz_override is not None:
+                            gui._uz_override = float(uz_override)
+                    except Exception:
+                        pass
+                    try:
+                        vz_override = state.get("vz_override", None)
+                        if vz_override is not None:
+                            gui._vz_override = float(vz_override)
+                    except Exception:
+                        pass
             except Exception:
                 pass
+
 
             # Restore coupon labels if present
             labels_from_state = state.get("coupon_labels", None)
@@ -8457,7 +8494,6 @@ class CommandDispatcher:
             print(f"[coup] resume: pause factor set to {factor:.3f} "
                   f"(will pause every {spc_threshold} SPC commands).")
             return True
-
         if sub == "stop":
             # signal all known cancel flags
             try:
@@ -8569,6 +8605,7 @@ class CommandDispatcher:
                 r"C:\WC\HotSystem\Utils\macro\sb.py",
                 r"C:\WC\HotSystem\Utils\macro\coup_state.json",
                 r"C:\WC\SLM_bmp\Calib\Averaged_calibration.tif",
+                r"C:\WC\HotSystem\Utils\map_calibration.json",
             ]
             for src in fixed_sources:
                 try:
@@ -8608,7 +8645,6 @@ class CommandDispatcher:
 
             print(f"[coup] copy: done for chip '{chip_name_raw}' → '{chip_dir}'")
             return True
-
         # --- SINGLE busy guard (applies only to top-level invocations) ---
         non_blocking = {"status", "stop", "save", "load", "angle","resume","copy"}
         if (sub not in non_blocking) and _is_coup_busy() and not nested:
@@ -8617,6 +8653,34 @@ class CommandDispatcher:
 
         # --- coup label from center: inverse of "center from label" ---
         if sub == "label":
+            # --- NEW: "coup label from center set" ---
+            if len(tokens) == 4 and tokens[3].lower() == "set":
+                try:
+                    # Current stage position (µm)
+                    u_cur, v_cur, _ = self._read_current_position_um()
+
+                    # MOVE absolute positions (µm)
+                    u_abs = float(dpg.get_value("mcs_ch0_ABS"))
+                    v_abs = float(dpg.get_value("mcs_ch1_ABS"))
+
+                    # Opposite offsets (current stage - MOVE abs)
+                    dU = u_cur - u_abs
+                    dV = v_cur - v_abs
+
+                    # Store as the NEGATIVE (so same convention as center-from-label)
+                    self._center_from_label_dU_um = -dU
+                    self._center_from_label_dV_um = -dV
+
+                    print(
+                        f"[coup] label from center set: stored reverse offsets "
+                        f"dU={-dU:.3f} µm, dV={-dV:.3f} µm  (current − MOVE abs)."
+                    )
+                    _coup_save_state()
+                    return True
+                except Exception as e:
+                    print(f"[coup] label from center set: failed to read positions: {e}")
+                    return False
+
             if len(tokens) >= 3 and tokens[1].lower() == "from" and tokens[2].lower() == "center":
                 # Use stored offsets (label → center), but move opposite (center → label)
                 dU = float(getattr(self, "_center_from_label_dU_um", 0.0))
@@ -8661,6 +8725,33 @@ class CommandDispatcher:
             # --- center from label [dU,dV] ---
             # coup center from label -100,95   -> store offsets (no move)
             # coup center from label          -> move by stored offsets to center
+            # --- NEW: "coup center from label set" ---
+            if len(tokens) == 4 and tokens[3].lower() == "set":
+                try:
+                    # Current stage position (µm)
+                    u_cur, v_cur, _ = self._read_current_position_um()
+
+                    # MOVE absolute positions (µm) from DPG GUI
+                    u_abs = float(dpg.get_value("mcs_ch0_ABS"))
+                    v_abs = float(dpg.get_value("mcs_ch1_ABS"))
+
+                    # Compute offsets (MOVE abs - current stage)
+                    dU = round(u_cur- u_abs,3)
+                    dV = round(v_cur - v_abs,3)
+
+                    # Store in attributes
+                    self._center_from_label_dU_um = dU
+                    self._center_from_label_dV_um = dV
+
+                    print(
+                        f"[coup] center from label set: stored dU={dU:.3f} µm, "
+                        f"dV={dV:.3f} µm  (MOVE abs − current stage)."
+                    )
+                    _coup_save_state()
+                    return True
+                except Exception as e:
+                    print(f"[coup] center from label set: failed to read positions: {e}")
+                    return False
             if len(tokens) >= 3 and tokens[1].lower() == "from" and tokens[2].lower() == "label":
                 # SET MODE: explicit offsets
                 if len(tokens) >= 4:
@@ -9047,7 +9138,6 @@ class CommandDispatcher:
             except NameError:
                 base_dir = r"c:\WC\HotSystem\Utils\macro"
             return os.path.join(base_dir, pth)
-
         if any(cand_path.lower().endswith(ext) for ext in allowed_exts):
             resolved = _resolve_macro_path(cand_path)
             if not os.path.isfile(resolved):
@@ -10238,10 +10328,8 @@ class CommandDispatcher:
             chip name?             -> print the currently stored chip name
         """
         import shlex
-
         # Join dispatcher args
         text = " ".join(str(a) for a in args).strip()
-
         # If user typed exactly:  chip name?
         if text.lower() == "name?":
             name = getattr(self, "_chip_name", "")
@@ -10250,55 +10338,45 @@ class CommandDispatcher:
             else:
                 print("[chip] name not set.")
             return True
-
         # No args or incomplete
         if not text:
             print("Usage:")
             print("  chip name <chip-name>")
             print("  chip name?         # show current chip name")
             return False
-
         # Tokenize
         try:
             tokens = shlex.split(text)
         except Exception:
             tokens = text.split()
-
         if not tokens:
             print("Usage: chip name <chip-name>")
             return False
-
         sub = tokens[0].lower()
-
         # Wrong subcommand
         if sub != "name":
             print("Usage:")
             print("  chip name <chip-name>")
             print("  chip name?")
             return False
-
         # Handle plain: chip name?
         if len(tokens) == 1:
             print("Usage: chip name <chip-name>   or   chip name?")
             return False
-
         # SET MODE (chip name <name...>)
         name = " ".join(tokens[1:]).strip()
         if not name:
             print("[chip] empty chip name not allowed.")
             return False
-
         # Store chip name
         self._chip_name = name
         print(f"[chip] name set to '{name}'")
-
         # Persist via coup save
         try:
             self.handle_coup("save")
         except Exception as e:
             print(f"[chip] warning: failed to save coup state after setting name: {e}")
             return False
-
         return True
     def handle_coupon(self, arg: str = ""):
         """
@@ -10319,9 +10397,7 @@ class CommandDispatcher:
         # Ensure store exists: name -> dict(u_um, v_um)
         if not hasattr(self, "_coupon_labels"):
             self._coupon_labels = {}
-
         text = (arg or "").strip()
-
         # Helper: remove any existing labels closer than tol_um
         def _override_nearby(u_new: float, v_new: float, tol_um: float = 1.0):
             removed = []
@@ -10336,7 +10412,6 @@ class CommandDispatcher:
                     continue
             for name in removed:
                 print(f"[coupon] overriding old name '{name}' at nearly the same position.")
-
         # --- coupon ? -> query nearest coupon name by (U,V) ---
         if text == "?":
             try:
@@ -10366,27 +10441,25 @@ class CommandDispatcher:
             dist = math.sqrt(d2)
             print(f"[coupon] nearest name: '{name}' (distance = {dist:.3f} µm)")
             return True
-
         # --- coupon list -> list all labels ---
         if text.lower() == "list":
             if not self._coupon_labels:
                 print("[coupon] list: no coupon names stored.")
                 return True
-
             print(f"[coupon] list: {len(self._coupon_labels)} name(s):")
             for name in sorted(self._coupon_labels.keys(), key=str):
                 info = self._coupon_labels[name]
                 u = float(info.get("u_um", 0.0))
                 v = float(info.get("v_um", 0.0))
                 print(f"  {name!r}: U={u:.3f} µm, V={v:.3f} µm")
+            self.handle_coup("save")
             return True
-
         # --- coupon clear -> erase all stored coupon names ---
         if text.lower() == "clear":
             self._coupon_labels.clear()
             print("[coupon] clear: all coupon names removed.")
+            self.handle_coup("save")
             return True
-
         # No arg → show usage
         if not text:
             print("Usage:")
@@ -10400,12 +10473,10 @@ class CommandDispatcher:
             print("  coupon go <name>")
             print("  coupon ?")
             return False
-
         try:
             tokens = shlex.split(text)
         except Exception:
             tokens = text.split()
-
         if not tokens:
             print(
                 "Usage: coupon name <name> | coupon <name> | "
@@ -10413,9 +10484,7 @@ class CommandDispatcher:
                 "coupon listxy A1-E6 | coupon list | coupon clear | coupon go <name> | coupon ?"
             )
             return False
-
         sub = tokens[0].lower()
-
         # --- coupon go <name> ---
         if sub == "go":
             if len(tokens) < 2:
@@ -10458,7 +10527,6 @@ class CommandDispatcher:
 
             print(f"[coupon] go: moved to '{label}' → (U={u_tgt:.3f} µm, V={v_tgt:.3f} µm)")
             return True
-
         # --- coupon name <name>  OR  coupon <name> ---
         if sub == "name" or sub not in ("listx", "listy", "listxy", "list", "clear", "go", "?"):
             # If user wrote 'coupon name foo', label is tokens[1:]
@@ -10489,8 +10557,8 @@ class CommandDispatcher:
                 "v_um": float(v_cur),
             }
             print(f"[coupon] name: '{label}' recorded at (U={u_cur:.3f} µm, V={v_cur:.3f} µm)")
+            self.handle_coup("save")
             return True
-
         # --- geometric helpers (used by listx, listy, listxy) ---
         def _geom_steps():
             """Return (dUx, dVx, dUy, dVy) in µm for one step in X (shiftx) and Y (shifty)."""
@@ -10513,7 +10581,6 @@ class CommandDispatcher:
             dVy = step_y_um * cos_t
 
             return dUx, dVx, dUy, dVy
-
         # --- coupon listx / listy <n1> <n2> ... (no physical movement) ---
         if sub in ("listx", "listy"):
             along_x = (sub == "listx")
@@ -10521,16 +10588,13 @@ class CommandDispatcher:
             if not names:
                 print(f"[coupon] {sub}: need at least one name.")
                 return False
-
             # Read current stage position once
             try:
                 u0, v0, _ = self._read_current_position_um()
             except Exception as e:
                 print(f"[coupon] {sub}: cannot read current position: {e}")
                 return False
-
             dUx, dVx, dUy, dVy = _geom_steps()
-
             # Use only one axis of the geometry
             if along_x:
                 step_u = dUx
@@ -10538,80 +10602,62 @@ class CommandDispatcher:
             else:
                 step_u = dUy
                 step_v = dVy
-
             for idx, label in enumerate(names):
                 label = label.strip()
                 if not label:
                     continue
-
                 u_est = u0 + idx * step_u
                 v_est = v0 + idx * step_v
-
                 _override_nearby(u_est, v_est, tol_um=1.0)
-
                 self._coupon_labels[label] = {
                     "u_um": float(u_est),
                     "v_um": float(v_est),
                 }
-
                 print(f"[coupon] {sub}: '{label}' recorded at simulated (U={u_est:.3f} µm, V={v_est:.3f} µm)")
-
+            self.handle_coup("save")
             return True
-
         # --- coupon listxy A1-E6 (no physical movement) ---
         if sub == "listxy":
             if len(tokens) < 2:
                 print("[coupon] listxy: missing range. Usage: coupon listxy A1-E6")
                 return False
-
             rng = tokens[1].strip()
             m = re.fullmatch(r"([A-Za-z])(\d+)\s*-\s*([A-Za-z])(\d+)", rng)
             if not m:
                 print("[coupon] listxy: invalid range. Use like: coupon listxy A1-E6")
                 return False
-
             row_start_char, col_start_str, row_end_char, col_end_str = m.groups()
             row_start = ord(row_start_char.upper()) - ord("A")
             row_end = ord(row_end_char.upper()) - ord("A")
             col_start = int(col_start_str)
             col_end = int(col_end_str)
-
             if row_end < row_start or col_end < col_start:
                 print("[coupon] listxy: range must be increasing, e.g. A1-E6.")
                 return False
-
             n_rows = row_end - row_start + 1
             n_cols = col_end - col_start + 1
-
             # Read current stage position once (A1)
             try:
                 u0, v0, _ = self._read_current_position_um()
             except Exception as e:
                 print(f"[coupon] listxy: cannot read current position: {e}")
                 return False
-
             dUx, dVx, dUy, dVy = _geom_steps()
-
             for r_idx in range(n_rows):
                 for c_idx in range(n_cols):
                     row_char = chr(ord("A") + row_start + r_idx)
                     col_num = col_start + c_idx
                     label = f"{row_char}{col_num}"
-
                     u_est = u0 + c_idx * dUx + r_idx * dUy
                     v_est = v0 + c_idx * dVx + r_idx * dVy
-
                     _override_nearby(u_est, v_est, tol_um=1.0)
-
                     self._coupon_labels[label] = {
                         "u_um": float(u_est),
                         "v_um": float(v_est),
                     }
-
                     print(f"[coupon] listxy: '{label}' recorded at simulated (U={u_est:.3f} µm, V={v_est:.3f} µm)")
-
+            self.handle_coup("save")
             return True
-
         # Unknown subcommand
         print("Usage:")
         print("  coupon name <name>")
@@ -10685,9 +10731,171 @@ class CommandDispatcher:
         time.sleep(0.2)
         dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
         dev._exp.Preview()
+    def handle_uvz(self, axis: str, arg: str = ""):
+        """
+        Set Z coupling for U or V vector.
+        Examples:
+          uz -2 600 set          → z changes -2 µm per 600 µm U move
+          uz -2um 600um set      → same as above
+          uz -2 600um set        → same as above
+          vz 1 800 set           → z changes +1 µm per 800 µm V move
+        """
+
+        import re, shlex
+
+        try:
+            tokens = shlex.split(arg) if arg else []
+        except Exception:
+            tokens = [s for s in (arg or "").strip().split() if s]
+
+        if len(tokens) not in (2, 3) or tokens[-1].lower() != "set":
+            print(f"Usage: {axis} <Δz_um> <Δxy_um> set   (e.g. {axis} -2 600 set)")
+            return False
+
+        # Handle simple two-value case: uz 0.5 set
+        if len(tokens) == 2:
+            try:
+                val = float(re.sub(r"um$", "", tokens[0], flags=re.IGNORECASE))
+            except Exception as e:
+                print(f"[Smaract] {axis} set: invalid number '{tokens[0]}' ({e})")
+                return False
+            gui = getattr(self.get_parent(), "smaractGUI", None)
+            if gui is None:
+                print("[Smaract] uz/vz: smaractGUI not available on parent.")
+                return False
+            if axis == "uz":
+                gui._uz_override = val
+            else:
+                gui._vz_override = val
+            print(f"[Smaract] set {axis} = {val}")
+            return True
+
+        # Full 3-token normalization: uz -2 600 set
+        try:
+            dz_str, dxy_str = tokens[0], tokens[1]
+
+            # Remove optional 'um'
+            dz = float(re.sub(r"um$", "", dz_str, flags=re.IGNORECASE))
+            dxy = float(re.sub(r"um$", "", dxy_str, flags=re.IGNORECASE))
+        except Exception as e:
+            print(f"[Smaract] {axis} set: invalid numbers ({e})")
+            return False
+
+        if abs(dxy) < 1e-9:
+            print(f"[Smaract] {axis} set: Δxy cannot be zero.")
+            return False
+
+        # Ratio (µm Z per µm XY)
+        ratio = dz / dxy
+
+        gui = getattr(self.get_parent(), "smaractGUI", None)
+        if gui is None:
+            print("[Smaract] uz/vz: smaractGUI not available on parent.")
+            return False
+
+        if axis == "uz":
+            gui._uz_override = ratio
+        else:
+            gui._vz_override = ratio
+
+        print(
+            f"[Smaract] normalized {axis}: ΔZ={dz} µm, ΔXY={dxy} µm "
+            f"→ stored {axis}={ratio:.6f} (µm Z per µm XY)"
+        )
+        return True
+    def handle_replace(self, arg: str):
+        """
+        Replace the letter used in 'spc note <LETTER><N>' lines in sb.py.
+
+        Usage:
+            replace +          # increment current letter  (C -> D)
+            replace -          # decrement current letter  (C -> B)
+            replace D          # change current letter -> D
+            replace C D        # explicitly C -> D
+
+        The file is assumed to be:
+            C:\\WC\\HotSystem\\Utils\\macro\\sb.py
+        """
+        import re
+
+        path = r"C:\WC\HotSystem\Utils\macro\sb.py"
+        arg = (arg or "").strip()
+
+        if not arg:
+            print("Usage: replace + | replace - | replace <TO> | replace <FROM> <TO>")
+            return
+
+        # Read the file
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            print(f"replace: failed to read {path}: {e}")
+            return
+
+        # Find all 'spc note XN' occurrences and deduce the current letter
+        matches = re.findall(r"\bspc\s+note\s+([A-Z])(\d+)", content)
+        if not matches:
+            print("replace: no 'spc note <LETTER><N>' patterns found in file.")
+            return
+
+        letters = sorted({m[0] for m in matches})
+        # If multiple letters exist, we still pick one but warn
+        if len(letters) > 1:
+            print(f"replace: multiple note letters found in file: {letters}. Using '{letters[-1]}' as current.")
+        current = letters[-1]  # pick the last in sorted list, e.g. 'C'
+
+        # Decide from_letter and to_letter based on arg
+        if arg in ("+", "-"):
+            # Shift current letter by ±1
+            shift = 1 if arg == "+" else -1
+            idx = (ord(current) - ord("A") + shift) % 26
+            from_letter = current
+            to_letter = chr(ord("A") + idx)
+        else:
+            parts = arg.split()
+            if len(parts) == 1:
+                # 'replace D' -> current -> D
+                from_letter = current
+                to_letter = parts[0].upper()
+            elif len(parts) == 2:
+                # 'replace C D'
+                from_letter = parts[0].upper()
+                to_letter = parts[1].upper()
+            else:
+                print("replace: too many arguments.")
+                return
+
+        if len(from_letter) != 1 or len(to_letter) != 1:
+            print("replace: FROM and TO must be single letters.")
+            return
+
+        if from_letter == to_letter:
+            print(f"replace: '{from_letter}' == '{to_letter}', nothing to do.")
+            return
+
+        # Replace only in 'spc note XN' patterns
+        pattern = rf"(\bspc\s+note\s+){from_letter}(\d+)"
+        new_content, count = re.subn(pattern, rf"\1{to_letter}\2", content)
+
+        if count == 0:
+            print(f"replace: no 'spc note {from_letter}<N>' occurrences found.")
+            return
+
+        # Write back to file
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+        except Exception as e:
+            print(f"replace: failed to write {path}: {e}")
+            return
+
+        print(f"replace: changed letter {from_letter} -> {to_letter} in {count} 'spc note' lines.")
+
 
 # Wrapper function
 dispatcher = CommandDispatcher()
 
 def run(command: str, record_history: bool = True):
     dispatcher.run(command, record_history)
+
