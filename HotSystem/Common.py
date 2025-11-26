@@ -550,7 +550,7 @@ def show_msg_window(msg_text: str,height=110):
     # Remove old window if it exists
     if dpg.does_item_exist(window_tag):
         dpg.delete_item(window_tag)
-    width = 1450
+    width = 250
     # Create a new window in the center-ish
     with dpg.window(
         label="Message",

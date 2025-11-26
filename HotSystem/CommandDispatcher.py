@@ -448,7 +448,9 @@ class CommandDispatcher:
             "proem":             self.handle_proem,
             "uz": lambda arg="": self.handle_uvz("uz", arg),
             "vz": lambda arg="": self.handle_uvz("vz", arg),
-        "replace":               self.handle_replace,
+            "replace":           self.handle_replace,
+            "abs":               self.handle_move_abs_xyz,
+            "maxi":              self.handle_moveabs_to_max_intensity,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -1260,6 +1262,7 @@ class CommandDispatcher:
     def handle_g2(self, arg):
         """Start G2 scan or set correlation width (e.g. 'g2 1000')."""
         p = self.get_parent()
+        time.sleep(1)
 
         if not hasattr(p, "opx") or not hasattr(p.opx, "btnStartG2"):
             print("OPX or btnStartG2 not available.")
@@ -4284,7 +4287,6 @@ class CommandDispatcher:
             p.opx.is_left_scan =is_left_scan
             p.opx.use_queried_proem =use_queried_proem
             p.opx.use_queried_area =use_queried_area
-
             p.opx.btnStartScan()
 
             mode = "add" if add_scan else "fresh"
@@ -5334,6 +5336,7 @@ class CommandDispatcher:
             return
 
         if len(parts) == 1 or not parts[1].strip():
+            time.sleep(ms / 1000.0)
             print("No commands to run after wait.")
             return
 
@@ -5743,9 +5746,22 @@ class CommandDispatcher:
                         except Exception as e:
                             print(f"Post-focus move failed: {e}")
 
+
             except Exception as e:
                 traceback.print_exc()
                 print(f"focus failed: {e}")
+
+            finally:
+                # Signal that focus finished (for 'await focus')
+                try:
+                    if not hasattr(self, "_focus_done_evt"):
+                        import threading
+                        self._focus_done_evt = threading.Event()
+                    self._focus_done_evt.set()
+                    print("[focus] done.")
+                except Exception:
+                    pass
+
 
         threading.Thread(target=worker, daemon=True).start()
     def _focus_plot(self, coords, signals):
@@ -8459,10 +8475,17 @@ class CommandDispatcher:
             )
             return True
 
-        # --- non-blocking commands ---
         if sub == "status":
-            print("[coup] running" if self._coup_active_evt.is_set() else "[coup] idle")
+            if self._coup_active_evt.is_set():
+                cur = getattr(self, "_current_coup_cmd", None)
+                if cur:
+                    print(f"[coup] running → current command: {cur}")
+                else:
+                    print("[coup] running → preparing next command...")
+            else:
+                print("[coup] idle")
             return True
+
         # --- coup resume [factor] : resume from pause and set pause factor ---
         #   coup resume       -> factor = 1.0  (pause every 3 SPC)
         #   coup resume 2     -> factor = 2.0  (pause every 6 SPC)
@@ -9246,10 +9269,80 @@ class CommandDispatcher:
             if evt.wait(timeout=poll_ms / 1000.0):  # finished
                 return True
         return False
+    def _wait_scan_done_or_abort(self, poll_ms=500, hard_timeout_s=None):
+        """
+        Wait until a scan finishes (StartScan3D sets _scan_done_evt),
+        or until 'coup stop' / abort is requested, or optional timeout.
+        """
+        time.sleep(25)
+        return True
+    def _wait_focus_done_or_abort(self, poll_ms=200, hard_timeout_s=None):
+        """
+        Wait until focus completes (handle_focus worker sets _focus_done_evt),
+        or until coup stop/abort.
+        """
+        import time, threading
+
+        evt = getattr(self, "_focus_done_evt", None)
+        if not isinstance(evt, threading.Event):
+            evt = threading.Event()
+            self._focus_done_evt = evt
+        evt.clear()  # ensure clean state
+
+        t0 = time.time()
+        while True:
+            # Abort or cancel
+            if getattr(self, "_coup_abort_evt", None) and self._coup_abort_evt.is_set():
+                return False
+            if getattr(self, "_coup_cancel", None) and self._coup_cancel.is_set():
+                return False
+
+            if evt.is_set():
+                return True
+
+            if hard_timeout_s and (time.time() - t0) > hard_timeout_s:
+                print("[coup] wait focus: timed out.")
+                return False
+
+            time.sleep(poll_ms / 1000.0)
     def _run_one_cmd(self, cmd: str) -> bool:
         if self._coup_abort_evt.is_set():
             print(f"[coup] aborted before '{cmd}'")
             return False
+
+        # --- record the currently running command ---
+        try:
+            self._current_coup_cmd = cmd.strip()
+        except Exception:
+            pass
+
+        line = cmd.strip()
+        toks = line.lower().split()
+
+        # --- SPECIAL: 'await scan' or 'await focus' ---
+        if len(toks) >= 2 and toks[0] == "await":
+            if toks[1] == "scan":
+                self._current_coup_cmd = "await scan (waiting...)"
+
+                print("[coup] awaiting scan completion...")
+                ok = self._wait_scan_done_or_abort()
+                if not ok:
+                    print("[coup] wait scan: aborted or timed out.")
+                    return False
+                print("[coup] scan finished; continuing coup steps.")
+                return True
+
+            if toks[1] == "focus":
+                self._current_coup_cmd = "await focus (waiting...)"
+
+                print("[coup] awaiting focus completion...")
+                ok = self._wait_focus_done_or_abort()
+                if not ok:
+                    print("[coup] wait focus: aborted or timed out.")
+                    return False
+                print("[coup] focus finished; continuing coup steps.")
+                return True
+
 
         try:
             run(cmd, record_history=False)
@@ -9278,6 +9371,13 @@ class CommandDispatcher:
             if not ok:
                 print("[coup] stop/timeout during 'spc shift' wait.")
                 return False
+
+        # Reset current command when done
+        try:
+            self._current_coup_cmd = None
+        except Exception:
+            pass
+
         return True
     def _coup_loop_from_steps_with_pause(self, steps):
         """
@@ -9392,19 +9492,17 @@ class CommandDispatcher:
     def _coup_loop_from_steps(self, use_shift: bool = True, steps: str = "", wait_for_spc: bool = True):
         self._coup_active_evt.set()
         try:
-            # spc_cmd = "spc shift" if use_shift else ""
-            # steps = [
-            #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
-            #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
-            #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupx -2", "coupy -1",
-            #     spc_cmd, "coupx", spc_cmd, "coupx", spc_cmd,"coupy 3", "movex 140;movey 5.5"
-            # ]
             for cmd in steps:
                 if not self._run_one_cmd(cmd):
                     print("[coup] loop stopped.")
                     return
-                # time.sleep(3)
+                time.sleep(2)
                 line = cmd.strip().lower()
+                # If the command is exactly "g2" (or "g2 " etc.), pause 10 s before next command
+                if line == "g2" or line.startswith("g2 "):
+                    print("[coup] g2 executed → pausing 10 s before next command...")
+                    time.sleep(10)
+
                 # --- NEW: don't wait on "spc note ..."
                 if wait_for_spc and re.search(r"\b(spc|save)\b", line) and not re.search(r"\bspc\s+note\b", line):
                     print("[coup] waiting for 'spc' to finish…")
@@ -9413,7 +9511,7 @@ class CommandDispatcher:
                     if not ok:
                         print("[coup] stop/timeout during 'spc' wait.")
                         return
-            self.handle_stop_scan("")
+
             print("[coup] loop complete.")
         finally:
             self._coup_active_evt.clear()
@@ -10891,6 +10989,47 @@ class CommandDispatcher:
             return
 
         print(f"replace: changed letter {from_letter} -> {to_letter} in {count} 'spc note' lines.")
+
+    def handle_move_abs_xyz(self, arg):
+        """Set X, Y, Z absolute in one command: abs x,y,z or abs (x,y,z)."""
+        try:
+            if not arg:
+                raise ValueError("No coordinates supplied")
+
+            coords_str = arg.strip()
+
+            # allow formats like "(10, 20, 30)" or "10,20,30"
+            if coords_str[0] == "(" and coords_str[-1] == ")":
+                coords_str = coords_str[1:-1]
+
+            parts = [p.strip() for p in coords_str.split(",") if p.strip()]
+            if len(parts) != 3:
+                raise ValueError(f"Expected 3 values, got {len(parts)}")
+
+            x_str, y_str, z_str = parts
+
+            # reuse existing per-axis helper
+            self._move_abs_axis(0, x_str)
+            self._move_abs_axis(1, y_str)
+            self._move_abs_axis(2, z_str)
+
+            x, y, z = map(float, (x_str, y_str, z_str))
+            print(f"Moved to abs position X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
+        except Exception as e:
+            print(f"abs xyz failed: {e}")
+
+    def handle_moveabs_to_max_intensity(self, arg):
+        """Move stage to position of max intensity. Usage: 'maxi'"""
+        try:
+            p = self.get_parent()
+            p.opx.set_moveabs_to_max_intensity()
+            print("OPX: moved to max intensity position.")
+            p.smaractGUI.move_absolute(None,None,0)
+            p.smaractGUI.move_absolute(None, None, 1)
+            p.smaractGUI.move_absolute(None, None, 2)
+        except Exception as e:
+            print(f"OPX max intensity move failed: {e}")
+
 
 
 # Wrapper function

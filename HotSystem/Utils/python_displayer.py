@@ -22,7 +22,7 @@ from PIL import Image
 import win32clipboard
 from matplotlib.patches import Polygon
 import imageio.v3 as iio  # needs imageio-ffmpeg installed
-
+MAKE_IMAGE_LOW_RESOLUTION = False
 # --- NEW: prefer tifffile for scientific TIFFs, fallback to imageio ---
 try:
     import tifffile as tiff
@@ -60,7 +60,7 @@ FEATHER_WIDTH_UM = 3.0        # soft edge width; 0 = hard edge
 CROP_PIXELS = (260, 800, 300, 800)   # <- tweak these to your needs
 PROFILE_STATE = {"points_um": None}
 PROFILE_TEMPLATE = {"d0_um": None, "d1_um": None}  # tuples (dx, dy)
-
+MAP_LETTERS_PATH = r"c:\WC\HotSystem\Utils\map_letters.json"
 # For connect +X 2,3,6,1,7,8
 # For connect +Y 2,3,4,6,1,5
 
@@ -1307,6 +1307,47 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         x1, y1, w1, h1 = rect
         return x1 + dx, y1 + dy, w1, h1
 
+    import pyperclip
+
+    def _on_image_click(event):
+        # Only trigger for clicks on the main image (ax_xy)
+        if event.inaxes is not ax_xy:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        if event.button != 1:  # left click only
+            return
+
+        # Get rounded coordinates
+        x = int(round(event.xdata))
+        y = int(round(event.ydata))
+
+        text = f"Site ({x},{y})"
+
+        # Copy to clipboard (DearPyGui if available, else pyperclip)
+        copied = False
+        try:
+            import dearpygui.dearpygui as dpg
+            dpg.set_clipboard_text(text)
+            copied = True
+        except Exception:
+            pass
+
+        if not copied:
+            try:
+                pyperclip.copy(text)
+                copied = True
+            except Exception:
+                pass
+
+        if copied:
+            print(f"📋 Copied to clipboard: {text}")
+        else:
+            print(f"⚠️ Could not copy to clipboard; text was: {text}")
+
+    # Attach to figure
+    fig.canvas.mpl_connect("button_press_event", _on_image_click)
+
     # ----------------   Max I slider    ----------------
     ax_max = plt.axes((btn_x_slider, 0.05, 0.1, 0.03))
     slider_max = Slider(ax_max, 'Max I', np.min(I_), np.max(I_), valinit=maxI)
@@ -2037,6 +2078,378 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
 
         plt.show(block=False)
 
+    def _add_letters_to_map(_evt=None):
+        """Open the map image and let the user add/remove letter labels.
+
+        Rules:
+          * Text box = 'A'   → clicks place A, B, C, ...
+          * Text box = 'A1'  → clicks place A1, A2, A3, ...
+          * Text box = 'C5'  → clicks place C5, C6, C7, ...
+          * Right-click removes the nearest label.
+
+        Extra:
+          * After placing A1, A2, B1:
+              - Set 'final letter' (e.g. F)
+              - Set 'final N'     (e.g. 15)
+              - Click 'populate grid' → auto A1..F15 grid based on A1/A2/B1.
+        """
+        import re
+        import json
+        from matplotlib.widgets import TextBox, Button
+
+        try:
+            base = Image.open(MAP_IMAGE_PATH).convert("RGB")
+        except Exception as e:
+            print(f"⚠️ map image not found/unreadable: {MAP_IMAGE_PATH} ({e})")
+            return
+
+        # Load existing labels (if any)
+        labels = []
+        try:
+            with open(MAP_LETTERS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    labels = data
+        except Exception:
+            labels = []
+
+        figL, axL = plt.subplots(1, 1, figsize=(7, 7))
+        H, W = base.size[1], base.size[0]
+        axL.imshow(base, origin="upper")
+        axL.set_xlim(0, W)
+        axL.set_ylim(H, 0)
+        axL.set_title(
+            "Add letters to map:\n"
+            "  Left-click: add (auto-increment)   •   Right-click: delete nearest\n"
+            "  Place A1, A2, B1 → set final L/N → 'populate grid'."
+        )
+        try:
+            axL.set_aspect("equal")
+        except Exception:
+            pass
+
+        text_artists = []
+
+        def _draw_label(lbl):
+            x = float(lbl.get("x", 0.0))
+            y = float(lbl.get("y", 0.0))
+            code = str(lbl.get("letter", "?"))
+            if not code:
+                return None
+            t = axL.text(
+                x,
+                y,
+                code,
+                color="yellow",
+                fontsize=14,
+                ha="center",
+                va="center",
+                fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.2", fc="black", ec="none", alpha=0.5),
+                zorder=1000,
+            )
+            return t
+
+        # Draw existing labels
+        for lbl in labels:
+            t = _draw_label(lbl)
+            if t is not None:
+                text_artists.append(t)
+
+        # ---------- Text boxes & buttons at bottom ----------
+
+        # Initial pattern for main letter box
+        last_code = labels[-1].get("letter", "A") if labels else "A"
+
+        # Main pattern box (A / A1 / etc.)
+        ax_txt = plt.axes([0.10, 0.02, 0.12, 0.05])
+        txt_box = TextBox(ax_txt, "Letter", initial=str(last_code))
+
+        # Save & close
+        ax_btn_save = plt.axes([0.24, 0.02, 0.15, 0.05])
+        btn_save = Button(ax_btn_save, "Save & close")
+
+        # NEW: final letter (e.g. F)
+        ax_final_letter = plt.axes([0.42, 0.02, 0.08, 0.05])
+        txt_final_letter = TextBox(ax_final_letter, "final L", initial="F")
+
+        # NEW: final number (e.g. 15)
+        ax_final_n = plt.axes([0.52, 0.02, 0.08, 0.05])
+        txt_final_n = TextBox(ax_final_n, "final N", initial="15")
+
+
+        # ---------- helpers ----------
+        def _txt_val(tb, default=""):
+            """
+            Robustly get the string contents of a Matplotlib TextBox.
+            Works whether tb.text is a string or a Text object.
+            """
+            v = getattr(tb, "text", "")
+            # Newer MPL: tb.text is a string
+            if isinstance(v, str):
+                s = v
+            # Older MPL: tb.text is a Text object
+            elif hasattr(v, "get_text"):
+                s = v.get_text()
+            else:
+                s = ""
+            s = (s or default)
+            return s
+
+        def _consume_code():
+            """
+            Read current text box, return *current* label to use,
+            and update the box with the *next* label:
+
+              'A'   -> use 'A',  box becomes 'B'
+              'A1'  -> use 'A1', box becomes 'A2'
+              'C5'  -> use 'C5', box becomes 'C6'
+              else  -> use as-is, no auto-change
+            """
+            raw = txt_box.text if isinstance(txt_box.text, str) else ""
+            current = (raw or "").strip() or "A"
+
+            # LETTER + DIGITS pattern, e.g. A1, C5
+            m = re.fullmatch(r"([A-Za-z])(\d+)", current)
+            if m:
+                letter = m.group(1).upper()
+                num = int(m.group(2))
+                use_code = f"{letter}{num}"
+                next_code = f"{letter}{num + 1}"
+
+            else:
+                # Single letter → auto-increment the letter
+                if len(current) == 1 and current.isalpha():
+                    letter = current.upper()
+                    use_code = letter
+                    if letter != "Z":
+                        next_letter = chr(ord(letter) + 1)
+                    else:
+                        next_letter = "Z"  # clamp at Z
+                    next_code = next_letter
+                else:
+                    # Any other pattern → no change, no increment
+                    use_code = current
+                    next_code = current
+
+            try:
+                txt_box.set_val(next_code)
+            except Exception:
+                pass
+
+            return use_code
+
+        def _find_xy_for_code(code: str):
+            """Return (x,y) for a given label code (like 'A1'), or None."""
+            for lbl in labels:
+                if str(lbl.get("letter", "")) == code:
+                    return float(lbl["x"]), float(lbl["y"])
+            return None
+
+        # ---------- mouse events ----------
+
+        def _on_click(ev):
+            nonlocal labels, text_artists
+            if ev.inaxes is not axL:
+                return
+            if ev.xdata is None or ev.ydata is None:
+                return
+
+            x, y = float(ev.xdata), float(ev.ydata)
+
+            # Left-click: add label (with auto-increment)
+            if ev.button == 1:
+                code = _consume_code()
+                lbl = {"x": x, "y": y, "letter": code}
+                labels.append(lbl)
+                t = _draw_label(lbl)
+                if t is not None:
+                    text_artists.append(t)
+                figL.canvas.draw_idle()
+
+            # Right-click: delete nearest label
+            elif ev.button == 3 and labels:
+                best_i = None
+                best_d2 = None
+                for i, lbl in enumerate(labels):
+                    dx = x - float(lbl.get("x", 0.0))
+                    dy = y - float(lbl.get("y", 0.0))
+                    d2 = dx * dx + dy * dy
+                    if best_i is None or d2 < best_d2:
+                        best_i = i
+                        best_d2 = d2
+
+                if best_i is not None:
+                    try:
+                        art = text_artists[best_i]
+                        art.remove()
+                    except Exception:
+                        pass
+                    del text_artists[best_i]
+                    del labels[best_i]
+                    figL.canvas.draw_idle()
+
+        # ---------- save & close ----------
+
+        def _on_save(_event=None):
+            try:
+                with open(MAP_LETTERS_PATH, "w", encoding="utf-8") as f:
+                    json.dump(labels, f, indent=2)
+                print(f"✅ Saved {len(labels)} label(s) to {MAP_LETTERS_PATH}")
+            except Exception as e:
+                print(f"❌ Failed to save letters to {MAP_LETTERS_PATH}: {e}")
+            try:
+                plt.close(figL)
+            except Exception:
+                pass
+
+        # ---------- populate grid (A1..F15 etc.) ----------
+
+        def _on_populate_grid(_event=None):
+            nonlocal labels, text_artists
+            import numpy as np
+            import re
+
+            # ----- 1) A1 must exist -----
+            p_A1 = _find_xy_for_code("A1")
+            if p_A1 is None:
+                print("⚠️ populate grid: need A1 anchor.")
+                return
+
+            A1 = np.array(p_A1, dtype=float)
+
+            # ----- 2) Column step: use A1 + best A<n> (prefer highest n: A15 over A2) -----
+            best_n = None
+            best_pos_A = None
+
+            for lbl in labels:
+                code = str(lbl.get("letter", "")).upper()
+                m = re.fullmatch(r"A(\d+)", code)
+                if not m:
+                    continue
+                n = int(m.group(1))
+                if n <= 1:
+                    continue
+                if best_n is None or n > best_n:
+                    best_n = n
+                    best_pos_A = np.array((float(lbl["x"]), float(lbl["y"])), dtype=float)
+
+            if best_pos_A is None:
+                print("⚠️ populate grid: need at least one A<n> with n>1 (e.g. A2, A15).")
+                return
+
+            # e.g. A1..A15 → step = (A15 - A1) / (15 - 1)
+            vec_col = (best_pos_A - A1) / float(best_n - 1)
+            print(f"[grid] column anchor: A1 → A{best_n}, vec_col={vec_col}")
+
+            # ----- 3) Row step: use A1 + highest L1 (prefer F1 over B1) -----
+            best_letter = None
+            best_pos_L1 = None
+
+            for lbl in labels:
+                code = str(lbl.get("letter", "")).upper()
+                m = re.fullmatch(r"([A-Z])1", code)
+                if not m:
+                    continue
+                L = m.group(1)
+                if L <= "A":
+                    continue  # skip A1 (we already use it as origin)
+                if best_letter is None or L > best_letter:
+                    best_letter = L
+                    best_pos_L1 = np.array((float(lbl["x"]), float(lbl["y"])), dtype=float)
+
+            if best_letter is None or best_pos_L1 is None:
+                print("⚠️ populate grid: need at least one row anchor like B1, C1, …")
+                return
+
+            row_steps = ord(best_letter) - ord("A")  # e.g. A→F → 5 steps
+            vec_row = (best_pos_L1 - A1) / float(row_steps)
+            print(f"[grid] row anchor: A1 → {best_letter}1, vec_row={vec_row}, steps={row_steps}")
+
+            # ----- 4) Read final letter & number -----
+            rawL = _txt_val(txt_final_letter, default="F").strip().upper()
+            if not rawL:
+                rawL = "F"
+            finalL = rawL[0]
+
+            rawN = _txt_val(txt_final_n, default="1").strip()
+            try:
+                finalN = int(rawN)
+            except Exception:
+                finalN = 1
+            if finalN < 1:
+                finalN = 1
+
+            print(f"[grid] target up to {finalL}{finalN}")
+
+            # ----- 5) Generate all codes and add missing ones -----
+            added = 0
+
+            def _code_exists(code: str) -> bool:
+                return _find_xy_for_code(code) is not None
+
+            for letter_ord in range(ord("A"), ord(finalL) + 1):
+                L = chr(letter_ord)
+                row_idx = letter_ord - ord("A")  # 0-based
+
+                for n in range(1, finalN + 1):
+                    code = f"{L}{n}"
+                    if _code_exists(code):
+                        continue  # don't override existing manual labels
+
+                    pos = A1 + row_idx * vec_row + (n - 1) * vec_col
+                    lbl = {"x": float(pos[0]), "y": float(pos[1]), "letter": code}
+                    labels.append(lbl)
+                    t = _draw_label(lbl)
+                    if t is not None:
+                        text_artists.append(t)
+                    added += 1
+
+            figL.canvas.draw_idle()
+            print(f"✅ populate grid: added {added} label(s) up to {finalL}{finalN}.")
+
+        # ---------- wire everything up ----------
+
+        figL.canvas.mpl_connect("button_press_event", _on_click)
+        btn_save.on_clicked(_on_save)
+
+        # ----------------------------------------------------------------
+        # Double-click anywhere on the map to populate the grid
+        # ----------------------------------------------------------------
+        def _on_double_click(event):
+            if event.dblclick:
+                print("🟩 Double-click detected → populating grid...")
+                _on_populate_grid()
+
+        figL.canvas.mpl_connect("button_press_event", _on_double_click)
+        # ----------------------------------------------------------------
+        # --------------------------------------------------------------
+        # Extra ways to trigger: keyboard + double-click
+        #   - 's' or 'ctrl+s'  → save & close
+        #   - double left-click → populate grid
+        #   - double right-click → save & close
+        # --------------------------------------------------------------
+        def _on_key(ev):
+            if ev.key in ("ctrl+s", "ctrl+S", "s"):
+                print("💾 Saving and closing (key)…")
+                _on_save()
+
+        def _on_mouse(ev):
+            # double left-click anywhere → populate grid
+            if ev.dblclick and ev.button == 1:
+                print("🟩 Double-click detected → populate grid")
+                _on_populate_grid()
+            # double right-click anywhere → save & close
+            elif ev.dblclick and ev.button == 3:
+                print("💾 Double right-click → save & close")
+                _on_save()
+
+        figL.canvas.mpl_connect("key_press_event", _on_key)
+        figL.canvas.mpl_connect("button_press_event", _on_mouse)
+
+        plt.show()
+
+
     # ----------------    Cal map 2 files (pick two files → world coords; click two pixels)    ----------------
     ax_calmap2 = plt.axes(btn_rect)
     btn_calmap2 = Button(ax_calmap2, 'Cal map 2 files')
@@ -2389,9 +2802,13 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         btn_save.on_clicked(_save_offset)
 
         plt.show(block=False)
-
-
     btn_check_map_folder.on_clicked(_check_map_calibration_folder)
+
+    # ----------------  Add letters to map Button  ----------------
+    ax_addletters = plt.axes(btn_rect_col3)
+    btn_addletters = Button(ax_addletters, 'add letters to map')
+    btn_addletters.on_clicked(_add_letters_to_map)
+    btn_rect_col3 = shift_rect3(btn_rect_col3)
 
     # ----------------  Average multiple TIFFs  ----------------
     ax_avg = plt.axes(btn_rect)
@@ -6001,10 +6418,11 @@ def display_all_z_slices(filepath=None, minI=None, maxI=None, log_scale=False, d
         tmp.close()
 
         # --- make image low resolution ---
-        lowres_factor = 0.5  # smaller = lower resolution
-        newW = int(W * lowres_factor)
-        newH = int(H * lowres_factor)
-        base = base.resize((newW, newH), Image.Resampling.LANCZOS)
+        if MAKE_IMAGE_LOW_RESOLUTION:
+            lowres_factor = 0.5  # smaller = lower resolution
+            newW = int(W * lowres_factor)
+            newH = int(H * lowres_factor)
+            base = base.resize((newW, newH), Image.Resampling.LANCZOS)
 
         base.save(tmp_path, "PNG")
         return tmp_path

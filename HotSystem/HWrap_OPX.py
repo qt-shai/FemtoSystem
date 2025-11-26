@@ -9962,28 +9962,28 @@ class GUI_OPX():
             print(f"CSV file saved to {fileName}.csv")
 
             # save data as image (using matplotlib)
-            if folder is None and self.exp != Experiment.TIME_BIN_ENTANGLEMENT:
-                width = 1920  # Set the width of the image
-                height = 1080  # Set the height of the image
-                # Create a blank figure with the specified width and height, Convert width and height to inches
-                fig, ax = plt.subplots(figsize=(width / 100, height / 100), visible=True)
-                plt.plot(self.X_vec, self.Y_vec, label='data')  # Plot Y_vec
-                plt.plot(self.X_vec, self.Y_vec_ref, label='ref')  # Plot reference
-
-                # Adjust axes limits (optional)
-                # ax.set_xlim(0, 10)
-                # ax.set_ylim(-1, 1)
-
-                # Add legend
-                plt.legend()
-
-                # Save the figure as a PNG file
-                plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
-                print(f"Figure saved to {fileName}.png")
-                # close figure
-                plt.close(fig)
-
-                dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
+            # if folder is None and self.exp != Experiment.TIME_BIN_ENTANGLEMENT:
+            #     width = 1920  # Set the width of the image
+            #     height = 1080  # Set the height of the image
+            #     # Create a blank figure with the specified width and height, Convert width and height to inches
+            #     fig, ax = plt.subplots(figsize=(width / 100, height / 100), visible=True)
+            #     plt.plot(self.X_vec, self.Y_vec, label='data')  # Plot Y_vec
+            #     plt.plot(self.X_vec, self.Y_vec_ref, label='ref')  # Plot reference
+            #
+            #     # Adjust axes limits (optional)
+            #     # ax.set_xlim(0, 10)
+            #     # ax.set_ylim(-1, 1)
+            #
+            #     # Add legend
+            #     plt.legend()
+            #
+            #     # Save the figure as a PNG file
+            #     plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
+            #     print(f"Figure saved to {fileName}.png")
+            #     # close figure
+            #     plt.close(fig)
+            #
+            #     dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
 
         except Exception as ex:
             self.error = (

@@ -1357,7 +1357,7 @@ class PyGuiOverlay(Layer):
                 KeyboardKeys.OEM_6: self._increase_exposure, # ctrl + ]
                 KeyboardKeys.OEM_4: self._decrease_exposure, # ctrl + [
                 KeyboardKeys.L_KEY: self._toggle_lens,
-                KeyboardKeys.V_KEY: self._paste_clipboard,
+                KeyboardKeys.V_KEY: self._paste_clipboard_to_cmd_input,#self._paste_clipboard,
                 KeyboardKeys.KEY_1: lambda: self._set_coarse_steps(1, axes=(0, 1, 2)),
                 KeyboardKeys.KEY_2: lambda: self._set_coarse_steps(2, axes=(0, 1, 2)),
                 KeyboardKeys.KEY_3: lambda: self._set_coarse_steps(30, axes=(0, 1, 2)),
@@ -1466,6 +1466,21 @@ class PyGuiOverlay(Layer):
         return False
 
     # ——— Helpers for the above shortcuts ———
+    def _paste_clipboard_to_cmd_input(self):
+        """Paste clipboard text into the cmd_input field only."""
+        try:
+            text = dpg.get_clipboard_text()
+        except Exception:
+            text = ""
+        if text is None:
+            text = ""
+        if not dpg.does_item_exist("cmd_input"):
+            print("cmd_input widget not found.")
+            return
+        # Append to current cmd_input content (or replace if you prefer)
+        current = dpg.get_value("cmd_input") or ""
+        dpg.set_value("cmd_input", current + text)
+        dpg.focus_item("cmd_input")
     def _flush_counter_graph(self):
         """
         Clear all X/Y vectors and push empty data into each series
@@ -1490,7 +1505,6 @@ class PyGuiOverlay(Layer):
         # Optionally reset the graph title/axis if desired:
         dpg.set_item_label("graphXY", "Counter graph flushed")
         print(">> Counter graph flushed.")
-
     def _increase_koff(self):
         """
         Ctrl+= : bump the AWG DC offset up by 0.1 V on the selected channel.
@@ -1513,7 +1527,6 @@ class PyGuiOverlay(Layer):
         gui.dev.set_offset(new_off, channel=ch)
         # update the Offset_<id> input if you have one
         dpg.set_value(f"Offset_{gui.unique_id}", new_off)
-
     def _decrease_koff(self):
         """
         Ctrl+- : bump the AWG DC offset down by 0.1 V on the selected channel.
@@ -1534,7 +1547,6 @@ class PyGuiOverlay(Layer):
 
         gui.dev.set_offset(new_off, channel=ch)
         dpg.set_value(f"Offset_{gui.unique_id}", new_off)
-
     def _shift_move_kx(self, sign: int = +1) -> None:
         """
         Shift X using the same logic as `kx`, with a preset step.
@@ -1544,7 +1556,6 @@ class PyGuiOverlay(Layer):
         step_um = getattr(gui, "xy_step", 1.0)
         val_um = step_um * sign
         run(f"kx {val_um}", record_history=False),
-
     def _shift_move_ky(self, sign: int = +1) -> None:
         """
         Shift Y using the same logic as `ky`, with a preset step.
@@ -1554,7 +1565,6 @@ class PyGuiOverlay(Layer):
         step_um = getattr(gui, "xy_step", 1.0)
         val_um = step_um * sign
         run(f"ky {val_um}", record_history=False),
-
     def _save_and_zero_exposure(self):
         # stash current exposure
         self._saved_exposure = dpg.get_value("slideExposure")
@@ -1563,7 +1573,6 @@ class PyGuiOverlay(Layer):
         time.sleep(0.001)
         dpg.set_value("slideExposure", 0)
         print(f"Exposure saved ({self._saved_exposure} ms) and set to 0.")
-
     def _restore_exposure(self):
         saved = getattr(self, "_saved_exposure", None)
         if saved is None:
@@ -1575,19 +1584,16 @@ class PyGuiOverlay(Layer):
         actual = self.cam.cam.camera.exposure_time_us / 1e3
         dpg.set_value("slideExposure", actual)
         print(f"Exposure restored to {actual} ms.")
-
     def _increase_exposure(self):
         exp = dpg.get_value("slideExposure") + 2
         self.cam.cam.SetExposureTime(int(exp * 1e3))
         time.sleep(0.001)
         dpg.set_value("slideExposure", self.cam.cam.camera.exposure_time_us / 1e3)
-
     def _decrease_exposure(self):
         exp = dpg.get_value("slideExposure") - 2
         self.cam.cam.SetExposureTime(int(exp * 1e3))
         time.sleep(0.001)
         dpg.set_value("slideExposure", self.cam.cam.camera.exposure_time_us / 1e3)
-
     def _toggle_lens(self):
         mffs = getattr(self, "mff_101_gui", [])
         fl = mffs[1]  # second MFF
@@ -1607,7 +1613,6 @@ class PyGuiOverlay(Layer):
             actual = self.cam.cam.camera.exposure_time_us / 1e3
             dpg.set_value("slideExposure", actual)
             del self._saved_exposure
-
     def _toggle_mff(self, idx: int):
         """Toggle MFF at index `idx`. If with_exposure_hook=True, apply the same exposure
         behavior as _toggle_lens (save/zero on insert, restore on remove)."""
@@ -1621,34 +1626,30 @@ class PyGuiOverlay(Layer):
         tag = f"on_off_slider_{fl.unique_id}"
         pos = int(fl.dev.get_position())  # typically 1 or 2
         fl.on_off_slider_callback(tag, 1 - (pos - 1))  # toggle
-
-    def _paste_clipboard(self):
-        try:
-            import pyperclip
-            txt = pyperclip.paste()
-            if isinstance(txt, str) and txt.strip():
-                dpg.set_value("cmd_input", txt)
-                dpg.focus_item("cmd_input")
-                print(f"Pasted: {txt}")
-            else:
-                print("Clipboard has no valid text.")
-        except Exception as e:
-            print(f"Paste failed: {e}")
-
+    # def _paste_clipboard(self):
+    #     try:
+    #         import pyperclip
+    #         txt = pyperclip.paste()
+    #         if isinstance(txt, str) and txt.strip():
+    #             dpg.set_value("cmd_input", txt)
+    #             dpg.focus_item("cmd_input")
+    #             print(f"Pasted: {txt}")
+    #         else:
+    #             print("Clipboard has no valid text.")
+    #     except Exception as e:
+    #         print(f"Paste failed: {e}")
     def _set_coarse_steps(self, value, axes=(0, 1, 2)):
         for ax in axes:
             tag = f"{self.smaractGUI.prefix}_ch{ax}_Cset"
             dpg.set_value(tag, value)
             self.smaractGUI.ipt_large_step(tag, value)
         print(f"Coarse steps set to {value} µm on axes {axes}")
-
     def _set_fine_steps(self, value, axes=(0, 1, 2)):
         for ax in axes:
             tag = f"{self.smaractGUI.prefix}_ch{ax}_Fset"
             dpg.set_value(tag, value)
             self.smaractGUI.ipt_small_step(tag, value)
         print(f"Fine steps set to {value} nm on axes {axes}")
-
     def smaract_log_points(self):
         try:
             # if self.io.keys_down[glfw.KEY_SPACE]:
@@ -1659,7 +1660,6 @@ class PyGuiOverlay(Layer):
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
             # raise
-
     def smaract_del_points(self):
         try:
             self.smaractGUI.btnDelPoint()
@@ -1667,7 +1667,6 @@ class PyGuiOverlay(Layer):
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
             # raise
-
     def smaract_keyboard_movement(self,ax,direction = 1,Coarse_or_Fine = 1):
         try:
             if Coarse_or_Fine==0:
@@ -1680,33 +1679,27 @@ class PyGuiOverlay(Layer):
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
             # raise
-
     def smaract_keyboard_move_uv(self,ax,direction, is_coarse):
         try:
             self.smaractGUI.move_uv(sender=self, app_data=None, user_data=(ax,direction,is_coarse))
         except Exception as ex:
             self.error = ("Unexpected error: {}, {} in line: {}".format(ex, type(ex), sys.exc_info()[-1].tb_lineno))
-
     def char_callback(self,event):
         print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         io = imgui.get_io()
 
         if 0 < event.char < 0x10000:
             io.add_input_character(event.char)
-
     def resize_callback(self,event):
         print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         self.io.display_size = event.width, event.height
-
     def mouse_callback(self,event):
         # print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         pass
-
     def scroll_callback(self,event):
         print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         self.io.mouse_wheel_horizontal = event.x_offset
         self.io.mouse_wheel = event.y_offset
-
     def OnWindowClose(self,event): # should get windowclos event
         print("callback from:" + self.__class__.__name__ +"::"+ inspect.currentframe().f_code.co_name )
         self.smaractGUI.dev.Disconnect()
@@ -1714,7 +1707,6 @@ class PyGuiOverlay(Layer):
         self.renderer.shutdown()
         dpg.destroy_context()
         return True
-
     def AddAndBindFonts(self): # add after create context
         # get availableFonts from windows folder
 
@@ -1738,13 +1730,11 @@ class PyGuiOverlay(Layer):
         #     self.fontList.append(dpg.add_font(file = path + "\\" + e, size = self.gui_globalFontSize))
 
         dpg.bind_font(self.fontList[10])
-
     def Btn_colorTheme(self, _tag,_color = (255,255,255)): # optional to make a list of all thems which later can be used in the SW to change color
         dpg.add_theme(tag=_tag)
         dpg.add_theme_component(item_type = dpg.mvAll,parent=_tag,tag=_tag+"Cmp")
         dpg.add_theme_color(target = dpg.mvThemeCol_Button, value = _color, category=dpg.mvThemeCat_Core,parent=_tag+"Cmp")
         dpg.add_theme_style(target = dpg.mvStyleVar_FrameRounding, x = 15, y = -20, category=dpg.mvThemeCat_Core,parent=_tag+"Cmp")
-
     def LoadTheme(self):
         dpg.add_theme(tag="LineYellowTheme")
         dpg.add_theme_component(item_type = dpg.mvLineSeries,parent="LineYellowTheme",tag="LineYellowThemeCmp")
@@ -1790,7 +1780,6 @@ class PyGuiOverlay(Layer):
         with dpg.theme(tag="highlighted_header_theme"):
             with dpg.theme_component(dpg.mvText):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 0), category=dpg.mvThemeCat_Core)  # Black text
-
     def bring_window_to_front(self, window_id: str):
         """
         Brings the specified window to the front by its Dear PyGui ID
@@ -1800,7 +1789,6 @@ class PyGuiOverlay(Layer):
             dpg.focus_item(window_id)
         except Exception as e:
             print(f"Error bringing window '{window_id}' to front: {e}")
-
     def create_bring_window_button(self, window_id: str, tag: str,parent: Optional[str] = None,
                                    button_label: str = "Instrument"):
         def bring_window_callback(sender, app_data, user_data):
@@ -1810,14 +1798,11 @@ class PyGuiOverlay(Layer):
         if parent is not None:
             kwargs["parent"] = parent
         dpg.add_button(**kwargs)
-
     def create_sequencer_button(self, parent: Optional[str] = "sequencer_group"):
         dpg.add_text("Show current sequence:", parent = parent)
         dpg.add_button(label="Show Sequence", parent = parent, callback=self.png_sequencer)
-
     def clamp(self, n, min_n, max_n):
         return max(min(max_n, n), min_n)
-
     def create_instrument_window_section(self):
         for window in self.active_instrument_list:
             # If the window is hovered, check and clamp its position.
@@ -1830,7 +1815,6 @@ class PyGuiOverlay(Layer):
                 if (new_x, new_y) != (x, y):
                     dpg.set_item_pos(window, (new_x, new_y))
                     time.sleep(0.1)
-
     def check_sequence_type(self):
         """
         Functions that checks the sequence type and uploads a corresponding image.
@@ -1864,7 +1848,6 @@ class PyGuiOverlay(Layer):
         except Exception as e:
             print(f"Failed loading image file at '{path}': {e}")
             return None
-
     def png_sequencer(self):
         try:
             image_data = self.check_sequence_type()
@@ -1881,7 +1864,6 @@ class PyGuiOverlay(Layer):
             dpg.focus_item("ShowSequence")
         except Exception as e:
             print("Exception occurred:", e)
-
     def setup_main_exp_buttons(self):
         with dpg.window(label="Main Buttons Group", tag="Main_Window",
                           autosize=True, no_move=False, collapsed=True):
@@ -1904,7 +1886,6 @@ class PyGuiOverlay(Layer):
             dpg.add_drawlist(tag="full_drawlist", width=800, height=600)
         dpg.set_primary_window("Viewport_Window", True)
         # dpg.draw_line([100, 100], [400, 400], color=[0, 255, 0, 255], thickness=4, parent="full_drawlist")
-
     def create_console_gui(self):
         """Creates a console GUI window for displaying logs and user inputs."""
         with dpg.window(tag="console_window", label="Console", pos=[20, 20],
@@ -1933,7 +1914,6 @@ class PyGuiOverlay(Layer):
 
         # First layout pass
         self._on_console_resize(None, None, None)
-
     def _on_console_resize(self, sender, app_data, user_data):
         """Keep the console_output filling the window and stretch cmd_input."""
         try:
@@ -1961,13 +1941,11 @@ class PyGuiOverlay(Layer):
 
         except Exception:
             pass
-
     def clear_console(self):
         """Clears the console log."""
         if isinstance(sys.stdout, DualOutput):
             sys.stdout.messages.clear()
         dpg.set_value("console_log", "")
-
     def save_logs(self, tag="console_log"):
         """Save the console log as UTF-8 (handles emojis/Hebrew)."""
         try:
@@ -1985,12 +1963,10 @@ class PyGuiOverlay(Layer):
             print(f"Logs saved (UTF-8).")
         except Exception as e:
             print(f"Failed to save logs: {e}")
-
     def handle_cmd_input(self):
         command = dpg.get_value("cmd_input").strip()
         # outout.run(command)
         run(command)
-
     def send_console_input(self):
         """Sends the input text to the console."""
         input_text = dpg.get_value("console_input")
@@ -2012,7 +1988,6 @@ class PyGuiOverlay(Layer):
 
             self.update_command_history(input_text)
             dpg.set_value("console_input", "")  # Clear the input field
-
     def update_command_history(self, command):
         """Updates the command history combo box."""
         if command in self.command_history:
@@ -2024,11 +1999,9 @@ class PyGuiOverlay(Layer):
 
         # Update the combo box
         dpg.configure_item("command_history", items=self.command_history)
-
     def fill_console_input(self, sender, app_data):
         """Fills the input field with the selected command."""
         dpg.set_value("cmd_input", app_data)
-
     def on_detach(self):
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
