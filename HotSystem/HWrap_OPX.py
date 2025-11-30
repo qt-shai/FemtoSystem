@@ -9960,6 +9960,7 @@ class GUI_OPX():
 
             self.save_to_cvs(fileName + ".csv", RawData_to_save)
             print(f"CSV file saved to {fileName}.csv")
+            self._last_saved_file = fileName + ".csv"
 
             # save data as image (using matplotlib)
             # if folder is None and self.exp != Experiment.TIME_BIN_ENTANGLEMENT:
@@ -10557,6 +10558,7 @@ class GUI_OPX():
         fn = self.save_scan_data(Nx, Ny, Nz, self.create_scan_file_name(local=False))
         self.writeParametersToXML(fn + ".xml")
         self.last_loaded_file = fn + ".csv"
+        self._last_saved_file = self.last_loaded_file
         filename_only = os.path.basename(fn)
         show_msg_window(f"{filename_only}")
         end_time = time.time()

@@ -32,8 +32,6 @@ import io
 import win32com.client
 import pythoncom
 import json
-import tempfile
-import os
 import subprocess
 import win32com.client
 import pythoncom
@@ -47,6 +45,15 @@ from PIL import ImageGrab
 from HW_GUI.GUI_Femto_Power_Calculations import FemtoPowerCalculator
 from pathlib import Path
 from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
+import os
+import re
+import glob
+import math
+import tempfile
+from PIL import Image, ImageDraw
+import pythoncom
+import win32com.client
+
 
 # Textbox: Alt + n X
 # Font color: Alt + H F C
@@ -451,6 +458,8 @@ class CommandDispatcher:
             "replace":           self.handle_replace,
             "abs":               self.handle_move_abs_xyz,
             "maxi":              self.handle_moveabs_to_max_intensity,
+            "copy":              self.handle_copy,
+            "addmap":           self.handle_add_map,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -1558,7 +1567,7 @@ class CommandDispatcher:
 
             # Copy annotated image to clipboard
             copy_quti_window_to_clipboard(metadata_dict=meta)
-
+            time.sleep(0.1)
             # Insert slide
             pythoncom.CoInitialize()
             ppt = win32com.client.Dispatch("PowerPoint.Application")
@@ -8478,6 +8487,9 @@ class CommandDispatcher:
         if sub == "status":
             if self._coup_active_evt.is_set():
                 cur = getattr(self, "_current_coup_cmd", None)
+                line_no = getattr(self, "_coup_current_line_no", None)
+                if cur and line_no is not None:
+                    print(f"[coup] running → line {line_no}: {cur}")
                 if cur:
                     print(f"[coup] running → current command: {cur}")
                 else:
@@ -9191,6 +9203,10 @@ class CommandDispatcher:
                 print(f"[coup] failed to read steps file '{resolved}': {e}")
                 return False
 
+            # --- NEW: remember which macro is running + reset line counter ---
+            self._current_coup_macro = resolved
+            self._coup_current_line_no = None
+
             # Decide which loop implementation to use
             def _run_steps():
                 if pause_mode:
@@ -9492,7 +9508,11 @@ class CommandDispatcher:
     def _coup_loop_from_steps(self, use_shift: bool = True, steps: str = "", wait_for_spc: bool = True):
         self._coup_active_evt.set()
         try:
-            for cmd in steps:
+            for idx, cmd in enumerate(steps, start=1):  # <<< NEW: track index as line number
+                # expose current cmd + line for 'coup status'
+                self._current_coup_cmd = cmd  # <<< NEW
+                self._coup_current_line_no = idx  # <<< NEW
+
                 if not self._run_one_cmd(cmd):
                     print("[coup] loop stopped.")
                     return
@@ -9500,10 +9520,10 @@ class CommandDispatcher:
                 line = cmd.strip().lower()
                 # If the command is exactly "g2" (or "g2 " etc.), pause 10 s before next command
                 if line == "g2" or line.startswith("g2 "):
-                    print("[coup] g2 executed → pausing 10 s before next command...")
-                    time.sleep(10)
+                    print("[coup] g2 executed → pausing 60 s before next command...")
+                    time.sleep(60)
 
-                # --- NEW: don't wait on "spc note ..."
+                # --- don't wait on "spc note ..."
                 if wait_for_spc and re.search(r"\b(spc|save)\b", line) and not re.search(r"\bspc\s+note\b", line):
                     print("[coup] waiting for 'spc' to finish…")
                     time.sleep(3)
@@ -10989,7 +11009,6 @@ class CommandDispatcher:
             return
 
         print(f"replace: changed letter {from_letter} -> {to_letter} in {count} 'spc note' lines.")
-
     def handle_move_abs_xyz(self, arg):
         """Set X, Y, Z absolute in one command: abs x,y,z or abs (x,y,z)."""
         try:
@@ -11017,7 +11036,6 @@ class CommandDispatcher:
             print(f"Moved to abs position X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
         except Exception as e:
             print(f"abs xyz failed: {e}")
-
     def handle_moveabs_to_max_intensity(self, arg):
         """Move stage to position of max intensity. Usage: 'maxi'"""
         try:
@@ -11029,7 +11047,281 @@ class CommandDispatcher:
             p.smaractGUI.move_absolute(None, None, 2)
         except Exception as e:
             print(f"OPX max intensity move failed: {e}")
+    def handle_copy(self, arg):
+        """
+        copy <dest>  -> set destination folder for copies
+        copy         -> copy last saved file (and its .xml pair) to destination
+        """
+        import shutil
+        import os
 
+        try:
+            # 1) If we got an argument: treat it as destination folder
+            if arg:
+                dest = arg.strip().strip('"').strip("'")
+                if not dest:
+                    raise ValueError("Empty destination path")
+
+                self._copy_dest = dest
+                os.makedirs(self._copy_dest, exist_ok=True)
+                print(f"copy: destination set to '{self._copy_dest}'")
+                return
+
+            # 2) No argument: copy last saved file (and .xml if present)
+            if not self._copy_dest:
+                raise RuntimeError("Copy destination not set. Use: copy <dest>")
+
+            src = self.get_parent().opx._last_saved_file
+            if not src:
+                raise RuntimeError("No last saved file. Set self._last_saved_file when saving.")
+
+            if not os.path.isfile(src):
+                raise FileNotFoundError(f"Last saved file not found: {src}")
+
+            # Copy main file
+            dst = os.path.join(self._copy_dest, os.path.basename(src))
+            shutil.copy2(src, dst)
+            print(f"copy: '{src}' -> '{dst}'")
+
+            # Try to copy XML file with same base name
+            base, _ = os.path.splitext(src)
+            xml_src = base + ".xml"
+            if os.path.isfile(xml_src):
+                xml_dst = os.path.join(self._copy_dest, os.path.basename(xml_src))
+                shutil.copy2(xml_src, xml_dst)
+                print(f"copy: '{xml_src}' -> '{xml_dst}' (XML)")
+            else:
+                print(f"copy: no XML file found for '{src}'")
+
+        except Exception as e:
+            print(f"copy failed: {e}")
+    def _read_g2_sites(self, path):
+        """Parse all abs (x,y,z) lines from g2.py and return list of (x,y,z)."""
+        coords = []
+        if not os.path.isfile(path):
+            print(f"add map: g2 file not found: {path}")
+            return coords
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("abs"):
+                        m = re.search(r'\(([^)]*)\)', line)
+                        if not m:
+                            continue
+                        parts = [p.strip() for p in m.group(1).split(",")]
+                        if len(parts) < 3:
+                            continue
+                        try:
+                            x = float(parts[0])
+                            y = float(parts[1])
+                            z = float(parts[2])
+                            coords.append((x, y, z))
+                        except ValueError:
+                            continue
+        except Exception as e:
+            print(f"add map: error reading {path}: {e}")
+        return coords
+    def _parse_center_from_tif_name(self, filename):
+        """
+        Extract center (X,Y,Z) in µm from TIF filename, e.g.
+        'Site (-100,45 183,5 -98,2) B8 ... .tif'
+        -> (-100.45, 183.5, -98.2)
+        """
+        name = os.path.basename(filename)
+        m = re.search(r'\(([^)]*)\)', name)
+        if not m:
+            return None
+        coord_str = m.group(1)  # e.g. "-100,45 183,5 -98,2"
+        coord_str = coord_str.replace(",", ".")
+        parts = coord_str.split()
+        nums = []
+        for p in parts:
+            try:
+                nums.append(float(p))
+            except ValueError:
+                pass
+
+        if len(nums) >= 3:
+            return (nums[0], nums[1], nums[2])
+        elif len(nums) == 2:
+            return (nums[0], nums[1], 0.0)
+        else:
+            return None
+    def _find_best_tif_for_site(self, site_coord, lf_dir):
+        """
+        In LightField folder, find the TIF whose encoded center coords
+        are closest to the given site_coord (x,y,z).
+        """
+        best_path = None
+        best_center = None
+        best_d2 = None
+
+        pattern = os.path.join(lf_dir, "*.tif")
+        for path in glob.glob(pattern):
+            center = self._parse_center_from_tif_name(path)
+            if center is None:
+                continue
+            dx = site_coord[0] - center[0]
+            dy = site_coord[1] - center[1]
+            dz = site_coord[2] - center[2]
+            d2 = dx * dx + dy * dy + dz * dz
+            if best_path is None or d2 < best_d2:
+                best_path = path
+                best_center = center
+                best_d2 = d2
+
+        return best_path, best_center
+    def _load_lightfield_tif_for_display(self,tif_path):
+        """
+        Robustly load LightField .tif as visible 8-bit RGB image.
+        Handles 16-bit grayscale, float32, or multi-frame data.
+        """
+        import tifffile
+        import numpy as np
+        from PIL import Image, ImageDraw
+
+        with tifffile.TiffFile(tif_path) as tif:
+            data = tif.asarray()
+
+        # If multi-frame or multi-channel, pick the first frame
+        if data.ndim > 2:
+            data = data[..., 0] if data.shape[-1] < data.shape[0] else data[0]
+
+        # Convert to float and normalize to [0, 255]
+        arr = np.array(data, dtype=np.float32)
+        vmin, vmax = np.percentile(arr, [0.5, 99.5])
+        if vmax <= vmin:
+            vmax = vmin + 1
+        arr = np.clip((arr - vmin) / (vmax - vmin), 0, 1)
+        arr8 = (arr * 255).astype(np.uint8)
+        img = Image.fromarray(arr8, mode="L").convert("RGB")
+        return img
+    def handle_add_map(self, arg):
+        """
+        Command: add map
+        ----------------
+        Reads C:\\WC\\HotSystem\\Utils\\macro\\g2.py, finds the site closest to the
+        current position (self._read_current_position_um()), then in
+        C:\\Users\\Femto\\Work Folders\\Documents\\LightField finds the TIF whose
+        encoded coordinates match that site best, overlays a red cross at the
+        current position, and adds it as a new slide to PowerPoint.
+        """
+        try:
+            # 1) current position from stage in µm
+            Xum, Yum, Zum = self._read_current_position_um()
+
+            # 2) nearest site from g2.py
+            g2_path = r"C:\WC\HotSystem\Utils\macro\g2.py"
+            sites = self._read_g2_sites(g2_path)
+            if not sites:
+                print("add map: no sites found in g2.py")
+                return
+
+            def d2(site):
+                dx = Xum - site[0]
+                dy = Yum - site[1]
+                dz = Zum - site[2]
+                return dx*dx + dy*dy + dz*dz
+
+            site = min(sites, key=d2)
+            print(f"add map: closest site from g2.py: ({site[0]:.2f}, {site[1]:.2f}, {site[2]:.2f})")
+
+            # 3) find matching TIF in LightField folder
+            lf_dir = r"C:\Users\Femto\Work Folders\Documents\LightField"
+            tif_path, center_um = self._find_best_tif_for_site(site, lf_dir)
+            if tif_path is None or center_um is None:
+                print("add map: no matching TIF found in LightField folder")
+                return
+
+            print(f"add map: using TIF '{tif_path}' with center {center_um}")
+
+            # 4) open image and compute pixel coords for *current* position
+            img = self._load_lightfield_tif_for_display(tif_path)
+            width, height = img.size          # (cols, rows)
+
+            # MATLAB: imgSize=[rows,cols]; centerPix=(imgSize+1)/2
+            row_center = (height + 1) / 2.0
+            col_center = (width + 1) / 2.0
+
+            # Same parameters as in MATLAB script
+            pixel_size = 0.072    # µm per pixel
+            theta = -0.09         # radians
+            x_offset = -16.6      # µm
+            y_offset = -3.4       # µm
+
+            Xc, Yc, Zc = center_um
+
+            # Forward in MATLAB:
+            # dX = dCol*pixelSize; dY = dRow*pixelSize
+            # dX_rot =  dX*cosθ + dY*sinθ
+            # dY_rot = -dX*sinθ + dY*cosθ
+            # Xum = Xc + dX_rot + xOffset
+            # Yum = Yc + dY_rot + yOffset
+            #
+            # Here we invert: from Xum,Yum to dX,dY
+            dX_rot = Xum - Xc - x_offset
+            dY_rot = Yum - Yc - y_offset
+
+            cos_t = math.cos(theta)
+            sin_t = math.sin(theta)
+
+            # inverse rotation: rotate by -θ
+            dX =  dX_rot * cos_t - dY_rot * sin_t
+            dY =  dX_rot * sin_t + dY_rot * cos_t
+
+            dCol = dX / pixel_size
+            dRow = dY / pixel_size
+
+            xPix = col_center + dCol   # column index
+            yPix = row_center + dRow   # row index
+
+            # 5) draw a red cross at (xPix, yPix)
+            draw = ImageDraw.Draw(img)
+            cx = int(round(xPix))
+            cy = int(round(yPix))
+            arm = 10  # pixels
+            draw.line((cx - arm, cy, cx + arm, cy), fill=(255, 0, 0), width=3)
+            draw.line((cx, cy - arm, cx, cy + arm), fill=(255, 0, 0), width=3)
+
+            # 6) save to temp PNG and insert into PowerPoint
+            tmp_png = os.path.join(tempfile.gettempdir(), "g2_map_overlay.png")
+            img.save(tmp_png)
+
+            pythoncom.CoInitialize()
+            ppt = win32com.client.Dispatch("PowerPoint.Application")
+            if ppt.Presentations.Count == 0:
+                raise RuntimeError("No PowerPoint presentations are open!")
+            pres = ppt.ActivePresentation
+            slide = pres.Slides.Add(pres.Slides.Count + 1, 12)
+            try:
+                ppt.ActiveWindow.View.GotoSlide(slide.SlideIndex)
+            except Exception as e:
+                print(f"[add map] GotoSlide skipped: {e}")
+
+            shape = slide.Shapes.AddPicture(
+                FileName=tmp_png,
+                LinkToFile=False,
+                SaveWithDocument=True,
+                Left=0,
+                Top=0
+            )
+
+            # Minimal AltText metadata
+            meta = {
+                "type": "g2_map",
+                "current_pos_um": {"x": Xum, "y": Yum, "z": Zum},
+                "site_from_g2":   {"x": site[0], "y": site[1], "z": site[2]},
+                "tif_path":       tif_path,
+                "center_um":      {"x": center_um[0], "y": center_um[1], "z": center_um[2]},
+            }
+            shape.AlternativeText = json.dumps(meta, separators=(",", ":"))
+
+            print(f"add map: added slide #{slide.SlideIndex} from '{tif_path}'")
+
+        except Exception as e:
+            print(f"add map failed: {e}")
 
 
 # Wrapper function
