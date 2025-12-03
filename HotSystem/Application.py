@@ -1349,7 +1349,7 @@ class PyGuiOverlay(Layer):
                 print(f"[g/h] write failed: {e}")
 
         carrier_step_coarse = 50.0
-        carrier_step_fine = 20.0
+        carrier_step_fine = 10.0
 
         # 2) Ctrl-only commands
         if self.CURRENT_KEY == KeyboardKeys.CTRL_KEY:

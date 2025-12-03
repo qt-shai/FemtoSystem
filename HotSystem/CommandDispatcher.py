@@ -6824,6 +6824,8 @@ class CommandDispatcher:
           show macro
           show map
           show coup
+          show state
+          show <file>
         """
         import json, os
         sub = (arg or "").strip()
@@ -6840,7 +6842,7 @@ class CommandDispatcher:
         base_dir = _dispatcher_base_dir(self)
 
         # ----- show coup (open coup_state.json used by coup save/load) -----
-        if key == "coup":
+        if key in ("coup", "state"):
             try:
                 # Same directory used by coup macros / state
                 try:
@@ -7027,6 +7029,37 @@ class CommandDispatcher:
                 _open_module_or_fallback(mod_name, fallback_rel, base_dir)
                 return
 
+        # ----- generic: show <file> -> open <file>.py if it exists -----
+        if len(toks) == 1:
+            candidate = key
+
+            # Add .py if user didn't type it
+            if not candidate.lower().endswith(".py"):
+                candidate_py = candidate + ".py"
+            else:
+                candidate_py = candidate
+
+            # Third search location: macro directory
+            try:
+                macro_dir = DEFAULT_COUP_DIR  # same location used in your macro handler
+            except NameError:
+                macro_dir = r"C:\WC\HotSystem\Utils\macro"
+
+            search_paths = [
+                os.path.join(os.getcwd(), candidate_py),  # current working directory
+                os.path.join(base_dir, candidate_py),  # dispatcher base dir
+                os.path.join(macro_dir, candidate_py),  # NEW: macro directory
+            ]
+
+            for path in search_paths:
+                if os.path.isfile(path):
+                    try:
+                        _open_path(os.path.abspath(path))
+                    except Exception as e:
+                        print(f"[show] Failed to open '{path}': {e}")
+                    return
+
+        # If we got here, we really don't know this subcommand
         print(f"[show] Unknown subcommand: {sub}")
     def handle_collapse(self, arg: str):
         """Collapse instrument windows: zelux / hrs / cobolt / cld / all.
@@ -8147,6 +8180,11 @@ class CommandDispatcher:
               Load angle, center, shift factors, move-per-coupon,
               label offsets, chip name, and saved coupon labels.
               If no file is given, the default coup_state.json is used.
+
+        ----------------
+        coup ?
+        coup <name>
+        coup next
         """
 
         import threading, os, math, shlex, re, json, time
@@ -8164,6 +8202,98 @@ class CommandDispatcher:
 
         use_shift = False
 
+        # --- Coupon sequence order for coup <name> / coup next ---
+        # Visit order on the 4x3 grid:
+        #   Row4: NORM4L  7L  8L
+        #   Row3: NORM3L  5L  6L
+        #   Row2: NORM2L  3L  4L
+        #   Row1: NORM1L  1L  2L
+        COUP_SEQ = [
+            "NORM4", "7", "8",
+            "NORM3", "5", "6",
+            "NORM2", "3", "4",
+            "NORM1", "1", "2",
+        ]
+        COUP_SEQ_SET = set(COUP_SEQ)
+        def _canon_coupon_name(name: str) -> str:
+            """
+            Normalize coupon name:
+              - case-insensitive
+              - NORM4     -> NORM4L
+              - NORM4A    -> NORM4A  (letter kept)
+              - 7         -> 7L
+              - 7A        -> 7A
+              - 7b        -> 7B
+              - Reject invalid formats.
+            """
+            s = (name or "").strip().upper()
+
+            if not s:
+                raise ValueError("empty coupon name")
+
+            # Case 1: NORM row
+            if s.startswith("NORM"):
+                body = s[4:]  # after NORM
+                if not body:
+                    raise ValueError(f"invalid NORM coupon '{name}'")
+
+                # body may be: "4", "4A", etc.
+                if len(body) == 1:
+                    # only number, default letter L
+                    if body.isdigit():
+                        return f"NORM{body}L"
+                    else:
+                        raise ValueError(f"invalid NORM label '{name}'")
+
+                # length >= 2 → number + letter
+                num = body[:-1]
+                letter = body[-1]
+
+                if not num.isdigit():
+                    raise ValueError(f"invalid NORM number in '{name}'")
+
+                if not letter.isalpha():
+                    raise ValueError(f"invalid NORM suffix in '{name}'")
+
+                return f"NORM{num}{letter}"
+
+            # Case 2: Numeric coupon (1..8) with optional trailing letter
+            if s[0].isdigit():
+                # Get numeric prefix
+                num = ""
+                i = 0
+                while i < len(s) and s[i].isdigit():
+                    num += s[i]
+                    i += 1
+
+                if not num:
+                    raise ValueError(f"invalid coupon '{name}'")
+
+                # If nothing after number → default letter L
+                if i == len(s):
+                    return f"{num}L"
+
+                # Else suffix must be a letter
+                letter = s[i:]
+                if len(letter) != 1 or not letter.isalpha():
+                    raise ValueError(f"invalid suffix '{letter}' in '{name}'")
+
+                return f"{num}{letter}"
+
+            raise ValueError(f"unrecognized coupon label '{name}'")
+        def _seq_key(name: str) -> str:
+            """
+            Map NORM4A, NORM4B → NORM4
+            Map 7A, 7B, 7C     → 7
+            Used to find sequence position.
+            """
+            n = name.upper()
+            if n.startswith("NORM"):
+                # Strip trailing letter: NORM4X -> NORM4
+                return n[:-1] if n[-1].isalpha() else n
+            else:
+                # numeric: 7A -> 7
+                return n[:-1] if n[-1].isalpha() else n
         def _is_coup_busy() -> bool:
             try:
                 return bool(getattr(self, "_coup_active_evt", None)) and self._coup_active_evt.is_set()
@@ -8249,6 +8379,30 @@ class CommandDispatcher:
             except Exception:
                 labels_to_save = {}
 
+            # Custom "coup next" sequence + moves (optional)
+            custom_seq_to_save = []
+            custom_moves_to_save = {}
+
+            try:
+                seq = getattr(self, "_coup_next_seq", None)
+                if isinstance(seq, list) and seq:
+                    custom_seq_to_save = [str(s) for s in seq]
+            except Exception:
+                custom_seq_to_save = []
+
+            try:
+                moves = getattr(self, "_coup_next_moves", None)
+                if isinstance(moves, dict) and moves:
+                    for base, val in moves.items():
+                        try:
+                            dx = float(val.get("dx", 0.0))
+                            dy = float(val.get("dy", 0.0))
+                            custom_moves_to_save[str(base)] = {"dx": dx, "dy": dy}
+                        except Exception:
+                            continue
+            except Exception:
+                custom_moves_to_save = {}
+
             state = {
                 "angle_deg": angle_deg_rounded,
                 "center_u_um": float(u_ref),
@@ -8265,6 +8419,11 @@ class CommandDispatcher:
                 "coupon_labels": labels_to_save,
                 "chip_name": chip_name,
             }
+
+            if custom_seq_to_save:
+                state["coup_next_seq"] = custom_seq_to_save
+            if custom_moves_to_save:
+                state["coup_next_moves"] = custom_moves_to_save
 
             path = _get_coup_state_path()
             ok = True
@@ -8325,6 +8484,16 @@ class CommandDispatcher:
             return False
 
         sub = tokens[0].lower()
+
+        # --- coup ? : print stored sequence label ---
+        if sub == "?":
+            cur = getattr(self, "_coup_seq_label", None)
+            if cur:
+                print(f"[coup] current sequence label: {cur}")
+            else:
+                print("[coup] no sequence label stored. Use 'coup NORM4L' (or 7L, 8L, etc.) first.")
+            return True
+
 
         # --- coup save/load: persist coupon angle + center ---
         if sub == "save":
@@ -8455,7 +8624,6 @@ class CommandDispatcher:
             except Exception:
                 pass
 
-
             # Restore coupon labels if present
             labels_from_state = state.get("coupon_labels", None)
             if isinstance(labels_from_state, dict):
@@ -8473,6 +8641,30 @@ class CommandDispatcher:
                 self._coupon_labels = clean_labels
                 print(f"[coup] load: restored {len(clean_labels)} coupon name(s).")
 
+            # Restore custom "coup next" sequence + moves, if present
+            seq_state = state.get("coup_next_seq", None)
+            moves_state = state.get("coup_next_moves", None)
+
+            if isinstance(seq_state, list) and seq_state:
+                clean_seq = [str(s) for s in seq_state if str(s).strip()]
+                if clean_seq:
+                    self._coup_next_seq = clean_seq
+                    print(f"[coup] load: restored custom 'next' sequence ({len(clean_seq)} step(s)).")
+
+            if isinstance(moves_state, dict) and moves_state:
+                clean_moves = {}
+                for base, val in moves_state.items():
+                    try:
+                        dx = float(val.get("dx", 0.0))
+                        dy = float(val.get("dy", 0.0))
+                        clean_moves[str(base)] = {"dx": dx, "dy": dy}
+                    except Exception:
+                        continue
+                if clean_moves:
+                    self._coup_next_moves = clean_moves
+                    print(f"[coup] load: restored custom 'next' moves for {len(clean_moves)} base name(s).")
+
+
             print(
                 f"[coup] load: restored angle={angle_deg:.3f}°, "
                 f"center=(U={u_ref:.3f}, V={v_ref:.3f}) µm, "
@@ -8483,7 +8675,6 @@ class CommandDispatcher:
                 f"from '{path}'."
             )
             return True
-
         if sub == "status":
             if self._coup_active_evt.is_set():
                 cur = getattr(self, "_current_coup_cmd", None)
@@ -8497,7 +8688,6 @@ class CommandDispatcher:
             else:
                 print("[coup] idle")
             return True
-
         # --- coup resume [factor] : resume from pause and set pause factor ---
         #   coup resume       -> factor = 1.0  (pause every 3 SPC)
         #   coup resume 2     -> factor = 2.0  (pause every 6 SPC)
@@ -8604,18 +8794,33 @@ class CommandDispatcher:
 
             print("Usage: coup inv set")
             return False
-        # --- coup copy [chip_name]: copy map/sb/state + all TIFs to chip folder ---
+
+        # --- coup copy [state] [chip_name]: copy map/sb/state (+ optionally TIFs) to chip folder ---
         if sub == "copy":
             import shutil
 
-            # 1) Determine chip name: argument wins, else stored _chip_name
-            if len(tokens) >= 2:
-                chip_name_raw = " ".join(tokens[1:]).strip().strip('"').strip("'")
+            # 1) Mode flags
+            copy_tifs = True
+
+            # Syntax:
+            #   coup copy                 -> use stored _chip_name, copy everything
+            #   coup copy <name>          -> chip=<name>, copy everything
+            #   coup copy state           -> use stored _chip_name, copy only state (no TIFs)
+            #   coup copy state <name>    -> chip=<name>, copy only state (no TIFs)
+
+            arg_idx = 1
+            if len(tokens) >= 2 and tokens[1].lower() == "state":
+                copy_tifs = False
+                arg_idx = 2
+
+            # 2) Determine chip name
+            if len(tokens) > arg_idx:
+                chip_name_raw = " ".join(tokens[arg_idx:]).strip().strip('"').strip("'")
             else:
                 chip_name_raw = str(getattr(self, "_chip_name", "") or "").strip()
 
             if not chip_name_raw:
-                print("[coup] copy: chip name not set. Use 'chip name <name>' or 'coup copy <name>'.")
+                print("[coup] copy: chip name not set. Use 'chip name <name>' or 'coup copy [state] <name>'.")
                 return False
 
             # Sanitize for folder name
@@ -8627,21 +8832,39 @@ class CommandDispatcher:
 
             try:
                 os.makedirs(chip_dir, exist_ok=True)
-                os.makedirs(tif_dir, exist_ok=True)
+                if copy_tifs:
+                    os.makedirs(tif_dir, exist_ok=True)
             except Exception as e:
                 print(f"[coup] copy: failed to create output dirs: {e}")
                 return False
 
-            print(f"[coup] copy: target folder = '{chip_dir}'")
+            print(f"[coup] copy: target folder = '{chip_dir}' "
+                  f"({'state-only, no TIFs' if not copy_tifs else 'full copy incl. TIFs'})")
 
-            # 2) Copy fixed files
+            # 3) Figure out where coup_state.json + my_next.json live
+            try:
+                state_path = _get_coup_state_path()  # e.g. C:\WC\HotSystem\Utils\macro\coup_state.json
+                state_dir = os.path.dirname(state_path)
+            except Exception:
+                # Fallback to old behavior if something weird happens
+                state_dir = r"C:\WC\HotSystem\Utils\macro"
+                state_path = os.path.join(state_dir, "coup_state.json")
+
+            my_next_path = os.path.join(state_dir, "my_next.json")
+
+            # 4) Copy fixed files
             fixed_sources = [
                 r"C:\WC\HotSystem\map.jpg",
                 r"C:\WC\HotSystem\Utils\macro\sb.py",
-                r"C:\WC\HotSystem\Utils\macro\coup_state.json",
+                state_path,          # coup_state.json from its real location
                 r"C:\WC\SLM_bmp\Calib\Averaged_calibration.tif",
                 r"C:\WC\HotSystem\Utils\map_calibration.json",
             ]
+
+            # Add my_next.json *from the same folder as coup_state.json* if it exists
+            if os.path.isfile(my_next_path):
+                fixed_sources.append(my_next_path)
+
             for src in fixed_sources:
                 try:
                     if not os.path.isfile(src):
@@ -8653,35 +8876,49 @@ class CommandDispatcher:
                 except Exception as e:
                     print(f"[coup] copy: failed to copy '{src}': {e}")
 
-            # 3) Copy all TIF files
-            tif_src_dir = r"C:\Users\Femto\Work Folders\Documents\LightField"
-            if not os.path.isdir(tif_src_dir):
-                print(f"[coup] copy: TIF source directory not found: '{tif_src_dir}'")
-                return False
+            # 5) Optionally copy all TIF files
+            if copy_tifs:
+                tif_src_dir = r"C:\Users\Femto\Work Folders\Documents\LightField"
+                if not os.path.isdir(tif_src_dir):
+                    print(f"[coup] copy: TIF source directory not found: '{tif_src_dir}'")
+                    return False
 
-            tif_count = 0
-            try:
-                for name in os.listdir(tif_src_dir):
-                    if not name.lower().endswith(".tif"):
-                        continue
-                    src = os.path.join(tif_src_dir, name)
-                    if not os.path.isfile(src):
-                        continue
-                    dst = os.path.join(tif_dir, name)
-                    try:
-                        shutil.copy2(src, dst)
-                        tif_count += 1
-                    except Exception as e:
-                        print(f"[coup] copy: failed to copy TIF '{src}': {e}")
-                print(f"[coup] copy: copied {tif_count} TIF file(s) to '{tif_dir}'.")
-            except Exception as e:
-                print(f"[coup] copy: error while scanning TIF directory: {e}")
-                return False
+                tif_count = 0
+                try:
+                    for name in os.listdir(tif_src_dir):
+                        if not name.lower().endswith(".tif"):
+                            continue
+                        src = os.path.join(tif_src_dir, name)
+                        if not os.path.isfile(src):
+                            continue
+                        dst = os.path.join(tif_dir, name)
+                        try:
+                            shutil.copy2(src, dst)
+                            tif_count += 1
+                        except Exception as e:
+                            print(f"[coup] copy: failed to copy TIF '{src}': {e}")
+                    print(f"[coup] copy: copied {tif_count} TIF file(s) to '{tif_dir}'.")
+                except Exception as e:
+                    print(f"[coup] copy: error while scanning TIF directory: {e}")
+                    return False
 
             print(f"[coup] copy: done for chip '{chip_name_raw}' → '{chip_dir}'")
             return True
+
+        # --- coup clear / coup clear <label> ---
+        if sub == "clear":
+            # No argument → clear all coupon labels
+            if len(tokens) == 1:
+                return self.handle_coupon("clear")
+            # With argument(s) → clear only that label
+            label = " ".join(tokens[1:]).strip()
+            if not label:
+                print("[coup] clear: missing label. Usage: coup clear <label>")
+                return False
+            return self.handle_coupon(f"clear {label}")
+
         # --- SINGLE busy guard (applies only to top-level invocations) ---
-        non_blocking = {"status", "stop", "save", "load", "angle","resume","copy"}
+        non_blocking = {"status", "stop", "save", "load", "angle","resume","copy","clear"}
         if (sub not in non_blocking) and _is_coup_busy() and not nested:
             print("[coup] already running.")
             return False
@@ -9130,25 +9367,329 @@ class CommandDispatcher:
                 inverted = True
                 label_token_start = 2  # label comes after the inv keyword
 
-            # label can be provided as the next token after any optional inv keyword; otherwise prompt
+            # 1) Try explicit label after "corner" / "bottom left" / etc.
             provided = None
             for t in tokens[label_token_start:]:
                 ts = str(t).strip()
                 if ts:
                     provided = ts
                     break
+
+            # 2) If none given, fall back to stored coup sequence label (e.g. NORM4A)
+            stored = getattr(self, "_coup_seq_label", None)
+
             try:
-                label = provided or input("Enter current coupon label (e.g., NORM3L or 5L): ").strip()
-                if not label:
-                    print("[coup] no label provided.")
-                    return False
+                if provided:
+                    label = provided
+                    print(f"[coup] corner: using explicit label '{label}'.")
+                elif stored:
+                    label = stored
+                    print(f"[coup] corner: using stored coup label '{label}'.")
+                else:
+                    # 3) Last resort: interactive prompt
+                    label = input("Enter current coupon label (e.g., NORM3L or 5L): ").strip()
+                    if not label:
+                        print("[coup] no label provided.")
+                        return False
+
                 moved = _move_to_corner_from_label(label, inverted=inverted)
-                print(f"[coup] corner move {'(inverted) ' if inverted else ''}done."
-                      if moved else f"[coup] corner move {'(inverted) ' if inverted else ''}failed.")
+                print(
+                    f"[coup] corner move {'(inverted) ' if inverted else ''}done."
+                    if moved else
+                    f"[coup] corner move {'(inverted) ' if inverted else ''}failed."
+                )
                 return moved
             except Exception as e:
                 print(f"[coup] corner: {e}")
                 return False
+
+        # --- coup <name> / coup next: cycle through coupons (default or custom) ---
+        #
+        # Default sequence (physical slots):
+        #   COUP_SEQ = [
+        #       "NORM4", "7", "8",
+        #       "NORM3", "5", "6",
+        #       "NORM2", "3", "4",
+        #       "NORM1", "1", "2",
+        #   ]
+        #
+        # New features:
+        #   - coup next <file>   -> load custom sequence and optional dx,dy from file
+        #   - coup next reset    -> forget custom sequence, go back to built-in one
+        #
+        #   File format (JSON), example:
+        #   {
+        #     "sequence": ["MZI", "Dil5", "Foo", "Bar", "Baz", "Q1", "Q2", "Q3", "Q4", "R1", "R2", "R3"],
+        #     "moves": {
+        #       "MZI":  { "dx":  1, "dy":  0 },
+        #       "Dil5": { "dx":  1, "dy":  0 },
+        #       "Foo":  { "dx": -2, "dy": -1 },
+        #       ...
+        #     }
+        #   }
+        #
+        # IMPORTANT:
+        #   - The LETTER (A/B/L/…) is taken from your current label and NEVER changed.
+        #   - The config only changes:
+        #       * the order of base names (sequence)
+        #       * the dx,dy used for each CURRENT base name.
+        if sub == "next":
+            # --- CONFIG MODE: coup next <file> / coup next reset ---
+            if len(tokens) >= 2:
+                opt = tokens[1].strip().strip('"').strip("'")
+                opt_l = opt.lower()
+
+                # Reset to built-in behavior
+                if opt_l in ("reset", "default", "clear"):
+                    if hasattr(self, "_coup_next_seq"):
+                        delattr(self, "_coup_next_seq")
+                    if hasattr(self, "_coup_next_moves"):
+                        delattr(self, "_coup_next_moves")
+                    print("[coup] next: custom sequence cleared; using built-in COUP_SEQ + slot_dx/slot_dy.")
+                    _coup_save_state()
+                    return True
+
+                # Treat argument as config file
+                cfg_name = opt
+
+                # Default extension: .json
+                import os
+                if not os.path.splitext(cfg_name)[1]:
+                    cfg_name = cfg_name + ".json"
+
+                # Resolve relative to the SAME folder as coup_state.json
+                try:
+                    state_path = _get_coup_state_path()
+                    base_dir = os.path.dirname(state_path)
+                except Exception:
+                    # fallback if anything weird happens
+                    try:
+                        base_dir = DEFAULT_COUP_DIR
+                    except NameError:
+                        base_dir = r"c:\WC\HotSystem\Utils\macro"
+
+                if not os.path.isabs(cfg_name) and not os.path.dirname(cfg_name):
+                    cfg_path = os.path.join(base_dir, cfg_name)
+                else:
+                    cfg_path = cfg_name
+
+                if not os.path.isfile(cfg_path):
+                    print(f"[coup] next: custom config file not found: '{cfg_path}'.")
+                    return False
+
+                # Expected JSON:
+                # {
+                #   "sequence": ["BASE1", "BASE2", ...],
+                #   "moves": {
+                #       "BASE1": {"dx": ..., "dy": ...},
+                #       ...
+                #   }
+                # }
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                except Exception as e:
+                    print(f"[coup] next: failed to read config '{cfg_path}': {e}")
+                    return False
+
+                seq = cfg.get("sequence", None)
+                if not isinstance(seq, list) or not seq:
+                    print("[coup] next: config must contain non-empty 'sequence' array.")
+                    return False
+
+                clean_seq = []
+                for item in seq:
+                    s = str(item).strip()
+                    if not s:
+                        continue
+                    clean_seq.append(s)
+                if not clean_seq:
+                    print("[coup] next: no valid names in 'sequence'.")
+                    return False
+
+                moves_cfg = cfg.get("moves", {})
+                clean_moves = {}
+                if isinstance(moves_cfg, dict):
+                    for base, val in moves_cfg.items():
+                        try:
+                            dx = float(val.get("dx", 0.0))
+                            dy = float(val.get("dy", 0.0))
+                            clean_moves[str(base)] = {"dx": dx, "dy": dy}
+                        except Exception:
+                            print(f"[coup] next: ignoring invalid moves for '{base}'.")
+                            continue
+
+                self._coup_next_seq = clean_seq
+                self._coup_next_moves = clean_moves
+
+                print(
+                    f"[coup] next: loaded custom sequence ({len(clean_seq)} step(s)) "
+                    f"from '{cfg_path}'. "
+                    f"Custom moves for {len(clean_moves)} base name(s)."
+                )
+                _coup_save_state()
+                return True
+
+            # --- STEP MODE: coup next ---
+            # 1) Determine current logical label (base + letter)
+            cur_raw = getattr(self, "_coup_seq_label", None)
+            if not cur_raw:
+                print("[coup] next: no current label set. Use 'coup NORM4A' or 'coup <name>' first.")
+                return False
+
+            # Try to interpret as coupon label first (NORM4A, 7L, etc.)
+            base = None
+            letter = None
+            try:
+                canon = _canon_coupon_name(cur_raw)   # → NORM4A
+                # base is the part without trailing letter if any
+                if canon[-1].isalpha():
+                    base = canon[:-1]
+                    letter = canon[-1]      # keep existing letter
+                else:
+                    base = canon
+                    letter = None
+            except Exception:
+                # If it is NOT a standard coupon label, treat the whole thing as the base.
+                s = str(cur_raw).strip()
+                if not s:
+                    print(f"[coup] next: invalid current label '{cur_raw}'.")
+                    return False
+                base = s
+                # No explicit letter → none; we will not add/change letters.
+
+            # 2) Decide which sequence to use
+            seq = getattr(self, "_coup_next_seq", None)
+            if not isinstance(seq, list) or not seq:
+                # Fall back to original COUP_SEQ
+                seq = COUP_SEQ
+
+            # Find current index in sequence (case-insensitive)
+            cur_idx = None
+            base_up = str(base).upper()
+            for i, name in enumerate(seq):
+                if str(name).upper() == base_up:
+                    cur_idx = i
+                    break
+            if cur_idx is None:
+                print(f"[coup] next: current base '{base}' not found in active sequence.")
+                return False
+
+            next_idx = (cur_idx + 1) % len(seq)
+            next_base = seq[next_idx]
+
+            # 3) Determine dx,dy for this step
+            dx = dy = 0.0
+            moves = getattr(self, "_coup_next_moves", None)
+
+            if isinstance(moves, dict):
+                # Prefer custom moves if present
+                entry = moves.get(base) or moves.get(base_up) or moves.get(str(base))
+                if isinstance(entry, dict):
+                    try:
+                        dx = float(entry.get("dx", 0.0))
+                        dy = float(entry.get("dy", 0.0))
+                    except Exception:
+                        print(f"[coup] next: invalid custom dx/dy for '{base}', falling back to built-in.")
+                        entry = None
+                if entry is None:
+                    # fall back to built-in if we didn't find a valid entry
+                    moves = None
+
+            if moves is None:
+                # Built-in movement using original slot_dx/slot_dy tables
+                # Map base -> original "slot" key (NORM4, 7, etc.) if possible
+                try:
+                    slot = _seq_key(base)   #  NORM4A/B → NORM4 ; 7A → 7
+                except Exception:
+                    slot = base
+
+                slot_dx = {
+                    "NORM4": +1,
+                    "7":     +1,
+                    "8":     -2,
+                    "NORM3": +1,
+                    "5":     +1,
+                    "6":     -2,
+                    "NORM2": +1,
+                    "3":     +1,
+                    "4":     -2,
+                    "NORM1": +1,
+                    "1":     +1,
+                    "2":     -2,
+                }
+                slot_dy = {
+                    "NORM4":  0,
+                    "7":      0,
+                    "8":     -1,
+                    "NORM3":  0,
+                    "5":      0,
+                    "6":     -1,
+                    "NORM2":  0,
+                    "3":      0,
+                    "4":     -1,
+                    "NORM1":  0,
+                    "1":      0,
+                    "2":     +3,
+                }
+                dx = float(slot_dx.get(slot, 0.0))
+                dy = float(slot_dy.get(slot, 0.0))
+
+            # 4) Build the next label:
+            #    - NEVER change letter; just reuse it if it exists.
+            if letter is not None:
+                next_label = f"{next_base}{letter}"
+            else:
+                next_label = str(next_base)
+
+            # 5) Actually move using your coupx/coupy helpers
+            try:
+                if dx != 0:
+                    self.handle_coupx(str(dx))
+                if dy != 0:
+                    self.handle_coupy(str(dy))
+            except Exception as e:
+                print(f"[coup] next: move failed via coupx/coupy: {e}")
+                return False
+
+            # 6) Update stored logical label + note
+            self._coup_seq_label = next_label
+
+            try:
+                self.handle_acquire_spectrum(f"note {next_label}")
+            except Exception as e:
+                print(f"[coup] warning: handle_acquire_spectrum failed for '{next_label}': {e}")
+
+            print(
+                f"[coup] next: {cur_raw} (base '{base}') → {next_label} (base '{next_base}') "
+                f"via coupx({dx}) coupy({dy})."
+            )
+            return True
+
+        # Single-token 'coup <name>' → set start label, acquire spectrum note, then advance to next
+        if len(tokens) == 1:
+            raw = tokens[0]
+            try:
+                canon = _canon_coupon_name(raw)  # e.g. "norm4a" -> "NORM4A"
+                key = _seq_key(canon)  # e.g. "NORM4A" -> "NORM4"
+            except Exception as e:
+                canon = None
+                key = None
+
+            if canon and key in COUP_SEQ_SET:
+                # 1) store sequence label
+                self._coup_seq_label = canon
+                print(f"[coup] sequence start label set to '{canon}' (slot '{key}').")
+
+                # 2) note
+                try:
+                    # use canonical name in the note; you can change to `raw` if you prefer original text
+                    self.handle_acquire_spectrum(f"note {canon}")
+                except Exception as e:
+                    print(f"[coup] warning: handle_acquire_spectrum failed for '{canon}': {e}")
+
+                return True
+
         # --- steps-file mode detection (supports bare numbers like `coup 5` -> "5.txt") ---
         # tokens[0] is the "filename-ish" part (e.g. "sb" in: coup sb pause)
         cand_path = tokens[0].strip('"').strip("'")
@@ -9241,30 +9782,185 @@ class CommandDispatcher:
                 f"(pause={'ON' if pause_mode else 'OFF'}; use 'coup stop' to cancel)."
             )
             return True
-    def _parse_coup_steps_file(self, path: str):
+    def _parse_coup_steps_file(self, path):
         """
-        Read a steps file and return a flat list of commands.
-        - Lines starting with '#' or '//' are comments.
-        - Inline comments after '#' or '//' are stripped.
-        - ';' splits multiple commands on one line.
-        - Blank/whitespace-only lines are ignored.
+        Parse a coup steps file.
+
+        - Supports plain lines: 'spc 3', 'movez 0.3', 'coup next', ...
+        - Supports Python-like for-loops:
+
+            for i in range(12):
+                spc 3
+                movez 0.3
+                coup next
+
+          which are expanded into a flat list of commands.
         """
+        with open(path, "r", encoding="utf-8") as f:
+            raw_lines = f.readlines()
+
+        # strip empty / comment-only lines
+        lines = []
+        for ln in raw_lines:
+            if not ln.strip():
+                continue
+            if ln.lstrip().startswith("#"):
+                continue
+            lines.append(ln.rstrip("\n"))
+
+        # Detect any "for ...:" at all
+        has_for = any(l.lstrip().startswith("for ") and l.rstrip().endswith(":") for l in lines)
+        if has_for:
+            cmd_lines = self._expand_for_loops(lines, path)
+        else:
+            cmd_lines = lines
+
+        # final split on ';' like before
         steps = []
-        with open(path, encoding="utf-8") as f:
-            for raw in f:
-                line = raw.strip()
-                if not line:
-                    continue
-                # strip inline comments
-                for tok in ("#", "//"):
-                    if tok in line:
-                        line = line.split(tok, 1)[0].strip()
-                if not line:
-                    continue
-                # split multi-commands on a line
-                parts = [p.strip() for p in line.split(";") if p.strip()]
-                steps.extend(parts)
+        for line in cmd_lines:
+            parts = [p.strip() for p in line.split(";") if p.strip()]
+            steps.extend(parts)
+
         return steps
+    def _expand_for_loops(self, lines, filename):
+        """
+        Expand Python-like for-loops into a flat list of coup commands.
+
+        Supported syntax (only):
+
+            for i in range(12):
+                spc 3
+                movez 0.3
+                coup next
+
+        - Only 'for ... in <expr>:' where <expr> is something like range(12).
+        - We evaluate <expr> with globals={'range': range} to get the repeat count.
+        - We ignore the loop variable name (no substitution into commands yet).
+        """
+
+        # Normalize indentation and keep (indent, text) pairs
+        parsed = []
+        for ln in lines:
+            expanded = ln.replace("\t", "    ")
+            indent = len(expanded) - len(expanded.lstrip(" "))
+            text = expanded.lstrip(" ")
+            parsed.append((indent, text))
+
+        n = len(parsed)
+
+        def process_block(i, cur_indent):
+            """
+            Recursively process lines starting at index i with baseline indent = cur_indent.
+            Returns (commands_list, next_index).
+            """
+            out = []
+            while i < n:
+                indent, text = parsed[i]
+
+                # block ends when indentation drops
+                if indent < cur_indent:
+                    break
+
+                if indent > cur_indent:
+                    # This should only happen when called from a for-body with higher indent.
+                    # If we ever see indent > cur_indent at top-level, it's malformed.
+                    raise SyntaxError(
+                        f"Unexpected extra indentation in {filename} at line {i + 1}: '{text}'"
+                    )
+
+                # --- handle "for ... in ...:" ---
+                if text.startswith("for ") and text.endswith(":"):
+                    header = text[4:-1].strip()  # between 'for' and ':'
+                    if " in " not in header:
+                        raise SyntaxError(
+                            f"Bad for-loop header in {filename} at line {i + 1}: '{text}'"
+                        )
+                    # we ignore the variable part, just use the iterable expression
+                    _, iter_expr = header.split(" in ", 1)
+                    iter_expr = iter_expr.strip()
+
+                    # body must start at next line with larger indent
+                    body_start = i + 1
+                    if body_start >= n:
+                        raise SyntaxError(
+                            f"For-loop without body in {filename} at line {i + 1}."
+                        )
+
+                    body_indent, _ = parsed[body_start]
+                    if body_indent <= indent:
+                        raise SyntaxError(
+                            f"For-loop body must be indented in {filename} at line {i + 1}."
+                        )
+
+                    # Evaluate iterable (e.g. range(12)) with restricted globals
+                    try:
+                        iterable = eval(iter_expr, {"range": range}, {})
+                    except Exception as e:
+                        raise SyntaxError(
+                            f"Error evaluating iterable '{iter_expr}' in {filename} at line {i + 1}: {e}"
+                        )
+
+                    # Parse the body once, then replicate it len(iterable) times
+                    body_cmds, new_i = process_block(body_start, body_indent)
+
+                    # We only care about repetition count; we ignore the loop variable.
+                    for _ in iterable:
+                        out.extend(body_cmds)
+
+                    # continue after the loop body
+                    i = new_i
+                    continue
+
+                # --- normal command line ---
+                out.append(text)
+                i += 1
+
+            return out, i
+
+        try:
+            commands, _ = process_block(0, 0)
+            return commands
+        except Exception as e:
+            print(f"[coup] ERROR parsing python-like for loops in {filename}: {e}")
+            raise
+    def _expand_python_loops(self, lines, filename):
+        """
+        Convert Python-like indented loop blocks into flat coup commands.
+        """
+
+        import textwrap
+
+        # Build a pseudo-python script
+        py = "output = []\n"
+        py += "def emit(x): output.append(x)\n"
+        py += "def run():\n"
+
+        # indent the body lines
+        for l in lines:
+            py += "    " + l + "\n"
+
+        # Execute the script in a sandboxed environment
+        env = {
+            "output": [],
+            "emit": lambda x: None,
+            "range": range,
+            "__file__": filename,
+        }
+
+        # Replace plain coup/spc/move commands with emit("command args")
+        transformed = py.replace("spc ", "emit('spc ").replace("movez ", "emit('movez ") \
+            .replace("coup ", "emit('coup ")
+
+        # Close the string properly → emit('spc 3') style
+        transformed = transformed.replace("\n", "')\n").replace("emit(')", "")
+
+        try:
+            exec(transformed, env, env)
+            env["run"]()
+            return env["output"]
+        except Exception as e:
+            print(f"[coup] ERROR parsing python syntax in {filename}: {e}")
+            raise
     def _wait_spc_done_or_abort(self, poll_ms=100, hard_timeout_s=120):
         """
         Wait until SPC thread signals done OR a stop is requested OR timeout.
@@ -10572,12 +11268,7 @@ class CommandDispatcher:
                 print(f"  {name!r}: U={u:.3f} µm, V={v:.3f} µm")
             self.handle_coup("save")
             return True
-        # --- coupon clear -> erase all stored coupon names ---
-        if text.lower() == "clear":
-            self._coupon_labels.clear()
-            print("[coupon] clear: all coupon names removed.")
-            self.handle_coup("save")
-            return True
+
         # No arg → show usage
         if not text:
             print("Usage:")
@@ -10603,6 +11294,29 @@ class CommandDispatcher:
             )
             return False
         sub = tokens[0].lower()
+
+        # --- coupon clear <label> -> remove a single label ---
+        if sub == "clear":
+            if len(tokens) == 1:
+                # already handled above (global clear), but here for safety:
+                self._coupon_labels.clear()
+                print("[coupon] clear: all coupon names removed.")
+                self.handle_coup("save")
+                return True
+
+            label = " ".join(tokens[1:]).strip()
+            if not label:
+                print("[coupon] clear: missing label. Usage: coupon clear <label>")
+                return False
+
+            if label in self._coupon_labels:
+                del self._coupon_labels[label]
+                print(f"[coupon] clear: removed label '{label}'.")
+                self.handle_coup("save")
+                return True
+            else:
+                print(f"[coupon] clear: no such label '{label}'.")
+                return False
         # --- coupon go <name> ---
         if sub == "go":
             if len(tokens) < 2:
