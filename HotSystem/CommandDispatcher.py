@@ -9898,15 +9898,9 @@ class CommandDispatcher:
         """
         Parse a coup steps file.
 
-        - Supports plain lines: 'spc 3', 'movez 0.3', 'coup next', ...
-        - Supports Python-like for-loops:
-
-            for i in range(12):
-                spc 3
-                movez 0.3
-                coup next
-
-          which are expanded into a flat list of commands.
+        Modes:
+          1) Plain text / simple 'for' loops  -> _expand_for_loops
+          2) Python macro with emit(...)      -> _expand_python_loops
         """
         with open(path, "r", encoding="utf-8") as f:
             raw_lines = f.readlines()
@@ -9920,16 +9914,25 @@ class CommandDispatcher:
                 continue
             lines.append(ln.rstrip("\n"))
 
-        # Detect any "for ...:" at all
-        has_for = any(l.lstrip().startswith("for ") and l.rstrip().endswith(":") for l in lines)
-        if has_for:
-            cmd_lines = self._expand_for_loops(lines, path)
+        # --- PYTHON MACRO MODE: if file uses emit(...), treat it as full Python ---
+        if any("emit(" in ln for ln in lines):
+            # DEBUG: you can uncomment this to verify it's taking this path
+            # print(f"[coup] using PYTHON macro mode for {path}")
+            cmds = self._expand_python_loops(lines, path)
         else:
-            cmd_lines = lines
+            # --- LEGACY MODE: simple text + flat for-loops ---
+            has_for = any(
+                l.lstrip().startswith("for ") and l.rstrip().endswith(":")
+                for l in lines
+            )
+            if has_for:
+                cmds = self._expand_for_loops(lines, path)
+            else:
+                cmds = lines
 
         # final split on ';' like before
         steps = []
-        for line in cmd_lines:
+        for line in cmds:
             parts = [p.strip() for p in line.split(";") if p.strip()]
             steps.extend(parts)
 
@@ -10095,41 +10098,42 @@ class CommandDispatcher:
             raise
     def _expand_python_loops(self, lines, filename):
         """
-        Convert Python-like indented loop blocks into flat coup commands.
+        Execute a Python-like macro file that calls emit("command") or emit(f"...").
+        The file can use full Python: for/if/range/variables, etc.
+
+        Example macro:
+
+            letter = "C"
+
+            for i in range(1, 7):
+                if i == 3:
+                    emit("movez 1")
+                emit(f"spc note {letter}{i}")
+                ...
+
+            emit("coup shiftx -6")
         """
+        src = []
+        src.append("output = []")
+        src.append("def emit(cmd):")
+        src.append("    output.append(str(cmd))")
+        src.append("def run():")
+        for ln in lines:
+            # indent every user line inside run()
+            src.append("    " + ln)
+        code = "\n".join(src)
 
-        import textwrap
-
-        # Build a pseudo-python script
-        py = "output = []\n"
-        py += "def emit(x): output.append(x)\n"
-        py += "def run():\n"
-
-        # indent the body lines
-        for l in lines:
-            py += "    " + l + "\n"
-
-        # Execute the script in a sandboxed environment
-        env = {
-            "output": [],
-            "emit": lambda x: None,
-            "range": range,
+        ns = {
             "__file__": filename,
+            "range": range,
         }
 
-        # Replace plain coup/spc/move commands with emit("command args")
-        transformed = py.replace("spc ", "emit('spc ").replace("movez ", "emit('movez ") \
-            .replace("coup ", "emit('coup ")
-
-        # Close the string properly → emit('spc 3') style
-        transformed = transformed.replace("\n", "')\n").replace("emit(')", "")
-
         try:
-            exec(transformed, env, env)
-            env["run"]()
-            return env["output"]
+            exec(code, ns, ns)
+            ns["run"]()
+            return ns["output"]
         except Exception as e:
-            print(f"[coup] ERROR parsing python syntax in {filename}: {e}")
+            print(f"[coup] ERROR parsing python macro in {filename}: {e}")
             raise
     def _wait_spc_done_or_abort(self, poll_ms=100, hard_timeout_s=120):
         """
@@ -12277,7 +12281,9 @@ class CommandDispatcher:
         # --- NEW: collapse ProEM camera & Keysight windows ---
         # replace these tags with your actual window tags if different
         keysight_tag = parent.keysight_gui.window_tag
-        for tag in ("proem_Win", keysight_tag):
+        kdc_tag = parent.kdc_101_gui.window_tag
+        femto_tag = parent.femto_gui.window_tag
+        for tag in ("proem_Win", keysight_tag, kdc_tag,femto_tag):
             try:
                 if dpg.does_item_exist(tag):
                     dpg.configure_item(tag, collapsed=True)
