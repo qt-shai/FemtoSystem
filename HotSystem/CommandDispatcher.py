@@ -242,7 +242,7 @@ class DualOutput:
         self.append_callback =  self.append_to_console
         self.original_stream = original_stream
         self.messages = []  # Store the last 10 messages
-        self.MAX_MESSAGES = 50
+        self.MAX_MESSAGES = 150
 
     def write(self, message):
         """
@@ -339,10 +339,11 @@ class CommandDispatcher:
             "insert":            self.handle_insert_points,
             "savelist":          self.handle_save_list,
             "loadlist":          self.handle_load_list,
+            "gen":               self.handle_gen_carrier,
             "gen list":          self.handle_generate_list,
             "genlist":           self.handle_generate_list,
             "spc":               self.handle_acquire_spectrum,
-            "hrs":               self.handle_hrs,
+            "hrs_spc":           self.handle_hrs,
             "msg":               self.handle_message,
             "msgclear":          self.handle_message_clear,
             "st":                self.handle_set_xyz,
@@ -452,14 +453,16 @@ class CommandDispatcher:
             "chip":              self.handle_chip,
             "last":              self.handle_last_message,
             "cr":                self.handle_cr,
-            "proem":             self.handle_proem,
+            "pro":               self.handle_proem,
             "uz": lambda arg="": self.handle_uvz("uz", arg),
             "vz": lambda arg="": self.handle_uvz("vz", arg),
             "replace":           self.handle_replace,
             "abs":               self.handle_move_abs_xyz,
             "maxi":              self.handle_moveabs_to_max_intensity,
             "copy":              self.handle_copy,
-            "addmap":           self.handle_add_map,
+            "addmap":            self.handle_add_map,
+            "preset":            self.handle_preset,
+
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -656,6 +659,24 @@ class CommandDispatcher:
               unexpected failures.
         """
 
+        # ------------------------------------------------------------
+        # Helper: return a list of "meaningful" commands from history
+        # ------------------------------------------------------------
+        def _meaningful_history():
+            hist = getattr(parent, "command_history", [])
+            out = []
+            for cmd in hist:
+                cmd_s = (cmd or "").strip()
+                if not cmd_s:
+                    continue
+                if cmd_s in ("1", "1?", "2", "2?", "3", "3?"):
+                    continue
+                head = cmd_s.split(None, 1)[0].lower()
+                if head == "reload":
+                    continue
+                out.append(cmd_s)
+            return out
+
         parent = self.get_parent()
         if parent is None:
             print("Warning: run() called but sys.stdout.parent not set.")
@@ -676,25 +697,54 @@ class CommandDispatcher:
             return
 
         print(f"{cmd_line}")
-        # --- NEW: "1" repeats the last command line (entire pipeline) ---
-        if cmd_line == "1":
-            history = getattr(parent, "command_history", [])
-            # Find the last non-empty, non-"1" entry (skip this very call too)
-            found = None
-            for prev in reversed(history):
-                prev_s = (prev or "").strip()
-                if prev_s and prev_s != "1":
-                    found = prev_s
-                    break
-            if not found:
-                print("No previous command to repeat.")
-                _refocus()
-                return
-            print(f"[repeat] {found}")
-            # Re-run it without re-adding to history (avoids infinite loops)
-            self.run(found, record_history=False)
+
+        # ------------------------------------------------------------
+        # QUERY: "?" prints the meaningful history, newest first
+        # ------------------------------------------------------------
+        if cmd_line == "?":
+            hist = _meaningful_history()
+            if not hist:
+                print("[history] (empty)")
+            else:
+                print("Recent commands:")
+                for i, h in enumerate(reversed(hist), 1):
+                    print(f"  {i}: {h}")
             _refocus()
             return
+
+        # ------------------------------------------------------------
+        # "N" → repeat N-th last meaningful command
+        # "N?" → recall N-th last meaningful command into cmd_input
+        # ------------------------------------------------------------
+        import re
+        m = re.fullmatch(r"(\d+)(\?)?", cmd_line)
+        if m:
+            n = int(m.group(1))
+            recall_only = (m.group(2) == "?")
+
+            hist = _meaningful_history()
+            if len(hist) < n:
+                print(f"No entry #{n} in history.")
+                _refocus()
+                return
+
+            cmd_to_use = hist[-n]   # -1 is last, -2 is second last, etc.
+
+            if recall_only:
+                # Write to cmd_input but DO NOT EXECUTE
+                try:
+                    dpg.set_value("cmd_input", cmd_to_use)
+                    dpg.focus_item("cmd_input")
+                except Exception:
+                    pass
+                print(f"[recall {n}] {cmd_to_use}")
+                return
+            else:
+                # EXECUTE the command
+                print(f"[repeat {n}] {cmd_to_use}")
+                self.run(cmd_to_use, record_history=False)
+                _refocus()
+                return
 
         if not hasattr(parent, "command_history"):
             parent.command_history = []
@@ -702,6 +752,53 @@ class CommandDispatcher:
         if record_history:
             parent.update_command_history(cmd_line)
             parent.history_index = len(parent.command_history)
+
+        if cmd_line.endswith(">>") and not cmd_line.startswith(">>"):
+            body_raw = cmd_line[:-2].rstrip()  # remove trailing '>>'
+            if not body_raw:
+                print("Nothing to bind before '>>'.")
+                _refocus()
+                return
+
+            if not hasattr(self, "cmd_macros"):
+                self.cmd_macros = {}
+
+            # First word → letters
+            first_token = body_raw.lstrip().split()[0]
+            letters = [ch.lower() for ch in first_token if ch.isalpha()]
+
+            if not letters:
+                print("Cannot infer macro key: no letters in command.")
+                # Still run the command even if we failed to bind
+                cmd_line = body_raw
+            else:
+                # Try first letter, then second letter
+                key = None
+                if len(letters) >= 1 and letters[0] not in self.cmd_macros:
+                    key = letters[0]
+                elif len(letters) >= 2 and letters[1] not in self.cmd_macros:
+                    key = letters[1]
+
+                # If both taken, fall back to your numbering scheme for the first letter
+                if key is None:
+                    base = letters[0]
+                    existing = [k for k in self.cmd_macros.keys()
+                                if re.fullmatch(fr"{base}\d*", k)]
+                    if base not in existing:
+                        key = base
+                    else:
+                        used_nums = {1}
+                        for k in existing:
+                            suf = k[len(base):]
+                            if suf.isdigit():
+                                used_nums.add(int(suf))
+                        key = f"{base}{max(used_nums) + 1}"
+
+                self.cmd_macros[key] = body_raw
+                print(f"Saved macro '>{key}': {body_raw!r}")
+
+                # Now run the *stripped* command
+                cmd_line = body_raw
 
         # --- '>>' Override Macros (define/override) ---------------------------------
         # Usage:
@@ -803,6 +900,21 @@ class CommandDispatcher:
                 verb, *rest = seg.split(" ", 1)
                 key = verb.lower()
                 arg = rest[0] if rest else ""
+
+                # --- NEW: instrument shortcuts: 'smaract', 'camera', etc. ---
+                # If the user types exactly the button label (no args),
+                # bring that instrument window to front.
+                parent = self.get_parent()
+                shortcuts = getattr(parent, "window_shortcuts", None)
+                if arg == "" and isinstance(shortcuts, dict):
+                    win_id = shortcuts.get(key)
+                    if win_id is not None:
+                        try:
+                            parent.bring_window_to_front(win_id)
+                        except Exception as e:
+                            print(f"Failed to bring window '{win_id}' to front: {e}")
+                        continue
+
 
                 # Handle embedded-number verbs (xabs12, dx200, etc.)
                 for prefix in ("xabs","yabs","zabs","dx","dy","dz","angle","att","lastz","int"):
@@ -9824,19 +9936,28 @@ class CommandDispatcher:
         return steps
     def _expand_for_loops(self, lines, filename):
         """
-        Expand Python-like for-loops into a flat list of coup commands.
+        Expand Python-like for-loops AND simple variables into a flat list of coup commands.
 
-        Supported syntax (only):
+        Supported extras:
 
-            for i in range(12):
-                spc 3
-                movez 0.3
-                coup next
+            # simple variables (top-level or inside loops)
+            letter = "A"
+            nshots = 30
 
-        - Only 'for ... in <expr>:' where <expr> is something like range(12).
-        - We evaluate <expr> with globals={'range': range} to get the repeat count.
-        - We ignore the loop variable name (no substitution into commands yet).
+            for i in range(1, 5):
+                spc note {letter}{i}
+                spc {nshots}
+
+        - Only "for <var> in <expr>:" where <expr> is something like range(6, 7).
+        - <expr> is evaluated with globals={'range': range} and locals=env,
+          so you can do e.g. range(start_i, start_i+3).
+        - Any non-'for' line at a given indentation that looks like "name = value"
+          is parsed as a variable assignment and NOT emitted as a command.
+        - Normal lines are formatted with .format(**env), so {letter}, {i}, etc.
+          are substituted.
         """
+
+        import ast
 
         # Normalize indentation and keep (indent, text) pairs
         parsed = []
@@ -9847,14 +9968,37 @@ class CommandDispatcher:
             parsed.append((indent, text))
 
         n = len(parsed)
+        env = {}  # macro variables shared across the whole file
 
-        def process_block(i, cur_indent):
+        def _assign_from_line(text, env):
             """
-            Recursively process lines starting at index i with baseline indent = cur_indent.
+            Detect 'name = expr' and store into env.
+            Returns True if this line was an assignment (and thus should NOT emit a command).
+            """
+            if "=" not in text:
+                return False
+            left, right = text.split("=", 1)
+            name = left.strip()
+            if not name.isidentifier():
+                return False  # not a simple variable name -> treat as normal command
+            expr = right.strip()
+            try:
+                # literal_eval keeps this relatively safe: numbers, strings, tuples, etc.
+                value = ast.literal_eval(expr)
+            except Exception:
+                # not a simple literal -> treat line as normal command
+                return False
+            env[name] = value
+            return True
+
+        def process_block(i, cur_indent, end_index):
+            """
+            Recursively process lines starting at index i with baseline indent=cur_indent,
+            stopping before end_index.
             Returns (commands_list, next_index).
             """
             out = []
-            while i < n:
+            while i < end_index:
                 indent, text = parsed[i]
 
                 # block ends when indentation drops
@@ -9862,21 +10006,23 @@ class CommandDispatcher:
                     break
 
                 if indent > cur_indent:
-                    # This should only happen when called from a for-body with higher indent.
-                    # If we ever see indent > cur_indent at top-level, it's malformed.
                     raise SyntaxError(
                         f"Unexpected extra indentation in {filename} at line {i + 1}: '{text}'"
                     )
 
-                # --- handle "for ... in ...:" ---
+                # --- handle "for <var> in <expr>:" ---
                 if text.startswith("for ") and text.endswith(":"):
                     header = text[4:-1].strip()  # between 'for' and ':'
                     if " in " not in header:
                         raise SyntaxError(
                             f"Bad for-loop header in {filename} at line {i + 1}: '{text}'"
                         )
-                    # we ignore the variable part, just use the iterable expression
-                    _, iter_expr = header.split(" in ", 1)
+                    var_part, iter_expr = header.split(" in ", 1)
+                    var_name = var_part.strip()
+                    if not var_name.isidentifier():
+                        raise SyntaxError(
+                            f"Invalid loop variable name in {filename} at line {i + 1}: '{var_part}'"
+                        )
                     iter_expr = iter_expr.strip()
 
                     # body must start at next line with larger indent
@@ -9892,33 +10038,57 @@ class CommandDispatcher:
                             f"For-loop body must be indented in {filename} at line {i + 1}."
                         )
 
-                    # Evaluate iterable (e.g. range(12)) with restricted globals
+                    # find end of body (first line with indent < body_indent)
+                    body_end = body_start
+                    while body_end < end_index and parsed[body_end][0] >= body_indent:
+                        body_end += 1
+
+                    # Evaluate iterable (e.g. range(6, 7)) with restricted globals,
+                    # but with current env as locals so you can use variables.
                     try:
-                        iterable = eval(iter_expr, {"range": range}, {})
+                        iterable = eval(iter_expr, {"range": range}, dict(env))
                     except Exception as e:
                         raise SyntaxError(
                             f"Error evaluating iterable '{iter_expr}' in {filename} at line {i + 1}: {e}"
                         )
 
-                    # Parse the body once, then replicate it len(iterable) times
-                    body_cmds, new_i = process_block(body_start, body_indent)
-
-                    # We only care about repetition count; we ignore the loop variable.
-                    for _ in iterable:
+                    # For each value, set var and expand the body
+                    for val in iterable:
+                        env[var_name] = val
+                        body_cmds, _ = process_block(body_start, body_indent, body_end)
                         out.extend(body_cmds)
 
                     # continue after the loop body
-                    i = new_i
+                    i = body_end
                     continue
 
-                # --- normal command line ---
-                out.append(text)
+                # --- simple assignment: letter = "A", shots = 30, etc. ---
+                if _assign_from_line(text, env):
+                    i += 1
+                    continue  # no command emitted
+
+                # --- normal command line: substitute {vars} ---
+                try:
+                    if "{" in text:
+                        formatted = text.format(**env)
+                    else:
+                        formatted = text
+                except KeyError as e:
+                    raise SyntaxError(
+                        f"Unknown macro variable {e} in {filename} at line {i + 1}: '{text}'"
+                    ) from None
+                except Exception as e:
+                    raise SyntaxError(
+                        f"Error formatting line {i + 1} in {filename}: '{text}' -> {e}"
+                    ) from None
+
+                out.append(formatted)
                 i += 1
 
             return out, i
 
         try:
-            commands, _ = process_block(0, 0)
+            commands, _ = process_block(0, 0, n)
             return commands
         except Exception as e:
             print(f"[coup] ERROR parsing python-like for loops in {filename}: {e}")
@@ -10259,11 +10429,24 @@ class CommandDispatcher:
 
         # normalize subcommand (status/kill/play/p)
         sub = str(args[0]).lower() if args else ""
+        CONTROL_RELOAD_FLAG = r"C:\WC\HotSystem\Utils\cgh_reload.flag"
+        CONTROL_STOP_FLAG = r"C:\WC\HotSystem\Utils\cgh_stop.flag"
         is_status = sub in {"--status", "status"}
         is_kill = sub in {"--kill", "kill"}
         is_play = sub in {"p", "play"}
         is_stop  = sub in {"--stop", "stop"}
 
+        if sub == "reload":
+            # Touch the reload flag; CGH main loop will pick it up
+            try:
+                d = os.path.dirname(CONTROL_RELOAD_FLAG)
+                os.makedirs(d, exist_ok=True)
+                with open(CONTROL_RELOAD_FLAG, "w", encoding="utf-8") as f:
+                    f.write("reload\n")
+                print("[cgh] Requested sequence reload (new *.bmp files will be scanned).")
+            except Exception as e:
+                print(f"[cgh] Failed to request reload: {e}")
+            return
 
         if is_status:
             proc = getattr(self, "_cgh_proc", None)
@@ -10422,9 +10605,8 @@ class CommandDispatcher:
         if is_stop:
             # Create the control flag so the CGH process stops playback and shows CORR_BMP
             try:
-                flag = r"C:\WC\HotSystem\Utils\cgh_stop.flag"
-                os.makedirs(os.path.dirname(flag), exist_ok=True)
-                with open(flag, "w", encoding="utf-8") as f:
+                os.makedirs(os.path.dirname(CONTROL_STOP_FLAG), exist_ok=True)
+                with open(CONTROL_STOP_FLAG, "w", encoding="utf-8") as f:
                     f.write("stop")
                 print("[cgh] stop requested → STOP flag written. CGH will switch to CORR_BMP (zero-order).")
             except Exception as e:
@@ -12036,6 +12218,170 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"add map failed: {e}")
+    def handle_preset(self, arg: str = ""):
+        """
+        preset 1
+            - disable experiments (via 'exp disable')
+            - set graph size to 1000 (via 'gr 1000')
+            - resize QuTi viewport to half its current width
+        """
+        import dearpygui.dearpygui as dpg
+
+        parent = self.get_parent()
+        if parent is None:
+            print("[preset] No parent available.")
+            return
+
+        preset_id = (arg or "").strip()
+        if preset_id != "1":
+            print("Usage: preset 1")
+            return
+
+        print("[preset 1] Applying preset…")
+
+        # 1) Disable exp
+        try:
+            self.run("disable exp", record_history=False)
+        except Exception as e:
+            print(f"[preset 1] Failed to disable exposure: {e}")
+
+        # 2) Set graph size to 1000 (uses existing 'gr' handler)
+        try:
+            self.run("gr 1000", record_history=False)
+        except Exception as e:
+            print(f"[preset 1] Failed to set graph size: {e}")
+
+        # 3) Resize QuTi viewport (QUTI_Main_Window) to half width — only if not already half
+        try:
+            curr_w = dpg.get_viewport_client_width()
+            curr_h = dpg.get_viewport_client_height()
+
+            # store original width once
+            if not hasattr(parent, "_preset_full_width"):
+                parent._preset_full_width = curr_w
+
+            full_w = parent._preset_full_width
+            target_w = max(200, int(full_w / 2))
+
+            if curr_w > target_w + 5:  # allow small margin
+                dpg.set_viewport_width(target_w)
+                dpg.set_viewport_height(curr_h)
+                print(f"[preset 1] Resized viewport to width={target_w}, height={curr_h}")
+            else:
+                print("[preset 1] Viewport already at half width → no resize.")
+
+        except Exception as e:
+            print(f"[preset 1] Failed to resize viewport: {e}")
+
+
+        # --- NEW: collapse ProEM camera & Keysight windows ---
+        # replace these tags with your actual window tags if different
+        keysight_tag = parent.keysight_gui.window_tag
+        for tag in ("proem_Win", keysight_tag):
+            try:
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, collapsed=True)
+            except Exception as e:
+                print(f"[preset 1] failed to collapse {tag}: {e}")
+
+        print("[preset 1] Done.")
+    def handle_gen_carrier(self, arg: str = ""):
+        """
+        gen corr idx 0 profile parabola      # full, explicit
+        gen flat                             # short alias, uses recommended params
+        gen flat corr                        # same as 'gen flat'
+        """
+        import shlex, subprocess
+
+        tokens = shlex.split(arg or "")
+        lowered = [t.lower() for t in tokens]
+
+        script = r"C:\WC\HotSystem\generate_carrier_seq_non_uniform.py"
+        cmd = [sys.executable, script]
+
+        # --- Smart preset: 'gen flat' / 'gen flat corr' -------------------------
+        if not tokens or lowered[0] in ("flat", "parabola", "corr0"):
+            # Idea:
+            #   - use correction map as source (idx 0)
+            #   - non-uniform meshes: small step at edges, large step near centre
+            #   - more carriers near edge of pupil to brighten dark rim / smooth hot spots
+
+            # xmesh = (
+            #     "-280:-220:20,"  # dense outer left
+            #     "-220:-120:40,"  # mid-left
+            #     "-120:120:80,"  # coarse around centre
+            #     "120:220:40,"  # mid-right
+            #     "220:280:20"  # dense outer right
+            # )
+            #
+            # ymesh = (
+            #     "-280:-220:20,"  # dense outer left
+            #     "-220:-120:40,"  # mid-left
+            #     "-120:120:80,"  # coarse around centre
+            #     "120:220:40,"  # mid-right
+            #     "220:280:20"  # dense outer right
+            # )
+
+            xmesh = (
+                "-280:-220:30,"  # dense outer left
+                "-220:-120:60,"  # mid-left
+                "-120:120:120,"  # coarse around centre
+                "120:220:60,"  # mid-right
+                "220:280:30"  # dense outer right
+            )
+
+            ymesh = (
+                "-280:-220:30,"  # dense outer left
+                "-220:-120:60,"  # mid-left
+                "-120:120:120,"  # coarse around centre
+                "120:220:60,"  # mid-right
+                "220:280:30"  # dense outer right
+            )
+
+            cmd = (
+                rf'"{sys.executable}" "{script}" '
+                r'--idx 5 '  # use CAL_... corr as phase base
+                r'--profile uniform '  # we override with xmesh/ymesh anyway
+                rf'--xmesh="{xmesh}" '
+                rf'--ymesh="{ymesh}" '
+                r'--seed 1 '  # reproducible shuffle
+            )
+            print("[gen flat] Running:\n ", cmd)
+            subprocess.Popen(cmd, shell=True)
+            return
+        else:
+            # --- Raw pass-through: let you type whatever -----------------------
+            # e.g. gen corr idx 0 profile parabola --xmesh "..." --ymesh "..."
+            # Just prepend '--' to known flags if user wrote them space-separated.
+            i = 0
+            while i < len(tokens):
+                tk = tokens[i]
+                if tk in ("corr", "zero"):
+                    cmd += ["--source", tk]
+                    i += 1; continue
+                if tk == "idx" and i+1 < len(tokens):
+                    cmd += ["--idx", tokens[i+1]]
+                    i += 2; continue
+                if tk == "profile" and i+1 < len(tokens):
+                    cmd += ["--profile", tokens[i+1]]
+                    i += 2; continue
+                if tk == "xmesh" and i+1 < len(tokens):
+                    cmd += ["--xmesh", tokens[i+1]]
+                    i += 2; continue
+                if tk == "ymesh" and i+1 < len(tokens):
+                    cmd += ["--ymesh", tokens[i+1]]
+                    i += 2; continue
+                # fall-through: keep unknown things as-is
+                cmd.append(tk)
+                i += 1
+
+        print("[gen] Running:", " ".join(cmd))
+        try:
+            subprocess.run(cmd, check=True)
+            print("[gen] Done.")
+        except subprocess.CalledProcessError as e:
+            print(f"[gen] Script failed: {e}")
+
 
 
 # Wrapper function

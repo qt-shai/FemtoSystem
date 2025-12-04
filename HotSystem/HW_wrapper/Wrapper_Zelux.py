@@ -187,4 +187,6 @@ class Zelux:
     def SetROI(self, roi = (100, 100, 600, 600)):
         self.camera.roi = roi  # set roi to be at origin point (100, 100) with a width & height of 500
 
+    def GetGain(self):
+        return self.camera.convert_gain_to_decibels(self.camera.gain)
 

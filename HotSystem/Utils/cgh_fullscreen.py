@@ -24,6 +24,8 @@ WATCH_PATH = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"  # Zelux writes here
 SAVE_BMP   = r"C:\WC\HotSystem\Utils\SLM_pattern_iter.bmp"  # S key saves here too
 INDEX_BMP_DIR = r"C:\WC\SLM_bmp"
 CONTROL_STOP_FLAG = r"C:\WC\HotSystem\Utils\cgh_stop.flag"
+CONTROL_RELOAD_FLAG = r"C:\WC\HotSystem\Utils\cgh_reload.flag"
+
 
 # Map shifted number keys to frame indices
 SHIFT_KEY_TO_INDEX = {
@@ -285,16 +287,9 @@ def play_sequence_on_window(
     flip_h=False,
     flip_v=False,
     ignore_keys=None,
-    control_flag_path=None,  # NEW: path to a stop flag file (e.g., CONTROL_STOP_FLAG)
+    control_flag_path=None,
 ):
-    """
-    Plays BMP frames from INDEX_BMP_DIR with 'xxx[ms]' overlay.
-
-    Hot-reloads frame_time_ms while playing.
-    Aborts early if `control_flag_path` exists.
-    """
-    import time
-    import os
+    import time, os
 
     if ignore_keys is None:
         ignore_keys = set()
@@ -302,12 +297,28 @@ def play_sequence_on_window(
     W, H = panel_wh
     params = load_sequence_params(INDEX_BMP_DIR)
     frame_time_ms = float(params["frame_time_ms"])
-    frames = list_sequence_bmps(INDEX_BMP_DIR)
-    if not frames:
+
+    frame_paths = list_sequence_bmps(INDEX_BMP_DIR)
+    if not frame_paths:
         print(f"[Sequence] No *.bmp frames in {INDEX_BMP_DIR}")
         return
 
-    print(f"[Sequence] Playing {len(frames)} frame(s) @ {int(frame_time_ms)} ms each from {INDEX_BMP_DIR}")
+    # -------- PRELOAD ALL FRAMES INTO MEMORY --------
+    preloaded = []
+    for p in frame_paths:
+        try:
+            img = load_u8_noresize(p)
+            if img.shape[::-1] != (W, H):
+                img = cv2.resize(img, (W, H), interpolation=cv2.INTER_NEAREST)
+            preloaded.append(img)
+        except Exception as e:
+            print(f"[Sequence] Skipping '{p}' ({e})")
+    if not preloaded:
+        print("[Sequence] No valid frames after preload.")
+        return
+    # ------------------------------------------------
+
+    print(f"[Sequence] Playing {len(preloaded)} frame(s) @ {int(frame_time_ms)} ms each from {INDEX_BMP_DIR}")
 
     try:
         cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
@@ -317,42 +328,34 @@ def play_sequence_on_window(
     i = 0
     t0 = time.monotonic()
     next_flip = t0
-    last_reload_t = t0  # throttle JSON reloads
+    last_reload_t = t0
 
     while True:
         now = time.monotonic()
 
-        # NEW: abort if an external stop was requested
         if control_flag_path and os.path.exists(control_flag_path):
             print("[Sequence] STOP flag detected → aborting playback now.")
             break
 
-        # hot-reload JSON ~10 Hz
+        # hot-reload JSON ~10 Hz (small cost)
         if now - last_reload_t >= 0.1:
             p = load_sequence_params(INDEX_BMP_DIR)
             frame_time_ms = float(p["frame_time_ms"])
             last_reload_t = now
 
         if now >= next_flip:
-            path = frames[i]
-            try:
-                img = load_u8_noresize(path)
-                if img.shape[::-1] != (W, H):
-                    img = cv2.resize(img, (W, H), interpolation=cv2.INTER_NEAREST)
-                img_disp = overlay_ms_text(img, frame_time_ms)
-                if flip_h: img_disp = cv2.flip(img_disp, 1)
-                if flip_v: img_disp = cv2.flip(img_disp, 0)
-                cv2.imshow(win_name, img_disp)
-            except Exception as e:
-                print(f"[Sequence] Failed to load '{path}': {e}")
+            img = preloaded[i]
+            img_disp = overlay_ms_text(img, frame_time_ms)
+            if flip_h: img_disp = cv2.flip(img_disp, 1)
+            if flip_v: img_disp = cv2.flip(img_disp, 0)
+            cv2.imshow(win_name, img_disp)
 
-            i = (i + 1) % len(frames)
+            i = (i + 1) % len(preloaded)
             ft = max(1.0, frame_time_ms) / 1000.0
             next_flip += ft
             if next_flip < now:
-                next_flip = now + ft  # catch up if we fell behind
+                next_flip = now + ft
 
-        # keep UI responsive
         _ = cv2.waitKey(1)
 
     print("[Sequence] Finished timed playback.")
@@ -540,20 +543,21 @@ def main():
                     st = os.stat(WATCH_PATH)
                     sig = (st.st_mtime, st.st_size)
                     if sig != last_sig:
-                        # retry loop to avoid half-written file
-                        for _ in range(6):  # up to ~0.6s
-                            try:
-                                img_u8 = load_u8_panel(WATCH_PATH, (W, H))
-                                last_sig = sig
-                                last_reload_str = time.strftime('%H:%M:%S')
-                                print(f"[External] Reloaded CGH @ {time.strftime('%H:%M:%S')}  "
-                                      f"(size={st.st_size})")
-                                break
-                            except Exception:
-                                time.sleep(0.1)
+                        try:
+                            # single, non-blocking attempt
+                            img_u8 = load_u8_panel(WATCH_PATH, (W, H))
+                            last_sig = sig
+                            last_reload_str = time.strftime('%H:%M:%S')
+                            print(f"[External] Reloaded CGH @ {last_reload_str} "
+                                  f"(size={st.st_size})")
+                        except Exception as e:
+                            # just log and try again on the next main-loop cycle
+                            print(f"[External] Reload failed once ({e}); "
+                                  "will retry next cycle.")
                 # else: keep showing previous frame
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[External] Watch error: {e}")
+
 
         # Render (with flips)
         show = img_u8
@@ -717,6 +721,20 @@ def main():
                 os.remove(CONTROL_STOP_FLAG)
         except Exception as e:
             print(f"[Control] STOP handling error: {e}")
+
+        # --- NEW: control flag for sequence reload -------------------------------
+        try:
+            if os.path.exists(CONTROL_RELOAD_FLAG):
+                frames = list_sequence_bmps(INDEX_BMP_DIR)
+                cnt, first_idx, last_idx = count_bmps(INDEX_BMP_DIR)
+                playing = False
+                seq_idx = -1
+                current_frame_path = ""
+                print(f"[Control] RELOAD: found {cnt} frame(s) "
+                      f"(indices {first_idx}..{last_idx}).")
+                os.remove(CONTROL_RELOAD_FLAG)
+        except Exception as e:
+            print(f"[Control] RELOAD handling error: {e}")
 
     cv2.destroyAllWindows()
 

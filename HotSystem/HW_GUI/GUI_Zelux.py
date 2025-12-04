@@ -513,7 +513,7 @@ class ZeluxGUI():
         dpg.set_value("chkShowCross", True)
         self.UpdateImage()
 
-    def UpdateGain(sender, app_data, user_data):
+    def UpdateGain(sender, app_data=None, user_data=None):
         # a = dpg.get_value(sender)
         sender.cam.SetGain(user_data)
         time.sleep(0.001)
