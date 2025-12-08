@@ -1319,99 +1319,103 @@ class GUI_OPX():
                     last_dir = f.read().strip().replace("\\", "/").split("/")[-1]
             with dpg.window(label="Scan Window", tag="Scan_Window", no_title_bar=True, height=1600, width=1200,
                             pos=win_pos):
-                with dpg.group(horizontal=True):
-                    # Left side: Scan settings and controls
-                    with dpg.group(tag="Scan_Range", horizontal=False):
-                        with dpg.group(tag="Scan_Parameters", horizontal=False):
-                            with dpg.group(tag="X_Scan_Range", horizontal=True):
-                                dpg.add_checkbox(label="", tag="chkbox_bX_Scan", indent=-1,
-                                                 callback=self.Update_bX_Scan,
-                                                 default_value=self.b_Scan[0])
-                                dpg.add_text(default_value="dx [nm]", tag="text_dx_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_dx_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_dX_Scan,
-                                                  default_value=self.dL_scan[0], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Lx [um]", tag="text_Lx_scan", indent=-1)
-                                dpg.add_input_float(label="", tag="inInt_Lx_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_Lx_Scan,
-                                                  default_value=self.L_scan[0]/1000, min_value=0, max_value=500000, step=1)
+                # 🔽 NEW: collapsing header for all scan controls
+                with dpg.collapsing_header(label="Scan Controls",
+                                           tag="Scan_Controls_Header",
+                                           default_open=True):
+                    with dpg.group(horizontal=True):
+                        # Left side: Scan settings and controls
+                        with dpg.group(tag="Scan_Range", horizontal=False):
+                            with dpg.group(tag="Scan_Parameters", horizontal=False):
+                                with dpg.group(tag="X_Scan_Range", horizontal=True):
+                                    dpg.add_checkbox(label="", tag="chkbox_bX_Scan", indent=-1,
+                                                     callback=self.Update_bX_Scan,
+                                                     default_value=self.b_Scan[0])
+                                    dpg.add_text(default_value="dx [nm]", tag="text_dx_scan", indent=-1)
+                                    dpg.add_input_int(label="", tag="inInt_dx_scan", indent=-1, width=item_width,
+                                                      callback=self.Update_dX_Scan,
+                                                      default_value=self.dL_scan[0], min_value=0, max_value=500000, step=1)
+                                    dpg.add_text(default_value="Lx [um]", tag="text_Lx_scan", indent=-1)
+                                    dpg.add_input_float(label="", tag="inInt_Lx_scan", indent=-1, width=item_width,
+                                                      callback=self.Update_Lx_Scan,
+                                                      default_value=self.L_scan[0]/1000, min_value=0, max_value=500000, step=1)
 
-                            with dpg.group(tag="Y_Scan_Range", horizontal=True):
-                                dpg.add_checkbox(label="", tag="chkbox_bY_Scan", indent=-1,
-                                                 callback=self.Update_bY_Scan,
-                                                 default_value=self.b_Scan[1])
-                                dpg.add_text(default_value="dy [nm]", tag="text_dy_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_dy_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_dY_Scan,
-                                                  default_value=self.dL_scan[1], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Ly [um]", tag="text_Ly_scan", indent=-1)
-                                dpg.add_input_float(label="", tag="inInt_Ly_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_Ly_Scan,
-                                                  default_value=self.L_scan[1]/1000, min_value=0, max_value=500000, step=1)
+                                with dpg.group(tag="Y_Scan_Range", horizontal=True):
+                                    dpg.add_checkbox(label="", tag="chkbox_bY_Scan", indent=-1,
+                                                     callback=self.Update_bY_Scan,
+                                                     default_value=self.b_Scan[1])
+                                    dpg.add_text(default_value="dy [nm]", tag="text_dy_scan", indent=-1)
+                                    dpg.add_input_int(label="", tag="inInt_dy_scan", indent=-1, width=item_width,
+                                                      callback=self.Update_dY_Scan,
+                                                      default_value=self.dL_scan[1], min_value=0, max_value=500000, step=1)
+                                    dpg.add_text(default_value="Ly [um]", tag="text_Ly_scan", indent=-1)
+                                    dpg.add_input_float(label="", tag="inInt_Ly_scan", indent=-1, width=item_width,
+                                                      callback=self.Update_Ly_Scan,
+                                                      default_value=self.L_scan[1]/1000, min_value=0, max_value=500000, step=1)
 
-                            with dpg.group(tag="Z_Scan_Range", horizontal=True):
-                                dpg.add_checkbox(label="", tag="chkbox_bZ_Scan", indent=-1,
-                                                 callback=self.Update_bZ_Scan,
-                                                 default_value=self.b_Scan[2])
-                                dpg.add_text(default_value="dz [nm]", tag="text_dz_scan", indent=-1)
-                                dpg.add_input_int(label="", tag="inInt_dz_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_dZ_Scan,
-                                                  default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
-                                dpg.add_text(default_value="Lz [um]", tag="text_Lz_scan", indent=-1)
-                                dpg.add_input_float(label="", tag="inInt_Lz_scan", indent=-1, width=item_width,
-                                                  callback=self.Update_Lz_Scan,
-                                                  default_value=self.L_scan[2]/1000, min_value=0, max_value=500000, step=1)
+                                with dpg.group(tag="Z_Scan_Range", horizontal=True):
+                                    dpg.add_checkbox(label="", tag="chkbox_bZ_Scan", indent=-1,
+                                                     callback=self.Update_bZ_Scan,
+                                                     default_value=self.b_Scan[2])
+                                    dpg.add_text(default_value="dz [nm]", tag="text_dz_scan", indent=-1)
+                                    dpg.add_input_int(label="", tag="inInt_dz_scan", indent=-1, width=item_width,
+                                                      callback=self.Update_dZ_Scan,
+                                                      default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
+                                    dpg.add_text(default_value="Lz [um]", tag="text_Lz_scan", indent=-1)
+                                    dpg.add_input_float(label="", tag="inInt_Lz_scan", indent=-1, width=item_width,
+                                                      callback=self.Update_Lz_Scan,
+                                                      default_value=self.L_scan[2]/1000, min_value=0, max_value=500000, step=1)
 
-                            with dpg.group(horizontal=True):
-                                dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=300,
-                                                   callback=self.saveExperimentsNotes, default_value=self.expNotes)
-                                dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
-                                                 callback=self.Update_bZcorrection,
-                                                 default_value=self.b_Zcorrection)
-                                dpg.add_text(default_value="Z", tag="text_Zcorrection", indent=-1)
-                                dpg.add_input_int(label="Limit", tag="inInt_limit", indent=-1, width=item_width*.8,
-                                                  default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
+                                with dpg.group(horizontal=True):
+                                    dpg.add_input_text(label="Notes", tag="inTxtScan_expText", indent=-1, width=300,
+                                                       callback=self.saveExperimentsNotes, default_value=self.expNotes)
+                                    dpg.add_checkbox(label="", tag="chkbox_Zcorrection", indent=-1,
+                                                     callback=self.Update_bZcorrection,
+                                                     default_value=self.b_Zcorrection)
+                                    dpg.add_text(default_value="Z", tag="text_Zcorrection", indent=-1)
+                                    dpg.add_input_int(label="Limit", tag="inInt_limit", indent=-1, width=item_width*.8,
+                                                      default_value=self.dL_scan[2], min_value=0, max_value=500000, step=1)
 
-                            dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
-                                         tag="text_expectedScanTime",
-                                         indent=-1)
+                                dpg.add_text(default_value=f"~scan time: {self.format_time(scan_time_in_seconds)}",
+                                             tag="text_expectedScanTime",
+                                             indent=-1)
 
-                            with dpg.group(horizontal=True):
-                                dpg.add_text(label="Message: ", tag="Scan_Message")
+                                with dpg.group(horizontal=True):
+                                    dpg.add_text(label="Message: ", tag="Scan_Message")
 
-                    with dpg.group(tag="start_Scan_btngroup", horizontal=False):
-                        dpg.add_button(label="Start Scan", tag="btnOPX_StartScan", callback=self.btnStartScan,
-                                       indent=-1, width=130)
-                        dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
-                        dpg.add_button(label="Load Scan", tag="btnOPX_LoadScan", callback=self.btnLoadScan, indent=-1,
-                                       width=130)
-                        dpg.bind_item_theme(item="btnOPX_LoadScan", theme="btnGreenTheme")
-                        dpg.add_button(label="Update images", tag="btnOPX_UpdateImages", callback=self.btnUpdateImages,
-                                       indent=1, width=130)
-                        dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
-                        dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
-                        dpg.add_input_text(label="", tag="MoveSubfolderInput", width=130, default_value=last_dir)
-                        dpg.add_button(label="Mv File", callback=self.move_last_saved_files)
-                    _width = 150
-                    with dpg.group(horizontal=False):
-                        dpg.add_input_float(label="AnnTH", tag="femto_anneal_threshold", default_value=800, width=_width)
-                        dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=10,width=_width,callback=lambda s, a, u: self.pharos.setBasicTargetAttenuatorPercentage(dpg.get_value(s)))
-                        dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
-                        dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=1, width=_width)
-                        dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0.01, width=_width)
-                        dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=100, width=_width)
-                    _width = 100
-                    with dpg.group(horizontal=False):
-                        dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
-                                         default_value=self.limit)
-                        dpg.add_button(label="Fill Z", callback=self.fill_z)
-                        dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
-                        dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
-                        dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
-                        dpg.add_button(label="Galvo Sc", callback=self.btnStartGalvoScan)
-                    # Schedule the call to happen after 1 frame
-                    self.delayed_actions()
-                    # dpg.set_frame_callback(dpg.get_frame_count() + 1, self.delayed_actions)
+                        with dpg.group(tag="start_Scan_btngroup", horizontal=False):
+                            dpg.add_button(label="Start Scan", tag="btnOPX_StartScan", callback=self.btnStartScan,
+                                           indent=-1, width=130)
+                            dpg.bind_item_theme(item="btnOPX_StartScan", theme="btnYellowTheme")
+                            dpg.add_button(label="Load Scan", tag="btnOPX_LoadScan", callback=self.btnLoadScan, indent=-1,
+                                           width=130)
+                            dpg.bind_item_theme(item="btnOPX_LoadScan", theme="btnGreenTheme")
+                            dpg.add_button(label="Update images", tag="btnOPX_UpdateImages", callback=self.btnUpdateImages,
+                                           indent=1, width=130)
+                            dpg.bind_item_theme(item="btnOPX_UpdateImages", theme="btnGreenTheme")
+                            dpg.add_button(label="Femto Pls", tag="btnOPX_Femto_Pulses", callback=self.btnFemtoPulses, indent=-1, width=130)
+                            dpg.add_input_text(label="", tag="MoveSubfolderInput", width=130, default_value=last_dir)
+                            dpg.add_button(label="Mv File", callback=self.move_last_saved_files)
+                        _width = 150
+                        with dpg.group(horizontal=False):
+                            dpg.add_input_float(label="AnnTH", tag="femto_anneal_threshold", default_value=800, width=_width)
+                            dpg.add_input_int(label="Att",tag="femto_attenuator",default_value=10,width=_width,callback=lambda s, a, u: self.pharos.setBasicTargetAttenuatorPercentage(dpg.get_value(s)))
+                            dpg.add_input_int(label="AttInc", tag="femto_increment_att",default_value=0,width=_width)
+                            dpg.add_input_float(label="HWPInc", tag="femto_increment_hwp", default_value=1, width=_width)
+                            dpg.add_input_float(label="HWPAnn", tag="femto_increment_hwp_anneal", default_value=0.01, width=_width)
+                            dpg.add_input_int(label="nPlsAnn", tag="femto_anneal_pulse_count", default_value=100, width=_width)
+                        _width = 100
+                        with dpg.group(horizontal=False):
+                            dpg.add_checkbox(label="Limit", indent=-1, tag="checkbox_limit", callback=self.toggle_limit,
+                                             default_value=self.limit)
+                            dpg.add_button(label="Fill Z", callback=self.fill_z)
+                            dpg.add_button(label="Fill Max", callback=self.set_moveabs_to_max_intensity)
+                            dpg.add_button(label="Fill Qry", callback=self.fill_moveabs_from_query)
+                            dpg.add_button(label="Fill Cnt", callback=self.fill_moveabs_with_picture_center)
+                            dpg.add_button(label="Galvo Sc", callback=self.btnStartGalvoScan)
+                        # Schedule the call to happen after 1 frame
+                        self.delayed_actions()
+                        # dpg.set_frame_callback(dpg.get_frame_count() + 1, self.delayed_actions)
 
             self.hide_legend()
         else:
@@ -1792,7 +1796,7 @@ class GUI_OPX():
                                     parent="texture_reg")
 
             # Plot scan
-            dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
+            dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Controls_Header")
 
             # XY plot
             dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
@@ -1920,7 +1924,7 @@ class GUI_OPX():
 
         try:
             # Plot scan
-            dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Window")
+            dpg.add_group(horizontal=True, tag="scan_group", parent="Scan_Controls_Header")
             dpg.add_plot(parent="scan_group", tag="plotImaga", width=plot_size[0], height=plot_size[1],
                          equal_aspects=True, crosshairs=True,query=True, callback=self.queryXY_callback)
             z_label = f"x axis [um]{f' @ Z={current_z:.1f} µm' if current_z is not None else ''}"
@@ -9961,30 +9965,6 @@ class GUI_OPX():
             self.save_to_cvs(fileName + ".csv", RawData_to_save)
             print(f"CSV file saved to {fileName}.csv")
             self._last_saved_file = fileName + ".csv"
-
-            # save data as image (using matplotlib)
-            # if folder is None and self.exp != Experiment.TIME_BIN_ENTANGLEMENT:
-            #     width = 1920  # Set the width of the image
-            #     height = 1080  # Set the height of the image
-            #     # Create a blank figure with the specified width and height, Convert width and height to inches
-            #     fig, ax = plt.subplots(figsize=(width / 100, height / 100), visible=True)
-            #     plt.plot(self.X_vec, self.Y_vec, label='data')  # Plot Y_vec
-            #     plt.plot(self.X_vec, self.Y_vec_ref, label='ref')  # Plot reference
-            #
-            #     # Adjust axes limits (optional)
-            #     # ax.set_xlim(0, 10)
-            #     # ax.set_ylim(-1, 1)
-            #
-            #     # Add legend
-            #     plt.legend()
-            #
-            #     # Save the figure as a PNG file
-            #     plt.savefig(fileName + '.png', format='png', dpi=300, bbox_inches='tight')
-            #     print(f"Figure saved to {fileName}.png")
-            #     # close figure
-            #     plt.close(fig)
-            #
-            #     dpg.set_value("inTxtOPX_expText", "data saved to: " + fileName + ".csv")
 
         except Exception as ex:
             self.error = (

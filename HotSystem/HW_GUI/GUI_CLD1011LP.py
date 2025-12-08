@@ -45,10 +45,10 @@ class GUI_CLD1011LP():
         dpg.add_text(parent="cld1011lp info", default_value="Modulation ---",  tag="cld1011lp Laser Modulation")
         dpg.add_text(parent="cld1011lp info", default_value="Mode ---",        tag="cld1011lp Laser Mode")
 
-        dpg.add_text(parent="cld1011lp parameters", default_value="Laser parameters", color=(255, 255, 0))
-        dpg.add_input_float(parent="cld1011lp parameters", label="Set current(mA)", default_value=0,
+        dpg.add_text(parent="cld1011lp info", default_value="Laser parameters", color=(255, 255, 0))
+        dpg.add_input_float(parent="cld1011lp info", label="Set I(mA)", default_value=0,
                             callback=self.set_current, tag="cld1011lp current_input",
-                            format='%.3f', width=200, min_value=0, max_value=250)
+                            format='%.3f', width=130, min_value=0, max_value=250)
 
         # initial populate
         self.refresh_info()

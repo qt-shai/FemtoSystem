@@ -462,7 +462,9 @@ class CommandDispatcher:
             "copy":              self.handle_copy,
             "addmap":            self.handle_add_map,
             "preset":            self.handle_preset,
-
+            "cld":               self.handle_cld,
+            "red":               self.handle_cld,
+            "scan":              self.handle_scan,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -9017,6 +9019,113 @@ class CommandDispatcher:
             print(f"[coup] copy: done for chip '{chip_name_raw}' → '{chip_dir}'")
             return True
 
+        # --- coup cut [state] [chip_name]: copy map/sb/state, move (cut) TIFs to chip folder ---
+        if sub == "cut":
+            import shutil
+
+            # default: process tifs (unless state-only)
+            move_tifs = True
+
+            # parse optional 'state' token (we accept it as the next token after 'cut')
+            arg_idx = 1
+            if len(tokens) >= 2 and tokens[1].lower() == "state":
+                move_tifs = False
+                arg_idx = 2
+
+            # determine chip name (remaining tokens) or use stored
+            if len(tokens) > arg_idx:
+                chip_name_raw = " ".join(tokens[arg_idx:]).strip().strip('"').strip("'")
+            else:
+                chip_name_raw = str(getattr(self, "_chip_name", "") or "").strip()
+
+            if not chip_name_raw:
+                print("[coup] cut: chip name not set. Use 'chip name <name>' or 'coup cut [state] <name>'.")
+                return False
+
+            # sanitize for folder name
+            safe_chip = re.sub(r'[^A-Za-z0-9_.\- ]+', "_", chip_name_raw)
+
+            base_out = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations"
+            chip_dir = os.path.join(base_out, safe_chip)
+            tif_dir = os.path.join(chip_dir, "tif_files")
+
+            try:
+                os.makedirs(chip_dir, exist_ok=True)
+                if move_tifs:
+                    os.makedirs(tif_dir, exist_ok=True)
+            except Exception as e:
+                print(f"[coup] cut: failed to create output dirs: {e}")
+                return False
+
+            print(f"[coup] cut: target folder = '{chip_dir}' "
+                  f"({'state-only, no TIFs' if not move_tifs else 'moving TIFs into tif_files'})")
+
+            # 3) Figure out where coup_state.json + my_next.json live
+            try:
+                state_path = _get_coup_state_path()  # e.g. C:\WC\HotSystem\Utils\macro\coup_state.json
+                state_dir = os.path.dirname(state_path)
+            except Exception:
+                # Fallback to old behavior if something weird happens
+                state_dir = r"C:\WC\HotSystem\Utils\macro"
+                state_path = os.path.join(state_dir, "coup_state.json")
+
+            my_next_path = os.path.join(state_dir, "my_next.json")
+
+            # 4) Copy fixed files
+            fixed_sources = [
+                r"C:\WC\HotSystem\map.jpg",
+                r"C:\WC\HotSystem\Utils\macro\sb.py",
+                state_path,  # coup_state.json from its real location
+                r"C:\WC\SLM_bmp\Calib\Averaged_calibration.tif",
+                r"C:\WC\HotSystem\Utils\map_calibration.json",
+            ]
+
+            # Add my_next.json *from the same folder as coup_state.json* if it exists
+            if os.path.isfile(my_next_path):
+                fixed_sources.append(my_next_path)
+
+            for src in fixed_sources:
+                try:
+                    if not os.path.isfile(src):
+                        print(f"[coup] cut: missing file (skipped): {src}")
+                        continue
+                    dst = os.path.join(chip_dir, os.path.basename(src))
+                    shutil.copy2(src, dst)
+                    print(f"[coup] cut: {src} -> {dst}")
+                except Exception as e:
+                    print(f"[coup] cut: failed to copy '{src}': {e}")
+
+            # 5) Optionally move (cut) all TIF files
+            if move_tifs:
+                tif_src_dir = r"C:\Users\Femto\Work Folders\Documents\LightField"
+                if not os.path.isdir(tif_src_dir):
+                    print(f"[coup] cut: TIF source directory not found: '{tif_src_dir}'")
+                    return False
+
+                moved_count = 0
+                try:
+                    for name in os.listdir(tif_src_dir):
+                        if not name.lower().endswith(".tif"):
+                            continue
+                        src = os.path.join(tif_src_dir, name)
+                        if not os.path.isfile(src):
+                            continue
+                        dst = os.path.join(tif_dir, name)
+                        try:
+                            # move (cut) the tif file into destination
+                            shutil.move(src, dst)
+                            moved_count += 1
+                            print(f"[coup] cut: moved tif: {src} -> {dst}")
+                        except Exception as e:
+                            print(f"[coup] cut: failed to move TIF '{src}': {e}")
+                    print(f"[coup] cut: moved {moved_count} TIF file(s) to '{tif_dir}'.")
+                except Exception as e:
+                    print(f"[coup] cut: error while scanning TIF directory: {e}")
+                    return False
+
+            print(f"[coup] cut: done for chip '{chip_name_raw}' → '{chip_dir}'")
+            return True
+
         # --- coup clear / coup clear <label> ---
         if sub == "clear":
             # No argument → clear all coupon labels
@@ -11324,60 +11433,59 @@ class CommandDispatcher:
     def handle_chip(self, *args):
         """
         chip commands:
-            chip name <the name>   -> set chip_name and save it
-            chip name?             -> print the currently stored chip name
+            chip name <the name>
+                - set the chip name and save it
+            chip name?
+                - show current chip name
+            chip folder
+                - open the windows explorer folder for the current chip:
+                  Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations\<chip name>
         """
         import shlex
-        # Join dispatcher args
-        text = " ".join(str(a) for a in args).strip()
-        # If user typed exactly:  chip name?
-        if text.lower() == "name?":
+        import os
+        from pathlib import Path
+        import subprocess
+
+        base_folder = Path(
+            r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations"
+        )
+
+        # join args
+        text = " ".join(str(a) for a in args).strip().lower()
+
+        # -----------------------------------------
+        # NEW COMMAND: chip folder
+        # -----------------------------------------
+        if text == "folder":
+            chip_name = getattr(self, "_chip_name", "")
+            if not chip_name:
+                print("[chip] no chip selected. use: chip name <chipname>")
+                return False
+
+            chip_folder = base_folder / chip_name
+            try:
+                chip_folder.mkdir(parents=True, exist_ok=True)
+                if hasattr(os, "startfile"):
+                    os.startfile(str(chip_folder))
+                else:
+                    subprocess.run(["explorer", str(chip_folder)], check=False)
+                print(f"[chip] opened folder: {chip_folder}")
+            except Exception as e:
+                print(f"[chip] failed to open folder: {e}")
+            return True
+        # -----------------------------------------
+
+        # original name? handling
+        if text == "name?":
             name = getattr(self, "_chip_name", "")
             if name:
                 print(f"[chip] name = '{name}'")
             else:
                 print("[chip] name not set.")
             return True
-        # No args or incomplete
-        if not text:
-            print("Usage:")
-            print("  chip name <chip-name>")
-            print("  chip name?         # show current chip name")
-            return False
-        # Tokenize
-        try:
-            tokens = shlex.split(text)
-        except Exception:
-            tokens = text.split()
-        if not tokens:
-            print("Usage: chip name <chip-name>")
-            return False
-        sub = tokens[0].lower()
-        # Wrong subcommand
-        if sub != "name":
-            print("Usage:")
-            print("  chip name <chip-name>")
-            print("  chip name?")
-            return False
-        # Handle plain: chip name?
-        if len(tokens) == 1:
-            print("Usage: chip name <chip-name>   or   chip name?")
-            return False
-        # SET MODE (chip name <name...>)
-        name = " ".join(tokens[1:]).strip()
-        if not name:
-            print("[chip] empty chip name not allowed.")
-            return False
-        # Store chip name
-        self._chip_name = name
-        print(f"[chip] name set to '{name}'")
-        # Persist via coup save
-        try:
-            self.handle_coup("save")
-        except Exception as e:
-            print(f"[chip] warning: failed to save coup state after setting name: {e}")
-            return False
-        return True
+
+        # fall through to existing name-setting code
+        # (keep the rest of your original implementation here)
     def handle_coupon(self, arg: str = ""):
         """
         coupon name <name>        -> save current coordinates with label <name>
@@ -12222,6 +12330,83 @@ class CommandDispatcher:
 
         except Exception as e:
             print(f"add map failed: {e}")
+    def preset_1_minimal_zelux_ui(self):
+        """
+        Hide all Zelux controls except:
+            • Live button (btnStartLive / btnStopLive)
+            • Exposure slider (slideExposure)
+            • Gain slider (slideGain)
+            • Any tag whose name starts with 'on_off_slider_'
+        All ancestors (parent groups) of these items are also kept visible.
+        """
+
+        import dearpygui.dearpygui as dpg
+
+        ROOT = "groupZeluxControls"
+
+        # Tags we always want visible
+        KEEP_EXACT = {
+            "btnStartLive",
+            "btnStopLive",
+            "slideExposure",
+            "slideGain",
+        }
+
+        if not dpg.does_item_exist(ROOT):
+            print("[preset] groupZeluxControls not found")
+            return
+
+        # --- Collect all descendants of ROOT ---
+        def collect_items(parent_id):
+            items = []
+            children = dpg.get_item_children(parent_id, 1)  # slot 1 = regular children
+            if children:
+                for c in children:
+                    items.append(c)
+                    items.extend(collect_items(c))
+            return items
+
+        all_items = collect_items(ROOT)
+
+        # --- Find "keep" items (by tag/alias) ---
+        keep_items = set()
+        for item in all_items:
+            alias = dpg.get_item_alias(item)
+            tag = alias if alias not in (None, "") else str(item)
+
+            if tag in KEEP_EXACT or tag.startswith("on_off_slider_"):
+                keep_items.add(item)
+
+        # --- Also keep all ancestors of those keep items ---
+        keep_and_ancestors = set(keep_items)
+        for item in list(keep_items):
+            parent = dpg.get_item_parent(item)
+            while parent not in (None, 0):
+                keep_and_ancestors.add(parent)
+                parent = dpg.get_item_parent(parent)
+
+        # --- Now hide everything under ROOT that is NOT in keep_and_ancestors ---
+        for item in all_items:
+            if item in keep_and_ancestors:
+                try:
+                    dpg.show_item(item)
+                except Exception:
+                    pass
+                continue
+
+            alias = dpg.get_item_alias(item)
+            tag = alias if alias not in (None, "") else str(item)
+
+            # Safety: don't touch ROOT itself
+            if tag == ROOT:
+                continue
+
+            try:
+                dpg.hide_item(item)
+            except Exception as e:
+                print(f"[preset] failed to hide {tag}: {e}")
+
+        print("[preset] Minimal Zelux UI applied (Live + Exp + G + on_off_slider_*).")
     def handle_preset(self, arg: str = ""):
         """
         preset 1
@@ -12229,7 +12414,6 @@ class CommandDispatcher:
             - set graph size to 1000 (via 'gr 1000')
             - resize QuTi viewport to half its current width
         """
-        import dearpygui.dearpygui as dpg
 
         parent = self.get_parent()
         if parent is None:
@@ -12289,6 +12473,37 @@ class CommandDispatcher:
                     dpg.configure_item(tag, collapsed=True)
             except Exception as e:
                 print(f"[preset 1] failed to collapse {tag}: {e}")
+
+        # 5) Collapse the scan & parameter controls headers (Scan_Controls_Header)
+        try:
+            scan_header_tag = "Scan_Controls_Header"
+
+            if dpg.does_item_exist(scan_header_tag):
+                dpg.set_value(scan_header_tag, False)  # ← THIS IS THE CORRECT METHOD
+                print("[preset 1] Collapsed scan controls header.")
+            else:
+                print("[preset 1] Scan header not found.")
+        except Exception as e:
+            print(f"[preset 1] Failed to collapse scan header: {e}")#
+
+        self.handle_scan("off")
+        try:
+            header_tag = "Parameter_Controls_Header"
+
+            if dpg.does_item_exist(header_tag):
+                dpg.set_value(header_tag, False)  # ← THIS IS THE CORRECT METHOD
+                print("[preset 1] Collapsed scan controls header.")
+            else:
+                print("[preset 1] Scan header not found.")
+        except Exception as e:
+            print(f"[preset 1] Failed to collapse scan header: {e}")
+
+        try:
+            if hasattr(parent, "cam"):
+                self.preset_1_minimal_zelux_ui()
+                print("[preset 1] Zelux UI minimized.")
+        except Exception as e:
+            print(f"[preset 1] Failed to minimize Zelux UI: {e}")
 
         print("[preset 1] Done.")
     def handle_gen_carrier(self, arg: str = ""):
@@ -12387,7 +12602,122 @@ class CommandDispatcher:
             print("[gen] Done.")
         except subprocess.CalledProcessError as e:
             print(f"[gen] Script failed: {e}")
+    def handle_cld(self, arg: str = ""):
 
+        """
+        cld <mA>  -> set CLD current in mA  (0–250)
+        cld on    -> turn laser ON
+        cld off   -> turn laser OFF
+        """
+        gui = self.get_parent().cld1011lp_gui
+        if gui is None:
+            return
+
+        s = (arg or "").strip().lower()
+        if not s:
+            print("Usage: cld <mA>|on|off")
+            return
+
+        # ---- ON / OFF -------------------------------------------------
+        if s in ("on", "off"):
+            try:
+                is_on = gui._lasing_is_on()
+            except Exception:
+                is_on = None
+
+            try:
+                if s == "on":
+                    if not is_on:
+                        gui.laser.enable_laser()
+                    else:
+                        print("CLD: laser already ON")
+                else:  # "off"
+                    if is_on:
+                        gui.laser.disable_laser()
+                    else:
+                        print("CLD: laser already OFF")
+            except Exception as e:
+                print(f"CLD: failed to switch laser {s}: {e}")
+            finally:
+                # keep GUI in sync
+                gui.verify_connection()
+                gui.refresh_info()
+                gui.update_laser_button_label()
+            return
+
+        # ---- numeric current (mA) ------------------------------------
+        try:
+            val = float(s)
+        except ValueError:
+            print("CLD: argument must be 'on', 'off', or a numeric mA value.")
+            return
+
+        if not (0.0 <= val <= 250.0):
+            print("CLD: current out of range (0–250 mA).")
+            return
+
+        try:
+            gui.laser.set_current(val)
+            # update GUI read-back
+            gui.on_get_current()
+            dpg.set_value("cld1011lp current_input",val)
+            print(f"CLD: set laser current to {val} mA")
+        except Exception as e:
+            print(f"CLD: failed to set current: {e}")
+    def handle_scan(self, arg: str = ""):
+        """
+        scan       -> enable scan, show & bring Scan_Window to front
+        scan off   -> disable scan, close Scan_Window
+        """
+        import dearpygui.dearpygui as dpg
+
+        parent = self.get_parent()
+        if parent is None:
+            print("[scan] No parent available.")
+            return
+
+        # 🔧 adjust this if your OPX GUI attribute has a different name
+        gui = getattr(parent, "opx", None)
+        if gui is None:
+            print("[scan] No OPX GUI on parent (expected parent.opx).")
+            return
+
+        arg = (arg or "").strip().lower()
+
+        if arg in ("", "on"):
+            # 1) logical state
+            gui.bScanChkbox = True
+
+            # 2) sync checkbox if it exists
+            if dpg.does_item_exist("chkbox_scan"):
+                dpg.set_value("chkbox_scan", True)
+
+            # 3) make sure Scan_Window exists (your function already guards duplicates)
+            gui.GUI_ScanControls()
+
+            # 4) bring Scan_Window to the front
+            if dpg.does_item_exist("Scan_Window"):
+                try:
+                    dpg.show_item("Scan_Window")  # in case it was hidden
+                    dpg.focus_item("Scan_Window")  # bring to front / give focus
+                except Exception as e:
+                    print(f"[scan] Failed to focus Scan_Window: {e}")
+            else:
+                print("[scan] Scan_Window does not exist after GUI_ScanControls().")
+
+        elif arg == "off":
+            gui.bScanChkbox = False
+            if dpg.does_item_exist("chkbox_scan"):
+                dpg.set_value("chkbox_scan", False)
+
+            if dpg.does_item_exist("Scan_Window"):
+                try:
+                    dpg.delete_item("Scan_Window")
+                except Exception as e:
+                    print(f"[scan] Failed to delete Scan_Window: {e}")
+
+        else:
+            print("Usage: scan   or   scan off")
 
 
 # Wrapper function
