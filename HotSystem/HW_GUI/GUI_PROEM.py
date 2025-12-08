@@ -53,8 +53,8 @@ class GUI_PROEM(GUI_HRS500):
         with dpg.window(
                 label=(title or "Spectrometer (ProEM)"),
                 no_title_bar=False,
-                height=140,
-                width=360,
+                height=40,
+                width=160,
                 pos=[100, 100],
                 collapsed=False,
                 tag=self.window_tag,
