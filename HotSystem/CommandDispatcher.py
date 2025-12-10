@@ -54,7 +54,6 @@ from PIL import Image, ImageDraw
 import pythoncom
 import win32com.client
 
-
 # Textbox: Alt + n X
 # Font color: Alt + H F C
 # Paste as pic: Alt + H V U
@@ -298,6 +297,7 @@ class CommandDispatcher:
         self.handlers = {
             # simple commands
             "a":                 self.handle_add_slide,
+            "addtif":            self.handle_add_tif,
             "ax":                self.handle_toggle_ax,
             "c":                 self.handle_copy_window,
             "cc":                self.handle_screenshot_delayed,
@@ -343,7 +343,7 @@ class CommandDispatcher:
             "gen list":          self.handle_generate_list,
             "genlist":           self.handle_generate_list,
             "spc":               self.handle_acquire_spectrum,
-            "hrs_spc":           self.handle_hrs,
+            "hr":                self.handle_hrs,
             "msg":               self.handle_message,
             "msgclear":          self.handle_message_clear,
             "st":                self.handle_set_xyz,
@@ -1865,8 +1865,8 @@ class CommandDispatcher:
                     if hasattr(cam, "LiveTh") and cam.LiveTh is not None:
                         cam.StopLive();  print("Camera stopped.")
             for flipper in getattr(p, "mff_101_gui", []):
-                if flipper.serial_number[-2:] == '32':
-                    print("Skipping M32 flipper toggle")
+                if flipper.serial_number[-2:] in ('32','55'):
+                    print("Skipping M32 & M55 flipper toggle")
                     continue
                 tag = f"on_off_slider_{flipper.unique_id}"
                 pos = flipper.dev.get_position()
@@ -3411,10 +3411,18 @@ class CommandDispatcher:
         except Exception as e:
             print(f"genlist failed: {e}")
     def handle_hrs(self, arg: str):
-        p = self.get_parent()
-        a = (arg or "").strip().lower()
+        """
+        HRS command.
 
-        if a == "local":
+        - 'hrs local' : set the HRS "Save In" folder to the local LightField dir.
+        - 'hrs ...'   : behave like 'spc ...' but force using parent.hrs_500_gui.
+                        e.g. 'hrs 3' == 'spc hrs 3'
+        """
+        p = self.get_parent()
+        a = (arg or "").strip()
+
+        # --- existing behavior: 'hrs local' sets save directory ---
+        if a.lower() == "local":
             target = r"C:\Users\Femto\Work Folders\Documents\LightField"
             try:
                 dev = getattr(p.hrs_500_gui, "dev", None)
@@ -3424,10 +3432,12 @@ class CommandDispatcher:
                     return
 
                 # wait out any UI updating before SetValue
+                import time
                 while getattr(exp, "IsUpdating", False):
                     time.sleep(0.05)
 
                 # this is the “Save In” directory
+                from some_module import ExperimentSettings  # adjust import as in your real code
                 exp.SetValue(ExperimentSettings.FileNameGenerationDirectory, target)
 
                 dev.save_directory = target
@@ -3436,7 +3446,13 @@ class CommandDispatcher:
                 print(f"Failed to set Save In folder: {e}")
             return
 
-        print(f"Unknown hrs command: {arg!r}")
+        # --- NEW: everything else delegates to the threaded SPC logic, forcing HRS ---
+        # This leverages handle_acquire_spectrum() which already:
+        #   - sets _spc_running / _spc_done_evt
+        #   - spawns a background thread calling _acquire_spectrum_worker(...)
+        #   - and _acquire_spectrum_worker() respects a leading "hrs" token
+        arg_for_spc = f"hrs {a}".strip()  # -> "hrs" or "hrs 3", "hrs n=3 t=2", etc.
+        self.handle_acquire_spectrum(arg_for_spc)
     def handle_acquire_spectrum(self, arg):
         """Launch threaded spectrum acquisition process.
         Usage: spc [st] [exposure_s]
@@ -3451,6 +3467,7 @@ class CommandDispatcher:
 
           spc note <text>  Remember a note; it will be appended to every filename until cleared.
           spc note clear   Clear the persistent note.
+          spc red ...       Acquire **without** running 'cn' / opening the counter window.
 
         Notes:
           • Exposure time is given in seconds (float).
@@ -3498,8 +3515,19 @@ class CommandDispatcher:
             return
         # --- end NEW ---
 
+        # --- NEW: special case "spc red ..." ---
+        # If first token is "red", do NOT run "cn" (no counter window)
+        tokens = _arg.split()
+        is_red = bool(tokens and tokens[0].lower() == "red")
+        if is_red:
+            # drop the leading "red" before passing args to the worker
+            arg_clean = " ".join(tokens[1:]).strip()
+        else:
+            arg_clean = _arg
 
-        run("cn")
+        # --- old behavior: open counter only if not 'red' ---
+        if not is_red:
+            run("cn")
 
         # --- make sure the event exists and running flag is set ---
         if not isinstance(getattr(self, "_spc_done_evt", None), __import__("threading").Event):
@@ -6499,7 +6527,7 @@ class CommandDispatcher:
             label = "V"
 
         try:
-            ky_ratio = float(parts[1]) if len(parts) == 2 else gui.ky_ratio
+            ky_ratio = float(parts[1]) if len(parts) == 2 else gui.k
         except ValueError:
             print("Invalid ratio:", parts[1])
             return
@@ -12718,6 +12746,47 @@ class CommandDispatcher:
 
         else:
             print("Usage: scan   or   scan off")
+
+    def handle_add_tif(self, arg):
+        """
+        Command:
+            addtif
+            addtif map
+        Runs run_addtif.py in a subprocess.
+        """
+
+        script = Path(__file__).parent / "Utils" / "run_addtif.py"
+
+        # ----------------------------
+        # Case 1: "addtif" (no map)
+        # ----------------------------
+        if not arg or arg.strip() == "":
+            cmd = [sys.executable, "-u", str(script)]
+
+        # ----------------------------
+        # Case 2: "addtif map"
+        # ----------------------------
+        elif arg.strip().lower() == "map":
+            stage_x, stage_y, stage_z = self._read_current_position_um()
+            cmd = [
+                sys.executable, "-u", str(script),
+                "map", str(stage_x), str(stage_y)
+            ]
+
+        # ----------------------------
+        # Invalid usage
+        # ----------------------------
+        else:
+            print("Usage:")
+            print("   addtif")
+            print("   addtif map")
+            return False
+
+        # Launch subprocess
+        subprocess.Popen(cmd, cwd=str(script.parent))
+
+        print(f"[addtif] launched: {cmd}")
+        return True
 
 
 # Wrapper function

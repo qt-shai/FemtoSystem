@@ -24,15 +24,15 @@ class GUIKeysight33500B:
         # self.volts_per_um = -2e-6
         self.volts_per_um = -3000e-6
 
-        self.volts_per_um_x = -3000e-6
-        self.volts_per_um_y = -9600e-6
+        self.volts_per_um_x = -4950e-6
+        self.volts_per_um_y = -8000e-6
 
-        self.base1 = 0.21756
-        self.base2 =  0.10841
+        self.base1 = 0.0295
+        self.base2 =  0.0406
 
         self.xy_step = 0.002
-        self.kx_ratio = 3.3
-        self.ky_ratio = -0.3
+        self.kx_ratio = 1.5
+        self.ky_ratio = -0.85
 
         # 1) where to store settings
         self._settings_file = os.path.join(os.getcwd(), "awg_settings.json")
