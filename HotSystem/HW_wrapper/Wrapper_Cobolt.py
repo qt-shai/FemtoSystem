@@ -505,7 +505,7 @@ class Cobolt06MLD12V(CoboltLaser):
         self.set_power(power)
         
     def get_modulation_power(self):
-        self.get_power(self)
+        self.get_power()
         return self.modulation_power_setpoint
     
     def set_analog_impedance(self, arg):

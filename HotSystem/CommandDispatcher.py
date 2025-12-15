@@ -53,7 +53,7 @@ import tempfile
 from PIL import Image, ImageDraw
 import pythoncom
 import win32com.client
-
+import serial
 
 # Textbox: Alt + n X
 # Font color: Alt + H F C
@@ -64,6 +64,9 @@ STATE_FILENAME = "coup_state.json"
 CONFIG_PATH = r"C:\WC\HotSystem\SystemConfig\xml_configs\system_info.xml"
 DEFAULT_COUP_DIR = r"c:\WC\HotSystem\Utils\macro"
 YELLOW = (255, 255, 0, 255)   # RGBA
+
+
+
 
 # ----- CGH helpers -----
 _CGH_PIDFILE = Path.home() / ".cgh_fullscreen.pid"
@@ -495,6 +498,9 @@ class CommandDispatcher:
             "scan":              self.handle_scan,
             "runcsv":            self.handle_runcsv,
             "kdc2":              self.handle_kdc2,
+            "p":                 self.handle_p, #Send p<num> commands to COM12
+            "com12":             self.handle_com12,
+            "sum":               self.handle_sum_counters,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -1071,7 +1077,8 @@ class CommandDispatcher:
                             print(f"Unknown await target: {target!r} (try: await spc)")
                             break
 
-                    handler(arg)
+                    dpg.set_value("cmd_input", "")
+                    return handler(arg)
                 else:
                     # --- NEW: direct Python helpers ---
                     # Usage examples(now super easy)
@@ -1895,8 +1902,8 @@ class CommandDispatcher:
                     if hasattr(cam, "LiveTh") and cam.LiveTh is not None:
                         cam.StopLive();  print("Camera stopped.")
             for flipper in getattr(p, "mff_101_gui", []):
-                if flipper.serial_number[-2:] in ('32','55'):
-                    print("Skipping M32 & M55 flipper toggle")
+                if flipper.serial_number[-2:] in ('32','48','55'):
+                    print("Skipping M32 & M48 & M55 flipper toggles")
                     continue
                 tag = f"on_off_slider_{flipper.unique_id}"
                 pos = flipper.dev.get_position()
@@ -1976,10 +1983,33 @@ class CommandDispatcher:
         except Exception as e:
             print(f"Error in sub: {e}")
     def handle_set_cobolt_power(self, arg):
-        """Set Cobolt laser power."""
+        """Set or query Cobolt laser power."""
         p = self.get_parent()
+        a = (arg or "").strip()
+
         try:
-            mw = float(arg); p.coboltGUI.laser.set_modulation_power(mw)
+            laser = p.coboltGUI.laser
+        except Exception:
+            print("cob failed: Cobolt laser not available")
+            return
+
+        # -------------------------
+        # QUERY CURRENT SETPOINT
+        # -------------------------
+        if a == "?":
+            try:
+                mw = laser.get_modulation_power()
+                print(f"Cobolt power setpoint: {mw:.2f} mW")
+            except Exception as e:
+                print(f"cob failed: {e}")
+            return
+
+        # -------------------------
+        # SET POWER
+        # -------------------------
+        try:
+            mw = float(a)
+            laser.set_modulation_power(mw)
             print(f"Cobolt power set to {mw:.2f} mW")
         except Exception as e:
             print(f"cob failed: {e}")
@@ -3505,6 +3535,46 @@ class CommandDispatcher:
                 if time.monotonic() - t0 > timeout:
                     return True  # don't block forever; just proceed
                 time.sleep(0.05)
+
+        # -----------------------------
+        # WHITE COMMAND
+        #   hr white <num>
+        # -----------------------------
+        tokens = a.replace(",", " ").split()
+        low = [t.lower() for t in tokens]
+
+        if "white" in low:
+            # extract first numeric token
+            n = None
+            for t in tokens:
+                try:
+                    n = float(t)
+                    break
+                except Exception:
+                    continue
+
+            # 1) Force M32 UP (bypass toggle_sc which skips M32)
+            try:
+                self._set_m32_up()
+            except Exception as e:
+                print(f"HRS white: failed to set M32 up: {e}")
+
+            # 2) Set LS-WL1 power to 100
+            try:
+                self.run("p 100", record_history=False)
+                print("HRS white: LS-WL1 power set to 100")
+            except Exception as e:
+                print(f"HRS white: failed to run 'p 100': {e}")
+
+            if n is None:
+                print("Usage: hr white <num>")
+                return
+
+            # 3) Same as normal HRS acquisition
+            arg_for_spc = f"hrs {n:g}".strip()
+            self.handle_acquire_spectrum(arg_for_spc)
+            return
+
         # -----------------------------
         # 0) GRATING COMMAND
         #    Examples:
@@ -12125,6 +12195,42 @@ class CommandDispatcher:
         factor_token = text.split()[0]
         return self.handle_coup(f"resume {factor_token}")
     def handle_proem(self, arg: str = ""):
+        # NEW: if COM12 is open, set power to 1 before ProEM
+        try:
+            p = self.get_parent()
+            ser = getattr(p, "com12", None)
+            if ser and hasattr(ser, "is_open") and ser.is_open:
+
+                # Query current power
+                resp = None
+                try:
+                    resp = self.run("p ?", record_history=False)
+                except Exception:
+                    pass
+
+                # Extract numeric value from response like "p0.00", "p10", etc.
+                power = None
+                if isinstance(resp, str):
+                    import re
+                    m = re.search(r"([-+]?\d+(\.\d+)?)", resp)
+                    if m:
+                        power = float(m.group(1))
+
+                if power == 0:
+                    print("[proem] LS-WL1 power already 0 → no change.")
+                else:
+                    self.run("p 1", record_history=False)
+                    print("[proem] LS-WL1 power set to 1.")
+        except Exception as e:
+            print(f"[proem] Failed to run 'p 1': {e}")
+
+        time.sleep(1)
+        # NEW: force M32 DOWN for ProEM
+        try:
+            self._set_m32_down()
+        except Exception as e:
+            print(f"[proem] Failed to set M32 down: {e}")
+
         self.handle_start_counter()
         p = self.get_parent()
         target_gui = getattr(p, "proem_gui", None)
@@ -12650,7 +12756,12 @@ class CommandDispatcher:
             alias = dpg.get_item_alias(item)
             tag = alias if alias not in (None, "") else str(item)
 
-            if tag in KEEP_EXACT or tag.startswith("on_off_slider_"):
+            if (
+                    tag in KEEP_EXACT
+                    or tag.startswith("on_off_slider_")
+                    or tag.startswith("mff_text_")
+                    or tag.startswith("mff_block_")
+            ):
                 keep_items.add(item)
 
         # --- Also keep all ancestors of those keep items ---
@@ -12683,105 +12794,136 @@ class CommandDispatcher:
                 print(f"[preset] failed to hide {tag}: {e}")
 
         print("[preset] Minimal Zelux UI applied (Live + Exp + G + on_off_slider_*).")
+
     def handle_preset(self, arg: str = ""):
         """
         preset 1
-            - disable experiments (via 'exp disable')
-            - set graph size to 1000 (via 'gr 1000')
-            - resize QuTi viewport to half its current width
-        """
+            - disable experiments
+            - set graph size to 1000
+            - resize QuTi viewport to half width
+            - scan off   (ONLY preset 1)
 
+        preset 2
+            - same as preset 1
+            - DO NOT do scan off
+        """
         parent = self.get_parent()
         if parent is None:
             print("[preset] No parent available.")
             return
 
         preset_id = (arg or "").strip()
-        if preset_id != "1":
-            print("Usage: preset 1")
+        if preset_id not in ("1", "2"):
+            print("Usage: preset 1 | preset 2")
             return
 
-        print("[preset 1] Applying preset…")
+        print(f"[preset {preset_id}] Applying preset…")
 
         # 1) Disable exp
         try:
             self.run("disable exp", record_history=False)
         except Exception as e:
-            print(f"[preset 1] Failed to disable exposure: {e}")
+            print(f"[preset {preset_id}] Failed to disable experiments: {e}")
 
-        # 2) Set graph size to 1000 (uses existing 'gr' handler)
+        # 2) Set graph size
         try:
             self.run("gr 1000", record_history=False)
         except Exception as e:
-            print(f"[preset 1] Failed to set graph size: {e}")
+            print(f"[preset {preset_id}] Failed to set graph size: {e}")
 
-        # 3) Resize QuTi viewport (QUTI_Main_Window) to half width — only if not already half
+        # 3) Resize viewport to half width
         try:
             curr_w = dpg.get_viewport_client_width()
             curr_h = dpg.get_viewport_client_height()
 
-            # store original width once
             if not hasattr(parent, "_preset_full_width"):
                 parent._preset_full_width = curr_w
 
             full_w = parent._preset_full_width
             target_w = max(200, int(full_w / 2))
 
-            if curr_w > target_w + 5:  # allow small margin
+            if curr_w > target_w + 5:
                 dpg.set_viewport_width(target_w)
                 dpg.set_viewport_height(curr_h)
-                print(f"[preset 1] Resized viewport to width={target_w}, height={curr_h}")
+                print(f"[preset {preset_id}] Resized viewport to width={target_w}, height={curr_h}")
             else:
-                print("[preset 1] Viewport already at half width → no resize.")
-
+                print(f"[preset {preset_id}] Viewport already at half width → no resize.")
         except Exception as e:
-            print(f"[preset 1] Failed to resize viewport: {e}")
+            print(f"[preset {preset_id}] Failed to resize viewport: {e}")
 
-
-        # --- NEW: collapse ProEM camera & Keysight windows ---
-        # replace these tags with your actual window tags if different
+        # 4) Collapse windows
         keysight_tag = parent.keysight_gui.window_tag
         kdc_tag = parent.kdc_101_gui[0].window_tag
         femto_tag = parent.femto_gui.window_tag
-        for tag in ("proem_Win", keysight_tag, kdc_tag,femto_tag):
+        for tag in ("proem_Win", keysight_tag, kdc_tag, femto_tag):
             try:
                 if dpg.does_item_exist(tag):
                     dpg.configure_item(tag, collapsed=True)
             except Exception as e:
-                print(f"[preset 1] failed to collapse {tag}: {e}")
+                print(f"[preset {preset_id}] failed to collapse {tag}: {e}")
 
-        # 5) Collapse the scan & parameter controls headers (Scan_Controls_Header)
-        try:
-            scan_header_tag = "Scan_Controls_Header"
-
-            if dpg.does_item_exist(scan_header_tag):
-                dpg.set_value(scan_header_tag, False)  # ← THIS IS THE CORRECT METHOD
-                print("[preset 1] Collapsed scan controls header.")
-            else:
-                print("[preset 1] Scan header not found.")
-        except Exception as e:
-            print(f"[preset 1] Failed to collapse scan header: {e}")#
-
-        self.handle_scan("off")
         try:
             header_tag = "Parameter_Controls_Header"
-
             if dpg.does_item_exist(header_tag):
-                dpg.set_value(header_tag, False)  # ← THIS IS THE CORRECT METHOD
-                print("[preset 1] Collapsed scan controls header.")
-            else:
-                print("[preset 1] Scan header not found.")
+                dpg.set_value(header_tag, False)
+                print(f"[preset {preset_id}] Collapsed parameter controls header.")
         except Exception as e:
-            print(f"[preset 1] Failed to collapse scan header: {e}")
+            print(f"[preset {preset_id}] Failed to collapse parameter header: {e}")
 
+        # Zelux minimize
         try:
             if hasattr(parent, "cam"):
                 self.preset_1_minimal_zelux_ui()
-                print("[preset 1] Zelux UI minimized.")
+                print(f"[preset {preset_id}] Zelux UI minimized.")
         except Exception as e:
-            print(f"[preset 1] Failed to minimize Zelux UI: {e}")
+            print(f"[preset {preset_id}] Failed to minimize Zelux UI: {e}")
 
-        print("[preset 1] Done.")
+        # ✅ Only preset 1 does scan off
+        # 5) Collapse the scan controls header + scan off  (ONLY preset 1)
+        if preset_id == "1":
+            try:
+                self.run("cgh p", record_history=False)
+                print("[preset 1] Ran: cgh p")
+            except Exception as e:
+                print(f"[preset 1] Failed to run 'cgh p': {e}")
+            try:
+                scan_header_tag = "Scan_Controls_Header"
+                if dpg.does_item_exist(scan_header_tag):
+                    dpg.set_value(scan_header_tag, False)
+                    print("[preset 1] Collapsed scan controls header.")
+                else:
+                    print("[preset 1] Scan header not found.")
+            except Exception as e:
+                print(f"[preset 1] Failed to collapse scan header: {e}")
+            try:
+                self.handle_scan("off")
+                print("[preset 1] Scan set to off.")
+            except Exception as e:
+                print(f"[preset 1] Failed to run scan off: {e}")
+            # --- reload cld only if GUI does NOT already exist ---
+            try:
+                cld_gui = getattr(parent, "cld1011lp_gui", None)
+                cld_win = getattr(cld_gui, "window_tag", None) if cld_gui else None
+
+                if cld_gui is not None and cld_win and dpg.does_item_exist(cld_win):
+                    print("[preset] Skipping: reload cld (CLD GUI already exists).")
+                else:
+                    self.run("reload cld", record_history=False)
+                    print("[preset] Ran: reload cld")
+            except Exception as e:
+                print(f"[preset] Failed in reload-cld guard: {e}")
+        elif preset_id == "2":
+            try:
+                self.handle_scan("on")
+                print("[preset 1] Scan set to on.")
+                self.run("cgh stop", record_history=False)
+                print("[preset 2] Ran: cgh stop")
+            except Exception as e:
+                print(f"[preset 2] Failed to run 'cgh stop': {e}")
+
+
+        print(f"[preset {preset_id}] Done.")
+
     def handle_gen_carrier(self, arg: str = ""):
         """
         gen corr idx 0 profile parabola      # full, explicit
@@ -13167,6 +13309,226 @@ class CommandDispatcher:
             print(f"KDC2 set to {dens} g/mm -> moved to {pos}")
         except Exception as e:
             print(f"Failed to set KDC2 combo: {e}")
+    def handle_p(self, arg: str):
+        """
+        LS-WL1 power command on COM12.
+
+        Valid:
+          p ?        -> read current power
+          p 0        -> set power to 0
+          p 10       -> set power to 10
+          p 10.5     -> set power to 10.5
+
+        Invalid:
+          p0
+        """
+        p = self.get_parent()
+        a = (arg or "").strip()
+
+        ser = getattr(p, "com12", None)
+        if ser is None or not getattr(ser, "is_open", False):
+            print("P: COM12 serial not initialized. Use: com12 open")
+            return
+
+        import time
+
+        def _send(cmd: str) -> str:
+            ser.reset_input_buffer()
+            ser.write((cmd + "\n").encode("ascii"))  # LS-WL1 requires '\n'
+            ser.flush()
+            time.sleep(0.15)
+            return ser.readline().decode("ascii", errors="replace").strip()
+
+        # -------------------------
+        # QUERY CURRENT POWER
+        # -------------------------
+        if a == "?":
+            resp = _send("?p")
+            print(f"LS-WL1 power -> {resp or '(no response)'}")
+            return resp
+
+        # -------------------------
+        # SET POWER
+        # -------------------------
+        try:
+            val = float(a)
+        except Exception:
+            print('Usage: p ?  |  p <num>   (example: p 0, p 10)')
+            return
+
+        if val < 0 or val > 100:
+            print("P: value must be in range 0..100")
+            return
+
+        # Send lowercase token first
+        resp = _send(f"p{val:g}")
+
+        # Retry uppercase if device is case-sensitive
+        if (not resp) or ("n/a" in resp.lower()):
+            resp = _send(f"P{val:g}")
+
+        print(f"LS-WL1 -> {resp or '(no response)'}")
+    def handle_com12(self, arg: str):
+        """
+        com12 open   -> open and store serial port on parent as parent.com12
+        com12 close  -> close it
+        """
+        p = self.get_parent()
+        a = (arg or "").strip().lower()
+
+        if a in ("open", ""):
+            try:
+                if getattr(p, "com12", None) and p.com12.is_open:
+                    print("COM12 already open.")
+                    return
+
+                p.com12 = serial.Serial(
+                    port="COM12",
+                    baudrate=115200,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    timeout=1.0,
+                    write_timeout=1.0,
+                )
+                print("COM12 opened (115200 8N1).")
+            except Exception as e:
+                print(f"Failed to open COM12: {e}")
+            return
+
+        if a == "close":
+            try:
+                if getattr(p, "com12", None):
+                    p.com12.close()
+                    p.com12 = None
+                print("COM12 closed.")
+            except Exception as e:
+                print(f"Failed to close COM12: {e}")
+            return
+
+        print("Usage: com12 open | com12 close")
+    def _set_m32_up(self):
+        """
+        Force M32 to UP by toggling until dev.get_position() == 2.
+        (Your UI label logic uses: position==2 -> 'Up')
+        """
+        p = self.get_parent()
+
+        m32 = None
+        for flipper in getattr(p, "mff_101_gui", []):
+            if str(getattr(flipper, "serial_number", "")).endswith("32"):
+                m32 = flipper
+                break
+
+        if m32 is None:
+            print("M32 flipper not found")
+            return
+
+        try:
+            pos = m32.dev.get_position()
+        except Exception as e:
+            print(f"Failed reading M32 position: {e}")
+            return
+
+        if pos == 2:
+            print("M32 already UP")
+            return
+
+        # Toggle once using the existing callback logic
+        try:
+            tag = f"on_off_slider_{m32.unique_id}"
+            # app_data can be 0 or 1; callback toggles via move_flipper()
+            m32.on_off_slider_callback(tag, 1)
+            # verify
+            pos2 = m32.dev.get_position()
+            if pos2 == 2:
+                print("M32 set to UP")
+            else:
+                print(f"M32 toggle sent, but position is {pos2} (expected 2)")
+        except Exception as e:
+            print(f"Failed to move M32: {e}")
+    def _set_m32_down(self):
+        """
+        Force M32 to DOWN by toggling until dev.get_position() == 1.
+        (Your UI label logic: position==2 -> 'Up', else 'Down')
+        """
+        p = self.get_parent()
+
+        m32 = None
+        for flipper in getattr(p, "mff_101_gui", []):
+            if str(getattr(flipper, "serial_number", "")).endswith("32"):
+                m32 = flipper
+                break
+
+        if m32 is None:
+            print("M32 flipper not found")
+            return
+
+        try:
+            pos = m32.dev.get_position()
+        except Exception as e:
+            print(f"Failed reading M32 position: {e}")
+            return
+
+        if pos == 1:
+            print("M32 already DOWN")
+            return
+
+        try:
+            tag = f"on_off_slider_{m32.unique_id}"
+            # app_data value does not matter; callback toggles
+            m32.on_off_slider_callback(tag, 0)
+
+            pos2 = m32.dev.get_position()
+            if pos2 == 1:
+                print("M32 set to DOWN")
+            else:
+                print(f"M32 toggle sent, but position is {pos2} (expected 1)")
+        except Exception as e:
+            print(f"Failed to move M32: {e}")
+    def handle_sum_counters(self, arg: str = ""):
+                """
+                Toggle or query OPX sum_counters_flag.
+
+                Usage:
+                  sum counters        -> toggle
+                  sum                -> toggle
+                  sum ?              -> show current value (no toggle)
+                  sum counters ?      -> show current value (no toggle)
+                  sum on/off/1/0      -> set explicitly
+                """
+                p = self.get_parent()
+                if p is None or not hasattr(p, "opx"):
+                    print("sum: OPX not available.")
+                    return
+
+                a = (arg or "").strip().lower()
+
+                # Query only
+                if a in ("?", "q", "query"):
+                    print(f"[sum counters] {getattr(p.opx, 'sum_counters_flag', None)}")
+                    return
+
+                # Explicit set (optional but handy)
+                if a in ("1", "on", "true", "yes"):
+                    if not getattr(p.opx, "sum_counters_flag", False):
+                        p.opx.toggle_sum_counters()
+                    print(f"[sum counters] {p.opx.sum_counters_flag}")
+                    return
+
+                if a in ("0", "off", "false", "no"):
+                    if getattr(p.opx, "sum_counters_flag", False):
+                        p.opx.toggle_sum_counters()
+                    print(f"[sum counters] {p.opx.sum_counters_flag}")
+                    return
+
+                # Default: toggle
+                try:
+                    p.opx.toggle_sum_counters()
+                    print(f"[sum counters] {p.opx.sum_counters_flag}")
+                except Exception as e:
+                    print(f"sum: toggle failed: {e}")
+
 
 # Wrapper function
 dispatcher = CommandDispatcher()

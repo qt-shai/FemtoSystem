@@ -30,7 +30,7 @@ class GUIKeysight33500B:
         self.base1 = 0.0295
         self.base2 =  0.0406
 
-        self.xy_step = 0.002
+        self.xy_step = 0.2
         self.kx_ratio = 1.5
         self.ky_ratio = -0.85
 

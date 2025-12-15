@@ -57,8 +57,16 @@ def save_plot_png(csv_paths, out_dir: str) -> str:
     ax.set_ylabel("Intensity")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.5)
 
-    if len(csv_paths) > 1:
-        ax.legend(fontsize=8)
+    # if len(csv_paths) > 1:
+    #     ax.legend(fontsize=8)
+    # if len(csv_paths) > 1:
+    #     # Put legend outside on the right
+    #     ax.legend(
+    #         loc="center left",
+    #         bbox_to_anchor=(1.02, 0.5),
+    #         fontsize=8,
+    #         frameon=True
+    #     )
 
     fig.tight_layout()
     fig.savefig(out_png, bbox_inches="tight")
