@@ -357,7 +357,7 @@ class GUIKeysight33500B:
                 callback=lambda sender, app_data: setattr(self, 'volts_per_um', app_data*1e-6)  # Set self.volts_per_um with the input value
             )
             dpg.add_input_float(
-                default_value=2,  # Default value for volts_per_um
+                default_value=200,  # Default value for volts_per_um
                 label="steps",
                 tag=f"XY_step_{self.unique_id}",
                 step=0.01,

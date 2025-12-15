@@ -322,6 +322,161 @@ class LightFieldSpectrometer:
         regions = self.get_selected_regions_pixels()
         return regions[0] if len(regions) == 1 else None
 
+    def set_center_wavelength(self, center_wavelength_nm: float) -> None:
+        """
+        Set the spectrometer center wavelength (in nm).
+
+        Parameters
+        ----------
+        center_wavelength_nm : float
+            Desired center wavelength in nanometers (as in the LightField GUI).
+        """
+        if not self._exp.Exists(SpectrometerSettings.GratingCenterWavelength):
+            raise RuntimeError(
+                f"[{self.__class__.__name__}.set_center_wavelength] "
+                "Center-wavelength setting is not available for this device."
+            )
+
+        self._exp.SetValue(
+            SpectrometerSettings.GratingCenterWavelength,
+            float(center_wavelength_nm)
+        )
+        print(f"Center wavelength set to {center_wavelength_nm} nm.")
+
+    def get_center_wavelength(self) -> float:
+        """
+        Return the current spectrometer center wavelength (in nm).
+        """
+        if not self._exp.Exists(SpectrometerSettings.GratingCenterWavelength):
+            raise RuntimeError(
+                f"[{self.__class__.__name__}.get_center_wavelength] "
+                "Center-wavelength setting is not available for this device."
+            )
+
+        return float(self._exp.GetValue(SpectrometerSettings.GratingCenterWavelength))
+
+    # --- Grating helpers -------------------------------------------------------
+    def get_grating(self):
+        """Return the current grating value (as LightField reports it)."""
+        if not self._exp.Exists(SpectrometerSettings.Grating):
+            raise RuntimeError(
+                f"[{self.__class__.__name__}.get_grating] "
+                "Grating setting is not available for this device."
+            )
+        return self._exp.GetValue(SpectrometerSettings.Grating)
+
+    def _get_available_setting_values(self, setting):
+        """
+        Best-effort retrieval of available values for a LightField setting.
+
+        LightField versions / devices expose this slightly differently, so we try:
+          - Experiment.GetCurrentCapabilities(setting) -> capabilities -> Values / GetValues()
+          - Experiment.GetCapabilities(setting)
+          - Experiment.GetAvailableValues(setting)
+        """
+        exp = self._exp
+        if exp is None:
+            return []
+
+        caps = None
+        for m in ("GetCurrentCapabilities", "GetCapabilities"):
+            if hasattr(exp, m):
+                try:
+                    caps = getattr(exp, m)(setting)
+                    if caps is not None:
+                        break
+                except Exception:
+                    pass
+
+        # Try a few common shapes for the capabilities object
+        if caps is not None:
+            for attr in ("Values", "AvailableValues", "SupportedValues"):
+                if hasattr(caps, attr):
+                    try:
+                        vals = list(getattr(caps, attr))
+                        if vals:
+                            return vals
+                    except Exception:
+                        pass
+
+            for m in ("GetValues", "GetAvailableValues", "GetSupportedValues"):
+                if hasattr(caps, m):
+                    try:
+                        vals = list(getattr(caps, m)())
+                        if vals:
+                            return vals
+                    except Exception:
+                        pass
+
+        # Some LF builds expose this directly on experiment
+        for m in ("GetAvailableValues",):
+            if hasattr(exp, m):
+                try:
+                    vals = list(getattr(exp, m)(setting))
+                    if vals:
+                        return vals
+                except Exception:
+                    pass
+
+        return []
+
+    def list_available_gratings(self):
+        """Return all available grating choices LightField reports (as strings)."""
+        if not self._exp.Exists(SpectrometerSettings.Grating):
+            return []
+        vals = self._get_available_setting_values(SpectrometerSettings.Grating)
+        return [str(v) for v in vals]
+
+    def set_grating_by_density(self, density_g_per_mm: int):
+        """
+        Set the grating by matching the requested groove density (g/mm)
+        against LightField's available grating values.
+
+        Example: set_grating_by_density(150)
+        """
+        if not self._exp.Exists(SpectrometerSettings.Grating):
+            raise RuntimeError(
+                f"[{self.__class__.__name__}.set_grating_by_density] "
+                "Grating setting is not available for this device."
+            )
+
+        target = str(int(density_g_per_mm))
+
+        vals = self._get_available_setting_values(SpectrometerSettings.Grating)
+        if not vals:
+            raise RuntimeError(
+                "Could not enumerate available gratings from LightField. "
+                "Try setting it once in the GUI and retry, or print get_grating()."
+            )
+
+        # Match common representations, e.g. "[1600nm,150][X][0]" or "150 g/mm"
+        def matches(v):
+            s = str(v)
+            s_low = s.lower()
+            return (
+                f",{target}]" in s or
+                f" {target} " in s or
+                f"{target}g/mm" in s_low or
+                f"{target} g/mm" in s_low or
+                f"{target}/mm" in s_low
+            )
+
+        choice = None
+        for v in vals:
+            if matches(v):
+                choice = v
+                break
+
+        if choice is None:
+            available = "\n  - " + "\n  - ".join([str(v) for v in vals])
+            raise ValueError(
+                f"Requested grating density {target} g/mm was not found.\n"
+                f"Available grating values reported by LightField:{available}"
+            )
+
+        self._exp.SetValue(SpectrometerSettings.Grating, choice)
+        print(f"Grating set to density {target} g/mm -> {choice}")
+
 
 if __name__ == "__main__":
     lf_spec = LightFieldSpectrometer(visible=True, file_path = "C:\\Users\\Femto\\Work Folders\\Documents\\LightField\\Experiments\\Daniel_exp.lfe")

@@ -34,6 +34,18 @@ class MotorStage(Motor):
 
     def connect(self) -> None:
         try:
+            # DeviceManagerCLI.BuildDeviceList()
+            #
+            # try:
+            #     serials = list(DeviceManagerCLI.GetDeviceList())
+            # except Exception:
+            #     serials = []
+            #
+            # if serials and self.serial_number not in [str(s) for s in serials]:
+            #     raise RuntimeError(f"KDC {self.serial_number} not found in DeviceManager list: {serials}")
+
+
+
             # Connect, begin polling, and enable
             self.device.Connect(self.serial_number)
             # Wait for Settings to Initialise
@@ -46,7 +58,11 @@ class MotorStage(Motor):
             # Configure the motor
             m_config = self.device.LoadMotorConfiguration(self.serial_number,
                                                           DeviceConfiguration.DeviceSettingsUseOptionType.UseFileSettings)
-            m_config.DeviceSettingsName = "PRMTZ8" #Type of motor
+            if self.serial_number=='27270698':
+                m_config.DeviceSettingsName = "Z906"
+            else:
+                m_config.DeviceSettingsName = "PRMTZ8" #Type of motor
+
             m_config.UpdateCurrentConfiguration()
             self.device.SetSettings(self.device.MotorDeviceSettings, True, False)
             self.device.StartPolling(250)
@@ -176,8 +192,12 @@ class MotorStage(Motor):
     #             f"Angle needs to be smaller than 360°")
 
     def get_current_position(self, channel: int=0) -> float:
-        # print(f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Position is: {self.device.Position}°")
-        return float(str(self.device.Position))
+        try:
+            position = str(self.device.Position)
+        except Exception as e:
+            print(f"[{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}] Error during position reading: {e}")
+            position = 0
+        return float(position)
 
     def get_params(self) -> tuple:
         vel_params = self.device.GetVelocityParams()

@@ -1,4 +1,7 @@
 import datetime
+import matplotlib
+matplotlib.use("Agg", force=True)
+
 import json
 import sys
 import tempfile

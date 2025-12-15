@@ -9,11 +9,10 @@ import numpy as np
 from SystemConfig import Instruments, load_instrument_images
 
 class GUI_KDC101(GUIMotor):
-
     def __init__(self, serial_number, device, simulation: bool = False) -> None:
-        self.dev = device
+        self.dev = device #1200 0.23, 150 0.68, 1800 -0.2
         self.prefix = "KDC101"
-        self.unique_id = self._get_unique_id_from_device()
+        self.unique_id = str(serial_number)  # <-- always unique for KDC1 vs KDC2
         self.window_tag: str = f"{self.prefix}_Win_{self.unique_id}"
         self.enable_button_tag = f"{self.prefix}_EnableButton_{self.unique_id}"
         self.stop_button_tag = f"{self.prefix}_StopButton_{self.unique_id}"
@@ -24,12 +23,14 @@ class GUI_KDC101(GUIMotor):
         self.position_input_tag = f"{self.prefix}_PositionInput{self.unique_id}"
         self.controls_tag = f"{self.prefix}_Controls_{self.unique_id}"
         self.step = 0.5
+        self.is_kdc2 = (int(serial_number) == 27270698)
+
         themes = DpgThemes()
         self.viewport_width = dpg.get_viewport_client_width()
         self.viewport_height = dpg.get_viewport_client_height()
         #self.system_initialization()
         Child_Width = 100
-        with dpg.window(label=f"{self.prefix} motor", no_title_bar=False,
+        with dpg.window(label=f"{self.prefix} {str(serial_number)}", no_title_bar=False,
                         height=150, width=400, pos=[0, 0],
                         collapsed=False, tag=self.window_tag):
             with dpg.group(horizontal=False, tag=f"column 2_{self.unique_id}", width=2*Child_Width, height = 120):
@@ -46,8 +47,31 @@ class GUI_KDC101(GUIMotor):
                                         min_value = 0,
                                         width=75,
                                         parent = self.controls_tag)
+                    if int(serial_number) == 27270698:
+                        self.combo_tag = f"{self.prefix}_GratingCombo_{self.unique_id}"  # NEW
+
+                        dpg.add_combo(
+                            items=[
+                                "150 g/mm --> 0.68",
+                                "1200 g/mm --> 0.23",
+                                "1800 g/mm --> -0.2",
+                            ],
+                            default_value="150 g/mm --> 0.68",
+                            callback=self.combo_select_callback,
+                            width=200,
+                            indent=10,
+                            parent=self.controls_tag,
+                            tag = self.combo_tag,  # NEW
+                        )
+                    else:
+                        self.combo_tag = None
+
             with dpg.group(horizontal=False):#, pos = [10,120]):
-                dpg.add_text("Current Position:", color=(0, 255, 0), indent=10)
+                dpg.add_text(
+                    "Current Position (mm):" if self.is_kdc2 else "Current Position (°):",
+                    color=(0, 255, 0),
+                    indent=10
+                )
                 dpg.add_text(default_value="---", tag=self.position_display_tag, indent=10)
                 dpg.add_button(label="Read Current Angle", callback=self.read_current_angle)
             with dpg.group(horizontal=True, tag=f"group 1_{self.unique_id}", width=Child_Width):
@@ -56,7 +80,6 @@ class GUI_KDC101(GUIMotor):
                 dpg.add_button(label="Stop", tag=self.stop_button_tag, callback=self.stop_button)
                 dpg.add_button(label="Jog up", tag=self.jog_up_tag, callback=self.jog_up_button)
                 dpg.add_button(label="Jog Down", tag=self.jog_down_tag, callback=self.jog_down_button)
-
     def DeleteMainWindow(self):
         """
         Deletes the main Dear PyGui window and does any needed cleanup.
@@ -64,26 +87,49 @@ class GUI_KDC101(GUIMotor):
         if dpg.does_item_exist(self.window_tag):
             dpg.delete_item(self.window_tag)
         print(f"Deleted KDC_101 GUI window: {self.window_tag}")
-
+    def _combo_to_position(self, selection: str) -> float:
+        # selection is like "150 g/mm --> 0.68"
+        return float(selection.split("-->")[1].strip())
+    def combo_select_callback(self, sender, app_data, user_data):
+        """
+        app_data is the selected combo string.
+        Sets the input float to the mapped position and triggers motion update.
+        """
+        try:
+            pos = self._combo_to_position(app_data)
+            dpg.set_value(self.position_input_tag, pos)     # update GUI input box
+            self.update_position(self.position_input_tag, pos, None)  # trigger move using your existing logic
+        except Exception as e:
+            print(f"Error in combo selection: {e}")
     def read_current_angle(self):
         try:
-            angle = float(str(self.dev.get_current_position()))
-            dpg.set_value(self.position_display_tag, f"{angle:.3f}°")
-            print(f"Current angle: {angle:.3f}°")
+            pos = float(str(self.dev.get_current_position()))
+            if getattr(self, "is_kdc2", False):
+                dpg.set_value(self.position_display_tag, f"{pos:.3f} mm")
+                print(f"Current position: {pos:.3f} mm")
+            else:
+                dpg.set_value(self.position_display_tag, f"{pos:.3f}°")
+                print(f"Current angle: {pos:.3f}°")
         except Exception as e:
-                print(f"Error reading current angle: {e}")
-                dpg.set_value(self.position_display_tag, f"Error")
-
+            print(f"Error reading current angle: {e}")
+            dpg.set_value(self.position_display_tag, "Error")
     def system_initialization(self):
         self.dev.connect()
         self.dev.enable()
-
     def update_position(self, sender, app_data, user_data):
-        new_value = app_data
-        print(new_value)
-        while not self.dev.is_busy():
+        try:
+            new_value = float(app_data)
+            print(f"Moving to {new_value}")
+
+            # guard: don't issue move if already moving
+            if self.dev.is_busy():
+                print("Device busy, ignoring move request")
+                return
+
             self.dev.MoveABSOLUTE(new_value)
 
+        except Exception as e:
+            print(f"Move failed: {e}")
     def home_button(self):
         """Callback for the Home button."""
         try:
@@ -96,7 +142,6 @@ class GUI_KDC101(GUIMotor):
             #self.update_position_showing()
         except Exception as e:
             print(f"Error during homing: {e}")
-
     def stop_button(self):
         """Callback for the Home button."""
         try:
@@ -109,7 +154,6 @@ class GUI_KDC101(GUIMotor):
             #self.update_position_showing()
         except Exception as e:
             print(f"Error during stopping: {e}")
-
     def show_position(self):
         while self.dev.is_busy():
             try:
@@ -118,7 +162,6 @@ class GUI_KDC101(GUIMotor):
             except Exception as e:
                 print(f"Error updating position: {e}")
                 break
-
     def update_position_showing(self):
         while self.dev.is_busy():
             try:
@@ -127,7 +170,6 @@ class GUI_KDC101(GUIMotor):
             except Exception as e:
                 print(f"Error updating position: {e}")
                 break
-
     def jog_up_button(self):
         """Callback for the Jog Up button."""
         try:
@@ -139,7 +181,6 @@ class GUI_KDC101(GUIMotor):
             #self.update_position_showing()
         except Exception as e:
             print(f"Error during stopping: {e}")
-
     def jog_down_button(self):
         """Callback for the Jog Down button."""
         try:
@@ -151,8 +192,6 @@ class GUI_KDC101(GUIMotor):
             #self.update_position_showing()
         except Exception as e:
             print(f"Error during stopping: {e}")
-
-
     def enable_button(self):
         try:
             if self.dev.is_enabled():

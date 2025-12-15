@@ -59,10 +59,7 @@ def load_two_calibration_files():
         print("Not enough calibration files found.")
         return [], []
 
-    # Sort by Y coordinate so order is stable (e.g. R1 vs B6)
-    files.sort(key=lambda x: x["coords"][1])
-
-    # Take the first two
+    # IMPORTANT: keep natural order, don't sort by Y (keeps mapping consistent)
     f1, f2 = files[0], files[1]
 
     print("Using calibration files:")
@@ -95,6 +92,7 @@ def edit_points_on_image(image_path, json_path):
     step = 5                # normal step
     select_radius = 20
 
+    # This dict will be mutated by on_coupon and saved at the end
     coupon_calib = {}       # {"main_ref":[x,y], "coupon_ref":[x,y], ...}
 
     # Labels for what each point is
@@ -113,9 +111,27 @@ def edit_points_on_image(image_path, json_path):
             a.remove()
         point_artists.clear()
 
-        # Draw points as crosses (selected = yellow, others = red)
+        # Draw points:
+        #  P0 → red cross
+        #  P1 → red cross
+        #  P2 → blue circle (coupon reference)
         for i, (x, y) in enumerate(points):
-            size = 8  # half-length of cross arms
+
+            # ---------- POINT 3 = BLUE CIRCLE ----------
+            if i == 2:
+                if i == active_index:
+                    artist, = ax.plot(x, y, "o", markersize=12,
+                                      markeredgecolor="yellow",
+                                      markerfacecolor="none", linewidth=2.5)
+                else:
+                    artist, = ax.plot(x, y, "o", markersize=10,
+                                      markeredgecolor="blue",
+                                      markerfacecolor="none", linewidth=2)
+                point_artists.append(artist)
+                continue
+
+            # ---------- POINTS 1 & 2 = RED CROSS ----------
+            size = 8
             if i == active_index:
                 color = "yellow"
                 lw = 2.5
@@ -198,10 +214,9 @@ def edit_points_on_image(image_path, json_path):
         active_index = len(points) - 1
         print(f"Added pixel point #{active_index}: {x, y}")
         update_plot()
-    # -----------------------------
 
+    # -----------------------------
     def on_done(event):
-        # Just close the main figure; execution continues after plt.show()
         print("Done pressed.")
         plt.close(fig)
 
@@ -232,7 +247,7 @@ def edit_points_on_image(image_path, json_path):
         normal = step
         fast = step * 5
 
-        key = event.key.lower()
+        key = (event.key or "").lower()
         if "ctrl" in key:
             s = fast
         elif "shift" in key:
@@ -255,7 +270,7 @@ def edit_points_on_image(image_path, json_path):
             on_select(None)
 
     fig.canvas.mpl_connect("key_press_event", on_key)
-    fig.canvas.mpl_connect("button_press_event", onclick)
+    cid_main_click = fig.canvas.mpl_connect("button_press_event", onclick)
 
     # -------------------------------------------------
     #  COUPON CALIBRATION: point 3 on main map is ref
@@ -263,8 +278,17 @@ def edit_points_on_image(image_path, json_path):
     def on_coupon(event):
         nonlocal coupon_calib
 
+        # --- DISABLE main-map click handlers while coupon popup is open ---
+        existing_handlers = fig.canvas.callbacks.callbacks.get('button_press_event', {})
+        disabled_ids = list(existing_handlers.keys())
+        for cid in disabled_ids:
+            fig.canvas.mpl_disconnect(cid)
+
         if len(points) < 3:
             print("Need 3 points on main map (2 calibration + 1 coupon ref).")
+            # restore handlers
+            for cid in disabled_ids:
+                fig.canvas.mpl_connect("button_press_event", onclick)
             return
 
         # Main ref is the 3rd point (index 2)
@@ -274,6 +298,8 @@ def edit_points_on_image(image_path, json_path):
 
         if not os.path.exists(COUPON_IMAGE):
             print(f"Coupon image not found: {COUPON_IMAGE}")
+            for cid in disabled_ids:
+                fig.canvas.mpl_connect("button_press_event", onclick)
             return
 
         # Open coupon window
@@ -284,37 +310,88 @@ def edit_points_on_image(image_path, json_path):
         ax2.set_xticks([])
         ax2.set_yticks([])
 
-        coupon_points = []
+        coupon_pt = {"val": None}
+
+        # --- If we already have a saved coupon_ref, show it ---
+        prev_ref = coupon_calib.get("coupon_ref")
+        if prev_ref and len(prev_ref) == 2:
+            cx_prev, cy_prev = prev_ref
+            ax2.plot(cx_prev, cy_prev, "o",
+                     markersize=10,
+                     markeredgecolor="blue",
+                     markerfacecolor="none",
+                     linewidth=2)
+            ax2.text(
+                cx_prev + 5, cy_prev + 5,
+                "prev",
+                color="blue",
+                fontsize=8,
+                bbox=dict(facecolor="white", alpha=0.6, edgecolor="none")
+            )
+            fig2.canvas.draw_idle()
+            print(f"Showing previous coupon ref at ({cx_prev}, {cy_prev})")
 
         def onclick_coupon(ev):
             if ev.inaxes != ax2 or ev.xdata is None:
                 return
             cx = round(ev.xdata, 2)
             cy = round(ev.ydata, 2)
-            coupon_points.append((cx, cy))
+            coupon_pt["val"] = (cx, cy)
             ax2.plot(cx, cy, "rx")
             fig2.canvas.draw_idle()
             print(f"Coupon ref clicked at ({cx}, {cy})")
-            # close after first click
+
+            # -----------------------------
+            #  Estimate real coords (u_ref_um, v_ref_um) of main_ref
+            #  using simple per-axis linear mapping between:
+            #   pixel_points[0,1] ↔ real_points[0,1]
+            #   pixel_point[2]    ↔ unknown (we estimate)
+            # -----------------------------
+            u_ref_um = 0.0
+            v_ref_um = 0.0
+            if len(points) >= 3 and len(real_points) >= 2:
+                (px1, py1) = points[0]
+                (px2, py2) = points[1]
+                (X1, Y1) = real_points[0]
+                (X2, Y2) = real_points[1]
+
+                # avoid division by zero
+                if px2 != px1:
+                    u_ref_um = X1 + (mx - px1) * (X2 - X1) / (px2 - px1)
+                else:
+                    u_ref_um = X1
+
+                if py2 != py1:
+                    v_ref_um = Y1 + (my - py1) * (Y2 - Y1) / (py2 - py1)
+                else:
+                    v_ref_um = Y1
+
+                print(f"Estimated real coords for main_ref: ({u_ref_um:.2f}, {v_ref_um:.2f}) µm")
+            else:
+                print("Warning: not enough calibration points to estimate u_ref_um/v_ref_um.")
+                u_ref_um = 0.0
+                v_ref_um = 0.0
+
+            # Update calibration dict in-place
+            coupon_calib.clear()
+            coupon_calib["main_ref"] = [mx, my]          # pixel on main map
+            coupon_calib["coupon_ref"] = [cx, cy]        # pixel on coupon map
+            coupon_calib["coupon_image"] = COUPON_IMAGE
+            coupon_calib["main_index"] = main_idx
+            coupon_calib["u_ref_um"] = u_ref_um
+            coupon_calib["v_ref_um"] = v_ref_um
+
+            print("Coupon calibration stored:", coupon_calib)
+
+            # close popup AFTER storing
             plt.close(fig2)
 
         fig2.canvas.mpl_connect("button_press_event", onclick_coupon)
-        plt.show()   # blocks until coupon fig is closed
+        plt.show()  # blocks until coupon fig is closed
 
-        if not coupon_points:
-            print("No coupon reference chosen.")
-            return
-
-        cx, cy = coupon_points[0]
-
-        coupon_calib = {
-            "main_ref":   [mx, my],
-            "coupon_ref": [cx, cy],
-            "coupon_image": COUPON_IMAGE,
-            "main_index": main_idx
-        }
-
-        print("Coupon calibration stored:", coupon_calib)
+        # Restore main-map click handler(s)
+        for cid in disabled_ids:
+            fig.canvas.mpl_connect("button_press_event", onclick)
 
     # ------------- Buttons on the left -----------------
     ax_done = fig.add_axes([0.02, 0.80, 0.16, 0.08])
@@ -357,7 +434,7 @@ def edit_points_on_image(image_path, json_path):
         "pixel_points": points,        # [P1, P2, P3]
         "real_points": real_points,    # [(X1,Y1), (X2,Y2)]
         "files": calib_files,
-        "coupon_calibration": coupon_calib
+        "coupon_calibration": dict(coupon_calib)
     }
 
     try:

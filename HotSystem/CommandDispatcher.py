@@ -54,6 +54,7 @@ from PIL import Image, ImageDraw
 import pythoncom
 import win32com.client
 
+
 # Textbox: Alt + n X
 # Font color: Alt + H F C
 # Paste as pic: Alt + H V U
@@ -62,6 +63,7 @@ CHIP_ANGLE=-2.3
 STATE_FILENAME = "coup_state.json"
 CONFIG_PATH = r"C:\WC\HotSystem\SystemConfig\xml_configs\system_info.xml"
 DEFAULT_COUP_DIR = r"c:\WC\HotSystem\Utils\macro"
+YELLOW = (255, 255, 0, 255)   # RGBA
 
 # ----- CGH helpers -----
 _CGH_PIDFILE = Path.home() / ".cgh_fullscreen.pid"
@@ -200,6 +202,32 @@ def _open_module_or_fallback(module_name: str, fallback_rel: str, base_dir: str)
 
     fall = os.path.join(base_dir, *fallback_rel.split("\\"))
     _open_path(fall)
+
+# ---- HRS helpers
+def _find_kdc_gui_by_serial(gui_list, serial: str):
+    """
+    parent is an indexable container (list / tuple) of GUI objects.
+    """
+    target = str(serial)
+    try:
+        for gui in gui_list:
+            if getattr(gui, "unique_id", None) == target:
+                return gui
+    except TypeError:
+        # parent is not iterable
+        pass
+    return None
+def _parse_grating_density(arg: str):
+    a = (arg or "").strip().lower()
+    tokens = a.replace(",", " ").split()
+    for t in tokens:
+        t2 = t.replace("g/mm", "").replace("/mm", "")
+        try:
+            return int(float(t2))
+        except Exception:
+            pass
+    return None
+# ------------------------------------------
 
 # Primary mapping: alias(es) -> (module, fallback_relative_path)
 SHOW_MAP = {
@@ -465,6 +493,8 @@ class CommandDispatcher:
             "cld":               self.handle_cld,
             "red":               self.handle_cld,
             "scan":              self.handle_scan,
+            "runcsv":            self.handle_runcsv,
+            "kdc2":              self.handle_kdc2,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -2031,6 +2061,7 @@ class CommandDispatcher:
               reload femto
               reload opx
               reload kdc_101
+              reload kdc2 or kdc_2
               reload smaract
               reload hrs_proem
               reload hrs
@@ -2147,6 +2178,19 @@ class CommandDispatcher:
         """
 
         p = self.get_parent()
+
+        def _hard_delete_dpg(tag: str):
+            try:
+                if dpg.does_item_exist(tag):
+                    dpg.delete_item(tag)
+            except Exception:
+                pass
+            # important: remove alias even if item doesn't exist
+            try:
+                dpg.remove_alias(tag)
+            except Exception:
+                pass
+
         try:
             import importlib
             raw_name = arg.strip()
@@ -2360,31 +2404,107 @@ class CommandDispatcher:
                 return
 
             # === KDC_101 GUI ===
+            def _find_kdc_gui_index_by_serial(p, serial: str):
+                if not hasattr(p, "kdc_101_gui") or not p.kdc_101_gui:
+                    return None
+                for i, gui in enumerate(p.kdc_101_gui):
+                    if str(gui.unique_id) == str(serial):
+                        return i
+                return None
+
+            def _get_kdc_device_by_serial(serial: str):
+                kdc_list = hw_devices.HW_devices().kdc_101_list
+                return next((kdc for kdc in kdc_list if str(kdc.serial_number) == str(serial)), None)
+
+            # === KDC_101 GUI reload (by serial) ===
             if name in ("kdc", "kdc_101"):
                 import HW_GUI.GUI_KDC101 as gui_KDC
                 importlib.reload(gui_KDC)
-                if hasattr(p, "kdc_101_gui") and p.kdc_101_gui:
-                    try:
-                        pos = dpg.get_item_pos(p.kdc_101_gui.window_tag)
-                        size = dpg.get_item_rect_size(p.kdc_101_gui.window_tag)
-                        p.kdc_101_gui.DeleteMainWindow()
-                    except Exception as e:
-                        print(f"Old KDC_101 GUI removal failed: {e}")
-                p.kdc_101_gui = gui_KDC.GUI_KDC101(
-                    serial_number=p.kdc_101_gui.device.serial_number,
-                    device=hw_devices.HW_devices().kdc_101
-                )
-                if dpg.does_item_exist("kdc_101_button"):
-                    dpg.delete_item("kdc_101_button")
-                p.create_bring_window_button(
-                    p.kdc_101_gui.window_tag, button_label="kdc_101",
-                    tag="kdc_101_button", parent="focus_group"
-                )
-                p.active_instrument_list.append(p.kdc_101_gui.window_tag)
-                dpg.set_item_pos(p.kdc_101_gui.window_tag, pos)
-                dpg.set_item_width(p.kdc_101_gui.window_tag, size[0])
-                dpg.set_item_height(p.kdc_101_gui.window_tag, size[1])
-                print("Reloaded HW_GUI.GUI_KDC101 and recreated KDC_101 GUI.")
+
+                # choose which serial to reload:
+                # - if user typed "kdc 12345678" you probably parsed it already
+                # - otherwise reload the first one
+                serial = getattr(p, "last_kdc_serial", None)
+                if serial is None and hasattr(p, "kdc_101_gui") and p.kdc_101_gui:
+                    serial = p.kdc_101_gui[0].unique_id
+
+                idx = _find_kdc_gui_index_by_serial(p, serial)
+                if idx is None:
+                    print(f"No KDC GUI found for serial {serial}")
+                    return
+
+                old = p.kdc_101_gui[idx]
+
+                # keep geometry
+                try:
+                    pos = dpg.get_item_pos(old.window_tag)
+                    size = dpg.get_item_rect_size(old.window_tag)
+                except Exception:
+                    pos, size = [60, 60], [520, 360]
+
+                # delete old window
+                try:
+                    old.DeleteMainWindow()
+                except Exception as e:
+                    print(f"Old KDC GUI removal failed: {e}")
+
+                # rebuild device + gui
+                dev = _get_kdc_device_by_serial(serial)
+                if dev is None:
+                    print(f"No matching KDC device found for serial {serial}")
+                    return
+
+                new_gui = gui_KDC.GUI_KDC101(serial_number=dev.serial_number, device=dev)
+                p.kdc_101_gui[idx] = new_gui
+
+                # restore geometry
+                try:
+                    dpg.set_item_pos(new_gui.window_tag, pos)
+                    dpg.set_item_width(new_gui.window_tag, size[0])
+                    dpg.set_item_height(new_gui.window_tag, size[1])
+                except Exception:
+                    pass
+
+                print(f"Reloaded KDC GUI for serial {serial}.")
+                return
+
+            # === KDC_101 GUI #2 (index 1) ===
+            if name in ("kdc2", "kdc_2", "kdc101_2", "kdc_101_2"):
+                import HW_GUI.GUI_KDC101 as gui_KDC
+                import importlib
+                importlib.reload(gui_KDC)
+
+                idx = 1
+                if not hasattr(p, "kdc_101_gui") or len(p.kdc_101_gui) <= idx:
+                    print("KDC2 not found at index 1")
+                    return
+
+                old = p.kdc_101_gui[idx]
+
+                try:
+                    pos = dpg.get_item_pos(old.window_tag)
+                    size = dpg.get_item_rect_size(old.window_tag)
+                except Exception:
+                    pos, size = [60, 60], [520, 360]
+
+                try:
+                    old.DeleteMainWindow()
+                except Exception:
+                    pass
+
+                # reuse the same device reference
+                dev = old.dev
+
+                p.kdc_101_gui[idx] = gui_KDC.GUI_KDC101(serial_number=dev.serial_number, device=dev)
+
+                try:
+                    dpg.set_item_pos(p.kdc_101_gui[idx].window_tag, pos)
+                    dpg.set_item_width(p.kdc_101_gui[idx].window_tag, size[0])
+                    dpg.set_item_height(p.kdc_101_gui[idx].window_tag, size[1])
+                except Exception:
+                    pass
+
+                print("Reloaded KDC2 GUI (index 1)")
                 return
 
             # === Smaract GUI ===
@@ -2470,67 +2590,6 @@ class CommandDispatcher:
 
                 print("Loaded NEW GUI_PROEM (separate ProEM GUI).")
                 return
-
-            # # === OLD!!!!!!!  HRS_500 GUI with ProEM experiment ===
-            # if name in ("hrs proem", "hrs_proem", "hrsproem", "proem"):
-            #     import HW_GUI.GUI_HRS_500 as gui_HRS500
-            #     importlib.reload(gui_HRS500)
-            #
-            #     PROEM_LFE = r"C:\Users\Femto\Work Folders\Documents\LightField\Experiments\ProEM_shai.lfe"
-            #
-            #     # Try to preserve the current window position/size if it exists
-            #     pos, size = [60, 60], [1200, 800]
-            #     if hasattr(p, "hrs_500_gui") and p.hrs_500_gui:
-            #         try:
-            #             pos = dpg.get_item_pos(p.hrs_500_gui.window_tag)
-            #             size = dpg.get_item_rect_size(p.hrs_500_gui.window_tag)
-            #             p.hrs_500_gui.DeleteMainWindow()
-            #         except Exception as e:
-            #             print(f"Old HRS_500 GUI removal failed (ProEM): {e}")
-            #
-            #     # (Re)create the LightField spectrometer specifically with the ProEM experiment
-            #     try:
-            #         devs = hw_devices.HW_devices()
-            #
-            #         # Cleanly disconnect the existing device if possible
-            #         try:
-            #             if getattr(devs, "hrs_500", None) and hasattr(devs.hrs_500, "disconnect"):
-            #                 devs.hrs_500.disconnect()
-            #         except Exception as e:
-            #             print(f"Warning: could not disconnect previous HRS_500 device: {e}")
-            #
-            #         # New instance with the ProEM experiment path
-            #         devs.hrs_500 = LightFieldSpectrometer(
-            #             visible=True,
-            #             file_path=PROEM_LFE
-            #         )
-            #         devs.hrs_500.connect()
-            #     except Exception as e:
-            #         print(f"Failed to initialize HRS_500 with ProEM experiment: {e}")
-            #         raise
-            #
-            #     # Rebuild the GUI using the (re)initialized device
-            #     p.hrs_500_gui = gui_HRS500.GUI_HRS500(devs.hrs_500)
-            #
-            #     # Rebuild the “bring window” button
-            #     if dpg.does_item_exist("HRS_500_button"):
-            #         dpg.delete_item("HRS_500_button")
-            #     p.create_bring_window_button(
-            #         p.hrs_500_gui.window_tag, button_label="Spectrometer (ProEM)",
-            #         tag="HRS_500_button", parent="focus_group"
-            #     )
-            #
-            #     # Track as active instrument and restore geometry
-            #     p.active_instrument_list.append(p.hrs_500_gui.window_tag)
-            #     try:
-            #         dpg.set_item_pos(p.hrs_500_gui.window_tag, pos)
-            #         dpg.set_item_width(p.hrs_500_gui.window_tag, size[0])
-            #         dpg.set_item_height(p.hrs_500_gui.window_tag, size[1])
-            #     except Exception:
-            #         pass
-            #
-            #     print("Reloaded HW_GUI.GUI_HRS500 with ProEM experiment and recreated Spectrometer GUI.")
-            #     return
 
             # === HRS_500 GUI ===
             if name in ("hrs", "hrs500", "hrs_500"):
@@ -3164,7 +3223,7 @@ class CommandDispatcher:
             p.smaractGUI.last_z_value = curr_um
 
             step_um = 2000.0
-            total_um = 10000.0
+            total_um = 6000.0
             n_steps = int(total_um // step_um)  # = 5
 
             print(f"Saved Z={curr_um:.2f} µm. Moving down {total_um:.0f} µm in {n_steps}×{step_um:.0f} µm steps…")
@@ -3414,14 +3473,169 @@ class CommandDispatcher:
         """
         HRS command.
 
-        - 'hrs local' : set the HRS "Save In" folder to the local LightField dir.
-        - 'hrs ...'   : behave like 'spc ...' but force using parent.hrs_500_gui.
-                        e.g. 'hrs 3' == 'spc hrs 3'
+        - 'hr local'       : set the HRS "Save In" folder to the local LightField dir.
+        - 'hr center 660'  : set HRS center wavelength to 660 nm.
+        - 'hr 660 center'  : same as above.
+        - 'hr ...'         : behave like 'spc ...' but force using parent.hrs_500_gui.
+                              e.g. 'hrs 3' == 'spc hrs 3'
+         GRATING COMMAND
+            Examples:
+              hr grating 150
+              hr 150 grating
+              hr grating 150g/mm
         """
         p = self.get_parent()
         a = (arg or "").strip()
 
-        # --- existing behavior: 'hrs local' sets save directory ---
+        def _wait_not_updating(exp, timeout=5.0):
+            """
+            Wait until exp.IsUpdating is False.
+            If IPC is dead / exp is stale, return False instead of throwing.
+            """
+            import time
+            t0 = time.monotonic()
+            while True:
+                try:
+                    if not getattr(exp, "IsUpdating", False):
+                        return True
+                except Exception:
+                    # IPC port missing / stale experiment reference
+                    return False
+
+                if time.monotonic() - t0 > timeout:
+                    return True  # don't block forever; just proceed
+                time.sleep(0.05)
+        # -----------------------------
+        # 0) GRATING COMMAND
+        #    Examples:
+        #      hr grating 150
+        #      hr grating 1200
+        #      hr grating 1800
+        #      hr 150 grating
+        #      hr grating 150g/mm
+        # -----------------------------
+        tokens = a.replace(",", " ").split()
+        low = [t.lower() for t in tokens]
+
+        if "grating" in low:
+            # extract first numeric token as density
+            density = None
+            for t in tokens:
+                t2 = t.lower().replace("g/mm", "").replace("/mm", "")
+                try:
+                    density = int(float(t2))
+                    break
+                except Exception:
+                    continue
+
+            if density is None:
+                print("HRS: grating density not detected (usage: hr grating 150).")
+                return
+
+            if density not in (150, 1200, 1800):
+                print(f"HRS: unsupported grating density {density}. Options: 150, 1200, 1800")
+                return
+
+            try:
+                dev = getattr(p, "hrs_500_gui", None)
+                if dev is None:
+                    print("HRS: hrs_500_gui not available.")
+                    return
+                dev = getattr(dev, "dev", None)
+                exp = getattr(dev, "_exp", None)
+                if dev is None or exp is None:
+                    print("HRS: No spectrometer device/experiment available.")
+                    return
+
+                ok = _wait_not_updating(exp, timeout=5.0)
+                if not ok:
+                    print("HRS: Lost LightField IPC connection (is LightField/AddInProcess running?). Reconnect and try again.")
+                    return
+
+                from PrincetonInstruments.LightField.AddIns import SpectrometerSettings
+                import re
+
+                # Ask LightField what values are valid *right now*
+                caps = exp.GetCurrentCapabilities(SpectrometerSettings.Grating)
+                if not caps:
+                    print("HRS: No grating capabilities returned by LightField.")
+                    return
+
+                # Pick the option that matches the requested density as a whole number
+                target = None
+                pat = re.compile(rf"(?<!\d){density}(?!\d)")
+                for opt in caps:
+                    s = str(opt)
+                    if pat.search(s):
+                        target = opt
+                        break
+
+                if target is None:
+                    print(f"HRS: No installed grating matched density {density}. Available options:")
+                    for opt in caps:
+                        print("  -", str(opt))
+                    return
+
+                exp.SetValue(SpectrometerSettings.Grating, target)
+                print(f"HRS grating set to: {target}")
+
+                # NEW: keep KDC2 turret synced (moves to 0.68 / 0.23 / -0.2 etc.)
+                try:
+                    self.handle_kdc2(str(density))
+                except Exception as e:
+                    print(f"HRS: grating set, but failed to move KDC2: {e}")
+
+            except Exception as e:
+                print(f"Failed to set grating: {e}")
+            return
+
+        # -----------------------------
+        # 1) CENTER-WAVELENGTH COMMAND
+        #    Only if the word "center" appears!
+        #    Examples:
+        #      hr center 660
+        #      hr 660 center
+        # -----------------------------
+
+        if "center" in [t.lower() for t in tokens]:
+            # extract first numeric token as wavelength
+            wl = None
+            for t in tokens:
+                try:
+                    wl = float(t)
+                    break
+                except Exception:
+                    continue
+
+            if wl is None:
+                print("HRS: center wavelength not detected (usage: hr center 660).")
+                return
+
+            try:
+                dev = getattr(p, "hrs_500_gui", None)
+                if dev is None:
+                    print("HRS: hrs_500_gui not available.")
+                    return
+                dev = getattr(dev, "dev", None)
+                exp = getattr(dev, "_exp", None)
+                if dev is None or exp is None:
+                    print("HRS: No spectrometer device/experiment available.")
+                    return
+
+                import time
+                while getattr(exp, "IsUpdating", False):
+                    time.sleep(0.05)
+
+                from PrincetonInstruments.LightField.AddIns import SpectrometerSettings
+                exp.SetValue(SpectrometerSettings.GratingCenterWavelength, float(wl))
+                print(f"HRS center wavelength set to {wl} nm.")
+            except Exception as e:
+                print(f"Failed to set center wavelength: {e}")
+            return  # do NOT fall through to SPC logic
+
+        # -----------------------------
+        # 2) EXISTING 'local' BEHAVIOUR
+        # -----------------------------
         if a.lower() == "local":
             target = r"C:\Users\Femto\Work Folders\Documents\LightField"
             try:
@@ -3431,13 +3645,11 @@ class CommandDispatcher:
                     print("HRS: no experiment instance.")
                     return
 
-                # wait out any UI updating before SetValue
                 import time
                 while getattr(exp, "IsUpdating", False):
                     time.sleep(0.05)
 
-                # this is the “Save In” directory
-                from some_module import ExperimentSettings  # adjust import as in your real code
+                from PrincetonInstruments.LightField.AddIns import ExperimentSettings
                 exp.SetValue(ExperimentSettings.FileNameGenerationDirectory, target)
 
                 dev.save_directory = target
@@ -3446,12 +3658,12 @@ class CommandDispatcher:
                 print(f"Failed to set Save In folder: {e}")
             return
 
-        # --- NEW: everything else delegates to the threaded SPC logic, forcing HRS ---
-        # This leverages handle_acquire_spectrum() which already:
-        #   - sets _spc_running / _spc_done_evt
-        #   - spawns a background thread calling _acquire_spectrum_worker(...)
-        #   - and _acquire_spectrum_worker() respects a leading "hrs" token
-        arg_for_spc = f"hrs {a}".strip()  # -> "hrs" or "hrs 3", "hrs n=3 t=2", etc.
+        # -----------------------------
+        # 3) EVERYTHING ELSE:
+        #    behave like old behavior → delegate to SPC logic
+        #    So `hr 60` still means "take spectrum with argument 60"
+        # -----------------------------
+        arg_for_spc = f"hrs {a}".strip()  # -> "hrs", "hrs 3", "hrs n=3 t=2", etc.
         self.handle_acquire_spectrum(arg_for_spc)
     def handle_acquire_spectrum(self, arg):
         """Launch threaded spectrum acquisition process.
@@ -6527,7 +6739,7 @@ class CommandDispatcher:
             label = "V"
 
         try:
-            ky_ratio = float(parts[1]) if len(parts) == 2 else gui.k
+            ky_ratio = float(parts[1]) if len(parts) == 2 else gui.ky_ratio
         except ValueError:
             print("Invalid ratio:", parts[1])
             return
@@ -11260,11 +11472,29 @@ class CommandDispatcher:
         plot add                 -> choose a CSV and add as a NEW line to the existing plot
         plot "C:\\path\\file.csv" [add] -> plot given file (optional 'add' to overlay)
         plot mult <num>                -> multiply the last displayed line's intensity by <num>
+        plot last [add]                -> plot the last saved CSV (no dialog)
         """
         import os
+        import glob  # NEW
         import numpy as np
         import dearpygui.dearpygui as dpg
         from Utils import open_file_dialog
+
+        YELLOW = (255, 255, 0, 255)  # RGBA
+
+        # ensure we have a theme for yellow line series
+        if not hasattr(self, "_plot_yellow_theme"):
+            with dpg.theme() as th:
+                with dpg.theme_component(dpg.mvLineSeries):
+                    # Force line color to yellow for all line series using this theme
+                    dpg.add_theme_color(
+                        dpg.mvPlotCol_Line,
+                        YELLOW,
+                        category=dpg.mvThemeCat_Plots
+                    )
+            self._plot_yellow_theme = th
+
+        p = self.get_parent()  # NEW so we can inspect devices
 
         # --- tags for the standalone plot window ---
         win = "csv_plot_win"
@@ -11376,11 +11606,25 @@ class CommandDispatcher:
         if tokens[:1] and tokens[0].lower() in ("spc", "spectrum"):
             tokens = tokens[1:]
 
+        # ---------- NEW: plot last ----------
+        use_last = False
+        if tokens[:1] and tokens[0].lower() == "last":
+            use_last = True
+            tokens = tokens[1:]  # allow "plot last add" (we already handled 'add' above)
+
         # optional explicit file path remains in tokens
         explicit_path = " ".join(tokens).strip() if tokens else ""
 
         # pick file
-        if explicit_path and os.path.isfile(explicit_path):
+        if use_last:
+            # Use newest CSV in start_dir
+            start_dir = r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer"
+            pattern = os.path.join(start_dir, "*.csv")
+            candidates = glob.glob(pattern)
+            file_path = max(candidates, key=os.path.getmtime)
+            print(f"plot last: using '{file_path}'")
+
+        elif explicit_path and os.path.isfile(explicit_path):
             file_path = explicit_path
         else:
             start_dir = r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer"
@@ -11454,6 +11698,10 @@ class CommandDispatcher:
             else:
                 dpg.add_line_series(x_vals, y_vals, label=label, parent=yax, tag=series_tag)
                 dpg.set_item_label(plot, label)
+                dpg.bind_item_theme(series_tag, self._plot_yellow_theme)
+
+        # remember last series (useful for "plot mult")
+        self._plot_last_series = series_tag
 
         # fit axes
         dpg.fit_axis_data(xax)
@@ -12493,7 +12741,7 @@ class CommandDispatcher:
         # --- NEW: collapse ProEM camera & Keysight windows ---
         # replace these tags with your actual window tags if different
         keysight_tag = parent.keysight_gui.window_tag
-        kdc_tag = parent.kdc_101_gui.window_tag
+        kdc_tag = parent.kdc_101_gui[0].window_tag
         femto_tag = parent.femto_gui.window_tag
         for tag in ("proem_Win", keysight_tag, kdc_tag,femto_tag):
             try:
@@ -12746,31 +12994,51 @@ class CommandDispatcher:
 
         else:
             print("Usage: scan   or   scan off")
-
     def handle_add_tif(self, arg):
         """
         Command:
             addtif
             addtif map
+            addtif map+
         Runs run_addtif.py in a subprocess.
+
+        Modes:
+            addtif          → just add the TIF (no maps)
+            addtif map      → add TIF + map with cross at current stage position
+            addtif map+     → add TIF + map with cross AND coupon map with cross
         """
 
+        import sys
+        import subprocess
+        from pathlib import Path
+
         script = Path(__file__).parent / "Utils" / "run_addtif.py"
+        arg_clean = (arg or "").strip().lower()
 
         # ----------------------------
         # Case 1: "addtif" (no map)
         # ----------------------------
-        if not arg or arg.strip() == "":
+        if arg_clean == "":
             cmd = [sys.executable, "-u", str(script)]
 
         # ----------------------------
         # Case 2: "addtif map"
         # ----------------------------
-        elif arg.strip().lower() == "map":
+        elif arg_clean == "map":
             stage_x, stage_y, stage_z = self._read_current_position_um()
             cmd = [
                 sys.executable, "-u", str(script),
                 "map", str(stage_x), str(stage_y)
+            ]
+
+        # ----------------------------
+        # Case 3: "addtif map+"
+        # ----------------------------
+        elif arg_clean == "map+":
+            stage_x, stage_y, stage_z = self._read_current_position_um()
+            cmd = [
+                sys.executable, "-u", str(script),
+                "map+", str(stage_x), str(stage_y)
             ]
 
         # ----------------------------
@@ -12780,6 +13048,7 @@ class CommandDispatcher:
             print("Usage:")
             print("   addtif")
             print("   addtif map")
+            print("   addtif map+")
             return False
 
         # Launch subprocess
@@ -12787,7 +13056,117 @@ class CommandDispatcher:
 
         print(f"[addtif] launched: {cmd}")
         return True
+    def handle_runcsv(self, arg: str = ""):
+        """
+        runcsv          -> load last 1 csv, plot, add to PPT
+        runcsv 3        -> load last 3 csv, plot together, add to PPT
+        runcsv 5 <dir>  -> (optional) load last 5 from <dir>
+        """
+        import os
+        import sys
+        import subprocess
 
+        a = (arg or "").strip()
+        # default N=1 if empty or invalid
+        n = 1
+        folder = None
+
+        if a:
+            toks = a.split()
+            # first token: N
+            try:
+                n = int(toks[0])
+            except Exception:
+                n = 1
+
+            # optional folder
+            if len(toks) >= 2:
+                folder = " ".join(toks[1:]).strip('"').strip("'")
+
+        # Path to Utils\plot_csv_spectrum.py
+        # Assumes your main script is alongside "Utils" folder.
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        script_path = os.path.join(base_dir, "Utils", "plot_csv_spectrum.py")
+
+        if not os.path.isfile(script_path):
+            # fallback: if Utils is on PYTHONPATH and script is in Utils
+            alt = os.path.join(os.getcwd(), "Utils", "plot_csv_spectrum.py")
+            if os.path.isfile(alt):
+                script_path = alt
+            else:
+                print(f"runcsv: cannot find plot_csv_spectrum.py at:\n  {script_path}\n  or {alt}")
+                return
+
+        cmd = [sys.executable, script_path, str(n)]
+        if folder:
+            cmd += [folder]
+
+        try:
+            print(f"runcsv: running: {' '.join(cmd)}")
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"runcsv failed: {e}")
+    # KDC 2
+    def handle_kdc2(self, arg: str):
+        """
+        KDC2 command (serial 27270698).
+
+        Examples:
+          - kdc2 150 g/mm
+          - kdc2 150
+          - kdc2 1200 g/mm
+          - kdc2 1800
+        """
+        p = self.get_parent()
+
+        dens = _parse_grating_density(arg)
+        if dens is None:
+            print("KDC2: density not detected (usage: kdc2 150 g/mm).")
+            return
+
+        # map density -> motor angle (from your GUI comments / combo items)
+        density_to_angle = {
+            150: 0.68,
+            1200: 0.23,
+            1800: -0.2,
+        }
+
+        if dens not in density_to_angle:
+            print(f"KDC2: unsupported density {dens}. Options: 150, 1200, 1800")
+            return
+
+        gui = _find_kdc_gui_by_serial(p.kdc_101_gui, "27270698")
+        if gui is None:
+            print("KDC2: GUI for serial 27270698 not found.")
+            return
+
+        try:
+            pos = density_to_angle[dens]
+
+            # Update GUI input (if you want it reflected in the UI)
+            try:
+                if hasattr(gui, "position_input_tag") and dpg.does_item_exist(gui.position_input_tag):
+                    dpg.set_value(gui.position_input_tag, pos)
+            except Exception:
+                pass  # GUI might not be running; command can still move
+
+            pos = density_to_angle[dens]
+            combo_value = f"{dens} g/mm --> {pos}"
+
+            # Update combo selection text
+            if getattr(gui, "combo_tag", None) and dpg.does_item_exist(gui.combo_tag):
+                dpg.set_value(gui.combo_tag, combo_value)
+
+            # Update input float box
+            if hasattr(gui, "position_input_tag") and dpg.does_item_exist(gui.position_input_tag):
+                dpg.set_value(gui.position_input_tag, pos)
+
+            # Move motor (call update_position once)
+            gui.update_position(getattr(gui, "position_input_tag", None), pos, None)
+
+            print(f"KDC2 set to {dens} g/mm -> moved to {pos}")
+        except Exception as e:
+            print(f"Failed to set KDC2 combo: {e}")
 
 # Wrapper function
 dispatcher = CommandDispatcher()

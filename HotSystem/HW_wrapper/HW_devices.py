@@ -45,7 +45,7 @@ class HW_devices:
             self.arduino: Optional[ArduinoController] = None  # Add Arduino
             self.CLD1011LP: Optional[ThorlabsCLD1011LP] = None
             self.arduino: Optional[ArduinoController] = None
-            self.kdc_101: Optional[MotorStage] = None
+            self.kdc_101_list: Optional[list[MotorStage]] = []
             self.mff_101_list: Optional[list[FilterFlipperController]] = []
             self.hrs_500: Optional[LightFieldSpectrometer] = None
             self._keyboard_movement_callbacks = Dict[KeyboardKeys, Optional[Callable[[int, float], None]]]
@@ -210,8 +210,9 @@ class HW_devices:
                 elif instrument == Instruments.KDC_101:
                     # # KDC_101 Rotational Stage for the Lambda/2 Plate
                     # # TODO: Make serial number into an input to the Motor Stage
-                    self.kdc_101 = MotorStage(device.serial_number)
-                    self.kdc_101.connect()
+                    kdc_101 = MotorStage(device.serial_number)
+                    kdc_101.connect()
+                    self.kdc_101_list.append(kdc_101)
                     pass
 
                 elif instrument == Instruments.MFF_101:

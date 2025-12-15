@@ -439,6 +439,7 @@ class PyGuiOverlay(Layer):
         self.system_type: Optional[SystemType] = None
         self.system_config: Optional[SystemConfig] = None
         self.mff_101_gui: Optional[list[GUI_MFF]] = []
+        self.kdc_101_gui: Optional[list[GUIMotor]] = []
         # Initialize instruments based on the system configuration
 
         self.smaract_thread = None
@@ -961,13 +962,19 @@ class PyGuiOverlay(Layer):
                     dpg.set_item_pos(self.atto_scanner_gui.window_tag, [20, 20])
                     y_offset += dpg.get_item_height(self.atto_scanner_gui.window_tag) + vertical_spacing
 
-                elif instrument == Instruments.KDC_101:
-                    self.kdc_101_gui = GUI_KDC101(serial_number = device.serial_number, device = hw_devices.HW_devices().kdc_101)
-                    dpg.set_item_pos(self.kdc_101_gui.window_tag, [20, y_offset])
-                    y_offset += dpg.get_item_height(self.kdc_101_gui.window_tag) + vertical_spacing
-                    self.create_bring_window_button(self.kdc_101_gui.window_tag, button_label="kdc_101",
-                                                    tag="kdc_101_button", parent="focus_group",cmd_alias=["kdc_101", "kdc"])
-                    self.active_instrument_list.append(self.kdc_101_gui.window_tag)
+                elif instrument == Instruments.KDC_101:#1200 0.23, 150 0.68, 1800 -0.2
+                    kdc_list = hw_devices.HW_devices().kdc_101_list
+                    matching_device = next(
+                        (kdc for kdc in kdc_list if str(kdc.serial_number) == device.serial_number),
+                        None  # Default if no match is found
+                    )
+
+                    self.kdc_101_gui.append(GUI_KDC101(serial_number = matching_device.serial_number, device = matching_device))
+                    dpg.set_item_pos(self.kdc_101_gui[-1].window_tag, [20, y_offset])
+                    y_offset += dpg.get_item_height(self.kdc_101_gui[-1].window_tag) + vertical_spacing
+                    # self.create_bring_window_button(self.kdc_101_gui[-1].window_tag, button_label="kdc_101",
+                    #                                 tag="kdc_"+matching_device.serial_number, parent="focus_group",cmd_alias=["kdc_101", "kdc",matching_device.serial_number])
+                    self.active_instrument_list.append(self.kdc_101_gui[-1].window_tag)
 
                 elif instrument == Instruments.MFF_101:
                     flipper_list = hw_devices.HW_devices().mff_101_list

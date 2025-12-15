@@ -279,49 +279,68 @@ class GUI_smaract():
 
     def save_pos(self, profile_name="local"):
         # Core static windows
-        window_names = [
+        window_names = set([
             "pico_Win", "mcs_Win", "Zelux Window", "graph_window", "Main_Window",
             "OPX Window", "Map_window", "Scan_Window", "LaserWin", "CLD1011LP_Win",
-            "experiments_window", "console_window", "hrs500_Win","proem_Win",
-        ]
+            "experiments_window", "console_window", "hrs500_Win", "proem_Win",
+        ])
+
         file_name = f"win_pos_{profile_name}.txt"
 
         # Save viewport size
         vp_w = dpg.get_viewport_client_width()
         vp_h = dpg.get_viewport_client_height()
 
-        # Gather all windows once
-        all_items = dpg.get_all_items()
         # Any alias starting with one of these prefixes will be recorded
-        dynamic_prefixes = [
-            "KDC101_Win_",
+        dynamic_prefixes = (
+            "KDC101_Win_",  # KDC windows (your GUI_KDC101 uses this)
             "Femto_Window_",
-            "Keysight33500B_Win"
-        ]
+            "Keysight33500B_Win",
+        )
 
-        for item in all_items:
-            if dpg.get_item_type(item) == "mvAppItemType::mvWindowAppItem":
-                tag = dpg.get_item_alias(item) or str(item)
-                for prefix in dynamic_prefixes:
-                    if tag.startswith(prefix):
-                        window_names.append(tag)
-                        break
+        # Scan all windows once and collect dynamic ones by alias
+        for item in dpg.get_all_items():
+            try:
+                if dpg.get_item_type(item) != "mvAppItemType::mvWindowAppItem":
+                    continue
+
+                alias = dpg.get_item_alias(item)
+                if not alias:
+                    continue
+
+                if any(alias.startswith(pfx) for pfx in dynamic_prefixes):
+                    window_names.add(alias)
+            except Exception:
+                pass
 
         # Collect positions & sizes
         window_positions = {}
         for win in window_names:
-            if dpg.does_item_exist(win):
+            try:
+                if not dpg.does_item_exist(win):
+                    continue
+
                 pos = dpg.get_item_pos(win)
-                size = (dpg.get_item_width(win), dpg.get_item_height(win))
+                # rect size tends to be more accurate for windows
+                try:
+                    size = dpg.get_item_rect_size(win)
+                except Exception:
+                    size = (dpg.get_item_width(win), dpg.get_item_height(win))
+
                 window_positions[win] = (pos, size)
                 print(f"{win}: pos={pos}, size={size}")
+            except Exception as e:
+                print(f"Skipping {win}: {e}")
 
         # Also capture OPX graph size
         graph_tag = "plotImaga"
         if dpg.does_item_exist(graph_tag):
-            gsize = (dpg.get_item_width(graph_tag), dpg.get_item_height(graph_tag))
-            window_positions[graph_tag] = (None, gsize)
-            print(f"{graph_tag} size={gsize}")
+            try:
+                gsize = (dpg.get_item_width(graph_tag), dpg.get_item_height(graph_tag))
+                window_positions[graph_tag] = (None, gsize)
+                print(f"{graph_tag} size={gsize}")
+            except Exception as e:
+                print(f"Skipping {graph_tag}: {e}")
 
         # Write them out
         try:

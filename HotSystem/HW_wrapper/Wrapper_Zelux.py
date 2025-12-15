@@ -2,7 +2,11 @@ import os
 from typing import List
 
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+
 from matplotlib import pyplot as plt
+
 from Common import getCurrentTimeStamp, increase_brightness
 import SystemConfig.system_config as config
 from Zelux_dll_setup import configure_path

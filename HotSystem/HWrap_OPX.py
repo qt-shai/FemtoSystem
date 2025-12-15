@@ -23,6 +23,7 @@ from typing import Union, Optional, Callable, List, Tuple, Any
 import dearpygui.dearpygui as dpg
 import glfw
 import matplotlib
+matplotlib.use("Agg")
 import numpy as np
 from collections import Counter
 import json
@@ -68,7 +69,7 @@ from HW_wrapper.Wrapper_Pharos import PharosLaserAPI
 from Common import show_msg_window
 from Common import Experiment
 
-matplotlib.use('qtagg')
+# matplotlib.use('qtagg')
 # matplotlib.use('Agg')
 
 def create_logger(log_file_path: str):
@@ -154,7 +155,6 @@ class GUI_OPX():
         self.system_name = self.HW.config.system_type.value
         self.mwModule = self.HW.microwave
         self.positioner = self.HW.positioner
-        self.kdc_101 = self.HW.kdc_101
         self.awg = self.HW.keysight_awg_device
         self.pico = self.HW.picomotor
         self.laser = self.HW.cobolt
