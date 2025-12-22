@@ -99,6 +99,7 @@ class GUI_OPX():
         # TODO: Move measure_type definition to be read from config
         # measure_type = MeasurementType.ANALOG
         # self.time_tagging_fn: Callable = time_tagging.digital if measure_type == MeasurementType.DIGITAL else time_tagging.analog
+        self.verbose = False
         self.counter_is_live = False
         self.last_loaded_file = None
         self.stop_survey: bool = False
@@ -10490,7 +10491,8 @@ class GUI_OPX():
                     time.sleep(0.1)
                     meas_idx = self.meas_idx_handle.fetch_all()
                     counts = self.counts_handle.fetch_all()
-                    print(f"meas_idx = {meas_idx} | counts.size = {counts.size}")
+                    if self.verbose:
+                        print(f"meas_idx = {meas_idx} | counts.size = {counts.size}")
 
                     self.scan_intensities[:, j, i] = counts / self.total_integration_time  # counts/ms = Kcounts/s
                     self.UpdateGuiDuringScan(self.scan_intensities[:, :, i], use_fast_rgb=True)

@@ -558,21 +558,20 @@ def show_msg_window(msg_text: str,height=110):
     with dpg.window(
         label="Message",
         tag=window_tag,
-        no_title_bar=True,
         no_resize=False,
         pos=[0, 40],
         width=width,
         height=height
     ):
         # A drawlist lets us use draw_text with size
-        dpg.add_drawlist(width=width, height=100, tag="msg_drawlist")
-        dpg.draw_text(
-            pos=(0, 0),
-            text=msg_text,
-            color=(255, 255, 0, 255),
-            size=100,
-            parent=drawlist_tag
-        )
+        # dpg.add_drawlist(width=width, height=100, tag="msg_drawlist")
+        # dpg.draw_text(
+        #     pos=(0, 0),
+        #     text=msg_text,
+        #     color=(255, 255, 0, 255),
+        #     size=100,
+        #     parent=drawlist_tag
+        # )
         # child_window for scrolling
         dpg.add_child_window(tag="msg_child", parent=window_tag)
         dpg.add_text(
