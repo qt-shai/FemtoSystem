@@ -1,0 +1,22 @@
+preset 2
+reload proem\
+reload proem
+reload smaract
+g 100,-100
+pro
+stop
+cgh
+plotall alst
+plotall
+movex -15
+p 0
+plotall last
+stp
+cn
+cob 1\
+cob 1
+reload cld
+reload hrs
+lpos
+reload kdc2
+re

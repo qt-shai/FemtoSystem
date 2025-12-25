@@ -1,0 +1,29 @@
+{
+  "angle_deg": -1.4,
+  "center_u_um": -1921.853692,
+  "center_v_um": 902.950506,
+  "shift_x_factor": 33.333333333333336,
+  "shift_y_factor": 12.5,
+  "chip_inverted": false,
+  "coupx_move_um": 15.0,
+  "coupy_move_um": 40.0,
+  "center_from_label_dU_um": -85.0,
+  "center_from_label_dV_um": 100.0,
+  "uz_override": null,
+  "vz_override": null,
+  "coupon_labels": {
+    "B5": {
+      "u_um": -1381.3674389999999,
+      "v_um": -4185.000196
+    },
+    "L7": {
+      "u_um": -4095.621405,
+      "v_um": -4798.919779
+    },
+    "L5": {
+      "u_um": -4117.434574,
+      "v_um": -5803.020609
+    }
+  },
+  "chip_name": "MDM4.2"
+}

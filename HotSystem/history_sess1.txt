@@ -1,0 +1,43 @@
+future !2.8:0.2:3,10%x100 mode 1
+reload hrs
+> expand zelux;l
+> collapse zelux;fq next;wait 1000;spc 60
+> py self._last_fq_idx = 0
+self._last_fq_idx=1
+py self._last_fq_idx=1
+reload
+await spc;>c
+py self._last_fq_idx=0
+>c;await spc;>c
+> py? self_last_fq_idx
+>p2
+py? self_last_fq_idx
+> py? self._last_fq_idx
+>p3
+py? self._last_fq_idx
+>c;await spc;wait 2000;>c
+>c
+>p;spc 60
+>p;>c
+wait 30000;fq 3;spc 60
+fq 3; spc 60
+mark
+wait 2000;a
+>e
+expand zelux;l
+l
+clear
+fq !
+stp
+>p
+py self._last_fq_idx = 0
+> py? self._last_fq_idx;>c;wait 61000;>c;wait 61000;>c
+>p4
+py? self._last_fq_idx;>c;wait 61000;>c;wait 61000;>c
+collapse zelux;fq next;wait 1000;spc 60
+spc 60
+cn
+a
+>p3-
+>?
+savehist sess1

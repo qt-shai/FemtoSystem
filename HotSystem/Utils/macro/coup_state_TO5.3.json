@@ -1,0 +1,35 @@
+{
+  "angle_deg": -1.0,
+  "center_u_um": -5590.644953999999,
+  "center_v_um": 4424.970588,
+  "shift_x_factor": 3.75,
+  "shift_y_factor": 5.0,
+  "chip_inverted": false,
+  "coupx_move_um": 80.0,
+  "coupy_move_um": 70.0,
+  "center_from_label_dU_um": -100.0,
+  "center_from_label_dV_um": 95.0,
+  "coupon_labels": {
+    "6J": {
+      "u_um": -4347.789784,
+      "v_um": 4670.885217
+    },
+    "BOT-RIGHT": {
+      "u_um": -4737.789928,
+      "v_um": 4015.88517
+    },
+    "NORM4A": {
+      "u_um": -5590.644987,
+      "v_um": 4424.9707659999995
+    },
+    "NORM4A(A)": {
+      "u_um": -8942.033925,
+      "v_um": 1499.581659
+    },
+    "NORM4A(D)": {
+      "u_um": -5641.995041,
+      "v_um": 1427.9481019999998
+    }
+  },
+  "chip_name": "TO5.3"
+}

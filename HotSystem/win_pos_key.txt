@@ -1,0 +1,26 @@
+Viewport_Size: 3555, 1520
+mcs_Win_Pos: 1, 151
+mcs_Win_Size: 1211, 251
+Zelux Window_Pos: 1486, 5
+Zelux Window_Size: 1847, 1519
+graph_window_Pos: 627, 774
+graph_window_Size: 854, 525
+Main_Window_Pos: 0, 0
+Main_Window_Size: 1048, 131
+OPX Window_Pos: 903, 39
+OPX Window_Size: 508, 112
+Scan_Window_Pos: 1, 397
+Scan_Window_Size: 1482, 376
+LaserWin_Pos: 595, 2
+LaserWin_Size: 794, 155
+experiments_window_Pos: 1, 1300
+experiments_window_Size: 142, 781
+console_window_Pos: 142, 1299
+console_window_Size: 1339, 222
+Keysight33500B_Win_Pos: -95, 776
+Keysight33500B_Win_Size: 717, 368
+KDC101_Win_27266061_Pos: 1212, 150
+KDC101_Win_27266061_Size: 273, 249
+Femto_Window_PowerCalc_Pos: 3334, 3
+Femto_Window_PowerCalc_Size: 278, 1508
+plotImaga_Size: 1380, 640

@@ -1,0 +1,29 @@
+Index: HotSystem/SystemConfig/xml_configs/system_info.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/HotSystem/SystemConfig/xml_configs/system_info.xml b/HotSystem/SystemConfig/xml_configs/system_info.xml
+--- a/HotSystem/SystemConfig/xml_configs/system_info.xml	
++++ b/HotSystem/SystemConfig/xml_configs/system_info.xml	(date 1753104048204)
+@@ -65,19 +65,11 @@
+                 <Simulation>False</Simulation>
+                 <Misc>N/A</Misc>
+             </Device>
+-            <Device>
+-                <Instrument>HRS_500</Instrument>
++            <Device><Instrument>HRS_500</Instrument>
+                 <IPAddress>N/A</IPAddress>
+                 <MACAddress>N/A</MACAddress>
+-                <SerialNumber>N/A</SerialNumber>
+-                <COMPort>N/A</COMPort>
+-                <Simulation>False</Simulation>
+-                <Misc>N/A</Misc>
+-            </Device>
+-            <Device>
+                 <Instrument>MFF_101</Instrument>
+                 <IPAddress>N/A</IPAddress>
+-                <MACAddress>N/A</MACAddress>
+                 <SerialNumber>37008948</SerialNumber>
+                 <COMPort>N/A</COMPort>
+                 <Simulation>False</Simulation>

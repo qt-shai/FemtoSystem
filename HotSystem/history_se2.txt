@@ -1,0 +1,29 @@
+focus
+kst c
+lpos remote
+spos remote
+cob 44
+note first scan after tilt calib
+note extractor
+stt
+l
+a.
+reload hrs
+fq 1
+spc 30
+fq 2
+fq 3;spc 60
+fq 4;spc 60
+clear
+> fq 1;wait 1000;spc 60;wait 65000;fq next;wait 1000;spc 60;wait 65000;fq next;wait 1000;spc 60
+>f
+fq 1;wait 1000;spc 60;wait 65000;fq next;wait 1000;spc 60;wait 65000;fq next;wait 1000;spc 60
+spc 60; wait 65000; fq next; wait 1000; spc 60; wait 65000; fq next; wait 1000; spc 60
+fq next; wait 1000; spc 60; wait 65000; fq next; wait 1000; spc 60
+spc 60; wait 65000; fq next; wait 1000; spc 60
+wait 2000;a
+a
+fq next; wait 1000; spc 60
+spc 60
+cn
+savehist se2

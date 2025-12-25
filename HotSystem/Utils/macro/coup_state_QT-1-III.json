@@ -1,0 +1,25 @@
+{
+  "angle_deg": -0.6,
+  "center_u_um": -1332.8686659999998,
+  "center_v_um": 1355.1947499999999,
+  "shift_x_factor": 5.0,
+  "shift_y_factor": 5.43,
+  "chip_inverted": false,
+  "coupx_move_um": 100.0,
+  "coupy_move_um": 150.0,
+  "center_from_label_dU_um": -85.0,
+  "center_from_label_dV_um": 100.0,
+  "uz_override": null,
+  "vz_override": null,
+  "coupon_labels": {
+    "plus": {
+      "u_um": -407.45444399999997,
+      "v_um": 1255.663419
+    },
+    "F6": {
+      "u_um": -1208.454767,
+      "v_um": 2262.663755
+    }
+  },
+  "chip_name": "QT-1-III"
+}

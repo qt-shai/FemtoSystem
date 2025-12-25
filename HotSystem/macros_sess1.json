@@ -1,0 +1,7 @@
+{
+  "e": "expand zelux;l",
+  "c": "collapse zelux;fq next;wait 1000;spc 60",
+  "p": "py self._last_fq_idx = 0",
+  "p2": "py? self_last_fq_idx",
+  "p4": "py? self._last_fq_idx;>c;wait 61000;>c;wait 61000;>c"
+}

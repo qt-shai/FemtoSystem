@@ -1,0 +1,134 @@
+spc note A1;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note A2;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note A3;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note A4;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note A5;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note A6;
+coup mdm_sub_loop;
+coup shiftx -5;
+
+coup shifty;
+movez 0.4;
+
+spc note B1;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note B2;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note B3;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note B4;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note B5;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note B6;
+coup mdm_sub_loop;
+coup shiftx -5;
+
+coup shifty;
+movez 0.4;
+
+spc note C1;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note C2;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note C3;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note C4;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note C5;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note C6;
+coup mdm_sub_loop;
+coup shiftx -5;
+
+coup shifty;
+movez 0.4;
+
+spc note D1;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note D2;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note D3;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note D4;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note D5;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note D6;
+coup mdm_sub_loop;
+coup shiftx -5;
+
+coup shifty;
+movez 0.4;
+
+spc note E1;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note E2;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note E3;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note E4;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note E5;
+coup mdm_sub_loop;
+coup shiftx;
+
+spc note E6;
+coup mdm_sub_loop;
+coup shiftx -5;
+
+coup shifty;
+movez 0.4;

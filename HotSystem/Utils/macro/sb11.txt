@@ -1,0 +1,60 @@
+spc note NORM4F(D);
+spc 3;
+coupx;
+movez 0.8;
+spc note 7F(D);
+spc 3;
+coupx;
+movez 0.8;
+spc note 8F(D);
+spc 3;
+coupx -2;
+movez -1.6;
+
+coupy -1;movez 0.1;
+
+spc note NORM3F(D);
+spc 3;
+coupx;
+movez 0.8;
+spc note 5F(D);
+spc 3;
+coupx;
+movez 0.8;
+spc note 6F(D);
+spc 3;
+coupx -2;
+movez -1.6;
+
+coupy -1;movez 0.1;
+
+spc note NORM2F(D);
+spc 3;
+coupx;
+movez 0.8;
+spc note 3F(D);
+spc 3;
+coupx;
+movez 0.8;
+spc note 4F(D);
+spc 3;
+coupx -2;
+movez -1.6;
+
+coupy -1;movez 0.1;
+
+spc note NORM1F(D);
+spc 3;
+coupx;
+movez 0.8;
+spc note 1F(D);
+spc 3;
+coupx;
+movez 0.8;
+spc note 2F(D);
+spc 3;
+coupx -2;
+movez -1.6;
+
+coupy 3;
+movez -0.9;

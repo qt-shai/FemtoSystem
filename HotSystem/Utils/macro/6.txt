@@ -1,0 +1,16 @@
+spc note Array I275;
+coup 5;
+coup shiftx -1;
+movez 0.1;
+spc note Array I275;
+coup 5;
+coup shiftx -1;
+movez 0.1;
+spc note Array I275;
+coup 5;
+coup shiftx -1;
+movez 0.1;
+spc note Array I275;
+coup 5;
+coup shiftx -1;
+movez 0.1;

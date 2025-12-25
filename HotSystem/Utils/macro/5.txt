@@ -1,0 +1,30 @@
+spc 3;
+coupx -1;
+spc 3;
+coupx -1;
+spc 3;
+coupx 2;
+coupy;
+spc 3;
+coupx -1;
+spc 3;
+coupx -1;
+spc 3;
+coupx 2;
+coupy;
+spc 3;
+coupx -1;
+spc 3;
+coupx -1;
+spc 3;
+coupx 2;
+coupy;
+spc 3;
+coupx -1;
+spc 3;
+coupx -1;
+spc 3;
+coupx 2;
+coupy -3;
+
+
