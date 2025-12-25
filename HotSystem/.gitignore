@@ -1,2 +1,22 @@
 SystemConfig/xml_configs/system_info.xml
 folder_suffix.txt
+
+# ===== Build / binary artifacts =====
+HotSystem/dist/
+HotSystem/build/
+
+# Executables & packages
+*.exe
+*.pkg
+
+# Zip archives (optional but recommended)
+*.zip
+
+# Windows noise
+Thumbs.db
+Desktop.ini
+
+# Python
+__pycache__/
+*.pyc
+
