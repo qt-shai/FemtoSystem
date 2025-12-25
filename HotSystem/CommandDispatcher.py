@@ -367,6 +367,7 @@ class CommandDispatcher:
             "lpos":              self.handle_load_positions,
             "spos":              self.handle_save_positions,
             "reload":            self.handle_reload,
+            "re":                self.handle_reload,
             "plf":               self.handle_plot_future_femto,
             "ld":                self.handle_load_csv,
             "coords":            self.handle_toggle_coords,
@@ -528,7 +529,6 @@ class CommandDispatcher:
         # self.handle_disable("exp") # BUG HERE !!!
         self.handle_coup("load")
         self.handle_load_history("")
-
     def get_parent(self):
         return getattr(sys.stdout, "parent", None)
     def _ensure_exec_ns(self):
@@ -720,12 +720,17 @@ class CommandDispatcher:
         """
 
         # ------------------------------------------------------------
-        # Helper: return a list of "meaningful" commands from history
+        # Helpers: return a list of "meaningful" commands from history
         # ------------------------------------------------------------
         def _meaningful_history():
             hist = getattr(parent, "command_history", [])
             out = []
-            for cmd in hist:
+            for item in hist:
+                if isinstance(item, tuple):
+                    cmd, ts = item
+                else:
+                    cmd, ts = item, None
+
                 cmd_s = (cmd or "").strip()
                 if not cmd_s:
                     continue
@@ -734,14 +739,17 @@ class CommandDispatcher:
                 head = cmd_s.split(None, 1)[0].lower()
                 if head == "reload":
                     continue
-                out.append(cmd_s)
+                out.append((cmd_s, ts))
+
             return out
-
-        parent = self.get_parent()
-        if parent is None:
-            print("Warning: run() called but sys.stdout.parent not set.")
-            return
-
+        def normalize_for_recall(s: str) -> str:
+            s = s.strip()
+            # strip surrounding quotes
+            s = s.strip("'\"")
+            # strip exactly ONE trailing path separator (/ or \)
+            if len(s) >= 2 and s[-1] in ("/", "\\") and s[-2] not in ("/", "\\"):
+                s = s[:-1]
+            return s
         def _refocus():
             if not record_history:
                 return
@@ -750,16 +758,20 @@ class CommandDispatcher:
                 dpg.focus_item("cmd_input")
             except Exception:
                 pass
+        def _hist_cmd(item):
+            return item[0] if isinstance(item, tuple) else item
 
+        parent = self.get_parent()
+        if parent is None:
+            print("Warning: run() called but sys.stdout.parent not set.")
+            return
         cmd_line = command.strip()
         if not cmd_line:
             _refocus()
             return
-
         print(f"{cmd_line}")
-
         # ------------------------------------------------------------
-        # QUERY: "?" prints the meaningful history, newest first
+        # QUERY: "?" prints history + macros
         # ------------------------------------------------------------
         if cmd_line == "?":
             hist = _meaningful_history()
@@ -767,11 +779,22 @@ class CommandDispatcher:
                 print("[history] (empty)")
             else:
                 print("Recent commands:")
-                for i, h in enumerate(reversed(hist), 1):
-                    print(f"  {i}: {h}")
+                for i, (cmd, ts) in enumerate(reversed(hist), 1):
+                    if ts is not None:
+                        tstr = time.strftime("%H:%M:%S", time.localtime(ts))
+                        print(f"  {i}: [{tstr}] {cmd}")
+                    else:
+                        print(f"  {i}: {cmd}")
+            macros = getattr(self, "cmd_macros", {})
+            if macros:
+                print("Macros:")
+                for k in sorted(macros.keys(), key=lambda s: (s[0], len(s), s)):
+                    print(f"  >{k}  ->  {macros[k]}")
+            else:
+                print("[macros] (none)")
+
             _refocus()
             return
-
         # ------------------------------------------------------------
         # "N" → repeat N-th last meaningful command
         # "N?" → recall N-th last meaningful command into cmd_input
@@ -788,7 +811,9 @@ class CommandDispatcher:
                 _refocus()
                 return
 
-            cmd_to_use = hist[-n]   # -1 is last, -2 is second last, etc.
+             # -1 is last, -2 is second last, etc.
+            item = hist[-n]
+            cmd_to_use = item[0] if isinstance(item, tuple) else item
 
             if recall_only:
                 # Write to cmd_input but DO NOT EXECUTE
@@ -805,14 +830,8 @@ class CommandDispatcher:
                 self.run(cmd_to_use, record_history=False)
                 _refocus()
                 return
-
         if not hasattr(parent, "command_history"):
             parent.command_history = []
-
-        if record_history:
-            parent.update_command_history(cmd_line)
-            parent.history_index = len(parent.command_history)
-
         if cmd_line.endswith(">>") and not cmd_line.startswith(">>"):
             body_raw = cmd_line[:-2].rstrip()  # remove trailing '>>'
             if not body_raw:
@@ -859,7 +878,6 @@ class CommandDispatcher:
 
                 # Now run the *stripped* command
                 cmd_line = body_raw
-
         # --- '>>' Override Macros (define/override) ---------------------------------
         # Usage:
         #   >> fq next;spc 60      -> overrides key 'f' with that command
@@ -888,8 +906,13 @@ class CommandDispatcher:
 
             self.cmd_macros[key] = payload
             print(f"Overridden macro '>{key}': {payload!r}")
+            if record_history:
+                ts = time.time()
+                parent.update_command_history((cmd_line, ts))
+                parent.history_index = len(parent.command_history)
+                self._last_cmd = cmd_line
             _refocus()
-            return
+            return True
         # ---------------------------------------------------------------------------
 
         # --- '>' Macro DEFINE (top-level only when '> ' prefix) ----------------------
@@ -928,7 +951,12 @@ class CommandDispatcher:
             self.cmd_macros[key] = body
             print(f"Saved macro '>{key}': {body!r}")
             _refocus()
-            return
+            if record_history:
+                ts = time.time()
+                parent.update_command_history((cmd_line, ts))
+                parent.history_index = len(parent.command_history)
+                self._last_cmd = cmd_line
+            return True
         # ---------------------------------------------------------------------------
 
         # Handle 'loop' specially
@@ -952,7 +980,6 @@ class CommandDispatcher:
             threading.Thread(target=loop_worker, daemon=True).start()
             print(f"Looping from {start} to {end} in background…")
             return
-
         # Split and dispatch
         segments = [seg.strip() for seg in cmd_line.split(";") if seg.strip()]
         for i, seg in enumerate(segments):
@@ -974,7 +1001,6 @@ class CommandDispatcher:
                         except Exception as e:
                             print(f"Failed to bring window '{win_id}' to front: {e}")
                         continue
-
 
                 # Handle embedded-number verbs (xabs12, dx200, etc.)
                 for prefix in ("xabs","yabs","zabs","dx","dy","dz","angle","att","lastz","int"):
@@ -1045,6 +1071,7 @@ class CommandDispatcher:
 
                 handler = self.handlers.get(key)
                 if handler:
+                    executed_any = True
                     # 'wait' delays subsequent commands
                     if key=="wait":
                         try:
@@ -1101,7 +1128,11 @@ class CommandDispatcher:
 
                     dpg.set_value("cmd_input", "")
                     # dpg.focus_item("cmd_input")
-
+                    if record_history:
+                        ts = time.time()
+                        parent.update_command_history((cmd_line, ts))
+                        parent.history_index = len(parent.command_history)
+                        self._last_cmd = cmd_line
                     return handler(arg)
                 else:
                     # --- NEW: direct Python helpers ---
@@ -1116,6 +1147,7 @@ class CommandDispatcher:
                     # self.run("import dearpygui.dearpygui as dpg; py print(dpg.does_item_exist('cmd_input
                     # 2.1 import / from  (persist in shared namespace)
                     if key in ("import", "from"):
+                        executed_any = True
                         ns = self._ensure_exec_ns()
                         stmt = f"{key} {arg}".strip()
                         try:
@@ -1129,6 +1161,7 @@ class CommandDispatcher:
                     # 2.2 py <stmt>  (exec arbitrary Python statement in shared namespace)
                     #     py? <expr> (eval expression and print result)
                     if key in ("py", "py?"):
+                        executed_any = True
                         ns = self._ensure_exec_ns()
                         ns.setdefault("self", self)  # <-- add
                         ns.setdefault("parent", self.get_parent())  # optional, handy
@@ -1147,49 +1180,35 @@ class CommandDispatcher:
 
                     history = getattr(parent, "command_history", [])
                     # Prefer exact match only
-                    matches = [cmd for cmd in reversed(history) if cmd.strip() == seg]
+
+                    seg_norm = normalize_for_recall(seg)
+                    matches = []
+                    for item in reversed(history):
+                        hcmd = _hist_cmd(item)
+                        if not isinstance(hcmd, str):
+                            continue
+                        if normalize_for_recall(hcmd) == seg_norm:
+                            matches.append(hcmd)
+                            break  # most recent exact match only
 
                     # If no exact match, optionally allow substring matches ONLY when the candidate
                     # has no ';' (i.e., it’s a single-segment command). This prevents recalling
                     # 'await spc;>c' for the sub-segment 'await spc'.
                     if not matches:
-                        matches = [cmd for cmd in reversed(history)
-                                   if (seg in cmd) and (";" not in cmd) and (cmd != seg)]
+                        print(f"Unknown command: {seg}")
+                        print("Tip: press '?' to see recent commands")
+                        # matches = [cmd for cmd in reversed(history)
+                        #            if (seg in cmd) and (";" not in cmd) and (cmd != seg)]
 
                     if matches:
                         found = matches[0]
                         _refocus()
                         print(f"Recalled from history: {found}")
-                        ns = self._ensure_exec_ns()
-                        try:
-                            head = found.lstrip()
-                            low = head.lower()
+                        return self.run(found, record_history=False)
 
-                            # Route explicit Python helpers directly
-                            if low.startswith("import ") or low.startswith("from "):
-                                exec(found, ns)
-                                return
-                            if low.startswith("py? "):
-                                result = eval(found[3:], ns)
-                                if result is not None: print(result)
-                                return
-                            if low.startswith("py "):
-                                exec(found[3:], ns)
-                                return
-
-                            # For console syntax (await, >, >>, etc.), re-enter the console
-                            # without re-logging to avoid loops.
-                            # self.run(found, record_history=False)
-                            return
-                        except Exception as e:
-                            print(f"❌ Error while executing recalled command: {e}")
-                        return
             except Exception:
                     traceback.print_exc()
             _refocus()
-
-        if record_history:
-            self._last_cmd = cmd_line
     def savehistory_on_exit(self):
         try:
             self.handle_save_history()
@@ -1204,24 +1223,51 @@ class CommandDispatcher:
         except Exception:
             pass
     # --- Handlers (methods) ---
-    def _set_mff_by_suffix(self, suffix: str, desired_pos: int, label: str = "") -> bool:
+    def _set_mff_by_suffix(self, suffix: str, desired_pos: int = None, label: str = "") -> bool:
         """
-        Safely set an MFF_101 (matched by serial suffix) to desired_pos.
+        Safely set an MFF_101 (matched by serial suffix) to desired_pos or by a semantic label.
 
         IMPORTANT (per GUI_MFF._state_to_updown):
           dev.get_position() == 2  -> Up
           dev.get_position() == 1  -> Down
 
+        You may call:
+          _set_mff_by_suffix("55", 1, "blocker-on")          # explicit pos
+          _set_mff_by_suffix("55", label="blocker-on")       # label-only
+
         This function will NOT actuate if already in the desired position.
         Returns True if device ends in desired_pos, False otherwise.
         """
+        # Map semantic labels -> desired position
+        # (based on your GUI_MFF.STATUS_BY_M mapping)
+        LABEL_TO_POS_BY_SUFFIX = {
+            # suffix: {label: pos}
+            "32": {"proem-off": 2, "proem-on": 1},  # Up=off, Down=on
+            "55": {"blocker-off": 2, "blocker-on": 1},  # Up=off, Down=on
+            "48": {"spectrometer": 2, "apds": 1},  # Up=spectrometer, Down=apds
+        }
+
+        # If desired_pos not given, infer from label
+        if desired_pos is None:
+            lab = (label or "").strip().lower()
+            mp = LABEL_TO_POS_BY_SUFFIX.get(str(suffix), {})
+            if lab in mp:
+                desired_pos = mp[lab]
+            else:
+                print(f"_set_mff_by_suffix: cannot infer desired_pos for suffix='{suffix}' label='{label}'.")
+                print(f"  Known labels: {sorted(mp.keys()) if mp else 'None'}")
+                return False
+
         if desired_pos not in (1, 2):
             print(f"_set_mff_by_suffix: invalid desired_pos={desired_pos} (must be 1=Down, 2=Up)")
             return False
 
         p = self.get_parent()
-        mff = None
+        if p is None:
+            print("_set_mff_by_suffix: parent is None")
+            return False
 
+        mff = None
         for flipper in getattr(p, "mff_101_gui", []):
             sn = str(getattr(flipper, "serial_number", "") or getattr(flipper, "serial_no", "") or "")
             if sn.endswith(str(suffix)):
@@ -1240,17 +1286,15 @@ class CommandDispatcher:
             print(f"Failed reading MFF{tag_desc} position (suffix '{suffix}'): {e}")
             return False
 
-        # ✅ do nothing if already correct (critical, because callback toggles!)
+        # Do nothing if already correct
         if current == desired_pos:
             return True
 
-        # We need exactly one toggle to reach the other state.
-        # Keep slider value consistent with your GUI: slider value is (pos - 1)
+        # One toggle should reach the other state
         try:
             sender = f"on_off_slider_{mff.unique_id}"
             app_data = desired_pos - 1  # pos2->1, pos1->0
 
-            # This callback toggles the device once and refreshes the GUI text/theme/status.
             mff.on_off_slider_callback(sender, app_data)
 
             import time
@@ -1504,7 +1548,7 @@ class CommandDispatcher:
             for tag, label in ((x_tag, "X"), (y_tag, "Y")):
                 if dpg.does_item_exist(tag):
                     dpg.fit_axis_data(tag)
-                    print(f"Auto‑fit {label} applied")
+                    print(f"Auto-fit {label} applied")
                 else:
                     print(f"Axis '{tag}' not found; skipping.")
         else:
@@ -2971,7 +3015,6 @@ class CommandDispatcher:
         except Exception as e:
             print(f"Error running 'plf': {e}")
         dpg.focus_item("cmd_input")
-
     def handle_file(self, arg=None):
         """With no arg: print & copy last_loaded_file.
         With <path>: open that file if it exists."""
@@ -4833,9 +4876,9 @@ class CommandDispatcher:
         #   - blocker-off  (M55 -> Up   -> pos2)
         #   - APDs         (M48 -> Down -> pos1)
         #   - ProEM-off    (M32 -> Up   -> pos2)
-        self._set_mff_by_suffix("55", 2, "blocker-off")
-        self._set_mff_by_suffix("48", 1, "apds")
-        self._set_mff_by_suffix("32", 2, "proem-off")
+        self._set_mff_by_suffix("55", label="blocker-on")
+        self._set_mff_by_suffix("48", label="apds")
+        self._set_mff_by_suffix("32", label="proem-off")
 
         parts = [t for t in (arg or "").strip().lower().split() if t]
 
@@ -5013,40 +5056,103 @@ class CommandDispatcher:
         dpg.focus_item("cmd_input")
     def handle_save_history(self, arg=None):
         """Save command history and '>' macros to files. Optional suffix: savehist <suffix>"""
-        import json, os
+        import json
+        import dearpygui.dearpygui as dpg
+
         p = self.get_parent()
+        if p is None:
+            print("savehistory failed: parent is None (dispatcher not attached to GUI yet).")
+            try:
+                dpg.focus_item("cmd_input")
+            except Exception:
+                pass
+            return
+
         suffix = (arg or "").strip()
         hist_fn = f"history_{suffix}.txt" if suffix else "history.txt"
         macro_fn = f"macros_{suffix}.json" if suffix else "macros.json"
+
         try:
+            # command_history may contain either strings or (cmd, ts) tuples
             with open(hist_fn, "w", encoding="utf-8") as f:
-                for cmd in getattr(p, "command_history", []):
-                    f.write(cmd + "\n")
+                for item in getattr(p, "command_history", []):
+                    if isinstance(item, tuple) and len(item) >= 1:
+                        cmd = item[0]
+                    else:
+                        cmd = item
+                    cmd_s = (cmd or "").rstrip("\n")
+                    if cmd_s:
+                        f.write(cmd_s + "\n")
+
             with open(macro_fn, "w", encoding="utf-8") as mf:
                 json.dump(getattr(self, "cmd_macros", {}), mf, ensure_ascii=False, indent=2)
+
             print(f"History and macros saved to: {hist_fn}, {macro_fn}")
+
         except Exception as e:
             print(f"savehistory failed: {e}")
-        dpg.focus_item("cmd_input")
+
+        try:
+            dpg.focus_item("cmd_input")
+        except Exception:
+            pass
     def handle_load_history(self, arg):
         """Load command history and '>' macros from files. Optional suffix: loadhist <suffix>"""
-        import json, os
-        p = self.get_parent()
+        import json, os, threading, time
+        import dearpygui.dearpygui as dpg
+
         suffix = (arg or "").strip()
         hist_fn = f"history_{suffix}.txt" if suffix else "history.txt"
         macro_fn = f"macros_{suffix}.json" if suffix else "macros.json"
-        try:
-            with open(hist_fn, encoding="utf-8") as f:
-                p.command_history = [l.rstrip("\n") for l in f]
+
+        # --- NEW: delayed load when parent isn't ready yet ---
+        def _attempt_load(tries_left: int):
+            p = self.get_parent()
+            if p is None:
+                if tries_left <= 0:
+                    print("loadhistory failed: parent is still None (gave up). Try again later.")
+                    return
+                # retry soon
+                threading.Timer(0.3, _attempt_load, args=(tries_left - 1,)).start()
+                return
+
+            # parent ready -> do the real load
             try:
-                with open(macro_fn, encoding="utf-8") as mf:
-                    self.cmd_macros = json.load(mf)
+                with open(hist_fn, encoding="utf-8") as f:
+                    p.command_history = [l.rstrip("\n") for l in f]
+
+                # keep index consistent
+                try:
+                    p.history_index = len(p.command_history)
+                except Exception:
+                    pass
+
+                try:
+                    with open(macro_fn, encoding="utf-8") as mf:
+                        self.cmd_macros = json.load(mf)
+                except FileNotFoundError:
+                    self.cmd_macros = {}
+
+                print(f"History and macros loaded from: {hist_fn}, {macro_fn}")
+
             except FileNotFoundError:
-                self.cmd_macros = {}
-            print(f"History and macros loaded from: {hist_fn}, {macro_fn}")
-        except Exception as e:
-            print(f"loadhistory failed: {e}")
-        dpg.focus_item("cmd_input")
+                print(f"loadhistory failed: file not found: {hist_fn}")
+            except Exception as e:
+                print(f"loadhistory failed: {e}")
+
+            try:
+                dpg.focus_item("cmd_input")
+            except Exception:
+                pass
+
+        # kick off attempts
+        if self.get_parent() is None:
+            print("loadhistory: dispatcher not ready yet, will retry shortly…")
+            _attempt_load(tries_left=30)
+            return
+
+        # if parent already ready, load immediately
+        _attempt_load(tries_left=0)
     def handle_del_history(self, arg):
         """Clears command history and '>' macros (memory) and deletes files. Optional suffix: delhist <suffix>"""
         import os, json
@@ -5998,6 +6104,7 @@ class CommandDispatcher:
             amount=int(float(arg)*1e6)
             p.smaractGUI.dev.MoveRelative(axis, amount)
             print(f"Axis {axis} moved by {amount*1e-6:.2f} um")
+            dpg.focus_item("cmd_input")
         except Exception as e:
             print(f"move{axis} failed {e}.")
     def handle_open_lastdir(self, arg):
@@ -6264,9 +6371,6 @@ class CommandDispatcher:
     def handle_exit(self, arg):
         """Exit the application immediately."""
         print("Exiting application...")
-        # stop the DPG render loop
-        dpg.stop_dearpygui()
-        # terminate Python process
         os._exit(0)
     def handle_enablepp(self, arg):
         """Enable the pharos pulse picker (PP)."""
@@ -6763,7 +6867,7 @@ class CommandDispatcher:
             try:
                 v1 = float(gui.dev.get_current_voltage(1))
                 v2 = float(gui.dev.get_current_voltage(2))
-                msg = f"kabs? -> CH1: {v1:.4f} V; CH2: {v2:.4f} V"
+                msg = f"kabs {v1:.4f}v, {v2:.4f}v"
                 print(msg)
                 # ✅ copy to clipboard
                 try:
@@ -7839,16 +7943,46 @@ class CommandDispatcher:
             print("[expand] Nothing expanded.")
         dpg.focus_item("cmd_input")
     def handle_hist(self, arg: str):
-        """Bind a '>' macro from a history line number.
-           Usage:
-             hist <n>      # e.g., hist 30  -> saves history[29] as a macro ('> <that line>')
+        """
+        History / macro helper.
+
+        Usage:
+          hist <n>                 # bind a '>' macro from history line n (1-based)
+          hist clear | del | delete  # clear command history
         """
         import re
+        import dearpygui.dearpygui as dpg
+
         p = self.get_parent()
+        sub = (arg or "").strip().lower()
+
+        # --- NEW: clear history ---
+        if sub in ("clear", "del", "delete"):
+            try:
+                if hasattr(p, "command_history"):
+                    p.command_history.clear()
+                else:
+                    p.command_history = []
+
+                # keep index consistent
+                if hasattr(p, "history_index"):
+                    p.history_index = 0
+
+                print("[hist] Cleared history.")
+            except Exception as e:
+                print(f"[hist] Failed to clear history: {e}")
+
+            try:
+                dpg.focus_item("cmd_input")
+            except Exception:
+                pass
+            return
+
+        # --- original: hist <n> binds macro from that history line ---
         try:
             n = int((arg or "").strip())
         except Exception:
-            print("Usage: hist <line_number>")
+            print("Usage: hist <line_number>  |  hist clear")
             return
 
         hist = getattr(p, "command_history", [])
@@ -7856,19 +7990,19 @@ class CommandDispatcher:
             print(f"[hist] Out of range. Have {len(hist)} history lines.")
             return
 
-        body = hist[n - 1].strip()  # the command to bind as a macro (same as '> <body>')
+        item = hist[n - 1]
+        body = item[0] if isinstance(item, tuple) else item
+        body = body.strip()
 
         if not hasattr(self, "cmd_macros"):
             self.cmd_macros = {}
 
-        # Take first alphabetic char as base key
         m = re.search(r"[A-Za-z]", body)
         if not m:
             print("[hist] No alphabetic command found to bind.")
             return
         base = m.group(0).lower()
 
-        # Find next free key: base, base2, base3, ...
         existing = [k for k in self.cmd_macros.keys() if re.fullmatch(fr"{base}\d*", k)]
         if base not in existing:
             key = base
@@ -13767,50 +13901,89 @@ class CommandDispatcher:
                     print(f"[sum counters] {p.opx.sum_counters_flag}")
                 except Exception as e:
                     print(f"sum: toggle failed: {e}")
-
     def handle_plotall(self, arg=""):
         """
-        Run Utils/plat_all_slices.py and open the output folder if CSV is given.
+        plotall                 -> script opens file dialog
+        plotall -1              -> script opens file dialog, but skips first slice
+        plotall <csv_path>      -> runs script
+        plotall <csv_path> -1   -> runs script, skips first slice
+        plotall last            -> script chooses most recent CSV (inside the script)
+        plotall last -1         -> same, plus skip-first
 
-          plotall
-              -> opens file dialog inside the script
-
-          plotall <csv_path>
-              -> runs on CSV and opens the generated folder
+        Runs the subprocess in a NEW THREAD so the UI doesn't block.
         """
-        import os, sys, subprocess
+        import os, sys, subprocess, shutil, threading
 
-        try:
-            base_dir = _dispatcher_base_dir(self)
-            script = os.path.join(base_dir, "Utils", "plat_all_slices.py")
+        def _worker():
+            try:
+                base_dir = _dispatcher_base_dir(self)
+                script = os.path.join(base_dir, "Utils", "plot_all_slices.py")
+                if not os.path.isfile(script):
+                    print(f"plotall: script not found: {script}")
+                    return
 
-            csv = (arg or "").strip()
+                raw = (arg or "").strip()
+                tokens = raw.split() if raw else []
 
-            # Launch the script
-            cmd = [sys.executable, script]
-            if csv:
-                cmd.append(csv)
+                # Support "-1" meaning: skip first slice
+                skip_first = False
+                if "-1" in tokens:
+                    skip_first = True
+                    tokens = [t for t in tokens if t != "-1"]
 
-            subprocess.Popen(cmd)
-            print("plotall: running plat_all_slices.py")
+                # Remaining token (if any) is CSV path OR the keyword 'last'
+                csv_token = tokens[0] if tokens else None
 
-            # If CSV is known, open the output folder
-            if csv:
-                csv = os.path.abspath(csv)
-                out_dir = os.path.join(
-                    os.path.dirname(csv),
-                    os.path.splitext(os.path.basename(csv))[0]
+                # Find a real Python interpreter (important if running from frozen exe)
+                py = None
+                if os.path.basename(sys.executable).lower() in ("python.exe", "pythonw.exe"):
+                    py = sys.executable
+                else:
+                    py = shutil.which("python") or shutil.which("pythonw")
+
+                if not py:
+                    print("plotall: could not find python in PATH.")
+                    return
+
+                cmd = [py, script]
+
+                # If user typed "last", pass it through to the script (do NOT abspath it)
+                if csv_token:
+                    if isinstance(csv_token, str) and csv_token.lower() == "last":
+                        cmd.append("last")
+                    else:
+                        csv_abs = os.path.abspath(csv_token)
+                        if not os.path.isfile(csv_abs):
+                            print(f"plotall: csv not found: {csv_abs}")
+                            return
+                        cmd.append(csv_abs)
+
+                if skip_first:
+                    cmd.append("--skip-first")
+
+                print("plotall running:", cmd)
+
+                res = subprocess.run(
+                    cmd,
+                    cwd=base_dir,
+                    capture_output=True,
+                    text=True
                 )
 
-                # Folder is created immediately by the script
-                if os.path.isdir(out_dir):
-                    _open_path(out_dir)
-                else:
-                    # Open parent as fallback
-                    _open_path(os.path.dirname(csv))
+                if res.stdout:
+                    print(res.stdout.strip())
 
-        except Exception as e:
-            print(f"plotall failed: {e}")
+                if res.returncode != 0:
+                    print("plotall: script failed.")
+                    if res.stderr:
+                        print(res.stderr.strip())
+                    return
+
+            except Exception as e:
+                print(f"plotall failed: {e}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+        print("plotall: started in background thread.")
 
 
 # Wrapper function

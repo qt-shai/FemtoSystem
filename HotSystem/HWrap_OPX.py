@@ -10417,6 +10417,8 @@ class GUI_OPX():
         self.scan_get_current_pos(True)
 
         Nx, Ny, Nz = self.N_scan
+        save_temp_z_frames = (Nx > 1) and (Ny > 1)
+
         self.scan_intensities = np.zeros((Nx, Ny, Nz))
         self.scan_data = self.scan_intensities
 
@@ -10514,13 +10516,14 @@ class GUI_OPX():
 
             # Save after each Z slice
             current_z_um = int(self.V_scan[2][i] / 1e6)  # pm→µm
-            slice_filename = self.create_scan_file_name(local=True) + f"_z{current_z_um}"
-            self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1],
-                                   min_position_x_scan=self.V_scan[0][0],
-                                   start_pos=[int(self.V_scan[0][0]),
-                                              int(self.V_scan[1][0]),
-                                              int(self.V_scan[2][i])])
-            self.save_scan_data(Nx, Ny, Nz, slice_filename)
+            if save_temp_z_frames:
+                slice_filename = self.create_scan_file_name(local=True) + f"_z{current_z_um}"
+                self.prepare_scan_data(max_position_x_scan=self.V_scan[0][-1],
+                                       min_position_x_scan=self.V_scan[0][0],
+                                       start_pos=[int(self.V_scan[0][0]),
+                                                  int(self.V_scan[1][0]),
+                                                  int(self.V_scan[2][i])])
+                self.save_scan_data(Nx, Ny, Nz, slice_filename)
 
         keep = self.stopScanNoRestore
         if not keep:

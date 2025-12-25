@@ -348,7 +348,7 @@ def load_instrument_images():
             texture_tag = f"{instrument.value}_texture"
             if not dpg.does_item_exist(texture_tag):
                 image_path = os.path.join(base_path, f"{instrument.value}.png")
-                print(f"Image path: {image_path}")
+                # print(f"Image path: {image_path}")
                 if os.path.exists(image_path):
                     width, height, channels, data = dpg.load_image(image_path)
                     dpg.add_static_texture(width, height, data, tag=texture_tag)

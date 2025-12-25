@@ -261,14 +261,14 @@ def is_remote_resolution() -> bool:
     """
     try:
         w, h = get_primary_resolution()
-        print(f"[is_remote_resolution] Primary resolution: {w} x {h}")
+        # print(f"[is_remote_resolution] Primary resolution: {w} x {h}")
 
         # Adjust to your real remote screen dimensions
         if w == 3840 and h == 1600:
             print("[is_remote_resolution] Remote resolution detected -> True")
             return True
         else:
-            print("[is_remote_resolution] Local resolution -> False")
+            # print("[is_remote_resolution] Local resolution -> False")
             return False
 
     except Exception as e:
@@ -416,8 +416,8 @@ def load_window_positions(file_name: str | None = None, *cb_args, **cb_kwargs) -
                         dpg.set_item_pos(alias, pos)
                         applied = True
                         break
-            _safe_log(f"Loaded position for '{key}' -> {pos}" if applied
-                      else f"[load] position target not found: '{key}'")
+            # _safe_log(f"Loaded position for '{key}' -> {pos}" if applied
+            #           else f"[load] position target not found: '{key}'")
         except Exception as e:
             _safe_log(f"[load] Failed setting pos for '{key}': {e}")
 
@@ -437,8 +437,8 @@ def load_window_positions(file_name: str | None = None, *cb_args, **cb_kwargs) -
                         dpg.set_item_height(alias, h)
                         applied = True
                         break
-            _safe_log(f"Loaded size for '{key}' → {w}×{h}" if applied
-                      else f"[load] size target not found: '{key}'")
+            # _safe_log(f"Loaded size for '{key}' → {w}×{h}" if applied
+            #           else f"[load] size target not found: '{key}'")
         except Exception as e:
             _safe_log(f"[load] Failed setting size for '{key}': {e}")
 
@@ -452,9 +452,9 @@ def load_window_positions(file_name: str | None = None, *cb_args, **cb_kwargs) -
             p = getattr(sys.stdout, "parent", None)
             if p is not None and hasattr(p, "opx"):
                 setattr(p.opx, "graph_size_override", (w, h))
-            _safe_log(f"Loaded graph size for '{graph_tag}': {w}×{h}")
-        else:
-            _safe_log(f"No saved size for graph '{graph_tag}', or it wasn't found.")
+            # _safe_log(f"Loaded graph size for '{graph_tag}': {w}×{h}")
+        # else:
+        #     _safe_log(f"No saved size for graph '{graph_tag}', or it wasn't found.")
     except Exception as e:
         _safe_log(f"[load] Failed restoring plot '{graph_tag}': {e}")
 

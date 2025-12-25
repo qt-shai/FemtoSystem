@@ -1045,7 +1045,7 @@ class PyGuiOverlay(Layer):
                     if parent:
                         # outout.run(f"future{input_str}")
                         run(f"future {input_str}", record_history=False)
-                        print(f"[DPG frame callback] Ran future: {input_str}")
+                        # print(f"[DPG frame callback] Ran future: {input_str}")
                         load_window_positions()
                     else:
                         # Retry on next frame
@@ -1139,6 +1139,16 @@ class PyGuiOverlay(Layer):
                 self.step_tuning_key = None
                 self.step_tuning_counter = 0
 
+            # ── if the user is actively typing into the command box, bail out  ──
+            focused_inputs = (
+                "cmd_input",
+                "inTxtScan_expText",
+                "Femto_FutureInput_PowerCalc",
+                "MoveSubfolderInput"
+            )
+            if any(dpg.does_item_exist(tag) and dpg.is_item_focused(tag) for tag in focused_inputs):
+                return
+
             # Handle Smaract controls and general ctrl shift commands
             if self.handle_ctrl_shift_commands(key_data_enum, is_coarse):
                 self.CURRENT_KEY = key_data_enum
@@ -1197,18 +1207,8 @@ class PyGuiOverlay(Layer):
                     print(f"Error running clipboard command: {e}")
                 return
 
-            # ── if the user is actively typing into the command box, bail out  ──
-            focused_inputs = (
-                "cmd_input",
-                "inTxtScan_expText",
-                "Femto_FutureInput_PowerCalc",
-                "MoveSubfolderInput"
-            )
-            if any(dpg.does_item_exist(tag) and dpg.is_item_focused(tag) for tag in focused_inputs):
-                return
-
             # ── BACKSPACE ──
-            if key_data_enum == KeyboardKeys.BACK_KEY:
+            if key_data_enum == KeyboardKeys.BACK_KEY and dpg.is_item_focused("cmd_input"):
                 cur = dpg.get_value("cmd_input") or ""
                 # Shift+Backspace clears all
                 if getattr(self, "modifier_key", None) == KeyboardKeys.SHIFT_KEY:
@@ -1216,8 +1216,6 @@ class PyGuiOverlay(Layer):
                     self.modifier_key=None
                 else:
                     dpg.set_value("cmd_input", cur[:-1])
-                print('Focus on cmd')
-                dpg.focus_item("cmd_input")
                 return
 
             if key_data_enum in (KeyboardKeys.C_KEY, KeyboardKeys.SPACE_KEY,KeyboardKeys.ENTER_KEY):
@@ -2059,17 +2057,53 @@ class PyGuiOverlay(Layer):
 
             self.update_command_history(input_text)
             dpg.set_value("console_input", "")  # Clear the input field
+
     def update_command_history(self, command):
-        """Updates the command history combo box."""
-        if command in self.command_history:
-            self.command_history.remove(command)  # Remove duplicate before re-adding
+        """
+        Update command history with timestamps.
 
-        self.command_history.append(command)  # Insert at the top
+        Stores entries as: (cmd: str, ts: float)
+        Displays entries as: [HH:MM:SS] cmd
+        """
+        import time
+
+        # Normalize input
+        if isinstance(command, tuple):
+            cmd, ts = command
+            if ts is None:
+                ts = time.time()
+        else:
+            cmd = str(command)
+            ts = time.time()
+
+        # Remove duplicates by command text
+        new_hist = []
+        for item in self.command_history:
+            old_cmd = item[0] if isinstance(item, tuple) else item
+            if old_cmd != cmd:
+                new_hist.append(item)
+
+        self.command_history = new_hist
+
+        # Append newest
+        self.command_history.append((cmd, ts))
+
+        # Trim oldest
         if len(self.command_history) > self.MAX_HISTORY:
-            self.command_history.pop()  # Remove the oldest entry
+            self.command_history = self.command_history[-self.MAX_HISTORY:]
 
-        # Update the combo box
-        dpg.configure_item("command_history", items=self.command_history)
+        # Update combo box (rendered strings)
+        def _fmt(item):
+            c, t = item if isinstance(item, tuple) else (item, None)
+            if t is None:
+                return c
+            return f"[{time.strftime('%H:%M:%S', time.localtime(t))}] {c}"
+
+        dpg.configure_item(
+            "command_history",
+            items=[_fmt(item) for item in self.command_history]
+        )
+
     def fill_console_input(self, sender, app_data):
         """Fills the input field with the selected command."""
         dpg.set_value("cmd_input", app_data)

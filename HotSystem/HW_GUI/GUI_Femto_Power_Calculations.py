@@ -81,7 +81,7 @@ class FemtoPowerCalculator:
             with open(filename, "r") as f:
                 value = f.read().strip()
                 if value:
-                    print(f"Loaded future input from {filename}: {value}")
+                    # print(f"Loaded future input from {filename}: {value}")
                     return value
         except FileNotFoundError:
             pass  # No file yet, use default
@@ -130,7 +130,7 @@ class FemtoPowerCalculator:
             input_str = dpg.get_value(self.future_input_tag)
             # If prefixed with "!", treat as no-op and return Ly = 0
             if input_str.startswith("!"):
-                print("Future calculation skipped (bang-prefix).")
+                # print("Future calculation skipped (bang-prefix).")
                 return 0
 
             # Parse mode from suffix
