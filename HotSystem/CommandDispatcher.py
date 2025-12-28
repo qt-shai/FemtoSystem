@@ -1687,39 +1687,60 @@ class CommandDispatcher:
                 return
 
             # --- Galvo (kabs) marking ---
-            if kw in ("k", "g", "keysight", "galvo"):
+            if kw in ("k", "g", "keysight", "galvo", "b"):
                 parent = self.get_parent()
                 gui = getattr(parent, "keysight_gui", None)
                 if not gui or not hasattr(gui, "dev"):
                     print("mark k/g: Keysight AWG GUI/device not available.")
                     return
                 try:
+                    # current channel voltages
                     v1 = float(gui.dev.get_current_voltage(1))
                     v2 = float(gui.dev.get_current_voltage(2))
+
+                    # origin (0,0) in volts
                     base1 = float(getattr(gui, "base1", 0.0))
                     base2 = float(getattr(gui, "base2", 0.0))
-                    volts_per_um = float(getattr(gui, "volts_per_um", 0.128 / 15))
+
+                    # per-axis calibration (match scan3d_with_galvo)
+                    vpu_x = float(getattr(gui, "volts_per_um_x", getattr(gui, "volts_per_um", 0.0)))
+                    vpu_y = float(getattr(gui, "volts_per_um_y", getattr(gui, "volts_per_um", 0.0)))
+                    if vpu_x == 0.0 or vpu_y == 0.0:
+                        print("mark k/g: volts_per_um_x / volts_per_um_y (or fallback volts_per_um) not configured.")
+                        return
+
+                    # mixing ratios (match scan3d_with_galvo)
                     kx_ratio = float(getattr(gui, "kx_ratio", 3.3))
                     ky_ratio = float(getattr(gui, "ky_ratio", -0.3))
 
+                    # subtract origin
                     dv1 = v1 - base1
                     dv2 = v2 - base2
-                    denom = (kx_ratio - ky_ratio)
+
+                    # Invert:
+                    # dv1 = Vx + Vy
+                    # dv2 = kx*Vx + ky*Vy
+                    denom = (ky_ratio - kx_ratio)
                     if abs(denom) < 1e-12:
-                        print("mark k/g: ill-conditioned kx/ky ratios.")
+                        print("mark k/g: ill-conditioned kx/ky ratios (ky_ratio == kx_ratio).")
                         return
 
-                    alpha_x_volts = (dv2 - dv1 * ky_ratio) / denom
-                    beta_y_volts = (dv2 - dv1 * kx_ratio) / (ky_ratio - kx_ratio)
-                    x_um = alpha_x_volts / volts_per_um
-                    y_um = beta_y_volts / volts_per_um
+                    # Solve for Vx and Vy (volts)
+                    Vx_volts = (dv1 * ky_ratio - dv2) / denom
+                    Vy_volts = (dv2 - dv1 * kx_ratio) / denom
+
+                    # Convert to µm using per-axis scales (consistent with scan)
+                    x_um = Vx_volts / vpu_x
+                    y_um = Vy_volts / vpu_y
 
                     size = "small" if kw == "g" else ("big" if kw == "b" else "normal")
                     _draw_marker(x_um, y_um, "galvo (kabs)", size=size)
                     return
+
                 except Exception as e:
                     print(f"mark k/g failed: {e}")
                     return
+
 
             # --- Default: mark current OPX stage XY (µm) ---
             parent = self.get_parent()

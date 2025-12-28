@@ -11330,9 +11330,32 @@ class GUI_OPX():
         # Store vectors
         self.V_scan = scan_coordinates  # [X_rel_pm, Y_rel_pm, Z_abs_um]
         Nx, Ny, Nz = self.N_scan
+
+        # --- Compute absolute galvo center (kabs) in µm for plotting ---
+        base1 = float(getattr(gui, "base1", 0.0))
+        base2 = float(getattr(gui, "base2", 0.0))
+
+        dv1 = base_off_x - base1
+        dv2 = base_off_y - base2
+
+        denom = (ky_ratio - kx_ratio)
+        if abs(denom) < 1e-12:
+            print("WARNING: ky_ratio == kx_ratio; cannot compute absolute galvo center.")
+            x0_um = 0.0
+            y0_um = 0.0
+        else:
+            # Invert the same model used by mark k
+            Vx0 = (dv1 * ky_ratio - dv2) / denom
+            Vy0 = (dv2 - dv1 * kx_ratio) / denom
+
+            x0_um = Vx0 / vpu_x
+            y0_um = Vy0 / vpu_y
+
+        print(f"[Galvo center] x0={x0_um:.3f} µm, y0={y0_um:.3f} µm")
+
         # For CSV/plot: convert pm → µm by /1e6 (as in your code)
-        self.Xv = np.asarray(self.V_scan[0], dtype=float) / 1e6
-        self.Yv = np.asarray(self.V_scan[1], dtype=float) / 1e6
+        self.Xv = np.asarray(self.V_scan[0], dtype=float) / 1e6 + x0_um
+        self.Yv = np.asarray(self.V_scan[1], dtype=float) / 1e6 + y0_um
         self.Zv = np.asarray(self.V_scan[2], dtype=float) / 1e6
 
         print(f"Xv (µm): {self.Xv[0]:.2f} -> {self.Xv[-1]:.2f}, Nx={len(self.Xv)}")
@@ -11391,8 +11414,11 @@ class GUI_OPX():
         # --- Allocate arrays & plot first slice ---
         self.scan_intensities = np.zeros((Nx, Ny, Nz))
         self.scan_data = self.scan_intensities
-        self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
-        self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
+        # self.startLoc = [self.V_scan[0][0] / 1e6, self.V_scan[1][0] / 1e6, self.V_scan[2][0] / 1e6]
+        # self.endLoc = [self.V_scan[0][-1] / 1e6, self.V_scan[1][-1] / 1e6, self.V_scan[2][-1] / 1e6]
+        self.startLoc = [self.Xv[0], self.Yv[0], self.Zv[0]]
+        self.endLoc = [self.Xv[-1], self.Yv[-1], self.Zv[-1]]
+
         self.Plot_Scan(Nx=Nx, Ny=Ny, array_2d=self.scan_intensities[:, :, 0],
                        startLoc=self.startLoc, endLoc=self.endLoc)
 

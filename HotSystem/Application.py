@@ -41,7 +41,6 @@ from Utils.Common import calculate_z_series
 from Common import WindowNames
 from Common import load_window_positions
 from Window import Window_singleton
-# from Outout_to_gui import DualOutput
 from CommandDispatcher import DualOutput
 import threading
 import glfw
@@ -54,7 +53,6 @@ from Utils.Common import calculate_z_series
 import numpy as np
 import cv2
 
-# import Outout_to_gui as outout
 from CommandDispatcher import run
 from datetime import datetime, timedelta
 
@@ -1043,7 +1041,6 @@ class PyGuiOverlay(Layer):
                 def try_run_future():
                     parent = getattr(sys.stdout, "parent", None)
                     if parent:
-                        # outout.run(f"future{input_str}")
                         run(f"future {input_str}", record_history=False)
                         # print(f"[DPG frame callback] Ran future: {input_str}")
                         load_window_positions()
@@ -2041,7 +2038,6 @@ class PyGuiOverlay(Layer):
             print(f"Failed to save logs: {e}")
     def handle_cmd_input(self):
         command = dpg.get_value("cmd_input").strip()
-        # outout.run(command)
         run(command)
     def send_console_input(self):
         """Sends the input text to the console."""
