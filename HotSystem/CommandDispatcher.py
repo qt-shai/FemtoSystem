@@ -522,6 +522,7 @@ class CommandDispatcher:
             "com12":             self.handle_com12,
             "sum":               self.handle_sum_counters,
             "plotall":           self.handle_plotall,
+            "killp":             self.handle_kill_process,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -3696,6 +3697,187 @@ class CommandDispatcher:
         # -----------------------------
         tokens = a.replace(",", " ").split()
         low = [t.lower() for t in tokens]
+        # -----------------------------
+        # LOAD CALIBRATION CURVE
+        #   hr load
+        #   hr load cal
+        #   hr load calib
+        #   hr load calib1200
+        # -----------------------------
+        if tokens:
+            import os
+            from pathlib import Path
+            import numpy as np
+
+            # normalize variants like "loadcal" -> ["load","cal"]
+            merged_tokens = []
+            for t in low:
+                if t in ("loadcal", "loadcalib", "loadcalib1200"):
+                    merged_tokens += ["load", "cal"]
+                else:
+                    merged_tokens.append(t)
+            low2 = merged_tokens
+
+            if "load" in low2:
+                cal_ok = (len(low2) == 1) or any(x in low2 for x in ("cal", "calib", "calib1200", "1200"))
+                if not cal_ok:
+                    print("HRS load: usage: hr load  (or: hr load cal)")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                chip_name = getattr(self, "_chip_name", "")
+                if not chip_name:
+                    print("[hr load] no chip selected. use: chip name <chipname>")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                base_folder = Path(r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations")
+                chip_folder = base_folder / chip_name
+
+                if not chip_folder.exists():
+                    print(f"[hr load] chip folder not found: {chip_folder}")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                # Find newest calib file
+                candidates = sorted(
+                    chip_folder.glob("calib1200*.csv"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+
+                if not candidates:
+                    print(f"[hr load] no calib1200*.csv files found in: {chip_folder}")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                newest = candidates[0]
+
+                # Load CSV: expects header "wavelength_nm,intensity"
+                try:
+                    data = np.genfromtxt(str(newest), delimiter=",", skip_header=1)
+                    if data.ndim != 2 or data.shape[1] < 2:
+                        raise ValueError("CSV must have at least 2 columns")
+                    x = data[:, 0]
+                    y = data[:, 1]
+
+                    # sort by wavelength just in case
+                    order = np.argsort(x)
+                    x = x[order]
+                    y = y[order]
+
+                except Exception as e:
+                    print(f"[hr load] failed to read {newest.name}: {e}")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                dev = getattr(p, "hrs_500_gui", None)
+                if dev is None:
+                    print("[hr load] hrs_500_gui not available.")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                dev.calib1200 = {
+                    "file": newest.name,
+                    "path": str(newest),
+                    "x": x,
+                    "y": y,
+                }
+
+                print(f"[hr load] loaded calibration into hrs_500_gui.calib1200: {newest}")
+                dpg.focus_item("cmd_input")
+                return
+
+        # -----------------------------
+        # SAVE CALIBRATION CURVE
+        #   hr save
+        #   hr save cal
+        #   hr savecal
+        #   hr save calib1200
+        # -----------------------------
+        if tokens:
+            # normalize variants like "savecal" -> ["save", "cal"]
+            merged_tokens = []
+            for t in low:
+                if t in ("savecal", "savecalib", "savecalib1200"):
+                    merged_tokens += ["save", "cal"]
+                else:
+                    merged_tokens.append(t)
+            low2 = merged_tokens
+
+            if "save" in low2:
+                # if user wrote "hr save xxx", accept only cal-like saves for now
+                cal_ok = (len(low2) == 1) or any(x in low2 for x in ("cal", "calib", "calib1200", "1200"))
+
+                if not cal_ok:
+                    print("HRS save: usage: hr save  (or: hr save cal)")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                from pathlib import Path
+                import datetime
+                import numpy as np
+                import os
+                import subprocess
+
+                chip_name = getattr(self, "_chip_name", "")
+                if not chip_name:
+                    print("[hr save] no chip selected. use: chip name <chipname>")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                base_folder = Path(r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations")
+                chip_folder = base_folder / chip_name
+                try:
+                    chip_folder.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    print(f"[hr save] failed to create chip folder: {e}")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                dev = getattr(p, "hrs_500_gui", None)
+                if dev is None:
+                    print("[hr save] hrs_500_gui not available.")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                calib = getattr(dev, "calib1200", None)
+                if not calib or not isinstance(calib, dict) or ("x" not in calib) or ("y" not in calib):
+                    print("[hr save] calib1200 not found. Run: runcsv gen cal 3")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                x = np.asarray(calib["x"])
+                y = np.asarray(calib["y"])
+                m = np.isfinite(x) & np.isfinite(y)
+                x = x[m]
+                y = y[m]
+
+                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                out_csv = chip_folder / f"calib1200_{ts}.csv"
+
+                try:
+                    with open(out_csv, "w", newline="") as f:
+                        f.write("wavelength_nm,intensity\n")
+                        np.savetxt(f, np.column_stack([x, y]), delimiter=",", fmt="%.6f")
+                    print(f"[hr save] saved calibration: {out_csv}")
+                except Exception as e:
+                    print(f"[hr save] failed to save CSV: {e}")
+                    dpg.focus_item("cmd_input")
+                    return
+
+                # optional: open the folder after saving
+                try:
+                    if hasattr(os, "startfile"):
+                        os.startfile(str(chip_folder))
+                    else:
+                        subprocess.run(["explorer", str(chip_folder)], check=False)
+                except Exception:
+                    pass
+
+                dpg.focus_item("cmd_input")
+                return
+
 
         if "white" in low:
             # extract first numeric token
@@ -13571,12 +13753,119 @@ class CommandDispatcher:
         runcsv          -> load last 1 csv, plot, add to PPT
         runcsv 3        -> load last 3 csv, plot together, add to PPT
         runcsv 5 <dir>  -> (optional) load last 5 from <dir>
+        runcsv gen cal 3   -> smoothed plot, PPT title "Calibration Curve",
+                            store data in parent.hrs_500_gui.calib1200
         """
         import os
         import sys
         import subprocess
 
+        p = self.get_parent()
         a = (arg or "").strip()
+        toks = a.split()
+
+        # NEW: runcsv gen cal 3 [optional_folder]
+        if len(toks) >= 3 and toks[0].lower() == "gen" and toks[1].lower() == "cal":
+            try:
+                n = int(toks[2])
+            except Exception:
+                n = 3
+
+            folder = None
+            if len(toks) >= 4 and os.path.isdir(toks[3]):
+                folder = toks[3]
+
+            try:
+                # import and run in-process so we can capture spectra arrays
+                import importlib
+                from Utils import plot_csv_spectrum as pcs
+                pcs = importlib.reload(pcs)  # <-- reload updated file
+
+                merged, _originals, _png = pcs.run_runcsv(
+                    n=n,
+                    folder=folder,
+                    title_text="Calibration Curve",
+                    smooth_window=151,
+                    merge=True,
+                )
+
+                # Store ONLY merged
+                if hasattr(p, "hrs_500_gui") and p.hrs_500_gui is not None:
+                    p.hrs_500_gui.calib1200 = merged
+                    print(f"Stored merged calibration in hrs_500_gui.calib1200 (N={n})")
+                else:
+                    print("Warning: hrs_500_gui not available; calib1200 not stored.")
+
+            except Exception as e:
+                print(f"runcsv gen cal failed: {e}")
+
+            dpg.focus_item("cmd_input")
+            return
+
+        # -----------------------------
+        # runcsv cal [N]
+        #   -> divide newest spectrum(s) by loaded calibration and add to PPT
+        # -----------------------------
+        if len(toks) >= 1 and toks[0].lower() == "cal":
+            # optional: runcsv cal 3
+            n = 1
+            if len(toks) >= 2:
+                try:
+                    n = int(toks[1])
+                except Exception:
+                    n = 1
+
+            # need calibration
+            dev = getattr(p, "hrs_500_gui", None)
+            calib = getattr(dev, "calib1200", None) if dev else None
+
+            calib_path = None
+            if isinstance(calib, dict):
+                calib_path = calib.get("path")  # set by 'hr load cal'
+
+            # fallback: if no path, try newest calib file in chip folder
+            if (not calib_path) or (not os.path.isfile(calib_path)):
+                try:
+                    from pathlib import Path
+                    chip_name = getattr(self, "_chip_name", "")
+                    if chip_name:
+                        base_folder = Path(r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations")
+                        chip_folder = base_folder / chip_name
+                        if chip_folder.exists():
+                            cands = sorted(
+                                chip_folder.glob("calib1200*.csv"),
+                                key=lambda pp: pp.stat().st_mtime,
+                                reverse=True
+                            )
+                            if cands:
+                                calib_path = str(cands[0])
+                except Exception:
+                    pass
+
+            if (not calib_path) or (not os.path.isfile(calib_path)):
+                print("runcsv cal: calibration CSV not found. Do: hr load cal  (or: hr save; hr load cal)")
+                dpg.focus_item("cmd_input")
+                return
+
+            try:
+                import importlib
+                from Utils import plot_csv_spectrum as pcs
+                pcs = importlib.reload(pcs)
+
+                pcs.run_runcsv_calibrated(
+                    n=n,
+                    folder=None,  # uses default CSV_DIR
+                    smooth_window=101,   # aggressive smoothing (SavGol window) after calibration
+                    calib_csv=calib_path,
+                )
+                print(f"runcsv cal: calibrated slide added to PPT (calib={os.path.basename(calib_path)}).")
+            except Exception as e:
+                print(f"runcsv cal failed: {e}")
+
+            dpg.focus_item("cmd_input")
+            return
+
+
         # default N=1 if empty or invalid
         n = 1
         folder = None
@@ -13617,7 +13906,6 @@ class CommandDispatcher:
         except subprocess.CalledProcessError as e:
             print(f"runcsv failed: {e}")
         dpg.focus_item("cmd_input")
-    # KDC 2
     def handle_kdc2(self, arg: str):
         """
         KDC2 command (serial 27270698).
@@ -13984,6 +14272,59 @@ class CommandDispatcher:
 
         threading.Thread(target=_worker, daemon=True).start()
         print("plotall: started in background thread.")
+    def handle_kill_process(self, arg=None):
+        import subprocess
+        import time
+
+        def run(cmd):
+            return subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            ).stdout.strip()
+
+        # Fresh PID list (CSV output is easy to parse)
+        out = run(["tasklist", "/FI", "IMAGENAME eq AddInProcess.exe", "/FO", "CSV", "/NH"])
+        if (not out) or ("No tasks are running" in out):
+            print("AddInProcess.exe: no running instances found.")
+            return
+
+        pids = []
+        for line in out.splitlines():
+            # "AddInProcess.exe","24628",...
+            parts = [p.strip().strip('"') for p in line.split(",")]
+            if len(parts) >= 2 and parts[0].lower() == "addinprocess.exe":
+                try:
+                    pids.append(int(parts[1]))
+                except Exception:
+                    pass
+
+        if not pids:
+            print("AddInProcess.exe: no running instances found.")
+            return
+
+        print(f"Found AddInProcess.exe PID(s): {pids}")
+
+        for pid in pids:
+            # Verify it still exists right now
+            chk = run(["tasklist", "/FI", f"PID eq {pid}"])
+            if "No tasks are running" in chk:
+                print(f"PID {pid}: already gone (skipping).")
+                continue
+
+            # Kill process tree
+            msg = run(["taskkill", "/F", "/T", "/PID", str(pid)])
+            print(msg)
+
+            time.sleep(0.1)
+
+            # Confirm
+            chk2 = run(["tasklist", "/FI", f"PID eq {pid}"])
+            if "No tasks are running" in chk2:
+                print(f"PID {pid}: terminated.")
+            else:
+                print(f"PID {pid}: still present (likely protected). Try running app as Admin.")
 
 
 # Wrapper function

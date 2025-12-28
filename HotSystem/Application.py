@@ -1159,28 +1159,35 @@ class PyGuiOverlay(Layer):
 
             # === UP arrow: try prefix search, else fallback to simple back-one
             if key_data_enum == KeyboardKeys.UP_KEY:
-                if not (hasattr(self, "command_history") and self.command_history):
+                if not getattr(self, "command_history", None):
                     print("No history yet.")
                     return
-                if self.history_index > 0:
-                    self.history_index -= 1
+
+                # clamp
+                self.history_index = max(0, self.history_index - 1)
+
                 val = self.command_history[self.history_index]
-                dpg.set_value("cmd_input", val)
+                cmd = val[0] if isinstance(val, tuple) else val
+
+                # ensure it's a string (defensive)
+                dpg.set_value("cmd_input", str(cmd))
                 return
 
             # === DOWN arrow: go forward in history
             if key_data_enum == KeyboardKeys.DOWN_KEY:
-                if hasattr(self, "command_history") and self.command_history:
-                    if self.history_index < len(self.command_history) - 1:
-                        self.history_index += 1
-                        val = self.command_history[self.history_index]
-                        dpg.set_value("cmd_input", val)
-                    else:
-                        # Past end → clear input
-                        self.history_index = len(self.command_history)
-                        dpg.set_value("cmd_input", "")
-                else:
+                if not getattr(self, "command_history", None):
                     print("No history yet.")
+                    return
+
+                if self.history_index < len(self.command_history) - 1:
+                    self.history_index += 1
+                    val = self.command_history[self.history_index]
+                    cmd = val[0] if isinstance(val, tuple) else val
+                    dpg.set_value("cmd_input", str(cmd))
+                else:
+                    # Past end → clear input and clamp index
+                    self.history_index = len(self.command_history)
+                    dpg.set_value("cmd_input", "")
                 return
 
             # ── BACKTICK (`) → paste clipboard into cmd_input and run ──

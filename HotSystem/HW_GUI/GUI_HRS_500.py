@@ -4,8 +4,9 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 from HW_wrapper.Wrapper_HRS_500 import LightFieldSpectrometer
 import System.Diagnostics as diag
-import os, time
+import os, time, datetime
 from Utils import open_file_dialog
+from pathlib import Path
 
 class GUI_HRS500():
 
@@ -29,6 +30,7 @@ class GUI_HRS500():
         self.proem_py0: float = 476.0
         self.proem_flip_x: bool = False
         self.proem_flip_y: bool = False
+        self.calib1200 = None
 
     def DeleteMainWindow(self):
         """
@@ -42,6 +44,36 @@ class GUI_HRS500():
                 print(f"{self.window_tag} does not exist. Nothing to delete.")
         else:
             print("No window_tag attribute defined on HRS_500 GUI.")
+
+    def save_calib1200(self, chip_folder: str | Path, name_hint: str = "calib1200"):
+        """
+        Save the merged+smoothed calibration curve (self.calib1200) to chip folder.
+        """
+        if self.calib1200 is None:
+            raise RuntimeError("calib1200 is empty. Run: runcsv gen cal 3 (or similar) first.")
+
+        chip_folder = Path(chip_folder)
+        chip_folder.mkdir(parents=True, exist_ok=True)
+
+        x = np.asarray(self.calib1200["x"])
+        y = np.asarray(self.calib1200["y"])
+
+        # drop NaNs (from union stitching)
+        m = np.isfinite(x) & np.isfinite(y)
+        x = x[m]
+        y = y[m]
+
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_csv = chip_folder / f"{name_hint}_{ts}.csv"
+
+        header = "wavelength_nm,intensity\n"
+        data = np.column_stack([x, y])
+
+        with open(out_csv, "w", newline="") as f:
+            f.write(header)
+            np.savetxt(f, data, delimiter=",", fmt="%.6f")
+
+        return out_csv
 
     def _cleanup(self):
         """Runs the moment the window is closed."""
