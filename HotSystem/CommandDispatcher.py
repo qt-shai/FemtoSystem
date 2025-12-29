@@ -3792,7 +3792,68 @@ class CommandDispatcher:
         #   hr white <num>
         # -----------------------------
         tokens = a.replace(",", " ").split()
+
+        # --- NEW: "!" suffix means: do single-shot (LightField [1]) WITHOUT Acquire ---
+        bang = False
+        if tokens:
+            # support: hr 1!  or  hr 1 ! or hr 3!
+            if tokens[-1] == "!":
+                bang = True
+                tokens = tokens[:-1]
+            elif tokens[0].endswith("!"):
+                bang = True
+                tokens[0] = tokens[0].rstrip("!")
+
         low = [t.lower() for t in tokens]
+
+        if bang:
+            # Find first numeric token = exposure time in seconds (default 1s)
+            exp_time_s = 1.0
+            for t in tokens:
+                try:
+                    exp_time_s = float(t)
+                    break
+                except Exception:
+                    continue
+
+            # Convert to milliseconds for LightField
+            secs_ms = float(exp_time_s) * 1000.0
+
+            ok = _wait_not_updating(exp, timeout=5.0)
+            if not ok:
+                print("HRS: Lost LightField IPC connection (is LightField/AddInProcess running?).")
+                dpg.focus_item("cmd_input")
+                return
+
+            # Stop any running experiment (One-Look requires idle state)
+            try:
+                exp.Stop()
+                time.sleep(0.1)
+            except Exception:
+                pass
+
+            # Set integration time
+            try:
+                dev.set_value(
+                    CameraSettings.ShutterTimingExposureTime,
+                    secs_ms
+                )
+                print(f"[hr] exposure set to {exp_time_s:g} s")
+            except Exception as e:
+                print(f"[hr] failed to set exposure time: {e}")
+                dpg.focus_item("cmd_input")
+                return
+
+            # Press the [1] One-Look button
+            try:
+                exp.TakeOneLook()
+                print("[hr] one-look triggered")
+            except Exception as e:
+                print(f"[hr] one-look failed: {e}")
+
+            dpg.focus_item("cmd_input")
+            return
+
         # -----------------------------
         # LOAD CALIBRATION CURVE
         #   hr load
@@ -10874,41 +10935,50 @@ class CommandDispatcher:
             return True
 
         # Single-token 'coup <name>' → set start label, acquire spectrum note, then advance to next
+        # Single-token 'coup <name>' :
+        #   - If it's a standard coupon label (NORM/1..8) -> set label (existing)
+        #   - Else if it matches custom sequence -> set custom label + idx
+        #   - Else treat as macro/steps file (existing)
         if len(tokens) == 1:
-            raw = tokens[0]
+            raw = tokens[0].strip()
+
+            # 0) Standard coupon label (NORM/1..8) -> keep existing behavior
             try:
                 canon = _canon_coupon_name(raw)  # e.g. "norm4a" -> "NORM4A"
                 key = _seq_key(canon)  # e.g. "NORM4A" -> "NORM4"
-            except Exception as e:
+            except Exception:
                 canon = None
                 key = None
 
             if canon and key in COUP_SEQ_SET:
-                # 1) store sequence label
                 self._coup_seq_label = canon
-                print(f"[coup] sequence start label set to '{canon}' (slot '{key}').")
-
-                # 2) note
+                self._coup_seq_idx = COUP_SEQ.index(key)
+                print(f"[coup] sequence start label set to '{canon}' (slot '{key}', idx={self._coup_seq_idx}).")
                 try:
-                    # use canonical name in the note; you can change to `raw` if you prefer original text
                     self.handle_acquire_spectrum(f"note {canon}")
                 except Exception as e:
                     print(f"[coup] warning: handle_acquire_spectrum failed for '{canon}': {e}")
                 dpg.focus_item("cmd_input")
                 return True
-            # 2) NEW: custom sequence label
+
+            # 1) Custom sequence label (QT20_dil10 etc.) -> set label + idx, DO NOT run a file
             seq = getattr(self, "_coup_next_seq", None)
-            if isinstance(seq, list):
-                for name in seq:
-                    if str(name).upper() == raw.upper():
-                        self._coup_seq_label = str(name)
-                        print(f"[coup] sequence start label set to '{name}' (custom sequence).")
+            if isinstance(seq, list) and seq:
+                # case-insensitive match
+                up = raw.upper()
+                for i, name in enumerate(seq):
+                    if str(name).strip().upper() == up:
+                        self._coup_seq_label = str(name).strip()
+                        self._coup_seq_idx = i
+                        print(f"[coup] custom sequence label set to '{self._coup_seq_label}' (idx={i}).")
                         try:
-                            self.handle_acquire_spectrum(f"note {name}")
-                        except Exception:
-                            pass
+                            self.handle_acquire_spectrum(f"note {self._coup_seq_label}")
+                        except Exception as e:
+                            print(f"[coup] warning: handle_acquire_spectrum failed for '{self._coup_seq_label}': {e}")
                         dpg.focus_item("cmd_input")
                         return True
+
+            # 2) Otherwise fall through to steps-file mode (existing)
 
         # --- steps-file mode detection (supports bare numbers like `coup 5` -> "5.txt") ---
         # tokens[0] is the "filename-ish" part (e.g. "sb" in: coup sb pause)
@@ -13927,6 +13997,20 @@ class CommandDispatcher:
         a = (arg or "").strip()
         toks = a.split()
 
+        # -----------------------------
+        # runcsv reload  -> reload Utils.plot_csv_spectrum (dev only)
+        # -----------------------------
+        if len(toks) >= 1 and toks[0].lower() == "reload":
+            try:
+                import importlib
+                from Utils import plot_csv_spectrum as pcs
+                importlib.reload(pcs)
+                print("runcsv: reloaded Utils.plot_csv_spectrum")
+            except Exception as e:
+                print(f"runcsv reload failed: {e}")
+            dpg.focus_item("cmd_input")
+            return
+
         # NEW: runcsv gen cal 3 [optional_folder]
         if len(toks) >= 3 and toks[0].lower() == "gen" and toks[1].lower() == "cal":
             try:
@@ -13939,11 +14023,7 @@ class CommandDispatcher:
                 folder = toks[3]
 
             try:
-                # import and run in-process so we can capture spectra arrays
-                import importlib
                 from Utils import plot_csv_spectrum as pcs
-                pcs = importlib.reload(pcs)  # <-- reload updated file
-
                 merged, _originals, _png = pcs.run_runcsv(
                     n=n,
                     folder=folder,
@@ -13966,20 +14046,26 @@ class CommandDispatcher:
             return
 
         # -----------------------------
-        # runcsv cal [N]
-        #   -> divide newest spectrum(s) by loaded calibration and add to PPT
+        # runcsv cal [N | ? | !]
+        #   -> divide spectrum(s) by loaded calibration and add to PPT
+        #      ? : pick multiple files from dialog (starts in CSV_DIR inside plot_csv_spectrum.py)
+        #      ! : reuse last picked files from previous '?'
         # -----------------------------
         if len(toks) >= 1 and toks[0].lower() == "cal":
-            # optional: runcsv cal 3
-            # runcsv cal ?
-            use_dialog = (len(toks) >= 2 and toks[1].strip() == "?")
-
+            mode = None  # None | "?" | "!"
             n = 1
+
+            # Parse 2nd token, if any
             if len(toks) >= 2:
-                try:
-                    n = int(toks[1])
-                except Exception:
+                t1 = toks[1].strip()
+                if t1 in ("?", "!"):
+                    mode = t1
                     n = 1
+                else:
+                    try:
+                        n = int(t1)
+                    except Exception:
+                        n = 1
 
             # need calibration
             dev = getattr(p, "hrs_500_gui", None)
@@ -14014,21 +14100,20 @@ class CommandDispatcher:
                 return
 
             try:
-                import importlib
                 from Utils import plot_csv_spectrum as pcs
-                pcs = importlib.reload(pcs)                
-                pcs.run_runcsv_calibrated(
+
+                out_png = pcs.run_runcsv_calibrated(
                     n=n,
-                    folder="?" if use_dialog else None,  # <-- triggers dialog inside plot_csv_spectrum.py
+                    folder=mode,  # None | "?" | "!"
                     calib_csv=calib_path,
                 )
-                print(f"runcsv cal: calibrated slide added to PPT (calib={os.path.basename(calib_path)}).")
+                if out_png:
+                    print(f"runcsv cal: calibrated slide added to PPT (calib={os.path.basename(calib_path)}).")
             except Exception as e:
                 print(f"runcsv cal failed: {e}")
 
             dpg.focus_item("cmd_input")
             return
-
 
         # default N=1 if empty or invalid
         n = 1
