@@ -82,6 +82,27 @@ def load_calibration_csv(calib_csv: str):
     order = np.argsort(x)
     return x[order], y[order]
 
+def choose_csv_files_dialog(title: str = "Select CSV files",initial_dir: str | None = None):
+    """
+    Open a native file dialog to select multiple CSV files.
+    Returns a list of paths (possibly empty).
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        paths = filedialog.askopenfilenames(
+            title=title,
+            initialdir=initial_dir,
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        root.destroy()
+        return list(paths) if paths else []
+    except Exception as e:
+        print(f"[runcsv] file dialog failed: {e}")
+        return []
 
 def apply_calibration(x: np.ndarray, y: np.ndarray, calib_x: np.ndarray, calib_y: np.ndarray):
     """
@@ -126,8 +147,17 @@ def run_runcsv(
     smooth_window: int | None = None,   # used for final SavGol window if provided
     merge: bool = False,
 ):
-    folder = folder or CSV_DIR
-    csv_paths = newest_csvs_in_folder(folder, n)
+    # Special: folder="?" means "pick files via dialog"
+    if isinstance(folder, str) and folder.strip() == "?":
+        csv_paths = choose_csv_files_dialog(title="Select CSV files to calibrate",initial_dir=CSV_DIR)
+        if not csv_paths:
+            print("[runcsv cal] no files selected.")
+            return None
+        # Use the selection folder as output dir
+        folder = os.path.dirname(csv_paths[0]) or CSV_DIR
+    else:
+        folder = folder or CSV_DIR
+        csv_paths = newest_csvs_in_folder(folder, n)
 
     # Load spectra (no heavy smoothing here; we smooth after merge)
     spectra = []
@@ -226,11 +256,20 @@ def run_runcsv_calibrated(
     smooth_window: int | None = None,
     calib_csv: str,
 ):
-    folder = folder or CSV_DIR
-    csv_paths = newest_csvs_in_folder(folder, n)
-    # derive title from newest file
-    newest_base = os.path.splitext(os.path.basename(csv_paths[0]))[0]
-    auto_title = f"{newest_base} (calibrated)"
+    # Special: folder="?" means "pick files via dialog"
+    if isinstance(folder, str) and folder.strip() == "?":
+        csv_paths = choose_csv_files_dialog(title="Select CSV files to calibrate",initial_dir=CSV_DIR)
+        if not csv_paths:
+            print("[runcsv cal] no files selected.")
+            return None
+        # Use the selection folder as output dir
+        folder = os.path.dirname(csv_paths[0]) or CSV_DIR
+        auto_title = f"Calibrated ({len(csv_paths)} files)"
+    else:
+        folder = folder or CSV_DIR
+        csv_paths = newest_csvs_in_folder(folder, n)
+        newest_base = os.path.splitext(os.path.basename(csv_paths[0]))[0]
+        auto_title = f"{newest_base} (calibrated)"
 
     # load calibration
     calib_x, calib_y = load_calibration_csv(calib_csv)

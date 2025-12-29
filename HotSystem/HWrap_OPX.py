@@ -11275,6 +11275,7 @@ class GUI_OPX():
                    float(self.dL_scan[1]) / 1000.0,
                    float(self.dL_scan[2]) / 1000.0]
         start_top = bool(getattr(self, "start_top", False))
+        start_bottom = bool(getattr(self, "start_bottom", False))
         start_left = bool(getattr(self, "start_left", False))
 
         for i in range(3):
@@ -11312,6 +11313,8 @@ class GUI_OPX():
                             if start_top:
                                 # "top should start from 0 up"
                                 vec_nm = self.GenVector(min=0, max=+L, delta=d)
+                            elif start_bottom:
+                                vec_nm = self.GenVector(min=-L, max=0, delta=d)
                             else:
                                 vec_nm = self.GenVector(min=-L / 2, max=+L / 2, delta=d)  # default Y centered
 

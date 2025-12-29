@@ -2402,6 +2402,14 @@ class CommandDispatcher:
             raw_name = arg.strip()
             name = raw_name.lower()
             self.handle_save_history(None)
+            # If user typed plain `reload` (no args) or 're', save coup state before reloading dispatcher
+            if not raw_name:
+                try:
+                    # best-effort: save coup state (local + remote if chip name exists)
+                    self.handle_coup("save")
+                    print("[reload] saved coup state before reloading CommandDispatcher.")
+                except Exception as e:
+                    print(f"[reload] warning: coup save failed before reload: {e}")
             # === reload keys ===
             if name == "keys":
                 handler_tag = "key_press_handler"
@@ -2411,6 +2419,7 @@ class CommandDispatcher:
                 with dpg.handler_registry():
                     dpg.add_key_press_handler(callback=p.Callback_key_press, tag=handler_tag)
                 print(f"[reload keys] Added new key press handler: {handler_tag}")
+                dpg.focus_item("cmd_input")
                 return
             # Determine module name for generic reload
             if not raw_name:
@@ -2457,6 +2466,7 @@ class CommandDispatcher:
                     mff_gui = GUI_MFF(serial_number=flipper.serial_no, device=flipper)
                     p.mff_101_gui.append(mff_gui)
                 print("Reloaded HW_GUI.GUI_Zelux and recreated ZeluxGUI.")
+                dpg.focus_item("cmd_input")
                 return
             # === MATTISE GUI ===
             if name in ("mattise", "matisse"):
@@ -2501,6 +2511,7 @@ class CommandDispatcher:
                     pass
 
                 print("Reloaded HW_GUI.GUI_Matisse and recreated GUIMatisse.")
+                dpg.focus_item("cmd_input")
                 return
             # === WAVEMETER GUI ===
             if name in ("wavemeter", "wlm"):
@@ -2547,6 +2558,7 @@ class CommandDispatcher:
                     pass
 
                 print("Reloaded HW_GUI.GUI_Wavemeter and recreated GUIWavemeter.")
+                dpg.focus_item("cmd_input")
                 return
             # === Femto GUI ===
             if name in ("femto", "femto_gui"):
@@ -2572,6 +2584,7 @@ class CommandDispatcher:
                 dpg.set_item_width(p.femto_gui.window_tag, size[0])
                 dpg.set_item_height(p.femto_gui.window_tag, size[1])
                 print("Reloaded HW_GUI.GUI_Femto and recreated FemtoPowerCalculator.")
+                dpg.focus_item("cmd_input")
                 return
             # === OPX GUI ===
             if name == "opx":
@@ -2598,6 +2611,7 @@ class CommandDispatcher:
                 dpg.set_item_width(p.opx.window_tag, size[0])
                 dpg.set_item_height(p.opx.window_tag, size[1])
                 print("Reloaded HWrap_OPX and recreated GUI_OPX.")
+                dpg.focus_item("cmd_input")
                 return
             # === KDC_101 GUI ===
             def _find_kdc_gui_index_by_serial(p, serial: str):
@@ -2625,6 +2639,7 @@ class CommandDispatcher:
                 idx = _find_kdc_gui_index_by_serial(p, serial)
                 if idx is None:
                     print(f"No KDC GUI found for serial {serial}")
+                    dpg.focus_item("cmd_input")
                     return
 
                 old = p.kdc_101_gui[idx]
@@ -2646,6 +2661,7 @@ class CommandDispatcher:
                 dev = _get_kdc_device_by_serial(serial)
                 if dev is None:
                     print(f"No matching KDC device found for serial {serial}")
+                    dpg.focus_item("cmd_input")
                     return
 
                 new_gui = gui_KDC.GUI_KDC101(serial_number=dev.serial_number, device=dev)
@@ -2660,6 +2676,7 @@ class CommandDispatcher:
                     pass
 
                 print(f"Reloaded KDC GUI for serial {serial}.")
+                dpg.focus_item("cmd_input")
                 return
             # === KDC_101 GUI #2 (index 1) ===
             if name in ("kdc2", "kdc_2", "kdc101_2", "kdc_101_2"):
@@ -2669,6 +2686,7 @@ class CommandDispatcher:
                 idx = 1
                 if not hasattr(p, "kdc_101_gui") or len(p.kdc_101_gui) <= idx:
                     print("KDC2 not found at index 1")
+                    dpg.focus_item("cmd_input")
                     return
 
                 old = p.kdc_101_gui[idx]
@@ -2697,6 +2715,7 @@ class CommandDispatcher:
                     pass
 
                 print("Reloaded KDC2 GUI (index 1)")
+                dpg.focus_item("cmd_input")
                 return
             # === Smaract GUI ===
             if name in ("smaract", "smaract_gui"):
@@ -2728,6 +2747,7 @@ class CommandDispatcher:
                     p.smaract_thread = threading.Thread(target=p.render_smaract)
                     p.smaract_thread.start()
                 print("Reloaded HW_GUI.GUI_Smaract and recreated GUI_smaract.")
+                dpg.focus_item("cmd_input")
                 return
             # === Dedicated PROEM GUI (separate instance in its own file) ===
             if name in ("hrs proem", "hrs_proem", "hrsproem", "proem"):
@@ -2779,6 +2799,7 @@ class CommandDispatcher:
                     pass
 
                 print("Loaded NEW GUI_PROEM (separate ProEM GUI).")
+                dpg.focus_item("cmd_input")
                 return
             # === HRS_500 GUI ===
             if name in ("hrs", "hrs500", "hrs_500"):
@@ -2796,6 +2817,7 @@ class CommandDispatcher:
                         break
                 if free_slot is None:
                     print("Max HRS_500 GUI instances reached.")
+                    dpg.focus_item("cmd_input")
                     return
 
                 # Pick geometry: if we already have an instance, offset new window a bit
@@ -2852,6 +2874,7 @@ class CommandDispatcher:
 
                 print("Reloaded HW_GUI.GUI_HRS500 with Experiment3.lfe and recreated Spectrometer GUI.")
                 self.proEM_mode = False
+                dpg.focus_item("cmd_input")
                 return
             # === reload Keysight AWG GUI ===
             if name in ("keysight", "awg", "keysight_awg"):
@@ -2901,6 +2924,7 @@ class CommandDispatcher:
                 dpg.set_item_height(p.keysight_gui.window_tag, size[1])
 
                 print("Reloaded GUI_keysight_AWG and recreated GUIKeysight33500B.")
+                dpg.focus_item("cmd_input")
                 return
             # === CLD1011LP GUI ===
             if name in ("cld", "cld1011", "cld1011lp"):
@@ -2963,6 +2987,7 @@ class CommandDispatcher:
                     pass
 
                 print("Reloaded HW_GUI.GUI_CLD1011LP and recreated CLD1011LP GUI.")
+                dpg.focus_item("cmd_input")
                 return
             # === Display Z-Slices Viewer ===
             if name in ("disp", "display_slices", "zslider", "zslice"):
@@ -2970,6 +2995,7 @@ class CommandDispatcher:
                 importlib.reload(disp_mod)
                 p.display_all_z_slices = disp_mod.display_all_z_slices
                 print("Reloaded display_all_z_slices from python_displayer.py.")
+                dpg.focus_item("cmd_input")
                 return
             # === Generic fallback reload ===
             if module_name in sys.modules:
@@ -2988,6 +3014,7 @@ class CommandDispatcher:
             # 1) Preconditions
             if not hasattr(p, "opx") or not hasattr(p, "femto_gui"):
                 print("Missing 'opx' or 'femto_gui' in parent.")
+                dpg.focus_item("cmd_input")
                 return
             # 2) Grab start/end positions and future data
             startLoc = p.opx.startLoc
@@ -3019,6 +3046,7 @@ class CommandDispatcher:
                 y_val = base_y + idx * 2 + 0.5
                 if not dpg.does_item_exist("plotImaga_Y"):
                     print("Error: Axis 'plotImaga_Y' does not exist.")
+                    dpg.focus_item("cmd_input")
                     return
                 tag = f"future_annot_{idx}"
                 if dpg.does_item_exist(tag):
@@ -3047,10 +3075,12 @@ class CommandDispatcher:
         if not file_arg:
             if not hasattr(p, "opx") or not hasattr(p.opx, "last_loaded_file"):
                 print("No file loaded/scanned yet.")
+                dpg.focus_item("cmd_input")
                 return
             path = p.opx.last_loaded_file
             print(f"Last loaded/scan file: {path}")
             pyperclip.copy(path)
+            dpg.focus_item("cmd_input")
             return
 
         # 2) Otherwise treat arg as the file to open
@@ -3067,6 +3097,7 @@ class CommandDispatcher:
 
         if not os.path.exists(path):
             print(f"File not found: {path}")
+            dpg.focus_item("cmd_input")
             return
 
         try:
@@ -3092,6 +3123,7 @@ class CommandDispatcher:
             # 1) Ensure OPX is available
             if not hasattr(p, "opx"):
                 print("Parent has no opx.")
+                dpg.focus_item("cmd_input")
                 return
             # 2) Parse optional dz offset
             limit_val = None
@@ -3100,6 +3132,7 @@ class CommandDispatcher:
             # If "1", load from last scan dir (no dialog)
             if stripped == "1":
                 p.opx.btnLoadScan(app_data="open_from_last")
+                dpg.focus_item("cmd_input")
                 return
 
             if stripped.isdigit():
@@ -3273,6 +3306,7 @@ class CommandDispatcher:
 
             # Show list (pass a clean arg: just the idx if present, else empty)
             self.handle_list_points(str(idx) if idx is not None else "")
+            dpg.focus_item("cmd_input")
         except Exception as e:
             print(f"fq failed: {e}")
         dpg.focus_item("cmd_input")
@@ -3288,6 +3322,7 @@ class CommandDispatcher:
             angle = float(arg.strip())
             p.cam.ax_alpha = angle
             print(f"Axis angle set to {angle}°")
+            dpg.focus_item("cmd_input")
             return
         except ValueError:
             pass  # not a number, so treat as toggle
@@ -3305,6 +3340,7 @@ class CommandDispatcher:
             # 1) Ensure OPX exists
             if not hasattr(p, "opx"):
                 print("OPX unavailable.")
+                dpg.focus_item("cmd_input")
                 return
 
             opx = p.opx
@@ -3313,6 +3349,7 @@ class CommandDispatcher:
             area = getattr(opx, "queried_area", None)
             if area is None or len(area) < 4:
                 print("No queried area defined.")
+                dpg.focus_item("cmd_input")
                 return
             x0, x1, y0, y1 = area
             xmin, xmax = min(x0, x1), max(x0, x1)
@@ -3322,6 +3359,7 @@ class CommandDispatcher:
             scan = getattr(opx, "scan_data", None)
             if scan is None or not hasattr(opx, "Xv") or not hasattr(opx, "Yv") or not hasattr(opx, "idx_scan"):
                 print("Scan data or coordinate vectors are missing.")
+                dpg.focus_item("cmd_input")
                 return
             Xv = np.array(opx.Xv)
             Yv = np.array(opx.Yv)
@@ -3339,12 +3377,14 @@ class CommandDispatcher:
             iy = np.where(mask_y)[0]
             if ix.size == 0 or iy.size == 0:
                 print("No scan points inside queried area.")
+                dpg.focus_item("cmd_input")
                 return
 
             # 6) Find max within sub‐region
             sub_arr = flipped_arrXY[np.ix_(iy, ix)]
             if sub_arr.size == 0:
                 print("Sub-region is empty.")
+                dpg.focus_item("cmd_input")
                 return
             iy_max, ix_max = np.unravel_index(np.argmax(sub_arr), sub_arr.shape)
             x_max = Xv[ix[ix_max]]
@@ -3447,6 +3487,7 @@ class CommandDispatcher:
                     print("up? -> no last Z saved")
                 else:
                     print(f"up? -> last Z = {last:.2f} µm")
+                dpg.focus_item("cmd_input")
                 return
 
             # If "up 1" or nothing saved yet -> go to 600 µm
@@ -3459,6 +3500,7 @@ class CommandDispatcher:
 
             if abs(dz_um) < 1e-3:
                 print(f"Z already at ~{target_um:.2f} µm (no move).")
+                dpg.focus_item("cmd_input")
                 return
 
             self._move_delta(2, dz_um)
@@ -3690,7 +3732,40 @@ class CommandDispatcher:
               hr 150 grating
               hr grating 150g/mm
         """
+        import time
         p = self.get_parent()
+        target_gui = getattr(p, "hrs_500_gui", None)
+        if target_gui is None:
+            print("[hr load] hrs_500_gui not available.")
+            dpg.focus_item("cmd_input")
+            return
+        dev = getattr(target_gui, "dev", None) if target_gui is not None else None
+        exp = getattr(dev, "_exp", None)
+        if dev is None or exp is None:
+            print("HRS: No spectrometer device/experiment available.")
+            return
+
+        # --- hr (no args) = quick HRS run ---
+        if not (arg or "").strip():
+            dev._exp.Stop()
+            time.sleep(0.2)
+            self._set_mff_by_suffix("32", label="proem-off")
+            self._set_mff_by_suffix("48", label="spectrometer")
+            dev.set_value(CameraSettings.ShutterTimingExposureTime, 1000.0)
+            dev._exp.Preview()
+            return
+
+        # --- NEW: hr note ... -> delegate to spc note ---
+        _arg = (arg or "").strip()
+        if _arg.lower().startswith("note"):
+            # translate:
+            #   hr note <text>  -> spc note <text>
+            #   hr note ?      -> spc note ?
+            #   hr note        -> spc note
+            translated = "note" + _arg[4:]  # keep exact suffix (including '?' or text)
+            self.handle_acquire_spectrum(translated)
+            return
+
         a = (arg or "").strip()
 
         def _wait_not_updating(exp, timeout=5.0):
@@ -3792,13 +3867,9 @@ class CommandDispatcher:
                     dpg.focus_item("cmd_input")
                     return
 
-                dev = getattr(p, "hrs_500_gui", None)
-                if dev is None:
-                    print("[hr load] hrs_500_gui not available.")
-                    dpg.focus_item("cmd_input")
-                    return
 
-                dev.calib1200 = {
+
+                target_gui.calib1200 = {
                     "file": newest.name,
                     "path": str(newest),
                     "x": x,
@@ -3856,13 +3927,7 @@ class CommandDispatcher:
                     dpg.focus_item("cmd_input")
                     return
 
-                dev = getattr(p, "hrs_500_gui", None)
-                if dev is None:
-                    print("[hr save] hrs_500_gui not available.")
-                    dpg.focus_item("cmd_input")
-                    return
-
-                calib = getattr(dev, "calib1200", None)
+                calib = getattr(target_gui, "calib1200", None)
                 if not calib or not isinstance(calib, dict) or ("x" not in calib) or ("y" not in calib):
                     print("[hr save] calib1200 not found. Run: runcsv gen cal 3")
                     dpg.focus_item("cmd_input")
@@ -3964,16 +4029,6 @@ class CommandDispatcher:
                 return
 
             try:
-                dev = getattr(p, "hrs_500_gui", None)
-                if dev is None:
-                    print("HRS: hrs_500_gui not available.")
-                    return
-                dev = getattr(dev, "dev", None)
-                exp = getattr(dev, "_exp", None)
-                if dev is None or exp is None:
-                    print("HRS: No spectrometer device/experiment available.")
-                    return
-
                 ok = _wait_not_updating(exp, timeout=5.0)
                 if not ok:
                     print("HRS: Lost LightField IPC connection (is LightField/AddInProcess running?). Reconnect and try again.")
@@ -4039,15 +4094,6 @@ class CommandDispatcher:
                 return
 
             try:
-                dev = getattr(p, "hrs_500_gui", None)
-                if dev is None:
-                    print("HRS: hrs_500_gui not available.")
-                    return
-                dev = getattr(dev, "dev", None)
-                exp = getattr(dev, "_exp", None)
-                if dev is None or exp is None:
-                    print("HRS: No spectrometer device/experiment available.")
-                    return
 
                 import time
                 while getattr(exp, "IsUpdating", False):
@@ -4116,13 +4162,32 @@ class CommandDispatcher:
         """
         import threading,re,shlex
 
-        # --- NEW: support "spc note <text>" to persist a note across acquisitions ---
+        # ---  support "spc note <text>" to persist a note across acquisitions ---
         _arg = (arg or "").strip()
-        if _arg.lower().startswith("note"):
+
+        # accept "note?" as well as "note ?"
+        _arg_l = _arg.lower()
+        if _arg_l.startswith("note"):
+
+            # --- NEW: query current note ---
+            # Accept:
+            #   spc note?
+            #   spc note ?
+            #   spc note
+            if _arg_l in ("note?", "note ?") or _arg_l == "note":
+                cur = getattr(self, "_spc_note", None)
+                if cur:
+                    print(f"SPC note: '{cur}'")
+                else:
+                    print("SPC note: (empty)")
+                dpg.focus_item("cmd_input")
+                return
+            # --- END NEW ---
+
             # Accept:
             #   spc note <text>
             #   spc note clear
-            #   spc note coupon   <-- NEW
+            #   spc note coupon
             note_raw = _arg[4:].strip()  # remove "note"
 
             # --- NEW: handle "spc note coupon" ---
@@ -4134,6 +4199,7 @@ class CommandDispatcher:
                 else:
                     setattr(self, "_spc_note", name)
                     print(f"SPC note set to nearest coupon: '{name}'")
+                dpg.focus_item("cmd_input")
                 return
             # --- END NEW ---
 
@@ -4145,6 +4211,7 @@ class CommandDispatcher:
             if note_raw.lower() in ("", "clear", "none", "off"):
                 setattr(self, "_spc_note", None)
                 print("SPC note cleared.")
+                dpg.focus_item("cmd_input")
                 return
 
             # normal text note
@@ -4152,7 +4219,9 @@ class CommandDispatcher:
             safe = re.sub(r'[<>:"/\\|?*]', "_", note_raw).strip()
             setattr(self, "_spc_note", safe if safe else None)
             print(f"SPC note set to: '{getattr(self, '_spc_note', '')}'")
+            dpg.focus_item("cmd_input")
             return
+
         # --- end NEW ---
 
         # --- NEW: special case "spc red ..." ---
@@ -5138,6 +5207,7 @@ class CommandDispatcher:
         p.opx.use_queried_proem = False
         p.opx.centered_xy = False
         p.opx.start_top = False
+        p.opx.start_bottom = False
         p.opx.start_left = False
 
         # parse
@@ -5158,6 +5228,8 @@ class CommandDispatcher:
             p.opx.start_left = False
         if "top" in parts:
             p.opx.start_top = True
+        if "bottom" in parts:
+            p.opx.start_bottom = True
 
         try:
             p.smaractGUI.fill_current_position_to_moveabs()
@@ -9285,6 +9357,21 @@ class CommandDispatcher:
             except Exception:
                 pass
             return os.path.join(base_dir, STATE_FILENAME)
+        def _get_coup_state_path_remote() -> str:
+            """Return Q: path for coup_state.json under the chip characterization folder."""
+            import os, re
+
+            BASE_DIR = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations"
+
+            chip_name = str(getattr(self, "_chip_name", "") or "").strip()
+            if not chip_name:
+                raise RuntimeError("chip_name not set")
+
+            safe_chip = re.sub(r"[^A-Za-z0-9_.\- ]+", "_", chip_name)
+            chip_dir = os.path.join(BASE_DIR, safe_chip)
+
+            os.makedirs(chip_dir, exist_ok=True)
+            return os.path.join(chip_dir, "coup_state.json")
         def _coup_save_state(extra_named_copy: bool = False) -> bool:
             """Save angle, center, and shift factors to JSON. Returns True/False."""
             import json
@@ -9400,20 +9487,48 @@ class CommandDispatcher:
             if custom_moves_to_save:
                 state["coup_next_moves"] = custom_moves_to_save
 
-            path = _get_coup_state_path()
+            # Save current position in sequence (so reload can resume correctly)
+            try:
+                cur_label = getattr(self, "_coup_seq_label", None)
+                if cur_label:
+                    state["coup_seq_label"] = str(cur_label)
+            except Exception:
+                pass
+
+            try:
+                cur_idx = getattr(self, "_coup_seq_idx", None)
+                if cur_idx is not None:
+                    state["coup_seq_idx"] = int(cur_idx)
+            except Exception:
+                pass
+
+            # Always save locally (existing behavior)
+            local_path = _get_coup_state_path()
             ok = True
             try:
-                with open(path, "w", encoding="utf-8") as f:
+                with open(local_path, "w", encoding="utf-8") as f:
                     json.dump(state, f, indent=2)
                 print(
                     f"[coup] save: angle={angle_deg_rounded:.1f}°, "
                     f"center=(U={u_ref:.3f}, V={v_ref:.3f}) µm, "
-                    f"shiftX={shift_x:.3f}, shiftY={shift_y:.3f} -> '{path}'"
-                    f"chip='{chip_name}' -> '{path}'"
+                    f"shiftX={shift_x:.3f}, shiftY={shift_y:.3f} -> '{local_path}'"
+                    f"chip='{chip_name}' -> '{local_path}'"
                 )
             except Exception as e:
-                print(f"[coup] save: failed to write '{path}': {e}")
+                print(f"[coup] save: failed to write '{local_path}': {e}")
                 return False
+
+            # Additionally save remotely if chip_name exists
+            if chip_name:
+                try:
+                    remote_path = _get_coup_state_path_remote()
+                    with open(remote_path, "w", encoding="utf-8") as f:
+                        json.dump(state, f, indent=2)
+                    print(f"[coup] save: also wrote remote '{remote_path}'")
+                except Exception as e:
+                    # Do NOT fail the command if remote save fails; just warn.
+                    print(f"[coup] save: warning: remote save failed: {e}")
+                    ok = False
 
             # Optional per-chip extra copy: coup_state_<chip_name>.json
             if extra_named_copy:
@@ -9421,16 +9536,32 @@ class CommandDispatcher:
                     print("[coup] save name: chip_name not set; use 'chip name <name>' first.")
                     return ok
 
-                base_dir = os.path.dirname(path)
+                import re, os
+
                 safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", chip_name)
-                named_path = os.path.join(base_dir, f"coup_state_{safe_name}.json")
+
+                # Local named copy
                 try:
-                    with open(named_path, "w", encoding="utf-8") as f:
+                    local_dir = os.path.dirname(local_path)
+                    local_named_path = os.path.join(local_dir, f"coup_state_{safe_name}.json")
+                    with open(local_named_path, "w", encoding="utf-8") as f:
                         json.dump(state, f, indent=2)
-                    print(f"[coup] save name: also wrote '{named_path}'")
+                    print(f"[coup] save name: also wrote local '{local_named_path}'")
                 except Exception as e:
-                    print(f"[coup] save name: failed to write '{named_path}': {e}")
+                    print(f"[coup] save name: failed to write local named copy: {e}")
                     ok = False
+
+                # Remote named copy (only if remote_path available / remote save succeeded)
+                if remote_path:
+                    try:
+                        remote_dir = os.path.dirname(remote_path)
+                        remote_named_path = os.path.join(remote_dir, f"coup_state_{safe_name}.json")
+                        with open(remote_named_path, "w", encoding="utf-8") as f:
+                            json.dump(state, f, indent=2)
+                        print(f"[coup] save name: also wrote remote '{remote_named_path}'")
+                    except Exception as e:
+                        print(f"[coup] save name: failed to write remote named copy: {e}")
+                        ok = False
 
             return ok
 
@@ -9512,6 +9643,19 @@ class CommandDispatcher:
             except Exception as e:
                 print(f"[coup] load: failed to read '{path}': {e}")
                 return False
+
+            # Restore current position in sequence (optional)
+            try:
+                if "coup_seq_label" in state:
+                    self._coup_seq_label = str(state["coup_seq_label"])
+            except Exception:
+                pass
+
+            try:
+                if "coup_seq_idx" in state:
+                    self._coup_seq_idx = int(state["coup_seq_idx"])
+            except Exception:
+                pass
 
             try:
                 angle_deg = float(state["angle_deg"])
@@ -9639,7 +9783,6 @@ class CommandDispatcher:
                     self._coup_next_moves = clean_moves
                     print(f"[coup] load: restored custom 'next' moves for {len(clean_moves)} base name(s).")
 
-
             print(
                 f"[coup] load: restored angle={angle_deg:.3f}°, "
                 f"center=(U={u_ref:.3f}, V={v_ref:.3f}) µm, "
@@ -9647,8 +9790,11 @@ class CommandDispatcher:
                 f"shiftY={getattr(self, '_coup_shift_y_factor', 5.43):.3f}, "
                 f"chip='{getattr(self, '_chip_name', '')}' "
                 f"inverted={getattr(self, '_chip_inverted', False)} "
-                f"from '{path}'."
+                f"from '{path}'.",
             )
+            print(f"[coup] load: restored current seq label={getattr(self, '_coup_seq_label', None)}, "
+                  f"idx={getattr(self, '_coup_seq_idx', None)}.")
+
             return True
         if sub == "status":
             if self._coup_active_evt.is_set():
@@ -10485,36 +10631,6 @@ class CommandDispatcher:
                 print(f"[coup] corner: {e}")
                 return False
 
-        # --- coup <name> / coup next: cycle through coupons (default or custom) ---
-        #
-        # Default sequence (physical slots):
-        #   COUP_SEQ = [
-        #       "NORM4", "7", "8",
-        #       "NORM3", "5", "6",
-        #       "NORM2", "3", "4",
-        #       "NORM1", "1", "2",
-        #   ]
-        #
-        # New features:
-        #   - coup next <file>   -> load custom sequence and optional dx,dy from file
-        #   - coup next reset    -> forget custom sequence, go back to built-in one
-        #
-        #   File format (JSON), example:
-        #   {
-        #     "sequence": ["MZI", "Dil5", "Foo", "Bar", "Baz", "Q1", "Q2", "Q3", "Q4", "R1", "R2", "R3"],
-        #     "moves": {
-        #       "MZI":  { "dx":  1, "dy":  0 },
-        #       "Dil5": { "dx":  1, "dy":  0 },
-        #       "Foo":  { "dx": -2, "dy": -1 },
-        #       ...
-        #     }
-        #   }
-        #
-        # IMPORTANT:
-        #   - The LETTER (A/B/L/…) is taken from your current label and NEVER changed.
-        #   - The config only changes:
-        #       * the order of base names (sequence)
-        #       * the dx,dy used for each CURRENT base name.
         if sub == "next":
             # --- CONFIG MODE: coup next <file> / coup next reset ---
             if len(tokens) >= 2:
@@ -10527,6 +10643,10 @@ class CommandDispatcher:
                         delattr(self, "_coup_next_seq")
                     if hasattr(self, "_coup_next_moves"):
                         delattr(self, "_coup_next_moves")
+                    # Also clear index; label is optional
+                    if hasattr(self, "_coup_seq_idx"):
+                        delattr(self, "_coup_seq_idx")
+
                     print("[coup] next: custom sequence cleared; using built-in COUP_SEQ + slot_dx/slot_dy.")
                     _coup_save_state()
                     return True
@@ -10534,7 +10654,6 @@ class CommandDispatcher:
                 # Treat argument as config file
                 cfg_name = opt
 
-                # Default extension: .json
                 import os
                 if not os.path.splitext(cfg_name)[1]:
                     cfg_name = cfg_name + ".json"
@@ -10544,14 +10663,25 @@ class CommandDispatcher:
                     state_path = _get_coup_state_path()
                     base_dir = os.path.dirname(state_path)
                 except Exception:
-                    # fallback if anything weird happens
                     try:
                         base_dir = DEFAULT_COUP_DIR
                     except NameError:
                         base_dir = r"c:\WC\HotSystem\Utils\macro"
 
                 if not os.path.isabs(cfg_name) and not os.path.dirname(cfg_name):
+                    # 1) try local coup folder (existing behavior)
                     cfg_path = os.path.join(base_dir, cfg_name)
+
+                    # 2) fallback: try chip folder on Q:
+                    if not os.path.isfile(cfg_path):
+                        try:
+                            remote_state = _get_coup_state_path_remote()
+                            remote_dir = os.path.dirname(remote_state)
+                            alt = os.path.join(remote_dir, cfg_name)
+                            if os.path.isfile(alt):
+                                cfg_path = alt
+                        except Exception:
+                            pass
                 else:
                     cfg_path = cfg_name
 
@@ -10559,14 +10689,6 @@ class CommandDispatcher:
                     print(f"[coup] next: custom config file not found: '{cfg_path}'.")
                     return False
 
-                # Expected JSON:
-                # {
-                #   "sequence": ["BASE1", "BASE2", ...],
-                #   "moves": {
-                #       "BASE1": {"dx": ..., "dy": ...},
-                #       ...
-                #   }
-                # }
                 try:
                     with open(cfg_path, "r", encoding="utf-8") as f:
                         cfg = json.load(f)
@@ -10582,9 +10704,9 @@ class CommandDispatcher:
                 clean_seq = []
                 for item in seq:
                     s = str(item).strip()
-                    if not s:
-                        continue
-                    clean_seq.append(s)
+                    if s:
+                        clean_seq.append(s)
+
                 if not clean_seq:
                     print("[coup] next: no valid names in 'sequence'.")
                     return False
@@ -10604,6 +10726,9 @@ class CommandDispatcher:
                 self._coup_next_seq = clean_seq
                 self._coup_next_moves = clean_moves
 
+                # IMPORTANT: new sequence loaded -> index is no longer meaningful
+                self._coup_seq_idx = None
+
                 print(
                     f"[coup] next: loaded custom sequence ({len(clean_seq)} step(s)) "
                     f"from '{cfg_path}'. "
@@ -10613,49 +10738,70 @@ class CommandDispatcher:
                 return True
 
             # --- STEP MODE: coup next ---
-            # 1) Determine current logical label (base + letter)
-            cur_raw = getattr(self, "_coup_seq_label", None)
-            if not cur_raw:
-                print("[coup] next: no current label set. Use 'coup NORM4A' or 'coup <name>' first.")
-                return False
-
-            # Try to interpret as coupon label first (NORM4A, 7L, etc.)
-            base = None
-            letter = None
-            try:
-                canon = _canon_coupon_name(cur_raw)   # → NORM4A
-                # base is the part without trailing letter if any
-                if canon[-1].isalpha():
-                    base = canon[:-1]
-                    letter = canon[-1]      # keep existing letter
-                else:
-                    base = canon
-                    letter = None
-            except Exception:
-                # If it is NOT a standard coupon label, treat the whole thing as the base.
-                s = str(cur_raw).strip()
-                if not s:
-                    print(f"[coup] next: invalid current label '{cur_raw}'.")
-                    return False
-                base = s
-                # No explicit letter → none; we will not add/change letters.
-
-            # 2) Decide which sequence to use
+            # Choose active sequence
             seq = getattr(self, "_coup_next_seq", None)
             if not isinstance(seq, list) or not seq:
-                # Fall back to original COUP_SEQ
                 seq = COUP_SEQ
 
-            # Find current index in sequence (case-insensitive)
-            cur_idx = None
-            base_up = str(base).upper()
-            for i, name in enumerate(seq):
-                if str(name).upper() == base_up:
-                    cur_idx = i
-                    break
-            if cur_idx is None:
-                print(f"[coup] next: current base '{base}' not found in active sequence.")
-                return False
+            # Current label and index
+            cur_raw = getattr(self, "_coup_seq_label", None)
+            cur_idx = getattr(self, "_coup_seq_idx", None)
+
+            # If no index and no label: assume at first element, then advance
+            if (cur_idx is None) and (not cur_raw):
+                cur_idx = 0
+                cur_raw = str(seq[0])
+                self._coup_seq_label = cur_raw
+                self._coup_seq_idx = cur_idx
+                print(f"[coup] next: no current label set; assuming start at '{cur_raw}' (idx=0) and advancing.")
+
+            # Determine letter from cur_raw (for coupon labels), but base comes from index when available
+            letter = None
+
+            # If we have a valid index, trust it (fixes duplicates)
+            if isinstance(cur_idx, int) and 0 <= cur_idx < len(seq):
+                base = str(seq[cur_idx])
+                # If cur_raw was a coupon label, preserve its letter
+                if cur_raw:
+                    try:
+                        canon = _canon_coupon_name(cur_raw)
+                        if canon and canon[-1].isalpha():
+                            letter = canon[-1]
+                    except Exception:
+                        pass
+            else:
+                # No valid index -> fall back to label-based lookup (legacy behavior)
+                if not cur_raw:
+                    print("[coup] next: no current label set. Use 'coup <name>' first.")
+                    return False
+
+                # Try coupon parsing
+                try:
+                    canon = _canon_coupon_name(cur_raw)
+                    if canon[-1].isalpha():
+                        base = canon[:-1]
+                        letter = canon[-1]
+                    else:
+                        base = canon
+                except Exception:
+                    base = str(cur_raw).strip()
+                    if not base:
+                        print(f"[coup] next: invalid current label '{cur_raw}'.")
+                        return False
+
+                # Find FIRST match (ambiguous with duplicates, but this is fallback only)
+                base_up = base.upper()
+                cur_idx = None
+                for i, name in enumerate(seq):
+                    if str(name).upper() == base_up:
+                        cur_idx = i
+                        break
+                if cur_idx is None:
+                    print(f"[coup] next: current base '{base}' not found in active sequence.")
+                    return False
+
+                # Store it so next time duplicates don’t bite you
+                self._coup_seq_idx = cur_idx
 
             next_idx = (cur_idx + 1) % len(seq)
             next_base = seq[next_idx]
@@ -10665,66 +10811,43 @@ class CommandDispatcher:
             moves = getattr(self, "_coup_next_moves", None)
 
             if isinstance(moves, dict):
-                # Prefer custom moves if present
-                entry = moves.get(base) or moves.get(base_up) or moves.get(str(base))
+                entry = moves.get(base) or moves.get(str(base).upper()) or moves.get(str(base))
                 if isinstance(entry, dict):
                     try:
                         dx = float(entry.get("dx", 0.0))
                         dy = float(entry.get("dy", 0.0))
                     except Exception:
                         print(f"[coup] next: invalid custom dx/dy for '{base}', falling back to built-in.")
-                        entry = None
-                if entry is None:
-                    # fall back to built-in if we didn't find a valid entry
+                        moves = None
+                else:
                     moves = None
 
             if moves is None:
                 # Built-in movement using original slot_dx/slot_dy tables
-                # Map base -> original "slot" key (NORM4, 7, etc.) if possible
                 try:
-                    slot = _seq_key(base)   #  NORM4A/B → NORM4 ; 7A → 7
+                    slot = _seq_key(base)
                 except Exception:
                     slot = base
 
                 slot_dx = {
-                    "NORM4": +1,
-                    "7":     +1,
-                    "8":     -2,
-                    "NORM3": +1,
-                    "5":     +1,
-                    "6":     -2,
-                    "NORM2": +1,
-                    "3":     +1,
-                    "4":     -2,
-                    "NORM1": +1,
-                    "1":     +1,
-                    "2":     -2,
+                    "NORM4": +1, "7": +1, "8": -2,
+                    "NORM3": +1, "5": +1, "6": -2,
+                    "NORM2": +1, "3": +1, "4": -2,
+                    "NORM1": +1, "1": +1, "2": -2,
                 }
                 slot_dy = {
-                    "NORM4":  0,
-                    "7":      0,
-                    "8":     -1,
-                    "NORM3":  0,
-                    "5":      0,
-                    "6":     -1,
-                    "NORM2":  0,
-                    "3":      0,
-                    "4":     -1,
-                    "NORM1":  0,
-                    "1":      0,
-                    "2":     +3,
+                    "NORM4": 0, "7": 0, "8": -1,
+                    "NORM3": 0, "5": 0, "6": -1,
+                    "NORM2": 0, "3": 0, "4": -1,
+                    "NORM1": 0, "1": 0, "2": +3,
                 }
                 dx = float(slot_dx.get(slot, 0.0))
                 dy = float(slot_dy.get(slot, 0.0))
 
-            # 4) Build the next label:
-            #    - NEVER change letter; just reuse it if it exists.
-            if letter is not None:
-                next_label = f"{next_base}{letter}"
-            else:
-                next_label = str(next_base)
+            # 4) Build next label (preserve letter if present)
+            next_label = f"{next_base}{letter}" if letter is not None else str(next_base)
 
-            # 5) Actually move using your coupx/coupy helpers
+            # 5) Move
             try:
                 if dx != 0:
                     self.handle_coupx(str(dx))
@@ -10734,8 +10857,9 @@ class CommandDispatcher:
                 print(f"[coup] next: move failed via coupx/coupy: {e}")
                 return False
 
-            # 6) Update stored logical label + note
+            # 6) Update stored logical label + index + note
             self._coup_seq_label = next_label
+            self._coup_seq_idx = next_idx
 
             try:
                 self.handle_acquire_spectrum(f"note {next_label}")
@@ -10743,8 +10867,8 @@ class CommandDispatcher:
                 print(f"[coup] warning: handle_acquire_spectrum failed for '{next_label}': {e}")
 
             print(
-                f"[coup] next: {cur_raw} (base '{base}') → {next_label} (base '{next_base}') "
-                f"via coupx({dx}) coupy({dy})."
+                f"[coup] next: {cur_raw} (idx={cur_idx}, base '{base}') → "
+                f"{next_label} (idx={next_idx}, base '{next_base}') via coupx({dx}) coupy({dy})."
             )
             dpg.focus_item("cmd_input")
             return True
@@ -10772,6 +10896,19 @@ class CommandDispatcher:
                     print(f"[coup] warning: handle_acquire_spectrum failed for '{canon}': {e}")
                 dpg.focus_item("cmd_input")
                 return True
+            # 2) NEW: custom sequence label
+            seq = getattr(self, "_coup_next_seq", None)
+            if isinstance(seq, list):
+                for name in seq:
+                    if str(name).upper() == raw.upper():
+                        self._coup_seq_label = str(name)
+                        print(f"[coup] sequence start label set to '{name}' (custom sequence).")
+                        try:
+                            self.handle_acquire_spectrum(f"note {name}")
+                        except Exception:
+                            pass
+                        dpg.focus_item("cmd_input")
+                        return True
 
         # --- steps-file mode detection (supports bare numbers like `coup 5` -> "5.txt") ---
         # tokens[0] is the "filename-ish" part (e.g. "sb" in: coup sb pause)
@@ -12796,6 +12933,11 @@ class CommandDispatcher:
         except Exception as e:
             print(f"[proem] Failed to set M32 down: {e}")
 
+        try:
+            self.handle_p("3")
+        except Exception as e:
+            print(f"[p] Failed to set white light power: {e}")
+
         self.handle_start_counter()
         p = self.get_parent()
         target_gui = getattr(p, "proem_gui", None)
@@ -13829,6 +13971,9 @@ class CommandDispatcher:
         # -----------------------------
         if len(toks) >= 1 and toks[0].lower() == "cal":
             # optional: runcsv cal 3
+            # runcsv cal ?
+            use_dialog = (len(toks) >= 2 and toks[1].strip() == "?")
+
             n = 1
             if len(toks) >= 2:
                 try:
@@ -13871,12 +14016,10 @@ class CommandDispatcher:
             try:
                 import importlib
                 from Utils import plot_csv_spectrum as pcs
-                pcs = importlib.reload(pcs)
-
+                pcs = importlib.reload(pcs)                
                 pcs.run_runcsv_calibrated(
                     n=n,
-                    folder=None,  # uses default CSV_DIR
-                    smooth_window=101,   # aggressive smoothing (SavGol window) after calibration
+                    folder="?" if use_dialog else None,  # <-- triggers dialog inside plot_csv_spectrum.py
                     calib_csv=calib_path,
                 )
                 print(f"runcsv cal: calibrated slide added to PPT (calib={os.path.basename(calib_path)}).")
@@ -14060,6 +14203,7 @@ class CommandDispatcher:
             try:
                 if getattr(p, "com12", None) and p.com12.is_open:
                     print("COM12 already open.")
+                    dpg.focus_item("cmd_input")
                     return
 
                 p.com12 = serial.Serial(
@@ -14074,6 +14218,7 @@ class CommandDispatcher:
                 print("COM12 opened (115200 8N1).")
             except Exception as e:
                 print(f"Failed to open COM12: {e}")
+            dpg.focus_item("cmd_input")
             return
 
         if a == "close":
@@ -14084,6 +14229,7 @@ class CommandDispatcher:
                 print("COM12 closed.")
             except Exception as e:
                 print(f"Failed to close COM12: {e}")
+            dpg.focus_item("cmd_input")
             return
 
         print("Usage: com12 open | com12 close")
@@ -14346,6 +14492,7 @@ class CommandDispatcher:
                 print(f"PID {pid}: terminated.")
             else:
                 print(f"PID {pid}: still present (likely protected). Try running app as Admin.")
+
 
 
 # Wrapper function
