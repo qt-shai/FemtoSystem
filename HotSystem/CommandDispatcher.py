@@ -1074,20 +1074,41 @@ class CommandDispatcher:
                 if handler:
                     executed_any = True
                     # 'wait' delays subsequent commands
-                    if key=="wait":
-                        try:
-                            ms = int(arg)
-                        except:
-                            print("Invalid wait syntax; use wait<ms>")
+                    if key == "wait":
+                        # Supports:
+                        #   wait 60000
+                        #   wait 60000 cmd1;cmd2
+                        #   wait 60000 > cmd1;cmd2     (preferred)
+                        arg_text = (arg or "").strip()
+
+                        m = re.match(r"^(\d+)\s*(.*)$", arg_text)
+                        if not m:
+                            print("Invalid wait syntax; use: wait <ms> > <cmd1>;...  (or: wait <ms> <cmd1>;...)")
                             continue
-                        rest_cmds = segments[i + 1:]
+
+                        ms = int(m.group(1))
+                        tail = (m.group(2) or "").lstrip()
+
+                        # allow ">" separator
+                        if tail.startswith(">"):
+                            tail = tail[1:].lstrip()
+
+                        # commands given after ms inside the same segment (after optional ">")
+                        extra_cmds = [c.strip() for c in tail.split(";") if c.strip()] if tail else []
+
+                        # plus any commands that were already separated by top-level ';' after the wait segment
+                        rest_cmds = extra_cmds + segments[i + 1:]
+
                         def delayed():
-                            time.sleep(ms/1000)
+                            time.sleep(ms / 1000)
                             if rest_cmds:
                                 self.run("; ".join(rest_cmds))
+
                         threading.Thread(target=delayed, daemon=True).start()
                         print(f"Waiting {ms}ms before running {rest_cmds}")
+                        dpg.set_value("cmd_input", "")
                         break
+
                     # 'await' waits for a condition, then runs subsequent commands
                     if key == "await":
                         target = (arg or "").strip().lower()
@@ -1123,6 +1144,21 @@ class CommandDispatcher:
 
                             threading.Thread(target=after_spc, daemon=True).start()
                             break
+
+                        if target in ("hrs", "hr"):
+                            # optional: "await hrs 15" -> 15 seconds timeout
+                            timeout_s = 10.0
+                            if len(parts) >= 3:
+                                try:
+                                    timeout_s = float(parts[2])
+                                except Exception:
+                                    timeout_s = 10.0
+
+                            ok = self._wait_hrs_ready_or_abort(timeout=timeout_s)
+                            if not ok:
+                                print("[macro] aborted while waiting for hrs ready.")
+                                return False
+                            continue
                         else:
                             print(f"Unknown await target: {target!r} (try: await spc)")
                             break
@@ -2067,7 +2103,7 @@ class CommandDispatcher:
                         cam.StopLive();  print("Camera stopped.")
             for flipper in getattr(p, "mff_101_gui", []):
                 if flipper.serial_number[-2:] in ('32','48','55'):
-                    print("Skipping M32 & M48 & M55 flipper toggles")
+                    # print("Skipping M32 & M48 & M55 flipper toggles")
                     continue
                 tag = f"on_off_slider_{flipper.unique_id}"
                 pos = flipper.dev.get_position()
@@ -6360,33 +6396,96 @@ class CommandDispatcher:
                 print("  " + line)
         else:
             print(f"No commands matching '{query}' found.")
-    def handle_wait(self, arg):
-        """Delay subsequent commands by <ms> then execute them."""
-        # arg: "<ms> cmd1;cmd2;cmd3"
-        parts = arg.strip().split(' ', 1)
-        ms_str = parts[0]
+    def handle_wait(self, arg: str = ""):
+        """
+        wait <ms> [> <cmd>]           # preferred
+        wait <ms> cmd1;cmd2;cmd3      # legacy (kept)
+
+        Examples:
+          wait 60000
+          wait 60000 > r
+          wait 5000 > coup next
+          wait 1000 r;coup next;hr 1!
+        """
+        import threading
+        import time
+
+        a = (arg or "").strip()
+        if not a:
+            print("Usage: wait <ms> [> <cmd>]  |  wait <ms> cmd1;cmd2;cmd3")
+            try:
+                dpg.focus_item("cmd_input")
+            except Exception:
+                pass
+            return
+
+        # --- Parse: delay + commands ---
+        delay_part = None
+        cmds: list[str] = []
+
+        # Preferred explicit separator: >
+        if ">" in a:
+            left, right = a.split(">", 1)
+            delay_part = left.strip()
+            right = right.strip()
+            if right:
+                # everything after '>' is treated as ONE command (can still include ';' if self.run supports it)
+                cmds = [right]
+        else:
+            # Legacy: "<ms> cmd1;cmd2;cmd3"
+            parts = a.split(None, 1)  # split on first whitespace
+            delay_part = parts[0].strip()
+            if len(parts) > 1 and parts[1].strip():
+                cmds = [c.strip() for c in parts[1].split(";") if c.strip()]
+
+        # --- Parse ms ---
         try:
-            ms = int(ms_str)
-        except ValueError:
-            print(f"Invalid syntax. Use: wait<ms> <cmd1>;... Got '{ms_str}'")
+            # accept "60000" or "60000.0"
+            ms = int(float(delay_part))
+        except Exception:
+            print(f"wait: invalid milliseconds '{delay_part}'. Usage: wait <ms> [> <cmd>]")
+            try:
+                dpg.focus_item("cmd_input")
+            except Exception:
+                pass
             return
 
-        if len(parts) == 1 or not parts[1].strip():
-            time.sleep(ms / 1000.0)
-            print("No commands to run after wait.")
+        if ms < 0:
+            print("wait: milliseconds must be >= 0.")
+            try:
+                dpg.focus_item("cmd_input")
+            except Exception:
+                pass
             return
 
-        # split remaining text into individual commands
-        remaining = [c.strip() for c in parts[1].split(';') if c.strip()]
-
-        def _delayed_runner():
+        # --- Background runner (NEVER block UI) ---
+        def _runner():
             time.sleep(ms / 1000.0)
-            print(f"[wait] {ms} ms elapsed -> now running {remaining}")
-            if remaining:
-                self.run("; ".join(remaining))
 
-        threading.Thread(target=_delayed_runner, daemon=True).start()
-        print(f"Started background wait for {ms}ms... deferring {remaining}")
+            # Delay-only
+            if not cmds:
+                print(f"[wait] {ms} ms elapsed.")
+                return
+
+            # Run commands sequentially (explicit; does NOT rely on self.run(';') parsing)
+            for cmd in cmds:
+                try:
+                    self.run(cmd)
+                except Exception as e:
+                    print(f"[wait] failed to run '{cmd}': {e}")
+                    break
+
+        threading.Thread(target=_runner, daemon=True, name="wait").start()
+
+        if cmds:
+            print(f"[wait] started {ms} ms timer -> then run: {cmds}")
+        else:
+            print(f"[wait] started {ms} ms timer")
+
+        try:
+            dpg.focus_item("cmd_input")
+        except Exception:
+            pass
     def handle_ocr(self, arg):
         """Perform OCR and set XYZ fields."""
         p=self.get_parent()
@@ -7177,6 +7276,28 @@ class CommandDispatcher:
           kabs 0.5,0.8 u?          # QUERY ONLY: print voltages for 0.5um, 0.8um (no apply)
           kabs 1.2,2.3 v?          # QUERY ONLY: echo voltages (no apply)
           kabs ?                   # QUERY ONLY: print current CH1/CH2 voltages (no apply)
+
+           2) Named preset mode
+            ----------------------------------------------------------------------
+            Apply or inspect a named KABS preset stored in coup_state.json.
+
+            Usage:
+              kabs <name>
+                  Apply the stored CH1 / CH2 voltages for preset <name> to the AWG.
+
+              kabs <name> ?
+                  Display the stored voltages for preset <name> without applying them.
+
+            Notes:
+              - Preset mode is triggered only when <name> starts with a letter.
+              - Presets are stored under "kabs_presets" in coup_state.json.
+              - If a preset does not exist, an informative error is printed.
+              - Applying a preset updates the AWG offsets and refreshes the GUI.
+
+            Examples:
+              kabs white
+              kabs white ?
+              kabs upwards
         """
         import re
 
@@ -7187,6 +7308,44 @@ class CommandDispatcher:
             return
 
         arg = (arg or "").strip()
+
+        # --- NEW: named preset mode: kabs <name>  or  kabs <name> ? ---
+        preset_arg = arg.strip()
+        if preset_arg and preset_arg != "?":
+            want_query = preset_arg.endswith("?")
+            if want_query:
+                preset_arg = preset_arg[:-1].strip()
+
+            # treat as preset if it starts with a letter (avoid breaking numeric kabs)
+            if preset_arg and preset_arg[0].isalpha():
+                name = preset_arg.split()[0].lower()
+                state = self._load_coup_state_dict()
+                presets = state.get("kabs_presets", {})
+                if not isinstance(presets, dict):
+                    presets = {}
+                rec = presets.get(name)
+
+                if want_query:
+                    if not rec:
+                        print(f"[kabs] preset '{name}' not found.")
+                    else:
+                        print(f"[kabs] {name}: CH1={rec.get('ch1_v')} V, CH2={rec.get('ch2_v')} V")
+                    return
+
+                if not rec:
+                    print(f"[kabs] preset '{name}' not found. Use: coup kabs {name} <v1>,<v2>  OR  coup kabs {name}")
+                    return
+
+                try:
+                    v1 = float(rec["ch1_v"])
+                    v2 = float(rec["ch2_v"])
+                    gui.dev.set_offset(v1, channel=1)
+                    gui.dev.set_offset(v2, channel=2)
+                    gui.btn_get_current_parameters()
+                    print(f"[kabs] applied '{name}': CH1={v1} V, CH2={v2} V")
+                except Exception as e:
+                    print(f"[kabs] failed applying '{name}': {e}")
+                return
 
         # --- Detect trailing query flag like 'u?' / 'um?' / 'v?' / '?' ---
         m_q = re.search(r'(?:\s*(u|um|v))?\s*\?$', arg, re.IGNORECASE)
@@ -9198,6 +9357,62 @@ class CommandDispatcher:
         y_value = pos[1] * 1e-6
         z_value = pos[2] * 1e-6
         return x_value, y_value, z_value
+    def _get_coup_state_path(self) -> str:
+        """Return full path for coup state file, ensuring base dir exists."""
+        try:
+            base_dir = DEFAULT_COUP_DIR
+        except NameError:
+            base_dir = r"c:\WC\HotSystem\Utils\macro"
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+        except Exception:
+            pass
+        return os.path.join(base_dir, STATE_FILENAME)
+    def _get_coup_state_path_remote(self) -> str:
+        """Return Q: path for coup_state.json under the chip characterization folder."""
+        import os, re
+
+        BASE_DIR = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations"
+
+        chip_name = str(getattr(self, "_chip_name", "") or "").strip()
+        if not chip_name:
+            raise RuntimeError("chip_name not set")
+
+        safe_chip = re.sub(r"[^A-Za-z0-9_.\- ]+", "_", chip_name)
+        chip_dir = os.path.join(BASE_DIR, safe_chip)
+
+        os.makedirs(chip_dir, exist_ok=True)
+        return os.path.join(chip_dir, "coup_state.json")
+    def _load_coup_state_dict(self) -> dict:
+        path = self._get_coup_state_path()
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+    def _save_coup_state_dict(self, d: dict) -> bool:
+        path = self._get_coup_state_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(d, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"[coup_state] save failed: {e}")
+            return False
+    def _parse_two_volts(self, s: str):
+        # accepts: "0.3189v, 0.1848v" or "0.3189 0.1848" etc.
+        raw = (s or "").replace(",", " ").lower()
+        toks = [t.strip() for t in raw.split() if t.strip()]
+        vals = []
+        for t in toks:
+            t = t.rstrip("v")
+            try:
+                vals.append(float(t))
+            except Exception:
+                pass
+        return (vals[0], vals[1]) if len(vals) >= 2 else (None, None)
     def handle_coup(self, *args, nested: bool = False):
         """
         COUP COMMANDS
@@ -9288,6 +9503,29 @@ class CommandDispatcher:
               Load angle, center, shift factors, move-per-coupon,
               label offsets, chip name, and saved coupon labels.
               If no file is given, the default coup_state.json is used.
+
+        --- coup kabs ---
+
+        Manage named KABS (Keysight AWG offset) presets stored in coup_state.json.
+
+        Usage:
+          coup kabs <name> <v1>,<v2>
+              Store explicit CH1 / CH2 voltages (in Volts) under preset <name>.
+
+          coup kabs <name>
+              Store the *current* AWG CH1 / CH2 offset voltages under preset <name>.
+
+          coup kabs <name> ?
+              Display the stored voltages for preset <name> without modifying hardware.
+
+        Notes:
+          - Presets are stored under the key "kabs_presets" in coup_state.json.
+          - Preset names are case-insensitive and stored in lowercase.
+          - This command does NOT apply voltages to the AWG; use `kabs <name>` for that.
+          - Existing coup_state.json fields remain backward compatible.
+
+        Returns:
+          True if the command was handled successfully, False otherwise.
 
         ----------------
         coup ?
@@ -9407,32 +9645,7 @@ class CommandDispatcher:
                 return bool(getattr(self, "_coup_active_evt", None)) and self._coup_active_evt.is_set()
             except Exception:
                 return False
-        def _get_coup_state_path() -> str:
-            """Return full path for coup state file, ensuring base dir exists."""
-            try:
-                base_dir = DEFAULT_COUP_DIR
-            except NameError:
-                base_dir = r"c:\WC\HotSystem\Utils\macro"
-            try:
-                os.makedirs(base_dir, exist_ok=True)
-            except Exception:
-                pass
-            return os.path.join(base_dir, STATE_FILENAME)
-        def _get_coup_state_path_remote() -> str:
-            """Return Q: path for coup_state.json under the chip characterization folder."""
-            import os, re
 
-            BASE_DIR = r"Q:\QT-Quantum_Optic_Lab\Lab notebook\FemtoSys\Chip Characterizations"
-
-            chip_name = str(getattr(self, "_chip_name", "") or "").strip()
-            if not chip_name:
-                raise RuntimeError("chip_name not set")
-
-            safe_chip = re.sub(r"[^A-Za-z0-9_.\- ]+", "_", chip_name)
-            chip_dir = os.path.join(BASE_DIR, safe_chip)
-
-            os.makedirs(chip_dir, exist_ok=True)
-            return os.path.join(chip_dir, "coup_state.json")
         def _coup_save_state(extra_named_copy: bool = False) -> bool:
             """Save angle, center, and shift factors to JSON. Returns True/False."""
             import json
@@ -9563,8 +9776,31 @@ class CommandDispatcher:
             except Exception:
                 pass
 
+            # ------------------ Preserve / save kabs presets ------------------
+            # Priority:
+            #   1) If we already have presets in memory (e.g. loaded via coup load), save them
+            #   2) Otherwise, preserve whatever is currently on disk (non-destructive save)
+            try:
+                presets_mem = getattr(self, "_kabs_presets", None)
+                if isinstance(presets_mem, dict) and presets_mem:
+                    state["kabs_presets"] = presets_mem
+                else:
+                    # preserve from existing local file if present
+                    local_path = self._get_coup_state_path()
+                    if os.path.isfile(local_path):
+                        try:
+                            with open(local_path, "r", encoding="utf-8") as f:
+                                old = json.load(f) or {}
+                            if isinstance(old, dict) and isinstance(old.get("kabs_presets"), dict):
+                                state["kabs_presets"] = old["kabs_presets"]
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            # -------------------------------------------------------------------
+
             # Always save locally (existing behavior)
-            local_path = _get_coup_state_path()
+            local_path = self._get_coup_state_path()
             ok = True
             try:
                 with open(local_path, "w", encoding="utf-8") as f:
@@ -9582,7 +9818,7 @@ class CommandDispatcher:
             # Additionally save remotely if chip_name exists
             if chip_name:
                 try:
-                    remote_path = _get_coup_state_path_remote()
+                    remote_path = self._get_coup_state_path_remote()
                     with open(remote_path, "w", encoding="utf-8") as f:
                         json.dump(state, f, indent=2)
                     print(f"[coup] save: also wrote remote '{remote_path}'")
@@ -9638,6 +9874,7 @@ class CommandDispatcher:
 
         if not args:
             print("Usage: coup [shiftx|shifty|stop|status|<steps.txt>]")
+            dpg.focus_item("cmd_input")
             return False
 
         # Turn args into a clean token list (handles quoting)
@@ -9648,9 +9885,61 @@ class CommandDispatcher:
 
         if not tokens:
             print("Usage: coup [shiftx [factor]|shifty [factor]|stop|status|<steps>]")
+            dpg.focus_item("cmd_input")
             return False
 
         sub = tokens[0].lower()
+
+        if sub == "kabs":
+            # coup kabs <name> <v1>,<v2>   -> store explicit
+            # coup kabs <name>             -> store current CH1/CH2
+            # coup kabs <name> ?           -> print stored
+            if len(tokens) < 2:
+                print("Usage:\n  coup kabs <name>\n  coup kabs <name> <v1>,<v2>\n  coup kabs <name> ?")
+                return False
+
+            name = tokens[1].strip().lower()
+            want_query = (len(tokens) >= 3 and tokens[-1].strip() == "?")
+
+            state = self._load_coup_state_dict()
+            presets = state.get("kabs_presets")
+            if not isinstance(presets, dict):
+                presets = {}
+
+            if want_query:
+                rec = presets.get(name)
+                if not rec:
+                    print(f"[coup kabs] preset '{name}' not found.")
+                else:
+                    print(f"[coup kabs] {name}: CH1={rec.get('ch1_v')} V, CH2={rec.get('ch2_v')} V")
+                return True
+
+            # explicit volts provided?
+            v1 = v2 = None
+            if len(tokens) >= 3:
+                v1, v2 = self._parse_two_volts(" ".join(tokens[2:]))
+
+            if v1 is None or v2 is None:
+                # store current
+                parent = self.get_parent()
+                gui = getattr(parent, "keysight_gui", None)
+                if not gui:
+                    print("[coup kabs] No Keysight AWG GUI is active.")
+                    return False
+                try:
+                    v1 = float(gui.dev.get_current_voltage(1))
+                    v2 = float(gui.dev.get_current_voltage(2))
+                except Exception as e:
+                    print(f"[coup kabs] failed reading current voltages: {e}")
+                    return False
+
+            presets[name] = {"ch1_v": float(v1), "ch2_v": float(v2)}
+            state["kabs_presets"] = presets
+            self._save_coup_state_dict(state)
+            self._kabs_presets = presets
+            print(f"[coup kabs] saved '{name}': CH1={v1} V, CH2={v2} V")
+            dpg.focus_item("cmd_input")
+            return True
 
         # --- coup ? : print stored sequence label ---
         if sub == "?":
@@ -9659,15 +9948,15 @@ class CommandDispatcher:
                 print(f"[coup] current sequence label: {cur}")
             else:
                 print("[coup] no sequence label stored. Use 'coup NORM4L' (or 7L, 8L, etc.) first.")
+            dpg.focus_item("cmd_input")
             return True
-
-
         # --- coup save/load: persist coupon angle + center ---
         if sub == "save":
             # `coup save`      -> normal save
             # `coup save name` -> normal save + per-chip copy
             extra_named_copy = len(tokens) >= 2 and tokens[1].lower() == "name"
             _coup_save_state(extra_named_copy=extra_named_copy)
+            dpg.focus_item("cmd_input")
             return True
         if sub == "load":
             # Optional: coup load <file_name>
@@ -9692,10 +9981,11 @@ class CommandDispatcher:
                     path = fname
             else:
                 # Default behavior: load the main coup_state.json
-                path = _get_coup_state_path()
+                path = self._get_coup_state_path()
 
             if not os.path.isfile(path):
                 print(f"[coup] load: state file not found: '{path}'.")
+                dpg.focus_item("cmd_input")
                 return False
 
             try:
@@ -9703,7 +9993,21 @@ class CommandDispatcher:
                     state = json.load(f)
             except Exception as e:
                 print(f"[coup] load: failed to read '{path}': {e}")
+                dpg.focus_item("cmd_input")
                 return False
+
+            # ------------------ Restore kabs presets ------------------
+            try:
+                presets = state.get("kabs_presets", {})
+                if isinstance(presets, dict):
+                    # keep in memory for fast access / for coup save preservation
+                    self._kabs_presets = presets
+                    print(f"[coup] load: restored {len(presets)} kabs preset(s).")
+                else:
+                    self._kabs_presets = {}
+            except Exception:
+                self._kabs_presets = {}
+            # ----------------------------------------------------------
 
             # Restore current position in sequence (optional)
             try:
@@ -9765,6 +10069,7 @@ class CommandDispatcher:
                 self._set_coupon_center_uv(u_ref, v_ref)
             except Exception as e:
                 print(f"[coup] load: failed to set center: {e}")
+                dpg.focus_item("cmd_input")
                 return False
 
             # Apply shift factors if present
@@ -9855,7 +10160,7 @@ class CommandDispatcher:
             )
             print(f"[coup] load: restored current seq label={getattr(self, '_coup_seq_label', None)}, "
                   f"idx={getattr(self, '_coup_seq_idx', None)}.")
-
+            dpg.focus_item("cmd_input")
             return True
         if sub == "status":
             if self._coup_active_evt.is_set():
@@ -9869,6 +10174,7 @@ class CommandDispatcher:
                     print("[coup] running → preparing next command...")
             else:
                 print("[coup] idle")
+            dpg.focus_item("cmd_input")
             return True
         # --- coup resume [factor] : resume from pause and set pause factor ---
         #   coup resume       -> factor = 1.0  (pause every 3 SPC)
@@ -9881,10 +10187,12 @@ class CommandDispatcher:
                     factor = float(tokens[1])
                 except Exception:
                     print(f"[coup] resume: invalid factor '{tokens[1]}'. Use e.g. 'coup resume 2'.")
+                    dpg.focus_item("cmd_input")
                     return False
 
             if factor <= 0:
                 print("[coup] resume: factor must be > 0.")
+                dpg.focus_item("cmd_input")
                 return False
 
             self._coup_pause_factor = factor
@@ -9900,6 +10208,7 @@ class CommandDispatcher:
             spc_threshold = max(1, int(round(3 * factor)))
             print(f"[coup] resume: pause factor set to {factor:.3f} "
                   f"(will pause every {spc_threshold} SPC commands).")
+            dpg.focus_item("cmd_input")
             return True
         if sub == "stop":
             # signal all known cancel flags
@@ -9930,6 +10239,7 @@ class CommandDispatcher:
             except Exception:
                 pass
             print("[coup] stop requested.")
+            dpg.focus_item("cmd_input")
             return True
         # --- coup angle: set coupon chip angle from current axis-2 position ---
         if sub == "angle":
@@ -9938,6 +10248,7 @@ class CommandDispatcher:
                 gui = getattr(self.get_parent(), "smaractGUI", None)
                 if gui is None:
                     print("[coup] angle set: Smaract GUI not available (expected at parent.smaractGUI).")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 # Try to read current axis-2 angle from GUI widgets
@@ -9948,21 +10259,25 @@ class CommandDispatcher:
                     angle_val = round(float(angle_val), 3)
                 except Exception as e:
                     print(f"[coup] angle set: failed to read axis-2 angle: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 try:
                     self._coupon_angle_deg = float(angle_val)
                 except Exception as e:
                     print(f"[coup] angle set: invalid angle value '{angle_val}': {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 print(f"[coup] angle set: chip angle now {self._coupon_angle_deg:.3f}° "
                       f"(taken from axis-2 current position).")
                 _coup_save_state()
+                dpg.focus_item("cmd_input")
                 return True
 
             # Usage/help if someone just types `coup angle`
             print("[coup] angle: use 'coup angle set' to store current axis-2 as chip angle.")
+            dpg.focus_item("cmd_input")
             return False
         # --- coup inv set: mark chip as inverted and save ---
         if sub == "inv":
@@ -9972,9 +10287,11 @@ class CommandDispatcher:
 
                 # Auto-save state (like angle/center/shift setters)
                 _coup_save_state()
+                dpg.focus_item("cmd_input")
                 return True
 
             print("Usage: coup inv set")
+            dpg.focus_item("cmd_input")
             return False
 
         # --- coup copy [state] [chip_name]: copy map/sb/state (+ optionally TIFs) to chip folder ---
@@ -10003,6 +10320,7 @@ class CommandDispatcher:
 
             if not chip_name_raw:
                 print("[coup] copy: chip name not set. Use 'chip name <name>' or 'coup copy [state] <name>'.")
+                dpg.focus_item("cmd_input")
                 return False
 
             # Sanitize for folder name
@@ -10018,6 +10336,7 @@ class CommandDispatcher:
                     os.makedirs(tif_dir, exist_ok=True)
             except Exception as e:
                 print(f"[coup] copy: failed to create output dirs: {e}")
+                dpg.focus_item("cmd_input")
                 return False
 
             print(f"[coup] copy: target folder = '{chip_dir}' "
@@ -10025,7 +10344,7 @@ class CommandDispatcher:
 
             # 3) Figure out where coup_state.json + my_next.json live
             try:
-                state_path = _get_coup_state_path()  # e.g. C:\WC\HotSystem\Utils\macro\coup_state.json
+                state_path = self._get_coup_state_path()  # e.g. C:\WC\HotSystem\Utils\macro\coup_state.json
                 state_dir = os.path.dirname(state_path)
             except Exception:
                 # Fallback to old behavior if something weird happens
@@ -10063,6 +10382,7 @@ class CommandDispatcher:
                 tif_src_dir = r"C:\Users\Femto\Work Folders\Documents\LightField"
                 if not os.path.isdir(tif_src_dir):
                     print(f"[coup] copy: TIF source directory not found: '{tif_src_dir}'")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 tif_count = 0
@@ -10082,9 +10402,11 @@ class CommandDispatcher:
                     print(f"[coup] copy: copied {tif_count} TIF file(s) to '{tif_dir}'.")
                 except Exception as e:
                     print(f"[coup] copy: error while scanning TIF directory: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
             print(f"[coup] copy: done for chip '{chip_name_raw}' → '{chip_dir}'")
+            dpg.focus_item("cmd_input")
             return True
 
         # --- coup cut [state] [chip_name]: copy map/sb/state, move (cut) TIFs to chip folder ---
@@ -10108,6 +10430,7 @@ class CommandDispatcher:
 
             if not chip_name_raw:
                 print("[coup] cut: chip name not set. Use 'chip name <name>' or 'coup cut [state] <name>'.")
+                dpg.focus_item("cmd_input")
                 return False
 
             # sanitize for folder name
@@ -10123,6 +10446,7 @@ class CommandDispatcher:
                     os.makedirs(tif_dir, exist_ok=True)
             except Exception as e:
                 print(f"[coup] cut: failed to create output dirs: {e}")
+                dpg.focus_item("cmd_input")
                 return False
 
             print(f"[coup] cut: target folder = '{chip_dir}' "
@@ -10130,7 +10454,7 @@ class CommandDispatcher:
 
             # 3) Figure out where coup_state.json + my_next.json live
             try:
-                state_path = _get_coup_state_path()  # e.g. C:\WC\HotSystem\Utils\macro\coup_state.json
+                state_path = self._get_coup_state_path()  # e.g. C:\WC\HotSystem\Utils\macro\coup_state.json
                 state_dir = os.path.dirname(state_path)
             except Exception:
                 # Fallback to old behavior if something weird happens
@@ -10168,6 +10492,7 @@ class CommandDispatcher:
                 tif_src_dir = r"C:\Users\Femto\Work Folders\Documents\LightField"
                 if not os.path.isdir(tif_src_dir):
                     print(f"[coup] cut: TIF source directory not found: '{tif_src_dir}'")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 moved_count = 0
@@ -10189,9 +10514,11 @@ class CommandDispatcher:
                     print(f"[coup] cut: moved {moved_count} TIF file(s) to '{tif_dir}'.")
                 except Exception as e:
                     print(f"[coup] cut: error while scanning TIF directory: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
             print(f"[coup] cut: done for chip '{chip_name_raw}' → '{chip_dir}'")
+            dpg.focus_item("cmd_input")
             return True
 
         # --- coup clear / coup clear <label> ---
@@ -10203,13 +10530,16 @@ class CommandDispatcher:
             label = " ".join(tokens[1:]).strip()
             if not label:
                 print("[coup] clear: missing label. Usage: coup clear <label>")
+                dpg.focus_item("cmd_input")
                 return False
+            dpg.focus_item("cmd_input")
             return self.handle_coupon(f"clear {label}")
 
         # --- SINGLE busy guard (applies only to top-level invocations) ---
         non_blocking = {"status", "stop", "save", "load", "angle","resume","copy","clear"}
         if (sub not in non_blocking) and _is_coup_busy() and not nested:
             print("[coup] already running.")
+            dpg.focus_item("cmd_input")
             return False
 
         # --- coup label from center: inverse of "center from label" ---
@@ -10237,9 +10567,11 @@ class CommandDispatcher:
                         f"dU={-dU:.3f} µm, dV={-dV:.3f} µm  (current − MOVE abs)."
                     )
                     _coup_save_state()
+                    dpg.focus_item("cmd_input")
                     return True
                 except Exception as e:
                     print(f"[coup] label from center set: failed to read positions: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
             if len(tokens) >= 3 and tokens[1].lower() == "from" and tokens[2].lower() == "center":
@@ -10248,12 +10580,13 @@ class CommandDispatcher:
                 dV = float(getattr(self, "_center_from_label_dV_um", 0.0))
                 if dU == 0.0 and dV == 0.0:
                     print("[coup] label from center: no stored offsets. Use 'coup center from label dU,dV' first.")
+                    dpg.focus_item("cmd_input")
                     return False
-
                 try:
                     u_cur, v_cur, _ = self._read_current_position_um()
                 except Exception as e:
                     print(f"[coup] label from center: cannot read current position: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 # Inverse move: center → label
@@ -10269,16 +10602,19 @@ class CommandDispatcher:
                         self._move_delta(1, dV_label)
                 except Exception as e:
                     print(f"[coup] label from center: move failed: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 print(
                     f"[coup] label from center: moved by (dU={dU_label:.3f}, dV={dV_label:.3f}) µm "
                     f"to label at (U={u_label:.3f}, V={v_label:.3f}) µm."
                 )
+                dpg.focus_item("cmd_input")
                 return True
 
             # Unknown "coup label ..." usage
             print("Usage: coup label from center")
+            dpg.focus_item("cmd_input")
             return False
 
         # --- coup center: set reference center or move to nearest coupon center ---
@@ -10309,9 +10645,11 @@ class CommandDispatcher:
                         f"dV={dV:.3f} µm  (MOVE abs − current stage)."
                     )
                     _coup_save_state()
+                    dpg.focus_item("cmd_input")
                     return True
                 except Exception as e:
                     print(f"[coup] center from label set: failed to read positions: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
             if len(tokens) >= 3 and tokens[1].lower() == "from" and tokens[2].lower() == "label":
                 # SET MODE: explicit offsets
@@ -10320,18 +10658,21 @@ class CommandDispatcher:
                     offs_str = " ".join(tokens[3:]).replace(",", " ").split()
                     if len(offs_str) != 2:
                         print("[coup] center from label: expected two numbers, e.g. 'coup center from label -100,95'")
+                        dpg.focus_item("cmd_input")
                         return False
                     try:
                         dU = float(offs_str[0])
                         dV = float(offs_str[1])
                     except Exception:
                         print("[coup] center from label: invalid numbers. Use e.g. -100,95")
+                        dpg.focus_item("cmd_input")
                         return False
 
                     self._center_from_label_dU_um = dU
                     self._center_from_label_dV_um = dV
                     print(f"[coup] center from label: stored offsets dU={dU:.3f} µm, dV={dV:.3f} µm.")
                     _coup_save_state()
+                    dpg.focus_item("cmd_input")
                     return True
 
                 # MOVE MODE: no offsets given, use stored values
@@ -10339,12 +10680,14 @@ class CommandDispatcher:
                 dV = float(getattr(self, "_center_from_label_dV_um", 0.0))
                 if dU == 0.0 and dV == 0.0:
                     print("[coup] center from label: no stored offsets. Use 'coup center from label dU,dV' first.")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 try:
                     u_cur, v_cur, _ = self._read_current_position_um()
                 except Exception as e:
                     print(f"[coup] center from label: cannot read current position: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 u_center = u_cur + dU
@@ -10358,6 +10701,7 @@ class CommandDispatcher:
                         self._move_delta(1, dV)
                 except Exception as e:
                     print(f"[coup] center from label: move failed: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 # Also update the coupon center reference
@@ -10365,12 +10709,14 @@ class CommandDispatcher:
                     self._set_coupon_center_uv(u_center, v_center)
                 except Exception as e:
                     print(f"[coup] center from label: moved, but failed to store new center: {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 print(
                     f"[coup] center from label: moved by (dU={dU:.3f}, dV={dV:.3f}) µm "
                     f"to center at (U={u_center:.3f}, V={v_center:.3f}) µm."
                 )
+                dpg.focus_item("cmd_input")
                 return True
 
             if not hasattr(self, "_coupon_angle_deg"):
@@ -10385,9 +10731,11 @@ class CommandDispatcher:
                         self._set_coupon_center_uv(u_cur, v_cur)
                         print(f"[coup] center: reference set to current position (U={u_cur:.3f}, V={v_cur:.3f}) µm.")
                         _coup_save_state()
+                        dpg.focus_item("cmd_input")
                         return True
                     except Exception as e:
                         print(f"[coup] center set: {e}")
+                        dpg.focus_item("cmd_input")
                         return False
                 # otherwise try explicit numeric U,V
                 rest = " ".join(tokens[1:]).replace(",", " ").split()
@@ -10397,15 +10745,18 @@ class CommandDispatcher:
                         v_set = float(rest[1])
                     except ValueError:
                         print("[coup] center: invalid numbers. Use: coup center <U>, <V>")
+                        dpg.focus_item("cmd_input")
                         return False
                 elif len(rest) > 0:
                     print("[coup] center: provide both U and V, 'set', or no args. Examples: "
                           "coup center 16, 28 | coup center set | coup center")
+                    dpg.focus_item("cmd_input")
                     return False
 
             # Setter mode
             if u_set is not None and v_set is not None:
                 self._set_coupon_center_uv(u_set, v_set)
+                dpg.focus_item("cmd_input")
                 return True
 
             # Move mode: snap to nearest coupon center around the reference, then move there (relative)
@@ -10414,6 +10765,7 @@ class CommandDispatcher:
                 u_cur, v_cur, z_cur = self._read_current_position_um()
             except Exception as e:
                 print(f"[coup] center: {e}")
+                dpg.focus_item("cmd_input")
                 return False
 
             # Build neighbor grid using rotation
@@ -10454,6 +10806,7 @@ class CommandDispatcher:
             MAX_JUMP = 60.0
             if abs(du) > MAX_JUMP or abs(dv) > MAX_JUMP:
                 print(f"[coup] center: exceeds {MAX_JUMP} µm per-axis limit (du={du:.3f}, dv={dv:.3f}).")
+                dpg.focus_item("cmd_input")
                 return False
 
             try:
@@ -10463,9 +10816,11 @@ class CommandDispatcher:
                     self._move_delta(1, dv)
             except Exception as e:
                 print(f"[coup] center: move failed: {e}")
+                dpg.focus_item("cmd_input")
                 return False
 
             print(f"[coup] center: moved from (U={u_cur:.3f}, V={v_cur:.3f}) to (U={cx:.3f}, V={cy:.3f}).")
+            dpg.focus_item("cmd_input")
             return True
 
         # --- array-shift helpers (accept factor OR '<µm> set') ---
@@ -10493,6 +10848,7 @@ class CommandDispatcher:
                         microns = float(raw_num)
                     except Exception:
                         print(f"[coup] {sub} set: invalid µm value '{val_str}'")
+                        dpg.focus_item("cmd_input")
                         return False
 
                     factor = microns / per_coupon_um
@@ -10507,6 +10863,7 @@ class CommandDispatcher:
                         factor = float(val_str)
                     except Exception:
                         print(f"[coup] {sub} set: invalid factor '{val_str}'")
+                        dpg.focus_item("cmd_input")
                         return False
 
                     microns = factor * per_coupon_um
@@ -10522,6 +10879,7 @@ class CommandDispatcher:
                     self._coup_shift_y_factor = factor
 
                 _coup_save_state()
+                dpg.focus_item("cmd_input")
                 return True
 
             # ----- MOVE MODE -----
@@ -10532,6 +10890,7 @@ class CommandDispatcher:
                     factor = float(tokens[1])
                 except Exception:
                     print(f"[coup] {sub}: invalid factor '{tokens[1]}'.")
+                    dpg.focus_item("cmd_input")
                     return False
             else:
                 factor = 1.0
@@ -10550,6 +10909,7 @@ class CommandDispatcher:
                 f"→ move {coupons_to_move:+.3f} coupons on {axis.upper()} "
                 f"({'done' if ok else 'failed'})"
             )
+            dpg.focus_item("cmd_input")
             return ok
 
         # --- shiftx? and shifty? : print current settings ---
@@ -10573,6 +10933,7 @@ class CommandDispatcher:
                 f"  stored factor: {factor:.6f} coupons\n"
                 f"  → movement per 'coup shifty' call: {factor * per_coupon_um:.6f} µm"
             )
+            dpg.focus_item("cmd_input")
             return True
 
         # --- corner/bottom-left + inverted-corner aliases ---
@@ -10614,83 +10975,203 @@ class CommandDispatcher:
                 return r, c, letter
 
             raise ValueError(f"Unrecognized coupon label '{label}'. Use like 'NORM3L', 'NORM1', '5L' or '5'.")
-        def _move_to_corner_from_label(label: str, inverted: bool = False) -> bool:
-            r, c, letter = _label_to_rc(label)
 
-            # Always move to bottom-left NORM4L (row 4, col 1),
-            # even when inverted. For INV we just reverse the direction.
-            target_r = 4
-            target_c = 1
+        if sub == "corner":
+            # Use active sequence (custom if loaded, else built-in)
+            seq = getattr(self, "_coup_next_seq", None)
+            if not isinstance(seq, list) or not seq:
+                seq = COUP_SEQ
 
-            # Base deltas from current (r,c) to NORM4L
-            base_dU = target_c - c  # columns -> U axis
-            base_dV = target_r - r  # rows    -> V axis
+            # Find current idx: prefer stored idx, else infer from label
+            cur_idx = getattr(self, "_coup_seq_idx", None)
+            if not isinstance(cur_idx, int) or not (0 <= cur_idx < len(seq)):
+                cur_raw = getattr(self, "_coup_seq_label", None)
+                if not cur_raw:
+                    # nothing known -> already "at start" logically
+                    self._coup_seq_idx = 0
+                    self._coup_seq_label = str(seq[0])
+                    print(f"[coup] corner: no current label; set idx=0 label='{self._coup_seq_label}' (no move).")
+                    return True
 
-            if inverted:
-                dU = -base_dU
-                dV = -base_dV
+                base_up = str(cur_raw).strip().upper()
+                cur_idx = next((i for i, nm in enumerate(seq) if str(nm).strip().upper() == base_up), None)
+                if cur_idx is None:
+                    print(f"[coup] corner: current label '{cur_raw}' not found in active sequence; cannot reset.")
+                    return False
+
+            # Move backwards step-by-step using inverse of each step’s configured move
+            moves = getattr(self, "_coup_next_moves", None)
+            if not isinstance(moves, dict):
+                moves = {}
+
+            # Walk backwards: from cur_idx -> 0
+            while cur_idx > 0:
+                prev_base = str(seq[cur_idx - 1])  # the base we are moving *to*
+                # The forward move from prev_base -> current base is stored under prev_base
+                entry = moves.get(prev_base) or moves.get(prev_base.upper()) or moves.get(prev_base.lower())
+                if isinstance(entry, dict):
+                    dx = float(entry.get("dx", 0.0))
+                    dy = float(entry.get("dy", 0.0))
+                else:
+                    # If you ever want built-in fallback, do it here. For your custom seq, this is fine:
+                    dx, dy = 1.0, 0.0
+
+                # Inverse move to go backwards
+                try:
+                    if dx != 0:
+                        self.handle_coupx(str(-dx))
+                    if dy != 0:
+                        self.handle_coupy(str(-dy))
+                except Exception as e:
+                    print(f"[coup] corner: move-back failed at idx={cur_idx}: {e}")
+                    dpg.focus_item("cmd_input")
+                    return False
+
+                cur_idx -= 1
+
+            # Now we are at index 0
+            self._coup_seq_idx = 0
+            self._coup_seq_label = str(seq[0])
+            # Now we are at index 0
+            first_label = str(seq[0])
+
+            self._coup_seq_idx = 0
+            self._coup_seq_label = first_label
+            _coup_save_state()
+
+            # Add SPC note for the first coupon
+            try:
+                self.handle_acquire_spectrum(f"note {first_label}")
+            except Exception as e:
+                print(f"[coup] corner: warning – failed to add spc note '{first_label}': {e}")
+
+            print(f"[coup] corner: moved to first coupon '{first_label}' (idx=0).")
+            dpg.focus_item("cmd_input")
+            return True
+
+        if sub == "first":
+            seq = self._coup_next_seq or COUP_SEQ
+            self._coup_seq_idx = 0
+            self._coup_seq_label = seq[0]
+            self.handle_acquire_spectrum(f"note {seq[0]}")
+            print(f"Index set to 0, label set to {seq[0]}")
+            dpg.focus_item("cmd_input")
+            return True
+
+        if sub in ("prev", "previous"):
+            # --- STEP MODE: coup prev ---
+            cur_raw = getattr(self, "_coup_seq_label", None)
+
+            # If no current label set → assume first element
+            if not cur_raw:
+                seq0 = getattr(self, "_coup_next_seq", None)
+                if not isinstance(seq0, list) or not seq0:
+                    seq0 = COUP_SEQ
+                cur_raw = str(seq0[0])
+                self._coup_seq_label = cur_raw
+                self._coup_seq_idx = 0
+                print(f"[coup] prev: no current label set; assuming start at '{cur_raw}'.")
+
+            # Parse base + letter
+            try:
+                canon = _canon_coupon_name(cur_raw)
+                if canon[-1].isalpha():
+                    base = canon[:-1]
+                    letter = canon[-1]
+                else:
+                    base = canon
+                    letter = None
+            except Exception:
+                base = str(cur_raw).strip()
+                letter = None
+
+            # Sequence
+            seq = getattr(self, "_coup_next_seq", None)
+            if not isinstance(seq, list) or not seq:
+                seq = COUP_SEQ
+
+            # Current index
+            cur_idx = getattr(self, "_coup_seq_idx", None)
+            if cur_idx is None:
+                base_up = base.upper()
+                for i, name in enumerate(seq):
+                    if str(name).upper() == base_up:
+                        cur_idx = i
+                        break
+                if cur_idx is None:
+                    print(f"[coup] prev: current base '{base}' not found in sequence.")
+                    dpg.focus_item("cmd_input")
+                    return False
+
+            prev_idx = (cur_idx - 1) % len(seq)
+            prev_base = seq[prev_idx]
+
+            # dx/dy for the step we are undoing
+            dx = dy = 0.0
+            moves = getattr(self, "_coup_next_moves", None)
+
+            if isinstance(moves, dict):
+                entry = moves.get(prev_base) or moves.get(str(prev_base).upper())
+                if isinstance(entry, dict):
+                    dx = -float(entry.get("dx", 0.0))
+                    dy = -float(entry.get("dy", 0.0))
+                else:
+                    moves = None
+
+            if moves is None:
+                try:
+                    slot = _seq_key(prev_base)
+                except Exception:
+                    slot = prev_base
+
+                slot_dx = {
+                    "NORM4": +1, "7": +1, "8": -2,
+                    "NORM3": +1, "5": +1, "6": -2,
+                    "NORM2": +1, "3": +1, "4": -2,
+                    "NORM1": +1, "1": +1, "2": -2,
+                }
+                slot_dy = {
+                    "NORM4": 0, "7": 0, "8": -1,
+                    "NORM3": 0, "5": 0, "6": -1,
+                    "NORM2": 0, "3": 0, "4": -1,
+                    "NORM1": 0, "1": 0, "2": +3,
+                }
+
+                dx = -float(slot_dx.get(slot, 0.0))
+                dy = -float(slot_dy.get(slot, 0.0))
+
+            # Build label
+            if letter is not None:
+                prev_label = f"{prev_base}{letter}"
             else:
-                dU = base_dU
-                dV = base_dV
+                prev_label = str(prev_base)
 
-            tag = "INV" if inverted else "STD"
-            print(
-                f"[coup] corner({tag}): from {label.upper()} (r{r},c{c}) → NORM4L "
-                f"(ΔU={dU}, ΔV={dV})"
-            )
+            # Move
+            try:
+                if dx != 0:
+                    self.handle_coupx(str(dx))
+                if dy != 0:
+                    self.handle_coupy(str(dy))
+            except Exception as e:
+                print(f"[coup] prev: move failed: {e}")
+                dpg.focus_item("cmd_input")
+                return False
 
-            ok_u = True if dU == 0 else self._coupon_move(axis="u", n=dU)
-            ok_v = True if dV == 0 else self._coupon_move(axis="v", n=dV)
-            return bool(ok_u and ok_v)
-
-        bl_aliases = {"bottom left", "bot left", "bottom-left", "bottomleft", "corner"}
-        inv_aliases = {"inv", "neg", "-", "flipud"}  # 180° rotation helpers
-        first_two = " ".join([t.lower() for t in tokens[:2]]) if len(tokens) >= 2 else sub
-
-        # Detect 'corner inv/neg/-/flipud' specifically
-        is_corner = (sub in bl_aliases) or (first_two in bl_aliases)
-        if is_corner:
-            inverted = False
-            label_token_start = 1
-            if sub == "corner" and len(tokens) >= 2 and tokens[1].lower() in inv_aliases:
-                inverted = True
-                label_token_start = 2  # label comes after the inv keyword
-
-            # 1) Try explicit label after "corner" / "bottom left" / etc.
-            provided = None
-            for t in tokens[label_token_start:]:
-                ts = str(t).strip()
-                if ts:
-                    provided = ts
-                    break
-
-            # 2) If none given, fall back to stored coup sequence label (e.g. NORM4A)
-            stored = getattr(self, "_coup_seq_label", None)
+            # Update state
+            self._coup_seq_idx = prev_idx
+            self._coup_seq_label = prev_label
 
             try:
-                if provided:
-                    label = provided
-                    print(f"[coup] corner: using explicit label '{label}'.")
-                elif stored:
-                    label = stored
-                    print(f"[coup] corner: using stored coup label '{label}'.")
-                else:
-                    # 3) Last resort: interactive prompt
-                    label = input("Enter current coupon label (e.g., NORM3L or 5L): ").strip()
-                    if not label:
-                        print("[coup] no label provided.")
-                        return False
+                self.handle_acquire_spectrum(f"note {prev_label}")
+            except Exception:
+                pass
 
-                moved = _move_to_corner_from_label(label, inverted=inverted)
-                print(
-                    f"[coup] corner move {'(inverted) ' if inverted else ''}done."
-                    if moved else
-                    f"[coup] corner move {'(inverted) ' if inverted else ''}failed."
-                )
-                return moved
-            except Exception as e:
-                print(f"[coup] corner: {e}")
-                return False
+            print(
+                f"[coup] prev: {cur_raw} → {prev_label} "
+                f"via coupx({dx}) coupy({dy})."
+            )
+            dpg.focus_item("cmd_input")
+            return True
 
         if sub == "next":
             # --- CONFIG MODE: coup next <file> / coup next reset ---
@@ -10710,6 +11191,7 @@ class CommandDispatcher:
 
                     print("[coup] next: custom sequence cleared; using built-in COUP_SEQ + slot_dx/slot_dy.")
                     _coup_save_state()
+                    dpg.focus_item("cmd_input")
                     return True
 
                 # Treat argument as config file
@@ -10721,7 +11203,7 @@ class CommandDispatcher:
 
                 # Resolve relative to the SAME folder as coup_state.json
                 try:
-                    state_path = _get_coup_state_path()
+                    state_path = self._get_coup_state_path()
                     base_dir = os.path.dirname(state_path)
                 except Exception:
                     try:
@@ -10736,7 +11218,7 @@ class CommandDispatcher:
                     # 2) fallback: try chip folder on Q:
                     if not os.path.isfile(cfg_path):
                         try:
-                            remote_state = _get_coup_state_path_remote()
+                            remote_state = self._get_coup_state_path_remote()
                             remote_dir = os.path.dirname(remote_state)
                             alt = os.path.join(remote_dir, cfg_name)
                             if os.path.isfile(alt):
@@ -10748,6 +11230,7 @@ class CommandDispatcher:
 
                 if not os.path.isfile(cfg_path):
                     print(f"[coup] next: custom config file not found: '{cfg_path}'.")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 try:
@@ -10755,11 +11238,13 @@ class CommandDispatcher:
                         cfg = json.load(f)
                 except Exception as e:
                     print(f"[coup] next: failed to read config '{cfg_path}': {e}")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 seq = cfg.get("sequence", None)
                 if not isinstance(seq, list) or not seq:
                     print("[coup] next: config must contain non-empty 'sequence' array.")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 clean_seq = []
@@ -10770,6 +11255,7 @@ class CommandDispatcher:
 
                 if not clean_seq:
                     print("[coup] next: no valid names in 'sequence'.")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 moves_cfg = cfg.get("moves", {})
@@ -10796,6 +11282,7 @@ class CommandDispatcher:
                     f"Custom moves for {len(clean_moves)} base name(s)."
                 )
                 _coup_save_state()
+                dpg.focus_item("cmd_input")
                 return True
 
             # --- STEP MODE: coup next ---
@@ -10834,6 +11321,7 @@ class CommandDispatcher:
                 # No valid index -> fall back to label-based lookup (legacy behavior)
                 if not cur_raw:
                     print("[coup] next: no current label set. Use 'coup <name>' first.")
+                    dpg.focus_item("cmd_input")
                     return False
 
                 # Try coupon parsing
@@ -11315,6 +11803,44 @@ class CommandDispatcher:
         except Exception as e:
             print(f"[coup] ERROR parsing python macro in {filename}: {e}")
             raise
+    def _wait_hrs_ready_or_abort(self, timeout: float = 10.0) -> bool:
+        """
+        Wait until LightField experiment is not updating (HRS ready).
+        Returns False only if we detect abort or IPC broken. Otherwise True (even on timeout).
+        """
+        import time
+
+        p = self.get_parent()
+        gui = getattr(p, "hrs_500_gui", None)
+        dev = getattr(gui, "dev", None) if gui else None
+        exp = getattr(dev, "_exp", None) if dev else None
+
+        if exp is None:
+            print("[await hrs] hrs_500_gui/dev/exp not available.")
+            return False
+
+        t0 = time.monotonic()
+        while True:
+            # allow macro abort to stop waiting
+            if getattr(self, "_abort_flag", False):
+                print("[await hrs] aborted.")
+                return False
+
+            try:
+                updating = bool(getattr(exp, "IsUpdating", False))
+            except Exception:
+                # stale COM / IPC object
+                print("[await hrs] lost LightField IPC connection (exp stale).")
+                return False
+
+            if not updating:
+                return True
+
+            if (time.monotonic() - t0) > float(timeout):
+                print(f"[await hrs] timeout after {timeout:.1f}s (continuing anyway).")
+                return True
+
+            time.sleep(0.05)
     def _wait_spc_done_or_abort(self, poll_ms=100, hard_timeout_s=120):
         """
         Wait until SPC thread signals done OR a stop is requested OR timeout.
@@ -11574,8 +12100,9 @@ class CommandDispatcher:
                     time.sleep(60)
 
                 # --- don't wait on "spc note ..."
-                if wait_for_spc and re.search(r"\b(spc|save)\b", line) and not re.search(r"\bspc\s+note\b", line):
-                    print("[coup] waiting for 'spc' to finish…")
+                if wait_for_spc and re.search(r"\b(spc|save|hr|hrs)\b", line) and not re.search(
+                            r"\b(spc|hr|hrs)\s+note\b", line):
+                    print("[coup] waiting for 'spc/hr' to finish…")
                     time.sleep(3)
                     ok = self._wait_spc_done_or_abort()
                     if not ok:
@@ -14252,6 +14779,7 @@ class CommandDispatcher:
         if a == "?":
             resp = _send("?p")
             print(f"LS-WL1 power -> {resp or '(no response)'}")
+            dpg.focus_item("cmd_input")
             return resp
 
         # -------------------------

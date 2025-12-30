@@ -1,5 +1,4 @@
 # Utils\plot_csv_spectrum.py
-import os
 import sys
 import glob
 import traceback
@@ -11,12 +10,105 @@ import matplotlib.pyplot as plt
 
 import pythoncom
 import win32com.client
+import os
+import re
 
 from scipy.signal import savgol_filter
 
-
-
 CSV_DIR = r"Q:\QT-Quantum_Optic_Lab\expData\Spectrometer"
+# Remember last CSV selection for: runcsv cal !
+_LAST_CAL_SELECTED_CSVS: list[str] = []
+
+def _legend_label_from_path(fp: str) -> str:
+    """
+    Clean legend label from CSV path:
+      - basename only
+      - no extension
+      - remove leading "Site (...)" block (coords)
+      - remove trailing timestamps like "2025 December 29 13_14_56" (optionally with "_60s")
+      - remove trailing numeric timestamps (YYYYMMDD..., YYYY-MM-DD...)
+      - return cleaned name
+    """
+    s = os.path.splitext(os.path.basename(fp))[0].strip()
+
+    # 0) If your filenames already contain "Site (...)" inside the basename, remove it.
+    #    Matches: Site ( ... ) with anything inside parentheses.
+    s = re.sub(r"^\s*Site\s*\([^)]*\)\s*", "", s, flags=re.IGNORECASE).strip()
+
+    # 1) Remove any remaining "(1,2,3)" style site suffix at the END (your old format)
+    s = re.sub(r"\s*\(\s*\d+(?:\s*,\s*\d+)*\s*\)\s*$", "", s).strip()
+
+    # 2) Remove month-word timestamp at END, with optional duration suffix like "_60s" / " 60s"
+    #    Matches:
+    #      2025 December 29 13_14_56
+    #      2025 December 29 13_14_56_60s
+    #      2025 December 29 13-14-56 60s
+    s = re.sub(
+        r"\s*\b\d{4}\s+"
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)"
+        r"\s+\d{1,2}\s+"
+        r"\d{1,2}[_:\- ]\d{2}[_:\- ]\d{2}"
+        r"(?:[_:\- ]\d{1,4}\s*s)?\b\s*$",
+        "",
+        s,
+        flags=re.IGNORECASE
+    ).strip()
+
+    # ALSO handle the common exact suffix you showed: "_60s" right after time
+    s = re.sub(r"\s*\b\d{4}\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s+\d{1,2}(?:[_:\- ]\d{2}){2}_\d+s\s*$",
+               "",
+               s,
+               flags=re.IGNORECASE).strip()
+
+    # 3) Remove numeric timestamps at END:
+    #    _YYYYMMDD, _YYYYMMDD_HHMMSS, -YYYY-MM-DD, -YYYY-MM-DD_HH-MM-SS, etc
+    s = re.sub(
+        r"([_-])?\d{4}([-_]?\d{2}){2}([T _-]?\d{2}([-_:]?\d{2}){1,2})?$",
+        "",
+        s
+    ).strip()
+
+    # 4) If there's still a trailing "_60s" / " 60s" leftover, remove it
+    s = re.sub(r"[_\-\s]?\d+\s*s\s*$", "", s, flags=re.IGNORECASE).strip()
+
+    # 5) Clean trailing separators/spaces
+    s = re.sub(r"[_\-\s]+$", "", s).strip()
+
+    return s or os.path.splitext(os.path.basename(fp))[0]
+
+def remove_single_point_outliers(y: np.ndarray, window: int = 7, n_sigma: float = 8.0) -> np.ndarray:
+    """
+    Remove isolated spike outliers using a robust local median + MAD test.
+    Replaces flagged points with the local median.
+
+    window: half-window size for local stats (total size = 2*window+1)
+    n_sigma: threshold in "robust sigma" units (MAD -> sigma ~= 1.4826*MAD)
+
+    Works well for single-point spikes way above baseline.
+    """
+    y = np.asarray(y, dtype=float)
+    if y.size < (2 * window + 3):
+        return y
+
+    y2 = y.copy()
+    n = y.size
+    k = window
+
+    for i in range(k, n - k):
+        seg = y[i - k:i + k + 1]
+        med = np.nanmedian(seg)
+        mad = np.nanmedian(np.abs(seg - med))
+
+        # robust sigma estimate
+        sigma = 1.4826 * mad if mad > 0 else 0.0
+        if sigma <= 0:
+            continue
+
+        if np.isfinite(y[i]) and abs(y[i] - med) > n_sigma * sigma:
+            y2[i] = med  # replace spike with local median
+
+    return y2
+
 def merge_spectra_union_average(spectra, ignore_start: int = 0):
     """
     Merge spectra into one on a union X grid.
@@ -82,27 +174,25 @@ def load_calibration_csv(calib_csv: str):
     order = np.argsort(x)
     return x[order], y[order]
 
-def choose_csv_files_dialog(title: str = "Select CSV files",initial_dir: str | None = None):
-    """
-    Open a native file dialog to select multiple CSV files.
-    Returns a list of paths (possibly empty).
-    """
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        paths = filedialog.askopenfilenames(
-            title=title,
-            initialdir=initial_dir,
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
-        )
-        root.destroy()
-        return list(paths) if paths else []
-    except Exception as e:
-        print(f"[runcsv] file dialog failed: {e}")
-        return []
+def choose_csv_files_dialog(
+    title: str = "Select CSV files",
+    initial_dir: str | None = None,
+):
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+
+    paths = filedialog.askopenfilenames(
+        title=title,
+        initialdir=initial_dir,
+        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+    )
+
+    root.destroy()
+    return list(paths) if paths else []
 
 def apply_calibration(x: np.ndarray, y: np.ndarray, calib_x: np.ndarray, calib_y: np.ndarray):
     """
@@ -163,6 +253,9 @@ def run_runcsv(
     spectra = []
     for fp in csv_paths:
         x, y = load_spectrum_csv(fp)
+        # NEW: remove single-point spikes BEFORE calibration/smoothing
+        y = remove_single_point_outliers(y, window=7, n_sigma=8.0)
+
         spectra.append({"file": os.path.basename(fp), "x": x, "y": y})
 
     out_dir = os.path.dirname(csv_paths[0]) or folder
@@ -238,6 +331,8 @@ def run_runcsv(
             base = os.path.basename(fp)
             lines.append(f"% File: {base}")
             x, y = load_spectrum_csv(fp)
+            # NEW: remove single-point spikes BEFORE calibration/smoothing
+            y = remove_single_point_outliers(y, window=7, n_sigma=8.0)
             for xv, yv in zip(x, y):
                 lines.append(f"{xv:.2f}, {yv:.2f}")
             lines.append("")
@@ -256,20 +351,44 @@ def run_runcsv_calibrated(
     smooth_window: int | None = None,
     calib_csv: str,
 ):
-    # Special: folder="?" means "pick files via dialog"
+    global _LAST_CAL_SELECTED_CSVS
+    import os
+    import time
+
+    # --- NEW: dialog mode ---
     if isinstance(folder, str) and folder.strip() == "?":
-        csv_paths = choose_csv_files_dialog(title="Select CSV files to calibrate",initial_dir=CSV_DIR)
+        csv_paths = choose_csv_files_dialog(
+            title="Select CSV files to calibrate",
+            initial_dir=CSV_DIR
+        )
         if not csv_paths:
             print("[runcsv cal] no files selected.")
             return None
-        # Use the selection folder as output dir
+
+        _LAST_CAL_SELECTED_CSVS = list(csv_paths)
         folder = os.path.dirname(csv_paths[0]) or CSV_DIR
         auto_title = f"Calibrated ({len(csv_paths)} files)"
+
+    # --- NEW: reuse previous selection ---
+    elif isinstance(folder, str) and folder.strip() == "!":
+        if not _LAST_CAL_SELECTED_CSVS:
+            print("[runcsv cal] no remembered CSV files. Use 'runcsv cal ?' first.")
+            return None
+
+        csv_paths = list(_LAST_CAL_SELECTED_CSVS)
+        folder = os.path.dirname(csv_paths[0]) or CSV_DIR
+        auto_title = f"Calibrated ({len(csv_paths)} files, reused)"
+
+    # --- ORIGINAL behavior ---
     else:
         folder = folder or CSV_DIR
         csv_paths = newest_csvs_in_folder(folder, n)
         newest_base = os.path.splitext(os.path.basename(csv_paths[0]))[0]
         auto_title = f"{newest_base} (calibrated)"
+
+    if not csv_paths:
+        print("[runcsv cal] no CSV files found.")
+        return None
 
     # load calibration
     calib_x, calib_y = load_calibration_csv(calib_csv)
@@ -278,6 +397,9 @@ def run_runcsv_calibrated(
     spectra = []
     for fp in csv_paths:
         x, y = load_spectrum_csv(fp)
+
+        # NEW: remove single-point spikes BEFORE calibration/smoothing
+        y = remove_single_point_outliers(y, window=7, n_sigma=8.0)
 
         # apply calibration
         y = apply_calibration(x, y, calib_x, calib_y)
@@ -290,19 +412,41 @@ def run_runcsv_calibrated(
                 y2[finite] = smooth_aggressive(y2[finite], window=smooth_window, poly=3)
                 y = y2
 
-        spectra.append({"file": os.path.basename(fp), "x": x, "y": y})
+        spectra.append({
+            "path": fp,
+            "file": os.path.basename(fp),
+            "label": _legend_label_from_path(fp),
+            "x": x,
+            "y": y,
+        })
 
-    out_dir = os.path.dirname(csv_paths[0]) or folder
-    out_png = os.path.join(out_dir, "~csv_spectrum_plot.png")
+    # output path next to selected/newest files
+    out_dir = os.path.dirname(csv_paths[0]) or (folder or CSV_DIR)
+
+    # Recommended: unique filename so PPT never grabs a stale/locked png
+    out_png = os.path.join(out_dir, f"~csv_spectrum_plot_{int(time.time())}.png")
 
     fig, ax = plt.subplots(figsize=(8.5, 4.8), dpi=200)
-    for s in reversed(spectra):
-        ax.plot(s["x"], s["y"], label=os.path.splitext(s["file"])[0])
 
-    ax.set_title(title_text or auto_title)
+    # Plot in reversed order (your existing behavior)
+    for s in reversed(spectra):
+        ax.plot(s["x"], s["y"], label=s["label"])
+
+    # Decide PLOT title (not slide title)
+    if len(spectra) == 1:
+        plot_title = spectra[0]["label"]
+    else:
+        plot_title = ", ".join(s["label"] for s in spectra)
+
+    ax.set_title(plot_title)
     ax.set_xlabel("Wavelength [nm]")
     ax.set_ylabel("Intensity / Calibration")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.5)
+
+    # ✅ Legend whenever there is more than one trace
+    if len(spectra) > 1:
+        ax.legend(fontsize=9, loc="best")
+
     fig.tight_layout()
     fig.savefig(out_png, bbox_inches="tight")
     plt.close(fig)
@@ -327,6 +471,7 @@ def run_runcsv_calibrated(
     return out_png
 
 
+
 def load_spectra(csv_paths, smooth_window: int | None = None):
     """
     Returns list of dicts:
@@ -336,6 +481,8 @@ def load_spectra(csv_paths, smooth_window: int | None = None):
     spectra = []
     for fp in csv_paths:
         x, y = load_spectrum_csv(fp)
+        # NEW: remove single-point spikes BEFORE calibration/smoothing
+        y = remove_single_point_outliers(y, window=7, n_sigma=8.0)
         if smooth_window is not None:
             y = smooth_uniform(y, window=smooth_window)
         spectra.append({"file": os.path.basename(fp), "x": x, "y": y})
@@ -429,6 +576,8 @@ def build_alt_text(csv_paths):
         lines.append(f"% File: {base}")
 
         x, y = load_spectrum_csv(fp)
+        # NEW: remove single-point spikes BEFORE calibration/smoothing
+        y = remove_single_point_outliers(y, window=7, n_sigma=8.0)
         for xv, yv in zip(x, y):
             lines.append(f"{xv:.2f}, {yv:.2f}")
 
@@ -437,6 +586,32 @@ def build_alt_text(csv_paths):
     return "\n".join(lines)
 
 def insert_slide_with_image(png_path: str, title_text: str, notes_text: str):
+    import os
+    import shutil
+    import tempfile
+
+    # Always work with an absolute path
+    png_path = os.path.abspath(png_path)
+
+    # Verify Python can see it
+    if not os.path.isfile(png_path):
+        raise FileNotFoundError(f"PNG not found: {png_path}")
+
+    # ---- CRITICAL FIX ----
+    # PowerPoint COM often cannot access mapped drives (e.g. Q:\) depending on session.
+    # Copy to a local temp file and insert that instead.
+    tmp_dir = tempfile.gettempdir()
+    local_png = os.path.join(tmp_dir, os.path.basename(png_path))
+
+    try:
+        shutil.copy2(png_path, local_png)
+    except Exception as e:
+        # If copy fails, fall back to original path (but likely will still fail in PPT)
+        print(f"[PPT] warning: failed to copy PNG to temp: {e}")
+        local_png = png_path
+
+    if not os.path.isfile(local_png):
+        raise FileNotFoundError(f"Local PNG not found: {local_png}")
 
     pythoncom.CoInitialize()
     ppt = win32com.client.Dispatch("PowerPoint.Application")
@@ -458,24 +633,22 @@ def insert_slide_with_image(png_path: str, title_text: str, notes_text: str):
     tr.ParagraphFormat.Alignment = 1  # center
 
     # --- Bigger picture on slide: smaller margins ---
-    margin = 25          # was 40
-    top = 65             # was 70
+    margin = 25
+    top = 65
     max_w = slide_w - 2 * margin
     max_h = slide_h - top - margin
 
+    # Use local temp path for PowerPoint
     pic = slide.Shapes.AddPicture(
-        FileName=png_path,
+        FileName=local_png,
         LinkToFile=False,
         SaveWithDocument=True,
         Left=margin,
         Top=top
     )
 
-    # -------------------------------
-    # Speaker Notes: FULL DATA (copy/paste to MATLAB)
-    # -------------------------------
+    # Speaker Notes
     try:
-        # Placeholder(2) is typically the body text of the Notes page
         notes_range = slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange
         notes_range.Text = notes_text
     except Exception as e:
@@ -489,19 +662,12 @@ def insert_slide_with_image(png_path: str, title_text: str, notes_text: str):
 
     pic.LockAspectRatio = True
 
-    # Scale UP or DOWN to fill as much of the bounding box as possible
     scale = min(max_w / pic.Width, max_h / pic.Height)
-
-    # # Make it a bit bigger (optional), but still safe
-    # scale *= 1.05  # 5% boost; change to 1.10 if you want more
-
-    # Don’t exceed the box after boost
-    scale = min(scale, max_w / pic.Width*0.9, max_h / pic.Height*0.9)
+    scale = min(scale, max_w / pic.Width * 0.9, max_h / pic.Height * 0.9)
 
     pic.Width = pic.Width * scale
     pic.Height = pic.Height * scale
 
-    # Center horizontally
     pic.Left = (slide_w - pic.Width) / 2
     pic.Top = top
 
