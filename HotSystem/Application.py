@@ -1225,7 +1225,7 @@ class PyGuiOverlay(Layer):
             if key_data_enum in (KeyboardKeys.C_KEY, KeyboardKeys.SPACE_KEY,KeyboardKeys.ENTER_KEY):
                 if not dpg.is_item_focused("cmd_input"):
                     # Force focus only if we are elsewhere
-                    print("Focus on cmd (via Enter)")
+                    print(f"Focus on cmd (via {key_data_enum})")
                     dpg.focus_item("cmd_input")
                 return
         except Exception as ex:
@@ -1312,6 +1312,21 @@ class PyGuiOverlay(Layer):
         Handle all Ctrl+ and Shift+ keyboard shortcuts.
         Returns True if a command was executed.
         """
+        # --- ALT-only commands --------------------------------------
+        if self.CURRENT_KEY == KeyboardKeys.ALT_KEY:
+            if self._cmd_input_has_focus():
+                return False
+
+            alt_actions = {
+                KeyboardKeys.C_KEY: lambda: run("coup sb", record_history=False),
+            }
+
+            action = alt_actions.get(key_data_enum)
+            if action:
+                action()
+                self.CURRENT_KEY = key_data_enum
+                return True
+
         # Only proceed if Ctrl or Shift was the initiating key
         if self.CURRENT_KEY not in (KeyboardKeys.CTRL_KEY, KeyboardKeys.SHIFT_KEY):
             return False
