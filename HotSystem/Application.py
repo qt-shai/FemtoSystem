@@ -1223,6 +1223,8 @@ class PyGuiOverlay(Layer):
                 return
 
             if key_data_enum in (KeyboardKeys.C_KEY, KeyboardKeys.SPACE_KEY,KeyboardKeys.ENTER_KEY):
+                if self.CURRENT_KEY in (KeyboardKeys.ALT_KEY, KeyboardKeys.SHIFT_KEY, KeyboardKeys.CTRL_KEY):
+                    return
                 if not dpg.is_item_focused("cmd_input"):
                     # Force focus only if we are elsewhere
                     print(f"Focus on cmd (via {key_data_enum})")

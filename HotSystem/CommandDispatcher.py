@@ -523,6 +523,7 @@ class CommandDispatcher:
             "sum":               self.handle_sum_counters,
             "plotall":           self.handle_plotall,
             "killp":             self.handle_kill_process,
+            "scanxyz":           self.handle_scanxyz,
         }
         # Register exit hook
         atexit.register(self.savehistory_on_exit)
@@ -4157,6 +4158,9 @@ class CommandDispatcher:
 
                 exp.SetValue(SpectrometerSettings.Grating, target)
                 print(f"HRS grating set to: {target}")
+                # Store a persistent grating tag for the *next* saved spectra (used by spc/hr filename note)
+                setattr(self, "_spc_grating_tag", f"g{density}")
+                print(f"HRS: grating tag stored: {getattr(self, '_spc_grating_tag', '')}")
 
                 # NEW: keep KDC2 turret synced (moves to 0.68 / 0.23 / -0.2 etc.)
                 try:
@@ -4493,14 +4497,20 @@ class CommandDispatcher:
         # --- NEW: helper to append persistent note to filename stem ---
         def _append_persistent_note(base: str) -> str:
             import re
+            parts = []
             note = getattr(self, "_spc_note", None)
-            if not note:
+            if note:
+                note_safe = re.sub(r'[<>:"/\\|?*]', "_", str(note)).strip()
+                if note_safe:
+                    parts.append(note_safe)
+            gtag = getattr(self, "_spc_grating_tag", None)
+            if gtag:
+                g_safe = re.sub(r'[<>:"/\\|?*]', "_", str(gtag)).strip()
+                if g_safe and all(g_safe.lower() != str(x).lower() for x in parts):
+                    parts.append(g_safe)
+            if not parts:
                 return base
-            # safe & concise; final length still bounded by your set_filename slicing
-            note_safe = re.sub(r'[<>:"/\\|?*]', "_", str(note)).strip()
-            if not note_safe:
-                return base
-            return f"{base} {note_safe}"
+            return base + " " + " ".join(parts)
 
         # -------- parse args (unchanged) --------
         tokens = (arg or "").strip().split()
@@ -5225,7 +5235,7 @@ class CommandDispatcher:
         except Exception as e:
             print(f"angle failed: {e}")
         dpg.focus_item("cmd_input")
-    def handle_start_scan(self, arg):
+    def handle_start_scan(self, arg=None):
         """
         Start OPX scan.
 
@@ -5245,7 +5255,7 @@ class CommandDispatcher:
         #   - blocker-off  (M55 -> Up   -> pos2)
         #   - APDs         (M48 -> Down -> pos1)
         #   - ProEM-off    (M32 -> Up   -> pos2)
-        self._set_mff_by_suffix("55", label="blocker-on")
+        self._set_mff_by_suffix("55", label="blocker-off")
         self._set_mff_by_suffix("48", label="apds")
         self._set_mff_by_suffix("32", label="proem-off")
 
@@ -10160,7 +10170,7 @@ class CommandDispatcher:
             )
             print(f"[coup] load: restored current seq label={getattr(self, '_coup_seq_label', None)}, "
                   f"idx={getattr(self, '_coup_seq_idx', None)}.")
-            dpg.focus_item("cmd_input")
+            # dpg.focus_item("cmd_input")
             return True
         if sub == "status":
             if self._coup_active_evt.is_set():
@@ -11059,6 +11069,22 @@ class CommandDispatcher:
             return True
 
         if sub in ("prev", "previous"):
+            # --- REPEAT MODE: coup prev <N> ---
+            # Example: coup prev 4  -> execute coup prev four times
+            if len(tokens) >= 2:
+                try:
+                    n_rep = int(float(tokens[1]))
+                except Exception:
+                    n_rep = None
+                if n_rep is not None and n_rep > 0:
+                    ok = True
+                    for _ in range(n_rep):
+                        ok = bool(self.handle_coup("prev", nested=True))
+                        if not ok:
+                            break
+                    dpg.focus_item("cmd_input")
+                    return ok
+
             # --- STEP MODE: coup prev ---
             cur_raw = getattr(self, "_coup_seq_label", None)
 
@@ -11174,8 +11200,23 @@ class CommandDispatcher:
             return True
 
         if sub == "next":
-            # --- CONFIG MODE: coup next <file> / coup next reset ---
             if len(tokens) >= 2:
+                # --- REPEAT MODE: coup next <N> ---
+                # Example: coup next 3  -> execute coup next three times
+                try:
+                    n_rep = int(float(tokens[1]))
+                except Exception:
+                    n_rep = None
+                if n_rep is not None and n_rep > 0:
+                    ok = True
+                    for _ in range(n_rep):
+                        ok = bool(self.handle_coup("next", nested=True))
+                        if not ok:
+                            break
+                    dpg.focus_item("cmd_input")
+                    return ok
+
+                # --- CONFIG MODE: coup next <file> / coup next reset ---
                 opt = tokens[1].strip().strip('"').strip("'")
                 opt_l = opt.lower()
 
@@ -15105,7 +15146,167 @@ class CommandDispatcher:
                 print(f"PID {pid}: terminated.")
             else:
                 print(f"PID {pid}: still present (likely protected). Try running app as Admin.")
+    def handle_scanxyz(self, arg=""):
+        """
+        scanxyz
 
+        Runs two 2D scans and then adds a single slide to the *active* PowerPoint:
+          1) ZX scan: disables Y scan (dy off) and starts a scan.
+          2) XY scan: disables Z scan (dz off) and starts a scan.
+
+        Title is taken from self._spc_note (fallback: current coup label).
+
+        For file naming: before each scan we temporarily set self._spc_note to:
+            "<base> zx"   then restore
+            "<base> xy"   then restore
+
+        After each scan, we pick the newest *.csv from last_scan_dir.txt.
+
+        Finally we launch Utils/scanxyz.py via subprocess to generate the slide.
+        """
+        import os, sys, time, threading, subprocess, shutil, glob
+        p = self.get_parent()
+        opx = getattr(p, "opx", None)
+        if opx is None:
+            print("scanxyz: parent.opx not available.")
+            return
+
+        base_note = str(getattr(self, "_spc_note", "") or "").strip()
+        if not base_note:
+            base_note = str(getattr(self, "_coup_seq_label", "") or "").strip()
+        if not base_note:
+            base_note = "scanxyz"
+
+        # --- helpers ---
+        def _wait_scan_done():
+            # Prefer the event if it exists; otherwise just poll opx.stopScan / dpg button state.
+            evt = getattr(self, "_scan_done_evt", None)
+            try:
+                import threading as _th
+                if isinstance(evt, _th.Event):
+                    evt.wait()
+                    return
+            except Exception:
+                pass
+
+            # Fallback: poll a few common flags
+            t0 = time.time()
+            while True:
+                try:
+                    if getattr(opx, "stopScan", False) and not getattr(opx, "isScanning", False):
+                        return
+                except Exception:
+                    pass
+                if time.time() - t0 > 60 * 60:
+                    print("scanxyz: timeout waiting for scan.")
+                    return
+                time.sleep(0.5)
+
+        def _start_scan_with_flags(disable_y: bool, disable_z: bool, note_suffix: str) -> str | None:
+            old_note = getattr(self, "_spc_note", None)
+            try:
+                # Desired axes
+                bx = True
+                by = (not disable_y)
+                bz = (not disable_z)
+
+                # Update GUI + internal flags
+                opx.Update_bX_Scan(None, bx)
+                opx.Update_bY_Scan(None, by)
+                opx.Update_bZ_Scan(None, bz)
+
+                # Before each scan do note "<coupon> zx/xy"
+                try:
+                    setattr(self, "_spc_note", f"{base_note} {note_suffix}".strip())
+                    self.handle_update_note(f"note {base_note} {note_suffix}")
+                except Exception:
+                    pass
+
+                # Make sure MOVE ABS is filled (you wanted these lines to exist)
+                try:
+                    p.smaractGUI.fill_current_position_to_moveabs()
+                except Exception:
+                    pass
+
+                # Start scan using the same dispatcher command path as the user:
+                # "stt" (your canonical start scan command)
+                try:
+                    self.handle_start_scan()
+                except Exception as e:
+                    print(f"scanxyz: failed to start scan via 'stt': {e}")
+                    return None
+
+                print(f"scanxyz: started {note_suffix} scan via stt (b_Scan={opx.b_Scan})")
+
+                _wait_scan_done()
+
+                csv_path = opx.last_loaded_file
+
+                if not csv_path:
+                    print("scanxyz: could not find newest CSV in last_scan_dir.txt")
+                else:
+                    print(f"scanxyz: newest CSV = {csv_path}")
+                return csv_path
+
+            finally:
+                # restore note and b_Scan
+                try:
+                    if old_note is None:
+                        if hasattr(self, "_spc_note"):
+                            delattr(self, "_spc_note")
+                    else:
+                        setattr(self, "_spc_note", old_note)
+                except Exception:
+                    pass
+
+
+        def _worker():
+            try:
+                # 1) ZX (dy off)
+                zx_csv = _start_scan_with_flags(disable_y=True, disable_z=False, note_suffix="zx")
+                if not zx_csv:
+                    return
+
+                # 2) XY (dz off)
+                xy_csv = _start_scan_with_flags(disable_y=False, disable_z=True, note_suffix="xy")
+                if not xy_csv:
+                    return
+
+                # --- launch subprocess to add slide ---
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                script = os.path.join(base_dir, "Utils", "scanxyz.py")
+                if not os.path.isfile(script):
+                    # fallback: same folder as dispatcher
+                    script = os.path.join(base_dir, "scanxyz.py")
+
+                py = None
+                if os.path.basename(sys.executable).lower() in ("python.exe", "pythonw.exe", "python3.exe"):
+                    py = sys.executable
+                else:
+                    py = shutil.which("python") or shutil.which("pythonw") or sys.executable
+
+                cmd = [py, script, "--zx", zx_csv, "--xy", xy_csv, "--title", base_note]
+
+                res = subprocess.run(cmd, cwd=base_dir, capture_output=True, text=True)
+                if res.stdout:
+                    print(res.stdout.strip())
+                if res.returncode != 0:
+                    print("scanxyz: subprocess failed.")
+                    if res.stderr:
+                        print(res.stderr.strip())
+                else:
+                    print("scanxyz: done.")
+            except Exception as e:
+                print(f"scanxyz failed: {e}")
+            finally:
+                try:
+                    import dearpygui.dearpygui as dpg
+                    dpg.focus_item("cmd_input")
+                except Exception:
+                    pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+        print("scanxyz: started in background thread.")
 
 
 # Wrapper function
